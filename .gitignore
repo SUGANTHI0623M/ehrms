@@ -1,0 +1,26 @@
+# Flutter
+.dart_tool/
+build/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# Android
+android/.gradle/
+android/app/build/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+
+# Node
+Backend/node_modules/
+Backend/.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
