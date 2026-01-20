@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
 import '../screens/auth/login_screen.dart';
+import '../screens/profile/profile_screen.dart';
+import '../screens/settings/settings_screen.dart';
+// import '../screens/chatbot/chatbot_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
@@ -52,36 +55,43 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _buildDrawerItem(
-                  icon: Icons.dashboard_rounded,
-                  title: 'Dashboard',
-                  onTap: () {
-                    Navigator.pop(context); // Close drawer
-                    // Navigate if needed, or just close if already on dashboard
-                  },
-                ),
-                _buildDrawerItem(
-                  icon: Icons.access_time_filled_rounded,
-                  title: 'Attendance',
-                  onTap: () {
-                    Navigator.pop(context);
-                    // TODO: Navigate to Attendance
-                  },
-                ),
-                _buildDrawerItem(
-                  icon: Icons.event_note_rounded,
-                  title: 'Leaves',
-                  onTap: () {
-                    Navigator.pop(context);
-                    // TODO: Navigate to Leaves
-                  },
-                ),
+                // _buildDrawerItem(
+                //   icon: Icons.chat_bubble_rounded,
+                //   title: 'Assistant',
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     Navigator.push(
+                //       context,
+                //       MaterialPageRoute(
+                //         builder: (context) => const ChatbotScreen(),
+                //       ),
+                //     );
+                //   },
+                // ),
                 _buildDrawerItem(
                   icon: Icons.person_rounded,
                   title: 'Profile',
                   onTap: () {
                     Navigator.pop(context);
-                    // TODO: Navigate to Profile
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ProfileScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.settings_rounded,
+                  title: 'Settings',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SettingsScreen(),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -104,34 +114,127 @@ class _AppDrawerState extends State<AppDrawer> {
   Widget _buildHeader() {
     final name = _userData?['name'] ?? 'Employee';
     final email = _userData?['email'] ?? '';
+    final role = _userData?['role'] ?? 'N/A';
+    final branch = _userData?['branchName'] ?? 'Main Office';
+    final company = _userData?['companyName'] ?? 'HRMS Corp';
+
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
 
-    return UserAccountsDrawerHeader(
-      decoration: const BoxDecoration(
-        color: AppColors.primary,
-        image: DecorationImage(
-          image: AssetImage(
-            'assets/images/drawer_bg.png',
-          ), // Optional: Add an asset later
-          fit: BoxFit.cover,
-          opacity: 0.2, // Subtle texture
+    return Container(
+      padding: const EdgeInsets.only(top: 60, left: 24, right: 24, bottom: 24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, AppColors.primary.withOpacity(0.8)],
         ),
+        borderRadius: const BorderRadius.only(bottomRight: Radius.circular(32)),
       ),
-      accountName: Text(
-        name,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-      ),
-      accountEmail: Text(email),
-      currentAccountPicture: CircleAvatar(
-        backgroundColor: AppColors.surface,
-        radius: 30,
-        child: Text(
-          initial,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: AppColors.primary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 2),
+                ),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.surface,
+                  radius: 35,
+                  child: Text(
+                    initial,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      company,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 24),
+          _buildDetailRow(Icons.email_outlined, email),
+          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _buildModernChip(Icons.work_outline_rounded, role),
+              const SizedBox(width: 12),
+              _buildModernChip(Icons.location_on_outlined, branch),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white60, size: 16),
+        const SizedBox(width: 12),
+        Text(
+          text,
+          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModernChip(IconData icon, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white70, size: 14),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
       ),
     );

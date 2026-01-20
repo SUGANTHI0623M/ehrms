@@ -4,6 +4,8 @@ import '../../config/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
@@ -162,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 },
                                 decoration: InputDecoration(
                                   labelText: 'Email',
-                                  prefixIcon: const Icon(
+                                  prefixIcon: Icon(
                                     Icons.email_outlined,
                                     color: AppColors.primary,
                                   ),
@@ -177,7 +179,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
-                                    borderSide: const BorderSide(
+                                    borderSide: BorderSide(
                                       color: AppColors.primary,
                                       width: 2,
                                     ),
@@ -196,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 },
                                 decoration: InputDecoration(
                                   labelText: 'Password',
-                                  prefixIcon: const Icon(
+                                  prefixIcon: Icon(
                                     Icons.lock_outline,
                                     color: AppColors.primary,
                                   ),
@@ -225,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
-                                    borderSide: const BorderSide(
+                                    borderSide: BorderSide(
                                       color: AppColors.primary,
                                       width: 2,
                                     ),
@@ -267,58 +269,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
 
                               const SizedBox(height: 20),
-
-                              // Divider
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Divider(color: Colors.grey.shade300),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                    ),
-                                    child: Text(
-                                      'OR',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Divider(color: Colors.grey.shade300),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 20),
-
-                              // Google Sign In Button
-                              OutlinedButton.icon(
-                                onPressed: _isLoading
-                                    ? null
-                                    : _handleGoogleLogin,
-                                icon: Image.network(
-                                  'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
-                                  height: 24,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      const Icon(
-                                        Icons.login,
-                                        color: Colors.red,
-                                      ),
-                                ),
-                                label: const Text('Sign in with Google'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  side: BorderSide(color: Colors.grey.shade300),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  foregroundColor: Colors.black87,
-                                ),
-                              ),
                             ],
                           ),
                         ),

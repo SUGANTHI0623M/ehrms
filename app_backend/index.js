@@ -1,0 +1,77 @@
+require('dotenv').config();
+const express = require('express');
+const connectDB = require('./src/config/db');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+const authRoutes = require('./src/routes/authRoutes');
+const attendanceRoutes = require('./src/routes/attendanceRoutes');
+const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const requestRoutes = require('./src/routes/requestRoutes');
+const loanRoutes = require('./src/routes/loanRoutes');
+const payrollRoutes = require('./src/routes/payrollRoutes');
+const chatbotRoutes = require('./src/routes/chatbotRoutes');
+const holidayRoutes = require('./src/routes/holidayRoutes');
+const onboardingRoutes = require('./src/routes/onboardingRoutes');
+
+const app = express();
+app.set('trust proxy', 1);
+
+app.use(helmet());
+
+// Configure CORS
+const allowedOrigins = ['https://ehrms.askeva.io', 'http://ehrms.askeva.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
+app.use(express.json({ limit: '50mb' }));
+
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again later'
+});
+app.use(limiter);
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/requests', requestRoutes);
+app.use('/api/loans', loanRoutes);
+app.use('/api/payrolls', payrollRoutes);
+app.use('/api/chatbot', chatbotRoutes);
+app.use('/api/holidays', holidayRoutes);
+app.use('/api/onboarding', onboardingRoutes);
+
+const PORT = process.env.PORT || 5000;
+
+// Start Server
+const startServer = async () => {
+    try {
+        await connectDB();
+        app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error.message);
+        process.exit(1);
+    }
+};
+
+startServer();

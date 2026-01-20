@@ -70,7 +70,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
 
       // Handle the nested structure
       var data = responseBody;
-      var branch = null;
+      var branch;
       if (responseBody != null &&
           (responseBody.containsKey('data') ||
               responseBody.containsKey('branch'))) {
@@ -107,7 +107,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: AppColors.primary),
+            colorScheme: ColorScheme.light(primary: AppColors.primary),
           ),
           child: child!,
         );
@@ -180,18 +180,23 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         _pincode = place.postalCode;
 
         List<String> parts = [];
-        if (place.name != null && place.name!.isNotEmpty)
+        if (place.name != null && place.name!.isNotEmpty) {
           parts.add(place.name!);
+        }
         if (place.street != null &&
             place.street!.isNotEmpty &&
-            place.street != place.name)
+            place.street != place.name) {
           parts.add(place.street!);
-        if (place.subLocality != null && place.subLocality!.isNotEmpty)
+        }
+        if (place.subLocality != null && place.subLocality!.isNotEmpty) {
           parts.add(place.subLocality!);
-        if (place.locality != null && place.locality!.isNotEmpty)
+        }
+        if (place.locality != null && place.locality!.isNotEmpty) {
           parts.add(place.locality!);
-        if (place.postalCode != null && place.postalCode!.isNotEmpty)
+        }
+        if (place.postalCode != null && place.postalCode!.isNotEmpty) {
           parts.add(place.postalCode!);
+        }
 
         _address = parts.join(', ');
       } else {
@@ -344,7 +349,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.calendar_today,
                         color: AppColors.primary,
                       ),
@@ -463,7 +468,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_on, color: AppColors.primary),
+                    Icon(Icons.location_on, color: AppColors.primary),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -525,7 +530,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.refresh, color: AppColors.primary),
+                      icon: Icon(Icons.refresh, color: AppColors.primary),
                       onPressed: _determinePosition,
                     ),
                   ],
