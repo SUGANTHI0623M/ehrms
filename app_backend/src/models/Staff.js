@@ -89,6 +89,9 @@ staffSchema.pre('save', async function () {
 });
 
 staffSchema.methods.matchPassword = async function (enteredPassword) {
+    if (!enteredPassword || !this.password) {
+        return false;
+    }
     return await bcrypt.compare(enteredPassword, this.password);
 };
 

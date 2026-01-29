@@ -9,6 +9,23 @@ import 'package:flutter/foundation.dart';
 
 class AttendanceService {
   final String baseUrl = AppConstants.baseUrl;
+  Map<String, dynamic>? attendanceTemplate;
+  Map<String, dynamic>? _cachedTodayAttendance;
+  DateTime? _lastTodayAttendanceFetch;
+
+  // Simple per-endpoint throttle map (URL -> last call time)
+  static final Map<String, DateTime> _lastCallTimestamps = {};
+  static const Duration _throttleDuration = Duration(seconds: 3);
+
+  bool _isThrottled(String url) {
+    final now = DateTime.now();
+    final lastCall = _lastCallTimestamps[url];
+    if (lastCall != null && now.difference(lastCall) < _throttleDuration) {
+      return true;
+    }
+    _lastCallTimestamps[url] = now;
+    return false;
+  }
 
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -59,6 +76,9 @@ class AttendanceService {
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
+        // Invalidate today attendance cache after a successful check-in
+        _cachedTodayAttendance = null;
+        _lastTodayAttendanceFetch = null;
         return {'success': true, 'data': data};
       } else {
         return _handleErrorResponse(response, 'Check-in failed');
@@ -105,6 +125,9 @@ class AttendanceService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        // Invalidate today attendance cache after a successful check-out
+        _cachedTodayAttendance = null;
+        _lastTodayAttendanceFetch = null;
         return {'success': true, 'data': data};
       } else {
         return _handleErrorResponse(response, 'Check-out failed');
@@ -115,20 +138,52 @@ class AttendanceService {
     }
   }
 
-  Future<Map<String, dynamic>> getTodayAttendance() async {
+  Future<Map<String, dynamic>> getTodayAttendance({bool forceRefresh = false}) async {
     try {
+      const endpointPath = '/attendance/today';
+      final url = '$baseUrl$endpointPath';
+
+      // Return cached value if available and not forced to refresh
+      if (!forceRefresh && _cachedTodayAttendance != null) {
+        return {'success': true, 'data': _cachedTodayAttendance};
+      }
+
+      // Throttle repeated calls within a short window
+      if (_isThrottled(url)) {
+        // If we have cache, return it, otherwise surface a friendly message
+        if (_cachedTodayAttendance != null) {
+          return {'success': true, 'data': _cachedTodayAttendance};
+        }
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
+      }
+
       final headers = await _getHeaders();
       final response = await http
-          .get(Uri.parse('$baseUrl/attendance/today'), headers: headers)
+          .get(Uri.parse(url), headers: headers)
           .timeout(const Duration(seconds: 10));
-
-      print('DEBUG: Requesting Today Attendance: $baseUrl/attendance/today');
-      print('DEBUG: Today Attendance Status: ${response.statusCode}');
-      print('DEBUG: Today Attendance Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
+        // Store template if available
+        if (data['template'] != null) {
+          attendanceTemplate = data['template'];
+        }
+
+        // Cache today attendance and timestamp
+        _cachedTodayAttendance = data;
+        _lastTodayAttendanceFetch = DateTime.now();
+
         return {'success': true, 'data': data};
+      } else if (response.statusCode == 429) {
+        // Explicitly handle rate limit errors with a friendly message
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
       } else {
         return {
           'success': false,
@@ -143,9 +198,18 @@ class AttendanceService {
   Future<Map<String, dynamic>> getAttendanceByDate(String date) async {
     try {
       final headers = await _getHeaders();
+      final url = '$baseUrl/attendance/today?date=$date';
+
+      if (_isThrottled(url)) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
+      }
+
       final response = await http
           .get(
-            Uri.parse('$baseUrl/attendance/today?date=$date'),
+            Uri.parse(url),
             headers: headers,
           )
           .timeout(const Duration(seconds: 10));
@@ -153,6 +217,11 @@ class AttendanceService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {'success': true, 'data': data};
+      } else if (response.statusCode == 429) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
       } else {
         return {
           'success': false,
@@ -176,6 +245,13 @@ class AttendanceService {
         url += '&date=$date';
       }
 
+      if (_isThrottled(url)) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
+      }
+
       final response = await http
           .get(Uri.parse(url), headers: headers)
           .timeout(const Duration(seconds: 10));
@@ -183,6 +259,11 @@ class AttendanceService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {'success': true, 'data': data};
+      } else if (response.statusCode == 429) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
       } else {
         return {
           'success': false,
@@ -197,22 +278,30 @@ class AttendanceService {
   Future<Map<String, dynamic>> getMonthAttendance(int year, int month) async {
     try {
       final headers = await _getHeaders();
+      final url = '$baseUrl/attendance/month?year=$year&month=$month';
+
+      if (_isThrottled(url)) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
+      }
+
       final response = await http
           .get(
-            Uri.parse('$baseUrl/attendance/month?year=$year&month=$month'),
+            Uri.parse(url),
             headers: headers,
           )
           .timeout(const Duration(seconds: 10));
 
-      print(
-        'DEBUG: Requesting Month Attendance: $baseUrl/attendance/month?year=$year&month=$month',
-      );
-      print('DEBUG: Month Attendance Status: ${response.statusCode}');
-      print('DEBUG: Month Attendance Body: ${response.body}');
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {'success': true, 'data': data['data']};
+      } else if (response.statusCode == 429) {
+        return {
+          'success': false,
+          'message': 'Too many requests. Please wait a moment.',
+        };
       } else {
         return {
           'success': false,

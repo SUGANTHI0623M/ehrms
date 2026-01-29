@@ -1,3 +1,5 @@
+
+//dashboard logics
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
@@ -79,9 +81,9 @@ const getEmployeeDashboardStats = async (req, res) => {
             date: { $gte: startOfMonth, $lte: endOfMonth }
         });
 
-        // Calculate Present Days
+        // Calculate Present Days - Only count days with status 'Present'
         const presentDays = monthAttendance.filter(a =>
-            ['Present', 'Approved', 'Half Day', 'Pending'].includes(a.status)
+            a.status === 'Present'
         ).length;
 
         // Fetch Business settings for week-offs
@@ -171,17 +173,120 @@ const getEmployeeDashboardStats = async (req, res) => {
             status: 'Pending'
         });
 
-        const activeLoans = await Loan.countDocuments({
+        const activeLoansList = await Loan.find({
             employeeId: staffId,
             status: 'Active'
-        });
+        }).select('loanType amount purpose emi remainingAmount startDate endDate createdAt').sort({ createdAt: -1 });
 
-        // 5. Payroll info
+        const activeLoans = activeLoansList.length;
+
+        // 5. Payroll info - Use same calculation logic as salary module (till present)
         const payroll = await Payroll.findOne({
             employeeId: staffId,
             month: now.getMonth() + 1,
             year: now.getFullYear()
         });
+
+        // Calculate fine amount from attendance records
+        const totalFineAmount = monthAttendance.reduce((sum, record) => {
+            return sum + (record.fineAmount || 0);
+        }, 0);
+
+        let currentMonthSalary = 0;
+        let payrollStatus = 'Pending';
+
+        // Use the same calculation logic from payrollController
+        // Note: We use totalWorkingDays and presentDays calculated above (till today, not full month)
+        if (payroll) {
+            // CORRECT METHOD: If payroll exists, recalculate using correct proration method
+            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 1;
+            
+            // Get staff salary structure for correct proration
+            if (staff && staff.salary) {
+                const s = staff.salary;
+                const basicSalary = s.basicSalary || 0;
+                const dearnessAllowance = s.dearnessAllowance || 0;
+                const houseRentAllowance = s.houseRentAllowance || 0;
+                const specialAllowance = s.specialAllowance || 0;
+                
+                // STEP 1: Prorate Gross Fixed Components
+                const proratedBasicSalary = basicSalary * prorationFactor;
+                const proratedDA = dearnessAllowance * prorationFactor;
+                const proratedHRA = houseRentAllowance * prorationFactor;
+                const proratedSpecialAllowance = specialAllowance * prorationFactor;
+                const proratedGrossFixed = proratedBasicSalary + proratedDA + proratedHRA + proratedSpecialAllowance;
+                
+                // STEP 2: Recalculate Employer Contributions on PRORATED amounts
+                const proratedEmployerPF = (s.employerPFRate || 0) / 100 * proratedBasicSalary;
+                const proratedEmployerESI = (s.employerESIRate || 0) / 100 * proratedGrossFixed;
+                
+                // STEP 3: Calculate Prorated Gross Salary
+                const proratedGrossSalary = proratedGrossFixed + proratedEmployerPF + proratedEmployerESI;
+                
+                // STEP 4: Recalculate Employee Deductions on PRORATED gross
+                const proratedEmployeePF = (s.employeePFRate || 0) / 100 * proratedBasicSalary;
+                const proratedEmployeeESI = (s.employeeESIRate || 0) / 100 * proratedGrossSalary;
+                const proratedDeductions = proratedEmployeePF + proratedEmployeeESI;
+                
+                // STEP 5: Calculate Prorated Net Salary (fines are NOT prorated)
+                currentMonthSalary = proratedGrossSalary - proratedDeductions - totalFineAmount;
+            } else {
+                // Fallback to simple proration if salary structure not available
+                currentMonthSalary = payroll.netPay ? (payroll.netPay * prorationFactor) - totalFineAmount : 0;
+            }
+            payrollStatus = payroll.status || 'Pending';
+        } else if (staff && staff.salary) {
+            // Calculate estimated prorated salary using same logic as payrollController
+            const s = staff.salary;
+            const basicSalary = s.basicSalary || 0;
+            const dearnessAllowance = s.dearnessAllowance || 0;
+            const houseRentAllowance = s.houseRentAllowance || 0;
+            const specialAllowance = s.specialAllowance || 0;
+            
+            // Gross Fixed Salary (Before Employer Contributions)
+            const grossFixedSalary = basicSalary + dearnessAllowance + houseRentAllowance + specialAllowance;
+            
+            // Employer Contributions (Part of Gross Salary & CTC)
+            const employerPF = (s.employerPFRate || 0) / 100 * basicSalary;
+            const employerESI = (s.employerESIRate || 0) / 100 * grossFixedSalary;
+            
+            // Gross Salary (Monthly) = Fixed Gross + Employer Contributions
+            const grossSalary = grossFixedSalary + employerPF + employerESI;
+            
+            // Employee Deductions (NOT part of CTC)
+            const employeePF = (s.employeePFRate || 0) / 100 * basicSalary;
+            const employeeESI = (s.employeeESIRate || 0) / 100 * grossSalary;
+            const totalDeductions = employeePF + employeeESI;
+            
+            // Net Salary = Gross Salary - Employee Deductions
+            const netSalary = grossSalary - totalDeductions;
+            
+            // CORRECT METHOD: Calculate prorated values based on attendance till present
+            // Use totalWorkingDays and presentDays calculated above (till today)
+            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
+            
+            // STEP 1: Prorate Gross Fixed Components
+            const proratedBasicSalary = basicSalary * prorationFactor;
+            const proratedDA = dearnessAllowance * prorationFactor;
+            const proratedHRA = houseRentAllowance * prorationFactor;
+            const proratedSpecialAllowance = specialAllowance * prorationFactor;
+            const proratedGrossFixed = proratedBasicSalary + proratedDA + proratedHRA + proratedSpecialAllowance;
+            
+            // STEP 2: Recalculate Employer Contributions on PRORATED amounts
+            const proratedEmployerPF = (s.employerPFRate || 0) / 100 * proratedBasicSalary;
+            const proratedEmployerESI = (s.employerESIRate || 0) / 100 * proratedGrossFixed;
+            
+            // STEP 3: Calculate Prorated Gross Salary
+            const proratedGrossSalary = proratedGrossFixed + proratedEmployerPF + proratedEmployerESI;
+            
+            // STEP 4: Recalculate Employee Deductions on PRORATED gross
+            const proratedEmployeePF = (s.employeePFRate || 0) / 100 * proratedBasicSalary;
+            const proratedEmployeeESI = (s.employeeESIRate || 0) / 100 * proratedGrossSalary;
+            const proratedDeductions = proratedEmployeePF + proratedEmployeeESI;
+            
+            // STEP 5: Calculate Prorated Net Salary (fines are NOT prorated)
+            currentMonthSalary = proratedGrossSalary - proratedDeductions - totalFineAmount;
+        }
 
         res.json({
             success: true,
@@ -197,6 +302,7 @@ const getEmployeeDashboardStats = async (req, res) => {
                     approvedLeavesThisMonth: approvedLeavesThisMonth,
                     pendingLoans: pendingLoans,
                     activeLoans: activeLoans,
+                    activeLoansList: activeLoansList,
                     attendanceToday: attendanceToday ? {
                         status: attendanceToday.status,
                         punchIn: attendanceToday.punchIn,
@@ -207,8 +313,8 @@ const getEmployeeDashboardStats = async (req, res) => {
                         presentDays: presentDays,
                         absentDays: Math.max(0, totalWorkingDays - presentDays)
                     },
-                    currentMonthSalary: payroll ? (payroll.netSalary || 0) : 0,
-                    payrollStatus: payroll ? (payroll.status || 'Pending') : 'Pending'
+                    currentMonthSalary: currentMonthSalary,
+                    payrollStatus: payrollStatus
                 },
                 recentLeaves: recentLeaves,
                 upcomingTasks: []

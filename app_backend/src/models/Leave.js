@@ -27,4 +27,30 @@ leaveSchema.index({ status: 1 });
 leaveSchema.index({ startDate: 1, endDate: 1 });
 leaveSchema.index({ businessId: 1 });
 
+// Post-save hook to mark attendance as "Present" when leave is approved
+leaveSchema.post('save', async function(doc) {
+    // Only process if status is "Approved" and this is a new approval (not just an update)
+    if (doc.status === 'Approved' && doc.approvedAt) {
+        try {
+            const { markAttendanceForApprovedLeave } = require('../utils/leaveAttendanceHelper');
+            await markAttendanceForApprovedLeave(doc);
+        } catch (error) {
+            console.error('[Leave Model] Error marking attendance in post-save hook:', error);
+            // Don't throw error to prevent save failure
+        }
+    }
+});
+
+// Post-update hook for findOneAndUpdate operations
+leaveSchema.post('findOneAndUpdate', async function(doc) {
+    if (doc && doc.status === 'Approved' && doc.approvedAt) {
+        try {
+            const { markAttendanceForApprovedLeave } = require('../utils/leaveAttendanceHelper');
+            await markAttendanceForApprovedLeave(doc);
+        } catch (error) {
+            console.error('[Leave Model] Error marking attendance in post-update hook:', error);
+        }
+    }
+});
+
 module.exports = mongoose.model('Leave', leaveSchema);

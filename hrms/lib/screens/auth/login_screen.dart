@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../config/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../../utils/snackbar_utils.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -36,11 +38,10 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(builder: (_) => DashboardScreen()),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Login failed'),
-            backgroundColor: AppColors.error,
-          ),
+        SnackBarUtils.showSnackBar(
+          context,
+          result['message'] ?? 'Login failed',
+          isError: true,
         );
       }
     }
@@ -59,11 +60,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (mounted) {
           if (backendResult['success']) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Login Successful!'),
-                backgroundColor: AppColors.success,
-              ),
+            SnackBarUtils.showSnackBar(
+              context,
+              'Login Successful!',
+              backgroundColor: AppColors.success,
             );
 
             Navigator.pushReplacement(
@@ -72,12 +72,12 @@ class _LoginScreenState extends State<LoginScreen> {
             );
           } else {
             // Login failed on backend (e.g. user not in DB)
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(backendResult['message'] ?? 'Login failed'),
-                backgroundColor: AppColors.error,
-              ),
+            SnackBarUtils.showSnackBar(
+              context,
+              backendResult['message'] ?? 'Login failed',
+              isError: true,
             );
+
             // Optionally sign out from firebase if backend access is denied
             await _authService.logout();
           }
@@ -85,11 +85,10 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Google Sign-In failed: $error'),
-            backgroundColor: AppColors.error,
-          ),
+        SnackBarUtils.showSnackBar(
+          context,
+          'Google Sign-In failed: $error',
+          isError: true,
         );
       }
     } finally {
@@ -234,7 +233,33 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 12),
+
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const ForgotPasswordScreen(),
+                                            ),
+                                          );
+                                        },
+                                  child: Text(
+                                    'Forgot Password?',
+                                    style: TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 12),
 
                               // Login Button
                               ElevatedButton(

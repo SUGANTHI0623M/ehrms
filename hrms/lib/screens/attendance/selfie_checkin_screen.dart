@@ -6,9 +6,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../../config/app_colors.dart';
 import '../../services/attendance_service.dart';
+import '../../utils/snackbar_utils.dart';
 
 class SelfieCheckInScreen extends StatefulWidget {
-  const SelfieCheckInScreen({super.key});
+  final Map<String, dynamic>? template;
+  const SelfieCheckInScreen({super.key, this.template});
 
   @override
   State<SelfieCheckInScreen> createState() => _SelfieCheckInScreenState();
@@ -41,7 +43,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   void initState() {
     super.initState();
     _fetchAttendanceStatus();
-    _determinePosition();
+    final bool requireGeolocation =
+        widget.template?['requireGeolocation'] ?? true;
+    if (requireGeolocation) {
+      _determinePosition();
+    } else {
+      setState(() => _isLocationLoading = false);
+    }
   }
 
   Future<void> _fetchAttendanceStatus([DateTime? date]) async {
@@ -98,26 +106,6 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
   }
 
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(primary: AppColors.primary),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null && picked != _selectedDate) {
-      _fetchAttendanceStatus(picked);
-    }
-  }
-
   Future<void> _determinePosition() async {
     setState(() => _isLocationLoading = true);
     bool serviceEnabled;
@@ -126,10 +114,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location services are disabled.')),
+        SnackBarUtils.showSnackBar(
+          context,
+          'Location services are disabled.',
+          isError: true,
         );
       }
+
       setState(() => _isLocationLoading = false);
       return;
     }
@@ -139,10 +130,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permissions are denied')),
+          SnackBarUtils.showSnackBar(
+            context,
+            'Location permissions are denied',
+            isError: true,
           );
         }
+
         setState(() => _isLocationLoading = false);
         return;
       }
@@ -150,12 +144,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
 
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location permissions are permanently denied.'),
-          ),
+        SnackBarUtils.showSnackBar(
+          context,
+          'Location permissions are permanently denied.',
+          isError: true,
         );
       }
+
       setState(() => _isLocationLoading = false);
       return;
     }
@@ -225,45 +220,92 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
   }
 
+  Future<void> _showWarningDialog(List<dynamic> warnings) async {
+    if (warnings.isEmpty) return;
+
+    // Get the first warning message
+    final warning = warnings[0];
+    final message = warning['message'] ?? 'Warning';
+
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange,
+                size: 28,
+              ),
+              const SizedBox(width: 8),
+              const Text('Notice'),
+            ],
+          ),
+          content: Text(message),
+          actions: <Widget>[
+            TextButton(
+              child: const Text(
+                'OK',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _submitAttendance() async {
-    if (_imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please take a selfie first!'),
-          backgroundColor: Colors.red,
-        ),
+    final requireSelfie = widget.template?['requireSelfie'] ?? true;
+    // Check if geolocation is required (default to true if not specified)
+    final bool requireGeolocation =
+        widget.template?['requireGeolocation'] ?? true;
+
+    if (requireSelfie && _imageFile == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Please take a selfie first!',
+        isError: true,
       );
+
       return;
     }
-    if (_position == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Waiting for location...'),
-          backgroundColor: Colors.orange,
-        ),
+
+    if (requireGeolocation && _position == null) {
+      // Re-trigger location if missing and required
+      _determinePosition();
+
+      SnackBarUtils.showSnackBar(
+        context,
+        'Waiting for location...',
+        backgroundColor: Colors.orange,
       );
-      _determinePosition(); // Retry
+
       return;
     }
 
     setState(() => _isLoading = true);
 
     // Convert image to Base64
-    List<int> imageBytes = await _imageFile!.readAsBytes();
-    String base64Image = base64Encode(imageBytes);
-    // Add data URI prefix if backend expects it, or just send raw base64.
-    // Usually for HTML display: data:image/jpeg;base64,
-    // I'll send strictly base64 string, assuming backend just saves it.
-    // If we want to display it later in web <img> tags, helps to store prefix or add it on fetch.
-    String selfiePayload = 'data:image/jpeg;base64,$base64Image';
+    String? selfiePayload;
+    if (_imageFile != null) {
+      List<int> imageBytes = await _imageFile!.readAsBytes();
+      String base64Image = base64Encode(imageBytes);
+      selfiePayload = 'data:image/jpeg;base64,$base64Image';
+    }
 
     Map<String, dynamic> result;
 
     if (_isCheckedIn) {
       // Check Out
       result = await _attendanceService.checkOut(
-        _position!.latitude,
-        _position!.longitude,
+        _position?.latitude ?? 0.0,
+        _position?.longitude ?? 0.0,
         _address ?? '',
         area: _area,
         city: _city,
@@ -273,8 +315,8 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     } else {
       // Check In
       result = await _attendanceService.checkIn(
-        _position!.latitude,
-        _position!.longitude,
+        _position?.latitude ?? 0.0,
+        _position?.longitude ?? 0.0,
         _address ?? '',
         area: _area,
         city: _city,
@@ -286,23 +328,23 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
       if (result['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _isCheckedIn
-                  ? 'Checked Out Successfully!'
-                  : 'Checked In Successfully!',
-            ),
-            backgroundColor: AppColors.success,
-          ),
+        // If action was successful and allowed, proceed silently (no warnings shown)
+        // Warnings are only generated when action is blocked, which would result in error response
+        SnackBarUtils.showSnackBar(
+          context,
+          _isCheckedIn
+              ? 'Checked Out Successfully!'
+              : 'Checked In Successfully!',
+          backgroundColor: AppColors.success,
         );
+
         Navigator.pop(context, true); // Return success
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Action failed'),
-            backgroundColor: Colors.red,
-          ),
+        // Show error if the request failed (e.g., blocked by backend due to late entry/early exit not allowed)
+        SnackBarUtils.showSnackBar(
+          context,
+          result['message'] ?? 'Action failed',
+          isError: true,
         );
       }
     }
@@ -324,40 +366,24 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Smart Attendance'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        // Handle small screens
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Date Selector
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "${_selectedDate.toLocal()}".split(' ')[0],
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        Icons.calendar_today,
-                        color: AppColors.primary,
-                      ),
-                      onPressed: () => _selectDate(context),
-                    ),
-                  ],
-                ),
-              ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _fetchAttendanceStatus();
+          if (widget.template?['requireGeolocation'] ?? true) {
+            await _determinePosition();
+          }
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          // Handle small screens
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+              // Date Display removed as per request (Today only)
+
               // Branch Info Card
               if (_branchData != null)
                 Container(
@@ -417,126 +443,132 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                     ],
                   ),
                 ),
+              const SizedBox(height: 10),
 
               // Selfie Preview Area
-              GestureDetector(
-                onTap: _isCompleted ? null : _takeSelfie,
-                child: Container(
-                  height: 350,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.grey[300]!),
-                    image: _imageFile != null
-                        ? DecorationImage(
-                            image: FileImage(_imageFile!),
-                            fit: BoxFit.cover,
+              if (widget.template?['requireSelfie'] ?? true) ...[
+                GestureDetector(
+                  onTap: _isCompleted ? null : _takeSelfie,
+                  child: Container(
+                    height: 350,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.grey[300]!),
+                      image: _imageFile != null
+                          ? DecorationImage(
+                              image: FileImage(_imageFile!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: _imageFile == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.camera_alt_rounded,
+                                size: 60,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Tap to take selfie',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
                           )
                         : null,
                   ),
-                  child: _imageFile == null
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.camera_alt_rounded,
-                              size: 60,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Tap to take selfie',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        )
-                      : null,
                 ),
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 24),
+              ],
 
               // Location Info
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue[100]!),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.location_on, color: AppColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Current Location',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
+              if (widget.template?['requireGeolocation'] ?? true) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue[100]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_on, color: AppColors.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Current Location',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          _isLocationLoading
-                              ? const SizedBox(
-                                  height: 15,
-                                  width: 15,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (_position != null)
-                                      Text(
-                                        'Lat: ${_position!.latitude.toStringAsFixed(5)}, Lng: ${_position!.longitude.toStringAsFixed(5)}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.textSecondary,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _address ?? 'Unknown Location',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textPrimary,
-                                        fontSize: 14,
-                                      ),
+                            const SizedBox(height: 8),
+                            _isLocationLoading
+                                ? const SizedBox(
+                                    height: 15,
+                                    width: 15,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                                    if (_city != null || _pincode != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          top: 4.0,
-                                        ),
-                                        child: Text(
-                                          '${_city ?? ''} - ${_pincode ?? ''}',
-                                          style: const TextStyle(
-                                            fontSize: 13,
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (_position != null)
+                                        Text(
+                                          'Lat: ${_position!.latitude.toStringAsFixed(5)}, Lng: ${_position!.longitude.toStringAsFixed(5)}',
+                                          style: TextStyle(
+                                            fontSize: 12,
                                             color: AppColors.textSecondary,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _address ?? 'Unknown Location',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textPrimary,
+                                          fontSize: 14,
+                                        ),
                                       ),
-                                  ],
-                                ),
-                        ],
+                                      if (_city != null || _pincode != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4.0,
+                                          ),
+                                          child: Text(
+                                            '${_city ?? ''} - ${_pincode ?? ''}',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              color: AppColors.textSecondary,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                          ],
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.refresh, color: AppColors.primary),
-                      onPressed: _determinePosition,
-                    ),
-                  ],
+                      IconButton(
+                        icon: Icon(Icons.refresh, color: AppColors.primary),
+                        onPressed: _determinePosition,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 32),
+                const SizedBox(height: 32),
+              ],
 
               // Submit Button
               ElevatedButton(
@@ -578,6 +610,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

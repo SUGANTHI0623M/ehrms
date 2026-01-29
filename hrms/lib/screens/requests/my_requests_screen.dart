@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'package:hrms/utils/snackbar_utils.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/menu_icon_button.dart';
 
 // --- Shared Constants ---
 const double kDialogFormWidth = 750.0;
@@ -52,17 +56,44 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: const MenuIconButton(),
         title: const Text(
           'My Requests',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_alt_outlined),
+            tooltip: 'Toggle Filters',
+            onPressed: () {
+              switch (_tabController.index) {
+                case 0:
+                  leaveTabKey.currentState?.toggleFilters();
+                  break;
+                case 1:
+                  loanTabKey.currentState?.toggleFilters();
+                  break;
+                case 2:
+                  expenseTabKey.currentState?.toggleFilters();
+                  break;
+                case 3:
+                  payslipTabKey.currentState?.toggleFilters();
+                  break;
+              }
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: Colors.black,
+          indicatorColor: AppColors.primary,
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          indicator: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
           tabs: const [
             Tab(text: 'Leave', icon: Icon(Icons.calendar_today)),
             Tab(text: 'Loan', icon: Icon(Icons.account_balance_wallet)),
@@ -89,39 +120,53 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 
   Widget? _buildFab() {
+    final style = const TextStyle(fontSize: 13, fontWeight: FontWeight.bold);
     switch (_tabController.index) {
       case 0: // Leave
-        return FloatingActionButton.extended(
-          foregroundColor: Colors.white,
-          onPressed: () => leaveTabKey.currentState?.showApplyLeaveDialog(),
-          label: const Text('Apply Leave'),
-          icon: const Icon(Icons.add),
-          backgroundColor: AppColors.primary,
+        return SizedBox(
+          height: 40,
+          child: FloatingActionButton.extended(
+            foregroundColor: Colors.white,
+            onPressed: () => leaveTabKey.currentState?.showApplyLeaveDialog(),
+            label: Text('Apply Leave', style: style),
+            icon: const Icon(Icons.add, size: 18),
+            backgroundColor: AppColors.primary,
+          ),
         );
       case 1: // Loan
-        return FloatingActionButton.extended(
-          foregroundColor: Colors.white,
-          onPressed: () => loanTabKey.currentState?.showRequestLoanDialog(),
-          label: const Text('Request Loan'),
-          icon: const Icon(Icons.add),
-          backgroundColor: AppColors.primary,
+        return SizedBox(
+          height: 40,
+          child: FloatingActionButton.extended(
+            foregroundColor: Colors.white,
+            onPressed: () => loanTabKey.currentState?.showRequestLoanDialog(),
+            label: Text('Request Loan', style: style),
+            icon: const Icon(Icons.add, size: 18),
+            backgroundColor: AppColors.primary,
+          ),
         );
       case 2: // Expense
-        return FloatingActionButton.extended(
-          foregroundColor: Colors.white,
-          onPressed: () => expenseTabKey.currentState?.showClaimExpenseDialog(),
-          label: const Text('Claim Expense'),
-          icon: const Icon(Icons.add),
-          backgroundColor: AppColors.primary,
+        return SizedBox(
+          height: 40,
+          child: FloatingActionButton.extended(
+            foregroundColor: Colors.white,
+            onPressed: () =>
+                expenseTabKey.currentState?.showClaimExpenseDialog(),
+            label: Text('Claim Expense', style: style),
+            icon: const Icon(Icons.add, size: 18),
+            backgroundColor: AppColors.primary,
+          ),
         );
       case 3: // Payslip
-        return FloatingActionButton.extended(
-          foregroundColor: Colors.white,
-          onPressed: () =>
-              payslipTabKey.currentState?.showRequestPayslipDialog(),
-          label: const Text('Request Payslip'),
-          icon: const Icon(Icons.add),
-          backgroundColor: AppColors.primary,
+        return SizedBox(
+          height: 40,
+          child: FloatingActionButton.extended(
+            foregroundColor: Colors.white,
+            onPressed: () =>
+                payslipTabKey.currentState?.showRequestPayslipDialog(),
+            label: Text('Request Payslip', style: style),
+            icon: const Icon(Icons.add, size: 18),
+            backgroundColor: AppColors.primary,
+          ),
         );
       default:
         return null;
@@ -160,10 +205,15 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   DateTime? _startDate;
   DateTime? _endDate;
   int _currentPage = 1;
-  int _itemsPerPage = 10;
-  int _totalItems = 0;
+  final int _itemsPerPage = 10;
   int _totalPages = 0;
-  final List<int> _perPageOptions = [10, 20, 25];
+  bool _showFilters = false;
+
+  void toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+  }
 
   @override
   void initState() {
@@ -195,13 +245,11 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
             _leaves = result['data']['leaves'] ?? [];
             final pagination = result['data']['pagination'];
             if (pagination != null) {
-              _totalItems = pagination['total'] ?? 0;
               _totalPages = pagination['pages'] ?? 0;
               _currentPage = pagination['page'] ?? 1;
             }
           } else if (result['data'] is List) {
             _leaves = result['data'];
-            _totalItems = _leaves.length;
             _totalPages = 1;
             _currentPage = 1;
           }
@@ -209,9 +257,11 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         });
       } else {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to fetch leaves',
+          isError: true,
+        );
       }
     }
   }
@@ -240,351 +290,442 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     );
   }
 
+  void _showLeaveDetails(Map<String, dynamic> leave) {
+    final start = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['startDate']).toLocal(),
+    );
+    final end = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['endDate']).toLocal(),
+    );
+    final appliedDate = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['createdAt']),
+    );
+    final approvedBy = leave['approvedBy'] != null
+        ? (leave['approvedBy'] is Map
+              ? leave['approvedBy']['name']
+              : 'System')
+        : '-';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Leave Details',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Divider(),
+              const SizedBox(height: 10),
+              _detailRow('Leave Type', leave['leaveType'] ?? ''),
+              _detailRow('Start Date', start),
+              _detailRow('End Date', end),
+              _detailRow('Days', '${leave['days']}'),
+              _detailRow('Applied Date', appliedDate),
+              _detailRow('Approved By', approvedBy),
+              _detailRow('Status', leave['status'] ?? ''),
+              if (leave['reason'] != null && leave['reason'].toString().isNotEmpty)
+                _detailRow('Reason', leave['reason']),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeaveCard(Map<String, dynamic> leave) {
+    final start = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['startDate']).toLocal(),
+    );
+    final end = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['endDate']).toLocal(),
+    );
+    final appliedDate = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(leave['createdAt']),
+    );
+    final approvedBy = leave['approvedBy'] != null
+        ? (leave['approvedBy'] is Map
+              ? leave['approvedBy']['name']
+              : 'System')
+        : '-';
+
+    Color statusColor = Colors.grey;
+    if (leave['status'] == 'Approved') {
+      statusColor = AppColors.success;
+    } else if (leave['status'] == 'Rejected') {
+      statusColor = AppColors.error;
+    } else if (leave['status'] == 'Pending') {
+      statusColor = AppColors.warning;
+    }
+
+    return InkWell(
+      onTap: () => _showLeaveDetails(leave),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.calendar_today,
+                  color: AppColors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Leave Type and Status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            leave['leaveType'] ?? 'Leave',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            leave['status'] ?? '',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Details
+                    _buildCardDetailRow(Icons.date_range, 'Dates', '$start - $end'),
+                    const SizedBox(height: 4),
+                    _buildCardDetailRow(Icons.event, 'Days', '${leave['days']}'),
+                    const SizedBox(height: 4),
+                    _buildCardDetailRow(Icons.access_time, 'Applied', appliedDate),
+                    if (approvedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildCardDetailRow(Icons.person, 'Approved By', approvedBy),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF424242),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF424242),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         // Controls Column
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        if (_showFilters)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search Leave...',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 0,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 0,
-                  ),
+                  onChanged: (val) {
+                    if (_debounce?.isActive ?? false) _debounce!.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 500), () {
+                      _fetchLeaves();
+                    });
+                  },
                 ),
-                onChanged: (val) {
-                  if (_debounce?.isActive ?? false) _debounce!.cancel();
-                  _debounce = Timer(const Duration(milliseconds: 500), () {
-                    _fetchLeaves();
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedStatus,
-                          isExpanded: true,
-                          items: _statusOptions
-                              .map(
-                                (e) =>
-                                    DropdownMenuItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedStatus = val);
-                              _fetchLeaves();
-                            }
-                          },
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedStatus,
+                            isExpanded: true,
+                            items: _statusOptions
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedStatus = val);
+                                _fetchLeaves();
+                              }
+                            },
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  InkWell(
-                    onTap: _pickDateRange,
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            color: Colors.grey[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _startDate == null
-                                ? 'Date'
-                                : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                            style: TextStyle(color: Colors.grey[800]),
-                          ),
-                          if (_startDate != null)
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () {
-                                setState(() {
-                                  _startDate = null;
-                                  _endDate = null;
-                                });
-                                _fetchLeaves();
-                              },
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: _pickDateRange,
+                      child: Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              color: Colors.grey[600],
+                              size: 20,
                             ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              _startDate == null
+                                  ? 'Date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                            if (_startDate != null)
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () {
+                                  setState(() {
+                                    _startDate = null;
+                                    _endDate = null;
+                                  });
+                                  _fetchLeaves();
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
 
         // List Body
         Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _leaves.isEmpty
-              ? const Center(child: Text('No leave requests found'))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: 800, // Fixed width for horizontal scroll
-                    child: Column(
-                      children: [
-                        // Table Header
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          color: Colors.grey[200],
-                          child: const Row(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              setState(() => _currentPage = 1);
+              await _fetchLeaves();
+            },
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _leaves.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              SizedBox(
-                                width: 50,
-                                child: Text(
-                                  'S.No',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
+                              Icon(
+                                Icons.calendar_today_outlined,
+                                size: 64,
+                                color: Colors.grey[400],
                               ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Leave Type',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Dates',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 50,
-                                child: Text(
-                                  'Days',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Applied Date',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Approved By',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 90,
-                                child: Text(
-                                  'Status',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                  textAlign: TextAlign.end,
+                              const SizedBox(height: 16),
+                              Text(
+                                'No leave requests found',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.black,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        // Table Body
-                        Expanded(
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _leaves.length,
-                            separatorBuilder: (ctx, i) =>
-                                const Divider(height: 1),
-                            itemBuilder: (ctx, i) {
-                              final leave = _leaves[i];
-                              final start = DateFormat(
-                                'MMM dd, yyyy',
-                              ).format(DateTime.parse(leave['startDate']));
-                              final end = DateFormat(
-                                'MMM dd, yyyy',
-                              ).format(DateTime.parse(leave['endDate']));
-                              final appliedDate = DateFormat(
-                                'MMM dd, yyyy',
-                              ).format(DateTime.parse(leave['createdAt']));
-                              final approvedBy = leave['approvedBy'] != null
-                                  ? (leave['approvedBy'] is Map
-                                        ? leave['approvedBy']['name']
-                                        : 'System')
-                                  : '-';
-
-                              Color statusColor = Colors.grey;
-                              if (leave['status'] == 'Approved') {
-                                statusColor = AppColors.success;
-                              } else if (leave['status'] == 'Rejected')
-                                statusColor = AppColors.error;
-                              else if (leave['status'] == 'Pending')
-                                statusColor = AppColors.warning;
-
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12.0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 50,
-                                      child: Text(
-                                        '${(i + 1) + (_currentPage - 1) * _itemsPerPage}',
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(leave['leaveType'] ?? ''),
-                                    ),
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text('$start - $end'),
-                                    ),
-                                    SizedBox(
-                                      width: 50,
-                                      child: Text('${leave['days']}'),
-                                    ),
-                                    Expanded(flex: 2, child: Text(appliedDate)),
-                                    Expanded(flex: 2, child: Text(approvedBy)),
-                                    SizedBox(
-                                      width: 90,
-                                      child: Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: statusColor.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                            border: Border.all(
-                                              color: statusColor,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            leave['status'],
-                                            style: TextStyle(
-                                              color: statusColor,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _leaves.length,
+                    itemBuilder: (ctx, i) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: _buildLeaveCard(_leaves[i]),
+                      );
+                    },
                   ),
-                ),
+          ),
         ),
 
         // Pagination Controls
         if (!_isLoading && _leaves.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 140, 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey.shade300)),
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                DropdownButton<int>(
-                  value: _itemsPerPage,
-                  underline: const SizedBox(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  items: _perPageOptions
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(e.toString()),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _itemsPerPage = val;
-                        _currentPage = 1;
-                      });
-                      _fetchLeaves();
-                    }
-                  },
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage > 1
+                      ? () {
+                          setState(() => _currentPage--);
+                          _fetchLeaves();
+                        }
+                      : null,
                 ),
-                const SizedBox(width: 20),
-                Row(
-                  children: [
-                    Text(
-                      'Page $_currentPage of $_totalPages ($_totalItems total)',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$_currentPage',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: _currentPage > 1
-                          ? () {
-                              setState(() => _currentPage--);
-                              _fetchLeaves();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: _currentPage < _totalPages
-                          ? () {
-                              setState(() => _currentPage++);
-                              _fetchLeaves();
-                            }
-                          : null,
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage < _totalPages
+                      ? () {
+                          setState(() => _currentPage++);
+                          _fetchLeaves();
+                        }
+                      : null,
                 ),
               ],
             ),
@@ -613,6 +754,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   final TextEditingController _reasonController = TextEditingController();
   bool _isSubmitting = false;
   bool _isLoadingTypes = true;
+  bool _isOneDay = false; // Toggle for single day leave
 
   @override
   void initState() {
@@ -638,7 +780,9 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   }
 
   int get _days {
-    if (_startDate == null || _endDate == null) return 0;
+    if (_startDate == null) return 0;
+    if (_isOneDay) return 1;
+    if (_endDate == null) return 0;
     return _endDate!.difference(_startDate!).inDays + 1;
   }
 
@@ -653,9 +797,13 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       setState(() {
         if (isStart) {
           _startDate = picked;
-          // Reset end date if it's before new start date
-          if (_endDate != null && _endDate!.isBefore(_startDate!)) {
-            _endDate = null;
+          if (_isOneDay) {
+            _endDate = picked;
+          } else {
+            // Reset end date if it's before new start date
+            if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+              _endDate = null;
+            }
           }
         } else {
           _endDate = picked;
@@ -666,11 +814,18 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please select dates')));
+    if (_startDate == null) {
+      SnackBarUtils.showSnackBar(context, 'Please select a date');
       return;
+    }
+    if (!_isOneDay && _endDate == null) {
+      SnackBarUtils.showSnackBar(context, 'Please select an end date');
+      return;
+    }
+
+    // Ensure end date is set for one day leave
+    if (_isOneDay && _endDate == null) {
+      _endDate = _startDate;
     }
 
     setState(() => _isSubmitting = true);
@@ -687,13 +842,13 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       if (result['success']) {
         widget.onSuccess();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Leave request submitted')),
-        );
+        SnackBarUtils.showSnackBar(context, 'Leave request submitted');
       } else {
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to submit leave',
+          isError: true,
+        );
       }
     }
   }
@@ -754,7 +909,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                   )
                 else
                   DropdownButtonFormField<String>(
-                    value: _leaveType,
+                    initialValue: _leaveType,
                     items: _allowedTypes
                         .map(
                           (e) => DropdownMenuItem(
@@ -776,9 +931,84 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                   ),
                 const SizedBox(height: 10),
 
-                const Text(
-                  'Start Date',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                // Template Info Alert (Top of Layout)
+                if (_leaveType != null && _allowedTypes.isNotEmpty)
+                  Builder(
+                    builder: (context) {
+                      final selected = _allowedTypes.firstWhere(
+                        (e) => e['type'] == _leaveType,
+                        orElse: () => null,
+                      );
+                      // Only show alert if limit exists (not unlimited)
+                      if (selected['limit'] == null) {
+                        return const SizedBox.shrink();
+                      }
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.orange[800],
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Balance: ${selected['balance']} days${selected['limit'] != null ? ' (Limit: ${selected['limit']} per ${selected['isMonthly'] ? "month" : "year"})' : ''}',
+                                style: TextStyle(
+                                  color: Colors.orange[900],
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
+                // One Day Toggle with improved UI
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'One Day Leave',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: _isOneDay,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) {
+                          setState(() {
+                            _isOneDay = val;
+                            if (_isOneDay && _startDate != null) {
+                              _endDate = _startDate;
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                Text(
+                  _isOneDay ? 'Date' : 'Start Date',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 InkWell(
                   onTap: () => _pickDate(true),
@@ -801,33 +1031,34 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'End Date',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                InkWell(
-                  onTap: () => _pickDate(false),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _endDate == null
-                              ? 'dd-mm-yyyy'
-                              : DateFormat('dd-MM-yyyy').format(_endDate!),
-                        ),
-                        const Icon(Icons.calendar_today, size: 16),
-                      ],
+                if (!_isOneDay) ...[
+                  const SizedBox(height: 10),
+                  const Text(
+                    'End Date',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  InkWell(
+                    onTap: () => _pickDate(false),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _endDate == null
+                                ? 'dd-mm-yyyy'
+                                : DateFormat('dd-MM-yyyy').format(_endDate!),
+                          ),
+                          const Icon(Icons.calendar_today, size: 16),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
                 if (_days > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
@@ -929,10 +1160,15 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   DateTime? _startDate;
   DateTime? _endDate;
   int _currentPage = 1;
-  int _itemsPerPage = 10;
-  int _totalItems = 0;
+  final int _itemsPerPage = 10;
   int _totalPages = 0;
-  final List<int> _perPageOptions = [10, 20, 25];
+  bool _showFilters = false;
+
+  void toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+  }
 
   @override
   void initState() {
@@ -964,13 +1200,11 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
             _loans = result['data']['loans'] ?? [];
             final pagination = result['data']['pagination'];
             if (pagination != null) {
-              _totalItems = pagination['total'] ?? 0;
               _totalPages = pagination['pages'] ?? 0;
               _currentPage = pagination['page'] ?? 1;
             }
           } else if (result['data'] is List) {
             _loans = result['data'];
-            _totalItems = _loans.length;
             _totalPages = 1;
             _currentPage = 1;
           }
@@ -978,9 +1212,11 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         });
       } else {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to fetch loan requests',
+          isError: true,
+        );
       }
     }
   }
@@ -1076,9 +1312,9 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
             width: 100,
             child: Text(
               '$label:',
-              style: TextStyle(
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey[700],
+                color: Colors.black,
               ),
             ),
           ),
@@ -1088,315 +1324,365 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
     );
   }
 
+  Widget _buildLoanCard(Map<String, dynamic> loan) {
+    final appliedDate = loan['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(
+            DateTime.parse(loan['createdAt']),
+          )
+        : '-';
+    Color statusColor = Colors.grey;
+    if (loan['status'] == 'Approved' || loan['status'] == 'Active') {
+      statusColor = AppColors.success;
+    } else if (loan['status'] == 'Rejected') {
+      statusColor = AppColors.error;
+    } else if (loan['status'] == 'Pending') {
+      statusColor = AppColors.warning;
+    }
+
+    String approvedByName = '-';
+    if (loan['approvedBy'] != null) {
+      if (loan['approvedBy'] is Map) {
+        approvedByName = loan['approvedBy']['name'] ?? '-';
+      } else {
+        approvedByName = 'System';
+      }
+    }
+
+    return InkWell(
+      onTap: () => _showLoanDetails(loan),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.account_balance_wallet,
+                  color: AppColors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Loan Type and Status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            loan['loanType'] ?? 'Loan',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            loan['status'] ?? '',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Details
+                    _buildLoanCardDetailRow(Icons.currency_rupee, 'Amount', '₹${loan['amount']}'),
+                    const SizedBox(height: 4),
+                    _buildLoanCardDetailRow(Icons.calendar_today, 'Tenure', '${loan['tenure'] ?? loan['tenureMonths']} Months'),
+                    const SizedBox(height: 4),
+                    _buildLoanCardDetailRow(Icons.payment, 'EMI', '₹${loan['emi'] ?? 0}'),
+                    const SizedBox(height: 4),
+                    _buildLoanCardDetailRow(Icons.access_time, 'Applied', appliedDate),
+                    if (approvedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildLoanCardDetailRow(Icons.person, 'Approved By', approvedByName),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoanCardDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF424242),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF424242),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         // Controls Column
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search Type, Purpose...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        if (_showFilters)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search Type, Purpose...',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 0,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 0,
-                  ),
+                  onChanged: (val) {
+                    if (_debounce?.isActive ?? false) _debounce!.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 500), () {
+                      _fetchLoans();
+                    });
+                  },
                 ),
-                onChanged: (val) {
-                  if (_debounce?.isActive ?? false) _debounce!.cancel();
-                  _debounce = Timer(const Duration(milliseconds: 500), () {
-                    _fetchLoans();
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedStatus,
-                          isExpanded: true,
-                          items: _statusOptions
-                              .map(
-                                (e) =>
-                                    DropdownMenuItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedStatus = val);
-                              _fetchLoans();
-                            }
-                          },
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedStatus,
+                            isExpanded: true,
+                            items: _statusOptions
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedStatus = val);
+                                _fetchLoans();
+                              }
+                            },
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  InkWell(
-                    onTap: _pickDateRange,
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            color: Colors.grey[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _startDate == null
-                                ? 'Date'
-                                : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                            style: TextStyle(color: Colors.grey[800]),
-                          ),
-                          if (_startDate != null)
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () {
-                                setState(() {
-                                  _startDate = null;
-                                  _endDate = null;
-                                });
-                                _fetchLoans();
-                              },
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: _pickDateRange,
+                      child: Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              color: Colors.grey[600],
+                              size: 20,
                             ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              _startDate == null
+                                  ? 'Date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                            if (_startDate != null)
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () {
+                                  setState(() {
+                                    _startDate = null;
+                                    _endDate = null;
+                                  });
+                                  _fetchLoans();
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
 
         // List Content
         Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _loans.isEmpty
-              ? const Center(child: Text('No loan requests found'))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SingleChildScrollView(
-                    child: DataTable(
-                      showCheckboxColumn: false,
-                      dataRowHeight: 60,
-                      columnSpacing: 20,
-                      columns: const [
-                        DataColumn(
-                          label: Text(
-                            'S.No',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Type',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Amount',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Tenure',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'EMI',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Applied Date',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Status',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Approved By',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                      rows: _loans.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final loan = entry.value;
-                        final appliedDate = loan['createdAt'] != null
-                            ? DateFormat(
-                                'MMM dd, yyyy',
-                              ).format(DateTime.parse(loan['createdAt']))
-                            : '-';
-                        Color statusColor = Colors.grey;
-                        if (loan['status'] == 'Approved' ||
-                            loan['status'] == 'Active') {
-                          statusColor = AppColors.success;
-                        } else if (loan['status'] == 'Rejected') {
-                          statusColor = AppColors.error;
-                        } else if (loan['status'] == 'Pending') {
-                          statusColor = AppColors.warning;
-                        }
-
-                        String approvedByName = '-';
-                        if (loan['approvedBy'] != null) {
-                          if (loan['approvedBy'] is Map) {
-                            approvedByName = loan['approvedBy']['name'] ?? '-';
-                          } else {
-                            approvedByName = 'System';
-                          }
-                        }
-
-                        return DataRow(
-                          onSelectChanged: (_) => _showLoanDetails(loan),
-                          cells: [
-                            DataCell(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              setState(() => _currentPage = 1);
+              await _fetchLoans();
+            },
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _loans.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.account_balance_wallet_outlined,
+                                size: 64,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 16),
                               Text(
-                                '${(index + 1) + (_currentPage - 1) * _itemsPerPage}',
-                              ),
-                            ),
-                            DataCell(Text(loan['loanType'] ?? '')),
-                            DataCell(Text('₹${loan['amount']}')),
-                            DataCell(
-                              Text(
-                                '${loan['tenure'] ?? loan['tenureMonths']} M',
-                              ),
-                            ),
-                            DataCell(Text('₹${loan['emi'] ?? 0}')),
-                            DataCell(Text(appliedDate)),
-                            DataCell(
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: statusColor),
-                                ),
-                                child: Text(
-                                  loan['status'],
-                                  style: TextStyle(
-                                    color: statusColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                'No loan requests found',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.black,
                                 ),
                               ),
-                            ),
-                            DataCell(Text(approvedByName)),
-                          ],
-                        );
-                      }).toList(),
-                    ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _loans.length,
+                    itemBuilder: (ctx, i) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: _buildLoanCard(_loans[i]),
+                      );
+                    },
                   ),
-                ),
+          ),
         ),
 
         // Pagination Controls
         if (!_isLoading && _loans.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 140, 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey.shade300)),
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                DropdownButton<int>(
-                  value: _itemsPerPage,
-                  underline: const SizedBox(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  items: _perPageOptions
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(e.toString()),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _itemsPerPage = val;
-                        _currentPage = 1;
-                      });
-                      _fetchLoans();
-                    }
-                  },
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage > 1
+                      ? () {
+                          setState(() => _currentPage--);
+                          _fetchLoans();
+                        }
+                      : null,
                 ),
-                const SizedBox(width: 20),
-                Row(
-                  children: [
-                    Text(
-                      'Page $_currentPage of $_totalPages ($_totalItems total)',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$_currentPage',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: _currentPage > 1
-                          ? () {
-                              setState(() => _currentPage--);
-                              _fetchLoans();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: _currentPage < _totalPages
-                          ? () {
-                              setState(() => _currentPage++);
-                              _fetchLoans();
-                            }
-                          : null,
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage < _totalPages
+                      ? () {
+                          setState(() => _currentPage++);
+                          _fetchLoans();
+                        }
+                      : null,
                 ),
               ],
             ),
@@ -1446,13 +1732,13 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
       if (result['success']) {
         widget.onSuccess();
         Navigator.pop(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Loan request submitted')));
+        SnackBarUtils.showSnackBar(context, 'Loan request submitted');
       } else {
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to submit loan request',
+          isError: true,
+        );
       }
     }
   }
@@ -1663,11 +1949,16 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   DateTime? _startDate;
   DateTime? _endDate;
   int _currentPage = 1;
-  int _itemsPerPage = 10;
-  int _totalItems = 0;
+  final int _itemsPerPage = 10;
   int _totalPages = 0;
-  final List<int> _perPageOptions = [10, 20, 25];
   final TextEditingController _searchController = TextEditingController();
+  bool _showFilters = false;
+
+  void toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+  }
 
   @override
   void initState() {
@@ -1692,13 +1983,11 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
             _expenses = result['data']['reimbursements'] ?? [];
             final pagination = result['data']['pagination'];
             if (pagination != null) {
-              _totalItems = pagination['total'] ?? 0;
               _totalPages = pagination['pages'] ?? 0;
               _currentPage = pagination['page'] ?? 1;
             }
           } else if (result['data'] is List) {
             _expenses = result['data'];
-            _totalItems = _expenses.length;
             _totalPages = 1;
             _currentPage = 1;
           }
@@ -1706,9 +1995,11 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         });
       } else {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to fetch expense requests',
+          isError: true,
+        );
       }
     }
   }
@@ -1777,6 +2068,315 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   }
 
   // Changed to public for GlobalKey access
+  void _showExpenseDetails(Map<String, dynamic> expense) {
+    final date = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(expense['date']),
+    );
+    final appliedDate = expense['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(
+            DateTime.parse(expense['createdAt']),
+          )
+        : '-';
+
+    String approvedByName = '-';
+    if (expense['approvedBy'] != null) {
+      if (expense['approvedBy'] is Map) {
+        approvedByName = expense['approvedBy']['name'] ?? '-';
+      } else {
+        approvedByName = 'System';
+      }
+    }
+
+    List<dynamic> proofs = expense['proofFiles'] ?? [];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Expense Details',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Divider(),
+              const SizedBox(height: 10),
+              _expenseDetailRow('Type', expense['type'] ?? expense['expenseType'] ?? 'Expense'),
+              _expenseDetailRow('Amount', '₹${expense['amount']}'),
+              _expenseDetailRow('Date', date),
+              _expenseDetailRow('Applied Date', appliedDate),
+              if (expense['description'] != null && expense['description'].toString().isNotEmpty)
+                _expenseDetailRow('Description', expense['description']),
+              _expenseDetailRow('Status', expense['status'] ?? ''),
+              if (approvedByName != '-')
+                _expenseDetailRow('Approved By', approvedByName),
+              if (proofs.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  'Proof Files:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 5),
+                ...proofs.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final proof = entry.value;
+                  String fileName;
+                  String proofUrl;
+                  
+                  // Handle both Map and String types
+                  if (proof is Map) {
+                    fileName = proof['fileName']?.toString() ?? 'Proof ${index + 1}';
+                    proofUrl = proof['url']?.toString() ?? proof['fileUrl']?.toString() ?? proof.toString();
+                  } else {
+                    // If proof is a String (URL), extract filename or use default
+                    final urlString = proof.toString();
+                    proofUrl = urlString;
+                    // Try to extract filename from URL
+                    try {
+                      final uri = Uri.parse(urlString);
+                      fileName = uri.pathSegments.isNotEmpty 
+                          ? uri.pathSegments.last 
+                          : 'Proof ${index + 1}';
+                    } catch (e) {
+                      fileName = 'Proof ${index + 1}';
+                    }
+                  }
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: InkWell(
+                      onTap: () => _viewProof(proofUrl),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.attach_file, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              fileName,
+                              style: const TextStyle(color: Colors.blue),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _expenseDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpenseCard(Map<String, dynamic> expense) {
+    final date = DateFormat('MMM dd, yyyy').format(
+      DateTime.parse(expense['date']),
+    );
+    final appliedDate = expense['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(
+            DateTime.parse(expense['createdAt']),
+          )
+        : '-';
+
+    Color statusColor = Colors.grey;
+    if (expense['status'] == 'Approved' || expense['status'] == 'Paid') {
+      statusColor = AppColors.success;
+    } else if (expense['status'] == 'Rejected') {
+      statusColor = AppColors.error;
+    } else if (expense['status'] == 'Pending') {
+      statusColor = AppColors.warning;
+    }
+
+    String approvedByName = '-';
+    if (expense['approvedBy'] != null) {
+      if (expense['approvedBy'] is Map) {
+        approvedByName = expense['approvedBy']['name'] ?? '-';
+      } else {
+        approvedByName = 'System';
+      }
+    }
+
+    List<dynamic> proofs = expense['proofFiles'] ?? [];
+    bool hasProof = proofs.isNotEmpty;
+
+    return InkWell(
+      onTap: () => _showExpenseDetails(expense),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.receipt,
+                  color: AppColors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Expense Type and Status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            expense['type'] ?? expense['expenseType'] ?? 'Expense',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            expense['status'] ?? '',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Details
+                    _buildExpenseCardDetailRow(Icons.currency_rupee, 'Amount', '₹${expense['amount']}'),
+                    const SizedBox(height: 4),
+                    _buildExpenseCardDetailRow(Icons.calendar_today, 'Date', date),
+                    const SizedBox(height: 4),
+                    _buildExpenseCardDetailRow(Icons.access_time, 'Applied', appliedDate),
+                    if (expense['description'] != null && expense['description'].toString().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _buildExpenseCardDetailRow(Icons.description, 'Description', expense['description'] ?? ''),
+                    ],
+                    if (hasProof) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.attach_file, size: 14, color: const Color(0xFF424242)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Proof: Available',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (approvedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildExpenseCardDetailRow(Icons.person, 'Approved By', approvedByName),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpenseCardDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF424242),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF424242),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   void showClaimExpenseDialog() {
     showDialog(
       context: context,
@@ -1789,354 +2389,193 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
     return Column(
       children: [
         // Controls Column
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search Type, Description...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        if (_showFilters)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search Type, Description...',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 0,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 0,
-                  ),
+                  onSubmitted: (_) => _fetchExpenses(),
                 ),
-                onSubmitted: (_) => _fetchExpenses(),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedStatus,
-                          isExpanded: true,
-                          items: _statusOptions
-                              .map(
-                                (e) =>
-                                    DropdownMenuItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedStatus = val);
-                              _fetchExpenses();
-                            }
-                          },
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedStatus,
+                            isExpanded: true,
+                            items: _statusOptions
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedStatus = val);
+                                _fetchExpenses();
+                              }
+                            },
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Date Filter Button
-                  InkWell(
-                    onTap: _pickDateRange,
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            color: Colors.grey[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _startDate == null
-                                ? 'Date'
-                                : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                            style: TextStyle(color: Colors.grey[800]),
-                          ),
-                          if (_startDate != null)
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () {
-                                setState(() {
-                                  _startDate = null;
-                                  _endDate = null;
-                                });
-                                _fetchExpenses();
-                              },
+                    const SizedBox(width: 10),
+                    // Date Filter Button
+                    InkWell(
+                      onTap: _pickDateRange,
+                      child: Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              color: Colors.grey[600],
+                              size: 20,
                             ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              _startDate == null
+                                  ? 'Date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                            if (_startDate != null)
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () {
+                                  setState(() {
+                                    _startDate = null;
+                                    _endDate = null;
+                                  });
+                                  _fetchExpenses();
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
 
         // List Content
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _expenses.isEmpty
-              ? const Center(child: Text('No expense requests found'))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SingleChildScrollView(
-                    child: DataTable(
-                      columnSpacing: 20,
-                      dataRowHeight: 60,
-                      columns: const [
-                        DataColumn(
-                          label: Text(
-                            'S.No',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.receipt_outlined,
+                        size: 64,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No expense requests found',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.black,
                         ),
-                        DataColumn(
-                          label: Text(
-                            'Type',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Amount',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Date',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Applied Date',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Description',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Proof',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Status',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        DataColumn(
-                          label: Text(
-                            'Approved By',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                      rows: _expenses.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final expense = entry.value;
-                        final date = DateFormat(
-                          'MMM dd, yyyy',
-                        ).format(DateTime.parse(expense['date']));
-                        final appliedDate = expense['createdAt'] != null
-                            ? DateFormat(
-                                'MMM dd, yyyy',
-                              ).format(DateTime.parse(expense['createdAt']))
-                            : '-';
-
-                        Color statusColor = Colors.grey;
-                        if (expense['status'] == 'Approved' ||
-                            expense['status'] == 'Paid') {
-                          statusColor = AppColors.success;
-                        } else if (expense['status'] == 'Rejected') {
-                          statusColor = AppColors.error;
-                        } else if (expense['status'] == 'Pending') {
-                          statusColor = AppColors.warning;
-                        }
-
-                        String approvedByName = '-';
-                        if (expense['approvedBy'] != null) {
-                          if (expense['approvedBy'] is Map) {
-                            approvedByName =
-                                expense['approvedBy']['name'] ?? '-';
-                          } else {
-                            approvedByName = 'System';
-                          }
-                        }
-
-                        List<dynamic> proofs = expense['proofFiles'] ?? [];
-                        bool hasProof = proofs.isNotEmpty;
-
-                        return DataRow(
-                          cells: [
-                            DataCell(
-                              Text(
-                                '${(index + 1) + (_currentPage - 1) * _itemsPerPage}',
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                expense['type'] ??
-                                    expense['expenseType'] ??
-                                    'Expense',
-                              ),
-                            ),
-                            DataCell(Text('₹${expense['amount']}')),
-                            DataCell(Text(date)),
-                            DataCell(Text(appliedDate)),
-                            DataCell(
-                              SizedBox(
-                                width: 150,
-                                child: Text(
-                                  expense['description'] ?? '',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              hasProof
-                                  ? InkWell(
-                                      onTap: () => _viewProof(proofs.first),
-                                      child: const Row(
-                                        children: [
-                                          Icon(
-                                            Icons.visibility,
-                                            size: 16,
-                                            color: Colors.blue,
-                                          ),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'View',
-                                            style: TextStyle(
-                                              color: Colors.blue,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    )
-                                  : const Text(
-                                      'No File',
-                                      style: TextStyle(color: Colors.grey),
-                                    ),
-                            ),
-                            DataCell(
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: statusColor),
-                                ),
-                                child: Text(
-                                  expense['status'],
-                                  style: TextStyle(
-                                    color: statusColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            DataCell(Text(approvedByName)),
-                          ],
-                        );
-                      }).toList(),
-                    ),
+                      ),
+                    ],
                   ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _expenses.length,
+                  itemBuilder: (ctx, i) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: _buildExpenseCard(_expenses[i]),
+                    );
+                  },
                 ),
         ),
 
         // Pagination Controls
         if (!_isLoading && _expenses.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 140, 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey.shade300)),
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                DropdownButton<int>(
-                  value: _itemsPerPage,
-                  underline: const SizedBox(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  items: _perPageOptions
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(e.toString()),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _itemsPerPage = val;
-                        _currentPage = 1;
-                      });
-                      _fetchExpenses();
-                    }
-                  },
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage > 1
+                      ? () {
+                          setState(() => _currentPage--);
+                          _fetchExpenses();
+                        }
+                      : null,
                 ),
-                const SizedBox(width: 20),
-                Row(
-                  children: [
-                    Text(
-                      'Page $_currentPage of $_totalPages ($_totalItems total)',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$_currentPage',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: _currentPage > 1
-                          ? () {
-                              setState(() => _currentPage--);
-                              _fetchExpenses();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: _currentPage < _totalPages
-                          ? () {
-                              setState(() => _currentPage++);
-                              _fetchExpenses();
-                            }
-                          : null,
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage < _totalPages
+                      ? () {
+                          setState(() => _currentPage++);
+                          _fetchExpenses();
+                        }
+                      : null,
                 ),
               ],
             ),
@@ -2196,9 +2635,12 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_date == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please select a date')));
+      SnackBarUtils.showSnackBar(context, 'Please select a date');
+      return;
+    }
+
+    if (_selectedFile == null) {
+      SnackBarUtils.showSnackBar(context, 'Please upload a proof document');
       return;
     }
 
@@ -2243,13 +2685,13 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
       if (result['success']) {
         widget.onSuccess();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Expense claim submitted')),
-        );
+        SnackBarUtils.showSnackBar(context, 'Expense claim submitted');
       } else {
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to submit expense claim',
+          isError: true,
+        );
       }
     }
   }
@@ -2385,7 +2827,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
 
                 // Proof Document Picker
                 const Text(
-                  'Proof Document',
+                  'Proof Document *',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 InkWell(
@@ -2494,10 +2936,15 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   DateTime? _startDate;
   DateTime? _endDate;
   int _currentPage = 1;
-  int _itemsPerPage = 10;
-  int _totalItems = 0;
+  final int _itemsPerPage = 10;
   int _totalPages = 0;
-  final List<int> _perPageOptions = [10, 20, 25];
+  bool _showFilters = false;
+
+  void toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+  }
 
   @override
   void initState() {
@@ -2529,13 +2976,11 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
             _requests = result['data']['requests'] ?? [];
             final pagination = result['data']['pagination'];
             if (pagination != null) {
-              _totalItems = pagination['total'] ?? 0;
               _totalPages = pagination['pages'] ?? 0;
               _currentPage = pagination['page'] ?? 1;
             }
           } else if (result['data'] is List) {
             _requests = result['data'];
-            _totalItems = _requests.length;
             _totalPages = 1;
             _currentPage = 1;
           }
@@ -2543,11 +2988,480 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         });
       } else {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          result['message'] ?? 'Failed to fetch payslip requests',
+          isError: true,
+        );
       }
     }
+  }
+
+  Future<void> _viewPayslip(String requestId) async {
+    try {
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final result = await _requestService.viewPayslipRequest(requestId);
+      
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        
+        if (result['success'] && result['data'] != null) {
+          // For viewing, we'll show a dialog with PDF viewer
+          // For now, we'll download and open it
+          _openPdf(result['data'], 'view');
+        } else {
+          SnackBarUtils.showSnackBar(
+            context,
+            result['message'] ?? 'Failed to view payslip',
+            isError: true,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog if still open
+        SnackBarUtils.showSnackBar(
+          context,
+          'Error viewing payslip: ${e.toString()}',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  // Helper function to convert month number or name to month name
+  String _getMonthName(dynamic month) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    
+    if (month is int && month >= 1 && month <= 12) {
+      return months[month - 1];
+    } else if (month is String) {
+      // If it's already a month name, return it
+      if (months.contains(month)) {
+        return month;
+      }
+      // Try to parse as number
+      final monthNum = int.tryParse(month);
+      if (monthNum != null && monthNum >= 1 && monthNum <= 12) {
+        return months[monthNum - 1];
+      }
+    }
+    return month?.toString() ?? 'Unknown';
+  }
+
+  // Helper function to get period text from request
+  String _getPeriodText(Map<String, dynamic> req) {
+    if (req['period'] != null) {
+      return req['period'].toString();
+    } else if (req['month'] != null) {
+      final monthName = _getMonthName(req['month']);
+      final year = req['year']?.toString() ?? '';
+      return '$monthName $year'.trim();
+    }
+    return '-';
+  }
+
+  Future<void> _downloadPayslip(String requestId, String month, int year) async {
+    try {
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final result = await _requestService.downloadPayslipRequest(requestId);
+      
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        
+        if (result['success'] && result['data'] != null) {
+          _openPdf(result['data'], 'download', month: month, year: year);
+        } else {
+          SnackBarUtils.showSnackBar(
+            context,
+            result['message'] ?? 'Failed to download payslip',
+            isError: true,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog if still open
+        SnackBarUtils.showSnackBar(
+          context,
+          'Error downloading payslip: ${e.toString()}',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  Future<void> _openPdf(List<int> pdfBytes, String action, {String? month, int? year}) async {
+    try {
+      // 1) Save PDF to app documents directory (visible via "App internal storage")
+      final baseDir = await getApplicationDocumentsDirectory();
+      final payslipsDir = Directory('${baseDir.path}/Payslips');
+      if (!await payslipsDir.exists()) {
+        await payslipsDir.create(recursive: true);
+      }
+
+      final fileName = month != null && year != null
+          ? 'Payslip_${month}_$year.pdf'
+          : 'Payslip_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = File('${payslipsDir.path}/$fileName');
+
+      await file.writeAsBytes(pdfBytes, flush: true);
+
+      if (action == 'view') {
+        // 2a) VIEW: open directly with default PDF viewer
+        final result = await OpenFilex.open(file.path);
+
+        if (result.type != ResultType.done) {
+          SnackBarUtils.showSnackBar(
+            context,
+            'Unable to open payslip: ${result.message}',
+            isError: true,
+          );
+        }
+      } else {
+        // 2b) DOWNLOAD: just save file, do not open
+        SnackBarUtils.showSnackBar(
+          context,
+          'Payslip downloaded to: ${file.path}',
+        );
+      }
+    } catch (e) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Error handling PDF: ${e.toString()}',
+        isError: true,
+      );
+    }
+  }
+
+  void _showPayslipDetails(Map<String, dynamic> req) {
+    final appliedDate = req['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
+        : '-';
+    final approvedBy = req['approvedBy'] != null
+        ? (req['approvedBy'] is Map
+              ? req['approvedBy']['name']
+              : 'System')
+        : '-';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Payslip Request Details',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Divider(),
+              const SizedBox(height: 10),
+              _payslipDetailRow('Period', _getPeriodText(req)),
+              if (req['reason'] != null && req['reason'].toString().isNotEmpty)
+                _payslipDetailRow('Reason', req['reason']),
+              _payslipDetailRow('Applied Date', appliedDate),
+              _payslipDetailRow('Status', req['status'] ?? ''),
+              if (approvedBy != '-')
+                _payslipDetailRow('Approved By', approvedBy),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _payslipDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPayslipCard(Map<String, dynamic> req) {
+    final appliedDate = req['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
+        : '-';
+    final approvedBy = req['approvedBy'] != null
+        ? (req['approvedBy'] is Map
+              ? req['approvedBy']['name']
+              : 'System')
+        : '-';
+
+    // Get month name from month number or period
+    String periodText = 'Payslip Request';
+    if (req['period'] != null) {
+      periodText = req['period'].toString();
+    } else if (req['month'] != null) {
+      final monthName = _getMonthName(req['month']);
+      final year = req['year']?.toString() ?? '';
+      periodText = '$monthName $year'.trim();
+    }
+
+    Color statusColor = Colors.grey;
+    if (req['status'] == 'Generated' || req['status'] == 'Approved') {
+      statusColor = AppColors.success;
+    } else if (req['status'] == 'Rejected') {
+      statusColor = AppColors.error;
+    } else if (req['status'] == 'Pending') {
+      statusColor = AppColors.warning;
+    }
+
+    final isApproved = req['status'] == 'Approved' || req['status'] == 'Generated';
+
+    return InkWell(
+      onTap: () => _showPayslipDetails(req),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.description,
+                  color: AppColors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Period and Status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            periodText,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            req['status'] ?? '',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Details
+                    if (req['reason'] != null && req['reason'].toString().isNotEmpty) ...[
+                      _buildPayslipCardDetailRow(Icons.info_outline, 'Reason', req['reason'] ?? ''),
+                      const SizedBox(height: 4),
+                    ],
+                    _buildPayslipCardDetailRow(
+                      Icons.access_time,
+                      'Applied',
+                      appliedDate,
+                    ),
+                    if (approvedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildPayslipCardDetailRow(
+                        Icons.person,
+                        'Approved By',
+                        approvedBy,
+                      ),
+                    ],
+                    // View / Download actions – enabled only when payslip is generated/approved
+                    if (isApproved) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          // View payslip
+                          IconButton(
+                            tooltip: 'View Payslip',
+                            icon: const Icon(Icons.visibility_outlined, size: 20),
+                            color: AppColors.primary,
+                            onPressed: () {
+                              final requestId = req['_id']?.toString();
+                              if (requestId != null && requestId.isNotEmpty) {
+                                _viewPayslip(requestId);
+                              } else {
+                                SnackBarUtils.showSnackBar(
+                                  context,
+                                  'Invalid payslip request id',
+                                  isError: true,
+                                );
+                              }
+                            },
+                          ),
+                          const SizedBox(width: 4),
+                          // Download / Share payslip
+                          IconButton(
+                            tooltip: 'Download / Share Payslip',
+                            icon: const Icon(Icons.ios_share_rounded, size: 20),
+                            color: AppColors.primary,
+                            onPressed: () {
+                              final requestId = req['_id']?.toString();
+                              if (requestId == null || requestId.isEmpty) {
+                                SnackBarUtils.showSnackBar(
+                                  context,
+                                  'Invalid payslip request id',
+                                  isError: true,
+                                );
+                                return;
+                              }
+
+                              // Derive month/year for file naming – fall back gracefully
+                              String monthName = 'Month';
+                              int year = DateTime.now().year;
+
+                              if (req['month'] != null && req['year'] != null) {
+                                monthName = _getMonthName(req['month']);
+                                final yr = req['year'];
+                                if (yr is int) {
+                                  year = yr;
+                                } else if (yr is num) {
+                                  year = yr.toInt();
+                                } else if (yr is String) {
+                                  year = int.tryParse(yr) ?? year;
+                                }
+                              } else {
+                                // Try to parse from period text if available
+                                final period = _getPeriodText(req);
+                                final parts = period.split(' ');
+                                if (parts.isNotEmpty) {
+                                  monthName = parts[0];
+                                }
+                                if (parts.length > 1) {
+                                  final yr = int.tryParse(parts[1]);
+                                  if (yr != null) year = yr;
+                                }
+                              }
+
+                              _downloadPayslip(requestId, monthName, year);
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPayslipCardDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF424242),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF424242),
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
   }
 
   void showRequestPayslipDialog() {
@@ -2579,336 +3493,212 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     return Column(
       children: [
         // Controls Column
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search Reason, Month...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        if (_showFilters)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search Reason, Month...',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 0,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 0,
-                  ),
+                  onChanged: (val) {
+                    if (_debounce?.isActive ?? false) _debounce!.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 500), () {
+                      _fetchRequests();
+                    });
+                  },
                 ),
-                onChanged: (val) {
-                  if (_debounce?.isActive ?? false) _debounce!.cancel();
-                  _debounce = Timer(const Duration(milliseconds: 500), () {
-                    _fetchRequests();
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedStatus,
-                          isExpanded: true,
-                          items: _statusOptions
-                              .map(
-                                (e) =>
-                                    DropdownMenuItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedStatus = val);
-                              _fetchRequests();
-                            }
-                          },
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedStatus,
+                            isExpanded: true,
+                            items: _statusOptions
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedStatus = val);
+                                _fetchRequests();
+                              }
+                            },
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  InkWell(
-                    onTap: _pickDateRange,
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            color: Colors.grey[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _startDate == null
-                                ? 'Date'
-                                : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                            style: TextStyle(color: Colors.grey[800]),
-                          ),
-                          if (_startDate != null)
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () {
-                                setState(() {
-                                  _startDate = null;
-                                  _endDate = null;
-                                });
-                                _fetchRequests();
-                              },
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: _pickDateRange,
+                      child: Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              color: Colors.grey[600],
+                              size: 20,
                             ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              _startDate == null
+                                  ? 'Date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                            if (_startDate != null)
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () {
+                                  setState(() {
+                                    _startDate = null;
+                                    _endDate = null;
+                                  });
+                                  _fetchRequests();
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
 
         // List Body
         Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _requests.isEmpty
-              ? const Center(child: Text('No payslip requests found'))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: 800,
-                    child: Column(
-                      children: [
-                        // Table Header
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          color: Colors.grey[200],
-                          child: const Row(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              setState(() => _currentPage = 1);
+              await _fetchRequests();
+            },
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _requests.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              SizedBox(
-                                width: 50,
-                                child: Text(
-                                  'S.No',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
+                              Icon(
+                                Icons.description_outlined,
+                                size: 64,
+                                color: Colors.grey[400],
                               ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Period',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  'Reason',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Applied Date',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Approved By',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 90,
-                                child: Text(
-                                  'Status',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                  textAlign: TextAlign.end,
+                              const SizedBox(height: 16),
+                              Text(
+                                'No payslip requests found',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.black,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        // Table Body
-                        Expanded(
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _requests.length,
-                            separatorBuilder: (ctx, i) =>
-                                const Divider(height: 1),
-                            itemBuilder: (ctx, i) {
-                              final req = _requests[i];
-                              final appliedDate = req['createdAt'] != null
-                                  ? DateFormat(
-                                      'MMM dd, yyyy',
-                                    ).format(DateTime.parse(req['createdAt']))
-                                  : '-';
-                              final approvedBy = req['approvedBy'] != null
-                                  ? (req['approvedBy'] is Map
-                                        ? req['approvedBy']['name']
-                                        : 'System')
-                                  : '-';
-
-                              Color statusColor = Colors.grey;
-                              if (req['status'] == 'Generated') {
-                                statusColor = AppColors.success;
-                              } else if (req['status'] == 'Rejected')
-                                statusColor = AppColors.error;
-                              else if (req['status'] == 'Pending')
-                                statusColor = AppColors.warning;
-
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12.0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 50,
-                                      child: Text(
-                                        '${(i + 1) + (_currentPage - 1) * _itemsPerPage}',
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(
-                                        '${req['month']} ${req['year']}',
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 3,
-                                      child: Text(
-                                        req['reason'] ?? '',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    Expanded(flex: 2, child: Text(appliedDate)),
-                                    Expanded(flex: 2, child: Text(approvedBy)),
-                                    SizedBox(
-                                      width: 90,
-                                      child: Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: statusColor.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                            border: Border.all(
-                                              color: statusColor,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            req['status'],
-                                            style: TextStyle(
-                                              color: statusColor,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _requests.length,
+                    itemBuilder: (ctx, i) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: _buildPayslipCard(_requests[i]),
+                      );
+                    },
                   ),
-                ),
+          ),
         ),
 
         // Pagination Controls
         if (!_isLoading && _requests.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 140, 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey.shade300)),
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                DropdownButton<int>(
-                  value: _itemsPerPage,
-                  underline: const SizedBox(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  items: _perPageOptions
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(e.toString()),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _itemsPerPage = val;
-                        _currentPage = 1;
-                      });
-                      _fetchRequests();
-                    }
-                  },
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage > 1
+                      ? () {
+                          setState(() => _currentPage--);
+                          _fetchRequests();
+                        }
+                      : null,
                 ),
-                const SizedBox(width: 20),
-                Row(
-                  children: [
-                    Text(
-                      'Page $_currentPage of $_totalPages ($_totalItems total)',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$_currentPage',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: _currentPage > 1
-                          ? () {
-                              setState(() => _currentPage--);
-                              _fetchRequests();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: _currentPage < _totalPages
-                          ? () {
-                              setState(() => _currentPage++);
-                              _fetchRequests();
-                            }
-                          : null,
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _currentPage < _totalPages
+                      ? () {
+                          setState(() => _currentPage++);
+                          _fetchRequests();
+                        }
+                      : null,
                 ),
               ],
             ),
@@ -2930,12 +3720,15 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   final _formKey = GlobalKey<FormState>();
   final RequestService _requestService = RequestService();
 
+  bool _isBulkMode = false;
   String _month = 'January';
   final TextEditingController _yearController = TextEditingController(
     text: DateTime.now().year.toString(),
   );
   final TextEditingController _reasonController = TextEditingController();
   bool _isSubmitting = false;
+  List<dynamic> _existingRequests = [];
+  Set<String> _selectedMonths = {};
 
   final List<String> _months = [
     'January',
@@ -2952,30 +3745,149 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     'December',
   ];
 
+  // Helper function to convert month number or name to month name
+  String _getMonthName(dynamic month) {
+    if (month is int && month >= 1 && month <= 12) {
+      return _months[month - 1];
+    } else if (month is String) {
+      // If it's already a month name, return it
+      if (_months.contains(month)) {
+        return month;
+      }
+      // Try to parse as number
+      final monthNum = int.tryParse(month);
+      if (monthNum != null && monthNum >= 1 && monthNum <= 12) {
+        return _months[monthNum - 1];
+      }
+    }
+    return month?.toString() ?? 'Unknown';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingRequests();
+  }
+
+  Future<void> _loadExistingRequests() async {
+    final result = await _requestService.getPayslipRequests();
+    if (mounted) {
+      setState(() {
+        if (result['success'] && result['data'] != null) {
+          if (result['data'] is Map) {
+            _existingRequests = result['data']['requests'] ?? [];
+          } else if (result['data'] is List) {
+            _existingRequests = result['data'];
+          }
+        }
+      });
+    }
+  }
+
+  bool _isDuplicateRequest(String month, int year) {
+    // Convert month name to number for comparison
+    final monthNumber = _months.indexOf(month) + 1;
+    return _existingRequests.any((req) {
+      final reqMonth = req['month'];
+      // Handle both number and string formats
+      final reqMonthNumber = reqMonth is int 
+          ? reqMonth 
+          : (reqMonth is String ? _months.indexOf(reqMonth) + 1 : 0);
+      return reqMonthNumber == monthNumber && req['year'] == year;
+    });
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSubmitting = true);
-    final result = await _requestService.requestPayslip({
-      'month': _month,
-      'year': int.tryParse(_yearController.text) ?? DateTime.now().year,
-      'reason': _reasonController.text.isNotEmpty
-          ? _reasonController.text
-          : null,
-    });
-    setState(() => _isSubmitting = false);
+    final selectedYear = int.tryParse(_yearController.text) ?? DateTime.now().year;
+    final reason = _reasonController.text.trim();
 
-    if (mounted) {
-      if (result['success']) {
-        widget.onSuccess();
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payslip request submitted')),
-        );
-      } else {
-        ScaffoldMessenger.of(
+    if (_isBulkMode) {
+      // Bulk request
+      if (_selectedMonths.isEmpty) {
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(result['message'])));
+          'Please select at least one month',
+          isError: true,
+        );
+        return;
+      }
+
+      // Check for duplicates
+      final duplicateMonths = _selectedMonths.where((month) => 
+        _isDuplicateRequest(month, selectedYear)
+      ).toList();
+
+      if (duplicateMonths.isNotEmpty) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Requests already exist for: ${duplicateMonths.join(", ")}',
+          isError: true,
+        );
+        return;
+      }
+
+      setState(() => _isSubmitting = true);
+      // Convert month names to numbers (January = 1, December = 12)
+      final monthNumbers = _selectedMonths.map((monthName) => _months.indexOf(monthName) + 1).toList();
+      final result = await _requestService.requestPayslip({
+        'months': monthNumbers,
+        'year': selectedYear,
+        'reason': reason,
+      });
+      setState(() => _isSubmitting = false);
+
+      if (mounted) {
+        if (result['success']) {
+          widget.onSuccess();
+          Navigator.pop(context);
+          final createdCount = result['data']?['created']?.length ?? _selectedMonths.length;
+          SnackBarUtils.showSnackBar(
+            context,
+            'Created $createdCount payslip request(s)',
+          );
+        } else {
+          SnackBarUtils.showSnackBar(
+            context,
+            result['message'] ?? 'Failed to submit payslip requests',
+            isError: true,
+          );
+        }
+      }
+    } else {
+      // Single request
+      if (_isDuplicateRequest(_month, selectedYear)) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'A payslip request for $_month $selectedYear already exists',
+          isError: true,
+        );
+        return;
+      }
+
+      setState(() => _isSubmitting = true);
+      // Convert month name to number (January = 1, December = 12)
+      final monthNumber = _months.indexOf(_month) + 1;
+      final result = await _requestService.requestPayslip({
+        'month': monthNumber,
+        'year': selectedYear,
+        'reason': reason,
+      });
+      setState(() => _isSubmitting = false);
+
+      if (mounted) {
+        if (result['success']) {
+          widget.onSuccess();
+          Navigator.pop(context);
+          SnackBarUtils.showSnackBar(context, 'Payslip request submitted');
+        } else {
+          SnackBarUtils.showSnackBar(
+            context,
+            result['message'] ?? 'Failed to submit payslip request',
+            isError: true,
+          );
+        }
       }
     }
   }
@@ -3007,13 +3919,6 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          'Request a payslip for a specific month',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
                       ],
                     ),
                     IconButton(
@@ -3024,27 +3929,109 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                 ),
                 const SizedBox(height: 20),
 
-                const Text(
-                  'Month',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: _month,
-                  items: _months
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                      .toList(),
-                  onChanged: (val) => setState(() => _month = val!),
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                // Mode Toggle
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Single Month'),
+                        selected: !_isBulkMode,
+                        onSelected: (selected) {
+                          setState(() {
+                            _isBulkMode = !selected;
+                            if (!_isBulkMode) {
+                              _selectedMonths.clear();
+                            }
+                          });
+                        },
+                      ),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Bulk Months'),
+                        selected: _isBulkMode,
+                        onSelected: (selected) {
+                          setState(() {
+                            _isBulkMode = selected;
+                            if (_isBulkMode) {
+                              _month = 'January';
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                if (!_isBulkMode) ...[
+                  const Text(
+                    'Month',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: _month,
+                    items: _months
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                        .toList(),
+                    onChanged: (val) => setState(() => _month = val!),
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 10),
+                ] else ...[
+                  const Text(
+                    'Select Months *',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.all(8),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _months.map((month) {
+                        final isSelected = _selectedMonths.contains(month);
+                        return FilterChip(
+                          label: Text(month),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedMonths.add(month);
+                              } else {
+                                _selectedMonths.remove(month);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  if (_selectedMonths.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Selected: ${_selectedMonths.length} month(s)',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                ],
 
                 const Text(
                   'Year',
@@ -3065,7 +4052,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                 const SizedBox(height: 10),
 
                 const Text(
-                  'Reason (Optional)',
+                  'Reason *',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 TextFormField(
@@ -3077,6 +4064,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
+                  validator: (val) =>
+                      val == null || val.trim().isEmpty ? 'Reason is required' : null,
                 ),
                 const SizedBox(height: 20),
 
@@ -3110,7 +4099,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Submit Request'),
+                          : Text(_isBulkMode ? 'Submit Bulk Request' : 'Submit Request'),
                     ),
                   ],
                 ),

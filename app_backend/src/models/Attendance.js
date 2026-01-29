@@ -31,6 +31,7 @@ const attendanceSchema = new mongoose.Schema({
     overtime: Number,
     fineHours: Number,
     lateMinutes: Number,
+    earlyMinutes: Number,
     fineAmount: Number,
     location: {
         latitude: Number,

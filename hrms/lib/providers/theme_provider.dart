@@ -6,13 +6,13 @@ class ThemeProvider with ChangeNotifier {
   static const String _themeKey = 'theme_color';
 
   // Default color
-  Color _primaryColor = const Color(0xFF1E88E5);
+  Color _primaryColor = const Color(0xFF43A047); // Green 600 as default
 
   Color get primaryColor => _primaryColor;
 
   final List<Color> themeColors = [
+    const Color(0xFF43A047), // Green 600 (default)
     const Color(0xFF1E88E5), // Blue 600
-    const Color(0xFF43A047), // Green 600
     const Color(0xFFE53935), // Red 600
     const Color(0xFF8E24AA), // Purple 600
     const Color(0xFFFB8C00), // Orange 600
@@ -30,8 +30,8 @@ class ThemeProvider with ChangeNotifier {
     if (colorValue != null) {
       _primaryColor = Color(colorValue);
       AppColors.updateTheme(_primaryColor);
-      notifyListeners();
     }
+    notifyListeners();
   }
 
   Future<void> setThemeColor(Color color) async {
@@ -49,18 +49,18 @@ class ThemeProvider with ChangeNotifier {
         primary: _primaryColor,
         secondary: _primaryColor.withOpacity(0.8),
         surface: Colors.white,
-        background: const Color(0xFFF5F7FA),
+        background: AppColors.background,
       ),
       useMaterial3: true,
-      scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor: AppColors.background,
       appBarTheme: AppBarTheme(
-        backgroundColor: _primaryColor,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.background,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: _primaryColor),
         titleTextStyle: const TextStyle(
-          color: Colors.white,
+          color: AppColors.textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w600,
         ),
@@ -72,6 +72,13 @@ class ThemeProvider with ChangeNotifier {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
         ),
       ),
     );

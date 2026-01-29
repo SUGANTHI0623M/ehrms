@@ -37,11 +37,33 @@ const companySchema = new mongoose.Schema({
             }
         },
         attendance: {
-            automationRules: {
-                allowAttendanceOnWeeklyOff: {
-                    type: Boolean,
-                    default: false
+            geofence: {
+                enabled: { type: Boolean, default: false }
+            },
+            shifts: [{
+                name: { type: String, required: true },
+                startTime: { type: String, default: "09:30" }, // HH:mm format
+                endTime: { type: String, default: "18:30" }, // HH:mm format
+                graceTime: {
+                    value: { type: Number, default: 10 },
+                    unit: { type: String, enum: ['minutes', 'hours'], default: 'minutes' }
                 }
+            }],
+            automationRules: {
+                autoMarkAbsent: { type: Boolean, default: false },
+                autoMarkHalfDay: { type: Boolean, default: false },
+                allowAttendanceOnWeeklyOff: { type: Boolean, default: false }
+            },
+            fineSettings: {
+                enabled: { type: Boolean, default: false },
+                graceTimeMinutes: { type: Number, default: 10 },
+                finePerHour: { type: Number },
+                calculationType: { type: String, enum: ['shiftBased', 'fixedPerHour'], default: 'shiftBased' },
+                fineRules: [{
+                    type: { type: String },
+                    customAmount: { type: Number },
+                    applyTo: { type: String }
+                }]
             }
         }
     },

@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // These will be updated by ThemeProvider
-  static Color primary = const Color(0xFF1E88E5);
-  static Color primaryDark = const Color(0xFF1565C0);
-  static Color primaryLight = const Color(0xFF64B5F6);
+  // Default to a green theme
+  static Color primary = const Color(0xFF43A047); // Green 600
+  static Color primaryDark = const Color(0xFF2E7D32); // Green 800
+  static Color primaryLight = const Color(0xFFA5D6A7); // Green 200
 
   // Secondary/Accent Colors
   static const Color accent = Color(0xFFFFA000);

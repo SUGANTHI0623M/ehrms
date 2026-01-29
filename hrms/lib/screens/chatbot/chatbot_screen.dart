@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../services/chatbot_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/bottom_navigation_bar.dart';
+import '../../widgets/menu_icon_button.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -61,38 +63,51 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const MenuIconButton(),
         title: const Text('Assistant Chatbot'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
       drawer: const AppDrawer(),
       body: Column(
         children: [
           Expanded(
-            child: _messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+            child: RefreshIndicator(
+              onRefresh: () async {
+                // Refresh doesn't clear messages, just provides pull-to-refresh gesture
+                await Future.delayed(const Duration(milliseconds: 300));
+              },
+              child: _messages.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 64,
-                          color: Colors.grey[300],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Ask me about your leaves, holidays,\nor company info!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.chat_bubble_outline,
+                                  size: 64,
+                                  color: Colors.grey[300],
+                                ),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'Ask me about your leaves, holidays,\nor company info!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
                       final msg = _messages[index];
                       final isUser = msg['role'] == 'user';
                       return Align(
@@ -134,6 +149,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       );
                     },
                   ),
+            ),
           ),
           if (_isLoading)
             const Padding(
@@ -174,6 +190,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           ),
         ],
       ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 }

@@ -15,12 +15,51 @@ ios/Pods/
 ios/.symlinks/
 
 # Node
+node_modules/
+**/node_modules/
 app_backend/node_modules/
+HRMS-V1/app_backend/node_modules/
+**/HRMS-V1/**/node_modules/
 app_backend/.env
+*.env
+.env.local
+.env.*.local
 
 # Logs
 *.log
+hs_err_*.log
+**/hs_err_*.log
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Debug/Output files
+**/scripts/*.txt
+**/scripts/**/*.txt
+*.output.txt
+*.debug.txt
+*.check.txt
+
+# AI/LLM conversation history
+.gemini/
+.gemini/**
+*.gemini.md
+
+# Uploads (user-uploaded files)
+**/uploads/**
+backend/uploads/
+app_backend/uploads/
+
+# Temporary/Test files
+**/temp/
+**/tmp/
+*.tmp
+*.temp
+
+# Separate backend project (TypeScript)
+backend/
+
+# iOS temporary asset directories
+**/AppIcon.appiconset/_/
+**/Assets.xcassets/**/_/

@@ -4,6 +4,14 @@ const Company = require('../models/Company');
 const Branch = require('../models/Branch');
 const Candidate = require('../models/Candidate');
 const jwt = require('jsonwebtoken');
+const { sendOTPEmail } = require('../services/emailService');
+const cloudinary = require('cloudinary').v2;
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET || 'secret', {
@@ -11,31 +19,155 @@ const generateToken = (id) => {
     });
 };
 
+// Helper to safely build case-insensitive regex
+const buildEmailRegex = (email) => {
+    const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped}$`, 'i');
+};
+
+// Helper to find or create a user by email, with Candidate fallback
+const findOrCreateUserByEmail = async (rawEmail) => {
+    if (!rawEmail) return null;
+
+    const email = rawEmail.trim();
+    const normalizedEmail = email.toLowerCase();
+
+    // 1. Exact / normalized match
+    let user = await User.findOne({ email: normalizedEmail });
+
+    // 2. Case-insensitive regex fallback
+    if (!user) {
+        user = await User.findOne({ email: buildEmailRegex(email) });
+    }
+
+    if (user) {
+        return user;
+    }
+
+    // 3. Candidate fallback
+    const candidate = await Candidate.findOne({
+        email: buildEmailRegex(email)
+    }).lean();
+
+    if (!candidate) {
+        return null;
+    }
+
+    // Auto-create basic user from candidate
+    const randomPassword = Math.random().toString(36).slice(-10) + '!aA1';
+
+    const name = [candidate.firstName, candidate.lastName].filter(Boolean).join(' ') || candidate.email;
+
+    const newUser = await User.create({
+        name,
+        email: normalizedEmail,
+        password: randomPassword,
+        role: 'Employee',
+        companyId: candidate.businessId
+    });
+
+    return newUser;
+};
+
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // 1. Try to find User
-        let user = await User.findOne({ email }).populate('roleId');
+        // Validate required fields
+        if (!email || !password) {
+            return res.status(400).json({ 
+                success: false, 
+                error: { message: 'Email and password are required' } 
+            });
+        }
+
+        console.log(`[Login] Attempting login for email: ${email}`);
+
+        // 1. Try to find User (explicitly select password field to ensure it's included)
+        let user = await User.findOne({ email: email.toLowerCase().trim() })
+            .select('+password')
+            .populate('roleId');
         let staff = null;
 
+        console.log(`[Login] User found: ${user ? 'Yes' : 'No'}`);
+
         if (user) {
-            if (await user.matchPassword(password)) {
+            console.log(`[Login] User ID: ${user._id}, Role: ${user.role}, IsActive: ${user.isActive}`);
+            console.log(`[Login] Password field exists: ${user.password ? 'Yes' : 'No'}`);
+            
+            // Check if user is active
+            if (!user.isActive) {
+                return res.status(401).json({ success: false, error: { message: 'Account is inactive' } });
+            }
+
+            // Check if user has a password set
+            if (!user.password) {
+                return res.status(401).json({ success: false, error: { message: 'Password not set for this account' } });
+            }
+
+            const passwordMatch = await user.matchPassword(password);
+            console.log(`[Login] Password match: ${passwordMatch}`);
+            
+            if (passwordMatch) {
                 staff = await Staff.findOne({ userId: user._id })
                     .populate('branchId')
                     .populate('businessId');
+                console.log(`[Login] Staff found: ${staff ? 'Yes' : 'No'}`);
             } else {
+                console.log(`[Login] Invalid password for user: ${email}`);
                 return res.status(401).json({ success: false, error: { message: 'Invalid credentials' } });
             }
         } else {
-            // 2. Fallback: Try to find Staff directly
-            staff = await Staff.findOne({ email })
+            // 2. Fallback: Try to find Staff directly (explicitly select password field)
+            console.log(`[Login] User not found, trying Staff...`);
+            staff = await Staff.findOne({ email: email.toLowerCase().trim() })
+                .select('+password')
                 .populate('branchId')
                 .populate('businessId');
 
-            if (staff && await staff.matchPassword(password)) {
-                user = await User.findById(staff.userId).populate('roleId');
+            if (staff) {
+                console.log(`[Login] Staff found, checking password...`);
+                
+                // If staff has no password, check linked User's password
+                if (!staff.password) {
+                    if (staff.userId) {
+                        console.log(`[Login] Staff has no password, checking linked User password...`);
+                        user = await User.findById(staff.userId)
+                            .select('+password')
+                            .populate('roleId');
+                        
+                        if (!user || !user.password) {
+                            return res.status(401).json({ success: false, error: { message: 'Password not set for this account' } });
+                        }
+                        
+                        // Check if user is active
+                        if (!user.isActive) {
+                            return res.status(401).json({ success: false, error: { message: 'Account is inactive' } });
+                        }
+                        
+                        const userPasswordMatch = await user.matchPassword(password);
+                        if (userPasswordMatch) {
+                            console.log(`[Login] Linked User password correct`);
+                        } else {
+                            console.log(`[Login] Invalid password for linked User`);
+                            return res.status(401).json({ success: false, error: { message: 'Invalid credentials' } });
+                        }
+                    } else {
+                        return res.status(401).json({ success: false, error: { message: 'Password not set for this account' } });
+                    }
+                } else {
+                    // Staff has password, check it
+                    const staffPasswordMatch = await staff.matchPassword(password);
+                    if (staffPasswordMatch) {
+                        user = await User.findById(staff.userId).populate('roleId');
+                        console.log(`[Login] Staff password correct, User found: ${user ? 'Yes' : 'No'}`);
+                    } else {
+                        console.log(`[Login] Invalid password for staff: ${email}`);
+                        return res.status(401).json({ success: false, error: { message: 'Invalid credentials' } });
+                    }
+                }
             } else {
+                console.log(`[Login] Neither User nor Staff found for email: ${email}`);
                 return res.status(401).json({ success: false, error: { message: 'Invalid credentials' } });
             }
         }
@@ -321,4 +453,366 @@ const updateProfile = async (req, res) => {
     }
 };
 
-module.exports = { login, googleLogin, register, getProfile, updateProfile };
+/**
+ * Update education details for current user's candidate record.
+ * Education is stored on Candidate model; finds or creates candidate linked to staff.
+ */
+const updateEducation = async (req, res) => {
+    try {
+        const staff = req.staff;
+        if (!staff) {
+            return res.status(404).json({ success: false, error: { message: 'Staff record not found' } });
+        }
+
+        const education = req.body.education;
+        if (!Array.isArray(education)) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'education must be an array' }
+            });
+        }
+
+        // Normalize education entries to match Candidate schema
+        const normalizedEducation = education.map((edu) => ({
+            qualification: edu.qualification || '',
+            courseName: edu.courseName || edu.course || '',
+            institution: edu.institution || '',
+            university: edu.university || '',
+            yearOfPassing: edu.yearOfPassing != null ? String(edu.yearOfPassing) : '',
+            percentage: edu.percentage != null ? String(edu.percentage) : '',
+            cgpa: edu.cgpa != null ? String(edu.cgpa) : ''
+        }));
+
+        let candidate = await Candidate.findById(staff.candidateId);
+        if (!candidate && staff.email) {
+            candidate = await Candidate.findOne({
+                email: staff.email.toLowerCase(),
+                businessId: staff.businessId
+            });
+        }
+
+        if (!candidate) {
+            // Create a minimal candidate for this staff so we can store education
+            candidate = await Candidate.create({
+                firstName: (staff.name || 'Staff').split(' ')[0] || 'Staff',
+                lastName: (staff.name || '').split(' ').slice(1).join(' ') || 'User',
+                email: staff.email,
+                phone: staff.phone || '',
+                position: staff.designation || 'Employee',
+                primarySkill: 'General',
+                status: 'Applied',
+                businessId: staff.businessId,
+                education: normalizedEducation
+            });
+            // Update staff.candidateId without triggering full validation
+            await Staff.findByIdAndUpdate(
+                staff._id,
+                { candidateId: candidate._id },
+                { runValidators: false, new: false }
+            );
+        } else {
+            candidate.education = normalizedEducation;
+            await candidate.save();
+        }
+
+        const updatedCandidate = await Candidate.findById(candidate._id).lean();
+        res.json({
+            success: true,
+            message: 'Education updated successfully',
+            data: {
+                education: updatedCandidate.education || []
+            }
+        });
+    } catch (error) {
+        console.error('updateEducation Error:', error);
+        res.status(500).json({ success: false, error: { message: error.message } });
+    }
+};
+
+// -------------------------------
+// Password reset with OTP flow
+// -------------------------------
+
+// Phase 1: Request OTP
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Email is required' }
+            });
+        }
+
+        const user = await findOrCreateUserByEmail(email);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: { message: 'No account found with this email' }
+            });
+        }
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        user.resetPasswordOTP = otp;
+        user.resetPasswordOTPExpiry = expiry;
+        await user.save();
+
+        // Send OTP via email (and potentially other channels later)
+        sendOTPEmail(user.email, otp);
+
+        return res.status(200).json({
+            success: true,
+            message: 'OTP has been sent to your registered email address'
+        });
+    } catch (error) {
+        console.error('forgotPassword Error:', error);
+        return res.status(500).json({
+            success: false,
+            error: { message: error.message }
+        });
+    }
+};
+
+// Phase 2: Verify OTP
+const verifyOTP = async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Email and OTP are required' }
+            });
+        }
+
+        const user = await findOrCreateUserByEmail(email);
+
+        if (!user || !user.resetPasswordOTP || !user.resetPasswordOTPExpiry) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Invalid or expired OTP' }
+            });
+        }
+
+        if (user.resetPasswordOTP !== otp) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Invalid OTP' }
+            });
+        }
+
+        if (new Date() > user.resetPasswordOTPExpiry) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'OTP has expired' }
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'OTP verified successfully'
+        });
+    } catch (error) {
+        console.error('verifyOTP Error:', error);
+        return res.status(500).json({
+            success: false,
+            error: { message: error.message }
+        });
+    }
+};
+
+// Phase 3: Reset password
+const resetPassword = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Email, OTP and new password are required' }
+            });
+        }
+
+        const user = await findOrCreateUserByEmail(email);
+
+        if (!user || !user.resetPasswordOTP || !user.resetPasswordOTPExpiry) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Invalid or expired OTP' }
+            });
+        }
+
+        if (user.resetPasswordOTP !== otp) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Invalid OTP' }
+            });
+        }
+
+        if (new Date() > user.resetPasswordOTPExpiry) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'OTP has expired' }
+            });
+        }
+
+        user.password = newPassword; // Will be hashed by pre-save hook
+        user.resetPasswordOTP = undefined;
+        user.resetPasswordOTPExpiry = undefined;
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password has been reset successfully'
+        });
+    } catch (error) {
+        console.error('resetPassword Error:', error);
+        return res.status(500).json({
+            success: false,
+            error: { message: error.message }
+        });
+    }
+};
+
+// -------------------------------
+// Change password (old + new)
+// -------------------------------
+
+const changePassword = async (req, res) => {
+    try {
+        const { oldPassword, newPassword } = req.body;
+
+        if (!oldPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Old password and new password are required' }
+            });
+        }
+
+        if (oldPassword === newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'New password must be different from old password' }
+            });
+        }
+
+        const userId = req.user?._id;
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Not authenticated' }
+            });
+        }
+
+        // Load user with password field
+        const user = await User.findById(userId).select('+password');
+        if (!user || !user.password) {
+            return res.status(404).json({
+                success: false,
+                error: { message: 'User not found or password not set' }
+            });
+        }
+
+        const isMatch = await user.matchPassword(oldPassword);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Old password is incorrect' }
+            });
+        }
+
+        user.password = newPassword; // pre-save hook will hash
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password updated successfully'
+        });
+    } catch (error) {
+        console.error('changePassword Error:', error);
+        return res.status(500).json({
+            success: false,
+            error: { message: error.message }
+        });
+    }
+};
+
+// -------------------------------
+// Update profile photo (Cloudinary)
+// -------------------------------
+
+const updateProfilePhoto = async (req, res) => {
+    try {
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'No file uploaded' }
+            });
+        }
+
+        const userId = req.user?._id;
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Not authenticated' }
+            });
+        }
+
+        // Convert buffer to base64 data URL for Cloudinary
+        const base64 = req.file.buffer.toString('base64');
+        const dataUri = `data:${req.file.mimetype || 'image/jpeg'};base64,${base64}`;
+
+        const uploadResult = await cloudinary.uploader.upload(dataUri, {
+            folder: 'hrms/profile_photos',
+            resource_type: 'image'
+        });
+
+        const photoUrl = uploadResult.secure_url;
+
+        // Update User avatar
+        const user = await User.findById(userId);
+        if (user) {
+            user.avatar = photoUrl;
+            await user.save();
+        }
+
+        // Update Staff avatar if staff record exists
+        if (req.staff && req.staff._id) {
+            await Staff.findByIdAndUpdate(
+                req.staff._id,
+                { avatar: photoUrl },
+                { new: true }
+            );
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Profile photo updated successfully',
+            data: { photoUrl }
+        });
+    } catch (error) {
+        console.error('updateProfilePhoto Error:', error);
+        return res.status(500).json({
+            success: false,
+            error: { message: error.message }
+        });
+    }
+};
+
+module.exports = {
+    login,
+    googleLogin,
+    register,
+    getProfile,
+    updateProfile,
+    updateEducation,
+    forgotPassword,
+    verifyOTP,
+    resetPassword,
+    changePassword,
+    updateProfilePhoto
+};

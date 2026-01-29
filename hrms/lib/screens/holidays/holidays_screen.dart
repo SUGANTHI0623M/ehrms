@@ -6,6 +6,7 @@ import '../../config/app_colors.dart';
 import '../../models/holiday_model.dart';
 import '../../services/holiday_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/menu_icon_button.dart';
 
 class HolidaysScreen extends StatefulWidget {
   const HolidaysScreen({super.key});
@@ -50,6 +51,10 @@ class _HolidaysScreenState extends State<HolidaysScreen>
   }
 
   Future<void> _fetchHolidays() async {
+    // Log to help debug loading issues
+    debugPrint('[HolidaysScreen] _fetchHolidays called. '
+        'year=$_selectedYear search=$_searchQuery');
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -66,8 +71,10 @@ class _HolidaysScreenState extends State<HolidaysScreen>
         if (result['success']) {
           _holidays = result['data'];
           _holidays.sort((a, b) => a.date.compareTo(b.date));
+          debugPrint('[HolidaysScreen] Loaded ${_holidays.length} holidays');
         } else {
           _errorMessage = result['message'];
+          debugPrint('[HolidaysScreen] Error: $_errorMessage');
         }
       });
     }
@@ -106,19 +113,24 @@ class _HolidaysScreenState extends State<HolidaysScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: const MenuIconButton(),
         title: const Text(
           'Holidays',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: AppColors.primary,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withOpacity(0.7),
-          indicatorColor: Colors.white,
+          indicatorColor: AppColors.primary,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: Colors.black,
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          indicator: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
           tabs: const [
             Tab(text: 'Year wise'),
             Tab(text: 'Month wise'),
@@ -138,24 +150,44 @@ class _HolidaysScreenState extends State<HolidaysScreen>
       children: [
         _buildFilterHeader(),
         Expanded(
-          child: _isLoading
-              ? Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
-                )
-              : _errorMessage != null
-              ? _buildErrorWidget()
-              : _holidays.isEmpty
-              ? _buildEmptyWidget()
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _holidays.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final holiday = _holidays[index];
-                    return _buildHolidayCard(holiday);
-                  },
-                ),
+          child: RefreshIndicator(
+            onRefresh: _fetchHolidays,
+            child: _isLoading
+                ? Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : _errorMessage != null
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: _buildErrorWidget(),
+                      ),
+                    ],
+                  )
+                : _holidays.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: _buildEmptyWidget(),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _holidays.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final holiday = _holidays[index];
+                      return _buildHolidayCard(holiday);
+                    },
+                  ),
+          ),
         ),
       ],
     );
@@ -336,25 +368,37 @@ class _HolidaysScreenState extends State<HolidaysScreen>
 
         // Holidays in selected month
         Expanded(
-          child: _isLoading
-              ? Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
-                )
-              : holidaysInMonth.isEmpty
-              ? Center(
-                  child: Text(
-                    'No holidays in ${DateFormat('MMMM').format(_focusedDay)}',
-                    style: const TextStyle(color: AppColors.textSecondary),
+          child: RefreshIndicator(
+            onRefresh: _fetchHolidays,
+            child: _isLoading
+                ? Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : holidaysInMonth.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Text(
+                            'No holidays in ${DateFormat('MMMM').format(_focusedDay)}',
+                            style: const TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: holidaysInMonth.length,
+                    itemBuilder: (context, index) {
+                      final holiday = holidaysInMonth[index];
+                      return _buildHolidayRow(holiday);
+                    },
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: holidaysInMonth.length,
-                  itemBuilder: (context, index) {
-                    final holiday = holidaysInMonth[index];
-                    return _buildHolidayRow(holiday);
-                  },
-                ),
+          ),
         ),
       ],
     );

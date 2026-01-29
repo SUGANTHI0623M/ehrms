@@ -2,6 +2,7 @@ const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
 const LeaveTemplate = require('../models/LeaveTemplate');
 const mongoose = require('mongoose');
+const { markAttendanceForApprovedLeave, calculateAvailableLeaves } = require('../utils/leaveAttendanceHelper');
 
 // Helper for date calculation
 const calculateDays = (start, end) => {
@@ -119,30 +120,18 @@ const getLeaveTypes = async (req, res) => {
                 };
             }
 
-            const isCasual = typeName.toLowerCase() === 'casual';
-            const rangeStart = isCasual ? startOfMonth : startOfYear;
-            const rangeEnd = isCasual ? endOfMonth : endOfYear;
-
-            const usedLeaves = await Leave.find({
-                employeeId: staff._id,
-                leaveType: { $regex: new RegExp(`^${typeName}$`, 'i') },
-                status: { $in: ['Approved', 'Pending'] },
-                $or: [
-                    { startDate: { $gte: rangeStart, $lte: rangeEnd } },
-                    { endDate: { $gte: rangeStart, $lte: rangeEnd } },
-                    { startDate: { $lte: rangeStart }, endDate: { $gte: rangeEnd } }
-                ]
-            });
-
-            const totalUsed = usedLeaves.reduce((sum, l) => sum + l.days, 0);
-            const balance = limit - totalUsed;
+            // Use calculateAvailableLeaves to handle carryForward logic
+            const leaveInfo = await calculateAvailableLeaves(staff, typeName, now);
 
             return {
                 type: typeName,
-                limit: limit,
-                used: totalUsed,
-                balance: Math.max(0, balance),
-                isMonthly: isCasual,
+                limit: leaveInfo.baseLimit,
+                carriedForward: leaveInfo.carriedForward,
+                totalAvailable: leaveInfo.totalAvailable,
+                used: leaveInfo.used,
+                balance: leaveInfo.balance,
+                isMonthly: leaveInfo.isMonthly,
+                carryForwardEnabled: leaveInfo.carryForwardEnabled,
                 isUnrestricted: false
             };
         }));
@@ -195,39 +184,27 @@ const createLeave = async (req, res) => {
 
         // If limit is not null, enforce it. If null, allow without restriction (as per user request)
         if (limit !== null) {
-            const isCasual = leaveType.toLowerCase() === 'casual';
+            // Use calculateAvailableLeaves to handle carryForward logic
             const leaveDate = new Date(startDate);
-            const startOfRange = isCasual
-                ? new Date(leaveDate.getFullYear(), leaveDate.getMonth(), 1)
-                : new Date(leaveDate.getFullYear(), 0, 1);
-            const endOfRange = isCasual
-                ? new Date(leaveDate.getFullYear(), leaveDate.getMonth() + 1, 0, 23, 59, 59)
-                : new Date(leaveDate.getFullYear(), 11, 31, 23, 59, 59);
+            const leaveInfo = await calculateAvailableLeaves(staff, leaveType, leaveDate);
 
-            const usedLeaves = await Leave.find({
-                employeeId: staff._id,
-                leaveType: { $regex: new RegExp(`^${leaveType}$`, 'i') },
-                status: { $in: ['Approved', 'Pending'] },
-                $or: [
-                    { startDate: { $gte: startOfRange, $lte: endOfRange } },
-                    { endDate: { $gte: startOfRange, $lte: endOfRange } },
-                    { startDate: { $lte: startOfRange }, endDate: { $gte: endOfRange } }
-                ]
-            });
+            if (leaveInfo.totalAvailable !== null && leaveInfo.used + days > leaveInfo.totalAvailable) {
+                const rangeType = leaveInfo.isMonthly ? 'month' : 'year';
+                const message = leaveInfo.carryForwardEnabled
+                    ? `Leave limit exceeded for ${leaveType}. Max ${leaveInfo.totalAvailable} days available (${leaveInfo.baseLimit} base + ${leaveInfo.carriedForward} carried forward) per ${rangeType}.`
+                    : `Leave limit exceeded for ${leaveType}. Max ${leaveInfo.baseLimit} days allowed per ${rangeType}.`;
 
-            const totalUsed = usedLeaves.reduce((sum, l) => sum + l.days, 0);
-
-            if (totalUsed + days > limit) {
-                const rangeType = isCasual ? 'month' : 'year';
                 return res.status(400).json({
                     success: false,
                     error: {
-                        message: `Leave limit exceeded for ${leaveType}. Max ${limit} days allowed per ${rangeType}.`,
+                        message: message,
                         details: {
-                            limit,
-                            used: totalUsed,
+                            baseLimit: leaveInfo.baseLimit,
+                            carriedForward: leaveInfo.carriedForward,
+                            totalAvailable: leaveInfo.totalAvailable,
+                            used: leaveInfo.used,
                             requested: days,
-                            balance: Math.max(0, limit - totalUsed),
+                            balance: leaveInfo.balance,
                             range: rangeType
                         }
                     }
@@ -256,8 +233,63 @@ const createLeave = async (req, res) => {
 };
 
 
+// @desc    Approve or Reject Leave
+// @route   PATCH /api/requests/leave/:id/approve or /api/requests/leave/:id/reject
+// @access  Private (Admin/HR)
+const updateLeaveStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, rejectionReason } = req.body;
+        const approverId = req.staff?._id || req.user?._id;
+
+        if (!['Approved', 'Rejected'].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Invalid status. Must be "Approved" or "Rejected"' }
+            });
+        }
+
+        const leave = await Leave.findById(id);
+        if (!leave) {
+            return res.status(404).json({
+                success: false,
+                error: { message: 'Leave not found' }
+            });
+        }
+
+        // Update leave status
+        leave.status = status;
+        leave.approvedBy = approverId;
+        leave.approvedAt = new Date();
+        if (status === 'Rejected' && rejectionReason) {
+            leave.rejectionReason = rejectionReason;
+        }
+
+        await leave.save();
+
+        // If approved, mark attendance as "Present" for all dates in the leave period
+        if (status === 'Approved') {
+            try {
+                await markAttendanceForApprovedLeave(leave);
+            } catch (error) {
+                console.error('[updateLeaveStatus] Error marking attendance:', error);
+                // Don't fail the request if attendance marking fails, but log it
+            }
+        }
+
+        res.json({
+            success: true,
+            data: { leave }
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: { message: error.message } });
+    }
+};
+
 module.exports = {
     getLeaves,
     getLeaveTypes,
-    createLeave
+    createLeave,
+    updateLeaveStatus
 };

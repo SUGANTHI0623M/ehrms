@@ -3,7 +3,6 @@ const express = require('express');
 const connectDB = require('./src/config/db');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./src/routes/authRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
@@ -14,6 +13,7 @@ const payrollRoutes = require('./src/routes/payrollRoutes');
 const chatbotRoutes = require('./src/routes/chatbotRoutes');
 const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
+const assetsRoutes = require('./src/routes/assetsRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -39,16 +39,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again later'
-});
-app.use(limiter);
-
-// Routes
+// Routes (rate limiting is applied at router level, not globally)
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -58,6 +49,7 @@ app.use('/api/payrolls', payrollRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/assets', assetsRoutes);
 
 const PORT = process.env.PORT || 5000;
 

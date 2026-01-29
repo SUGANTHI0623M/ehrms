@@ -1,11 +1,18 @@
 // hrms/lib/screens/profile/profile_screen.dart
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/bottom_navigation_bar.dart';
+import '../../widgets/menu_icon_button.dart';
+import '../../utils/snackbar_utils.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -19,9 +26,11 @@ class _ProfileScreenState extends State<ProfileScreen>
   final AuthService _authService = AuthService();
   final OnboardingService _onboardingService = OnboardingService();
   Map<String, dynamic>? _userData;
+  Map<String, dynamic>? _onboardingData;
   List<dynamic> _documents = [];
   bool _isLoading = true;
   bool _isLoadingDocs = false;
+  String? _uploadingDocumentId;
   late TabController _tabController;
 
   @override
@@ -57,9 +66,11 @@ class _ProfileScreenState extends State<ProfileScreen>
           );
           print('===================');
         } else {
-          ScaffoldMessenger.of(
+          SnackBarUtils.showSnackBar(
             context,
-          ).showSnackBar(SnackBar(content: Text(result['message'])));
+            result['message'] ?? 'Error loading profile',
+            isError: true,
+          );
         }
         _isLoading = false;
       });
@@ -71,59 +82,191 @@ class _ProfileScreenState extends State<ProfileScreen>
   Map<String, dynamic>? get _candidateData =>
       _staffData?['candidateId'] as Map<String, dynamic>?;
 
+  Future<void> _refreshProfile() async {
+    await Future.wait([_loadProfile(), _loadDocuments()]);
+  }
+
   Future<void> _loadDocuments() async {
     setState(() => _isLoadingDocs = true);
-    print('DEBUG: ProfileScreen._loadDocuments() called');
+    print('═══════════════════════════════════════════════════════');
+    print('[ProfileScreen] _loadDocuments() called');
+    print('═══════════════════════════════════════════════════════');
+
     final result = await _onboardingService.getMyOnboarding();
+
     if (mounted) {
       setState(() {
-        print('DEBUG: API result success: ${result['success']}');
+        print('[ProfileScreen] API result success: ${result['success']}');
+
         if (result['success'] && result['data'] != null) {
           final data = result['data'];
-          print('DEBUG: result[\'data\'] type: ${data.runtimeType}');
-          print('DEBUG: result[\'data\'] content: $data');
+          print('[ProfileScreen] result[\'data\'] type: ${data.runtimeType}');
+          print(
+            '[ProfileScreen] result[\'data\'] keys: ${data is Map ? (data as Map).keys.toList() : 'N/A'}',
+          );
 
           if (data is Map && data.containsKey('onboarding')) {
             final onboarding = data['onboarding'];
-            print('DEBUG: onboarding type: ${onboarding.runtimeType}');
+            _onboardingData = onboarding;
+            print('[ProfileScreen] onboarding type: ${onboarding.runtimeType}');
+            print(
+              '[ProfileScreen] onboarding keys: ${onboarding is Map ? (onboarding as Map).keys.toList() : 'N/A'}',
+            );
 
             if (onboarding is Map && onboarding.containsKey('documents')) {
               _documents = onboarding['documents'] as List? ?? [];
-              print('DEBUG: _documents count: ${_documents.length}');
+              print('[ProfileScreen] ✅ Documents found: ${_documents.length}');
+
+              // Log each document's details
+              for (var i = 0; i < _documents.length; i++) {
+                final doc = _documents[i] as Map<String, dynamic>;
+                print('[ProfileScreen] Document $i:');
+                print('  - Name: ${doc['name']}');
+                print('  - Status: ${doc['status']}');
+                print('  - Required: ${doc['required']}');
+                print(
+                  '  - Has URL: ${doc['url'] != null && doc['url'].toString().isNotEmpty}',
+                );
+                print('  - Type: ${doc['type']}');
+                print('  - _id: ${doc['_id']}');
+
+                // Check if upload button should show
+                final status = doc['status'] ?? 'NOT_STARTED';
+                final hasUrl =
+                    doc['url'] != null && doc['url'].toString().isNotEmpty;
+                final isNotStarted = status == 'NOT_STARTED' || status == null;
+                final shouldShowUpload = isNotStarted || !hasUrl;
+                print(
+                  '  - Should show Upload button: $shouldShowUpload (isNotStarted: $isNotStarted, !hasUrl: ${!hasUrl})',
+                );
+              }
             } else {
-              print('DEBUG: "documents" key missing in onboarding object');
+              print(
+                '[ProfileScreen] ❌ "documents" key missing in onboarding object',
+              );
+              print('[ProfileScreen] onboarding content: $onboarding');
               _documents = [];
             }
           } else {
-            print('DEBUG: "onboarding" key missing in result[\'data\']');
+            print(
+              '[ProfileScreen] ❌ "onboarding" key missing in result[\'data\']',
+            );
+            print('[ProfileScreen] data content: $data');
             _documents = [];
           }
         } else {
-          print(
-            'DEBUG: Fetch failed or data null. result[\'message\']: ${result['message']}',
-          );
+          print('[ProfileScreen] ❌ Fetch failed or data null');
+          print('[ProfileScreen] result message: ${result['message']}');
+          print('[ProfileScreen] Full result: $result');
           _documents = [];
         }
+
         _isLoadingDocs = false;
+        print('[ProfileScreen] ✅ Finished _loadDocuments');
+        print('[ProfileScreen] Final _documents count: ${_documents.length}');
         print(
-          'DEBUG: Finished _loadDocuments, _documents count: ${_documents.length}',
+          '[ProfileScreen] _onboardingData exists: ${_onboardingData != null}',
         );
+        print('═══════════════════════════════════════════════════════');
       });
+    }
+  }
+
+  Future<void> _uploadDocument(Map<String, dynamic> doc) async {
+    if (_onboardingData == null || _onboardingData!['_id'] == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Onboarding record not found',
+        isError: true,
+      );
+      return;
+    }
+
+    final onboardingId = _onboardingData!['_id'].toString();
+    final documentId = doc['_id']?.toString();
+
+    if (documentId == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Document ID not found',
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      // Pick file
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'],
+      );
+
+      if (result == null || result.files.single.path == null) {
+        return; // User cancelled
+      }
+
+      final file = File(result.files.single.path!);
+      setState(() {
+        _uploadingDocumentId = documentId;
+      });
+
+      final uploadResult = await _onboardingService.uploadDocument(
+        onboardingId,
+        documentId,
+        file,
+      );
+
+      setState(() {
+        _uploadingDocumentId = null;
+      });
+
+      if (mounted) {
+        if (uploadResult['success']) {
+          SnackBarUtils.showSnackBar(
+            context,
+            'Document uploaded successfully',
+            backgroundColor: AppColors.success,
+          );
+          _loadDocuments(); // Refresh documents list
+        } else {
+          SnackBarUtils.showSnackBar(
+            context,
+            uploadResult['message'] ?? 'Failed to upload document',
+            isError: true,
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _uploadingDocumentId = null;
+      });
+      if (mounted) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Error uploading document: $e',
+          isError: true,
+        );
+      }
     }
   }
 
   Future<void> _viewDocument(String? url) async {
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Document URL not available')),
+      SnackBarUtils.showSnackBar(
+        context,
+        'Document URL not available',
+        isError: true,
       );
+
       return;
     }
     final Uri uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open document')),
+        SnackBarUtils.showSnackBar(
+          context,
+          'Could not open document',
+          isError: true,
         );
       }
     }
@@ -131,9 +274,12 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Future<void> _downloadDocument(String? url) async {
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Document URL not available')),
+      SnackBarUtils.showSnackBar(
+        context,
+        'Document URL not available',
+        isError: true,
       );
+
       return;
     }
 
@@ -150,12 +296,10 @@ class _ProfileScreenState extends State<ProfileScreen>
       final Uri uri = Uri.parse(downloadUrl);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Starting download...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
+        SnackBarUtils.showSnackBar(
+          context,
+          'Starting download...',
+          backgroundColor: AppColors.info,
         );
       }
 
@@ -164,9 +308,11 @@ class _ProfileScreenState extends State<ProfileScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        SnackBarUtils.showSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+          'Download failed: $e',
+          isError: true,
+        );
       }
     }
   }
@@ -177,33 +323,32 @@ class _ProfileScreenState extends State<ProfileScreen>
       backgroundColor: const Color(0xFFF8FAFC),
       drawer: const AppDrawer(),
       appBar: AppBar(
+        leading: const MenuIconButton(),
         title: const Text(
           'My Profile',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-            color: Colors.white,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
         ),
-        backgroundColor: AppColors.primary,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
             onPressed: () => _showEditProfileDialog(),
-            icon: const Icon(Icons.edit_note, size: 28, color: Colors.white),
+            icon: Icon(Icons.edit_note, size: 28, color: AppColors.primary),
             tooltip: 'Edit Profile',
           ),
           const SizedBox(width: 8),
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withOpacity(0.7),
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
+          indicatorColor: AppColors.primary,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: Colors.black,
+          indicatorSize: TabBarIndicatorSize.tab,
           labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          indicator: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
           labelStyle: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 13,
@@ -228,21 +373,26 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _buildDocumentsTab(),
               ],
             ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
   Widget _buildPersonalInfoTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          _buildHeaderCard(),
-          const SizedBox(height: 24),
-          _buildPersonalSection(),
-          const SizedBox(height: 24),
-          _buildIdentityAndBankSection(),
-          const SizedBox(height: 30),
-        ],
+    return RefreshIndicator(
+      onRefresh: _refreshProfile,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            _buildHeaderCard(),
+            const SizedBox(height: 24),
+            _buildPersonalSection(),
+            const SizedBox(height: 24),
+            _buildIdentityAndBankSection(),
+            const SizedBox(height: 30),
+          ],
+        ),
       ),
     );
   }
@@ -256,6 +406,8 @@ class _ProfileScreenState extends State<ProfileScreen>
     final email = _profile?['email'] ?? '';
     final phone = _profile?['phone'] ?? '';
     final dept = _staffData?['department'] ?? '';
+    final photoUrl =
+        _profile?['photoUrl'] ?? _profile?['profilePic'] ?? _profile?['avatar'];
     final joiningDate = _staffData?['joiningDate'];
 
     return Container(
@@ -280,27 +432,55 @@ class _ProfileScreenState extends State<ProfileScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.white,
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
+              GestureDetector(
+                onTap: _changeProfilePhoto,
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 40,
+                        backgroundColor: Colors.white,
+                        backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                            ? NetworkImage(photoUrl)
+                            : null,
+                        child: (photoUrl == null || photoUrl.isEmpty)
+                            ? Text(
+                                initial,
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primary,
+                                ),
+                              )
+                            : null,
+                      ),
+                      Positioned(
+                        bottom: 2,
+                        right: 2,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -326,20 +506,23 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _buildHeaderBadge(
-                          status,
-                          Colors.white.withOpacity(0.2),
-                        ),
-                        if (joiningDate != null) ...[
-                          const SizedBox(width: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
                           _buildHeaderBadge(
-                            'Joined: ${_formatDate(joiningDate)}',
+                            status,
                             Colors.white.withOpacity(0.2),
                           ),
+                          if (joiningDate != null) ...[
+                            const SizedBox(width: 8),
+                            _buildHeaderBadge(
+                              'Joined: ${_formatDate(joiningDate)}',
+                              Colors.white.withOpacity(0.2),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -360,11 +543,19 @@ class _ProfileScreenState extends State<ProfileScreen>
           const Divider(color: Colors.white24),
           const SizedBox(height: 16),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildHeaderInfoItem(Icons.email_outlined, email),
-              _buildHeaderInfoItem(Icons.phone_outlined, phone),
-              _buildHeaderInfoItem(Icons.business_outlined, dept),
+              Expanded(
+                child: _buildHeaderInfoItem(Icons.email_outlined, email),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildHeaderInfoItem(Icons.phone_outlined, phone),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildHeaderInfoItem(Icons.business_outlined, dept),
+              ),
             ],
           ),
         ],
@@ -375,6 +566,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget _buildHeaderInfoItem(IconData icon, String text) {
     if (text.isEmpty) return const SizedBox.shrink();
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Icon(icon, color: Colors.white70, size: 20),
         const SizedBox(height: 4),
@@ -382,6 +574,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           text,
           style: const TextStyle(color: Colors.white, fontSize: 10),
           maxLines: 1,
+          textAlign: TextAlign.center,
           overflow: TextOverflow.ellipsis,
         ),
       ],
@@ -428,10 +621,29 @@ class _ProfileScreenState extends State<ProfileScreen>
             _buildInfoItem('Blood Group', _staffData?['bloodGroup'] ?? 'N/A'),
           ]),
           const SizedBox(height: 20),
-          _buildInfoItem(
-            'Current Address',
-            '${_staffData?['address']?['line1'] ?? ''}, ${_staffData?['address']?['city'] ?? ''}, ${_staffData?['address']?['state'] ?? ''}',
-          ),
+          if (_staffData?['address'] != null)
+            Builder(
+              builder: (_) {
+                final addr = _staffData?['address'] ?? {};
+                final parts = [
+                  addr['line1']?.toString().trim() ?? '',
+                  addr['city']?.toString().trim() ?? '',
+                  addr['state']?.toString().trim() ?? '',
+                ].where((p) => p.isNotEmpty).toList();
+
+                if (parts.isEmpty) {
+                  // No address to show
+                  return const SizedBox.shrink();
+                }
+
+                final addressString = parts.join(', ');
+
+                return _buildMultilineInfoItem(
+                  'Current Address',
+                  addressString,
+                );
+              },
+            ),
         ],
       ),
     );
@@ -486,55 +698,64 @@ class _ProfileScreenState extends State<ProfileScreen>
     final education = _candidateData?['education'] as List? ?? [];
     final experience = _candidateData?['experience'] as List? ?? [];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          _buildCardSection(
-            icon: Icons.school_outlined,
-            title: 'Education',
-            content: education.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 30),
-                      child: Text(
-                        'No education details found.',
-                        style: TextStyle(color: Colors.grey),
+    return RefreshIndicator(
+      onRefresh: _refreshProfile,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            _buildCardSection(
+              icon: Icons.school_outlined,
+              title: 'Education',
+              trailing: IconButton(
+                onPressed: () => _showEditEducationSheet(),
+                icon: Icon(Icons.edit_outlined, color: AppColors.primary),
+                tooltip: 'Edit Education',
+              ),
+              content: education.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Text(
+                          'No education details found.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
                       ),
+                    )
+                  : Column(
+                      children: education
+                          .map(
+                            (edu) => _buildEduItem(edu as Map<String, dynamic>),
+                          )
+                          .toList(),
                     ),
-                  )
-                : Column(
-                    children: education
-                        .map(
-                          (edu) => _buildEduItem(edu as Map<String, dynamic>),
-                        )
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 24),
-          _buildCardSection(
-            icon: Icons.business_center_outlined,
-            title: 'Experience',
-            content: experience.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 30),
-                      child: Text(
-                        'No experience details found.',
-                        style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            _buildCardSection(
+              icon: Icons.business_center_outlined,
+              title: 'Experience',
+              content: experience.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Text(
+                          'No experience details found.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
                       ),
+                    )
+                  : Column(
+                      children: experience
+                          .map(
+                            (exp) => _buildExpItem(exp as Map<String, dynamic>),
+                          )
+                          .toList(),
                     ),
-                  )
-                : Column(
-                    children: experience
-                        .map(
-                          (exp) => _buildExpItem(exp as Map<String, dynamic>),
-                        )
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 20),
-        ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -558,7 +779,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               Expanded(
                 child: Text(
                   edu['qualification'] ?? 'N/A',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ),
               if (edu['yearOfPassing'] != null)
@@ -607,7 +828,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               Expanded(
                 child: Text(
                   exp['designation'] ?? exp['role'] ?? 'N/A',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ),
             ],
@@ -643,35 +864,236 @@ class _ProfileScreenState extends State<ProfileScreen>
     // Use documents from onboarding service
     final docs = _documents;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: _buildCardSection(
-        icon: Icons.description_outlined,
-        title: 'Documents',
-        showProgress: docs.isNotEmpty,
-        content: docs.isEmpty
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 30),
-                  child: Text(
-                    'No documents found.',
-                    style: TextStyle(color: Colors.grey),
+    // Calculate progress
+    int completedCount = 0;
+    int totalRequired = 0;
+    String overallStatus = 'NOT STARTED';
+
+    for (var doc in docs) {
+      final docMap = doc as Map<String, dynamic>;
+      if (docMap['required'] == true) {
+        totalRequired++;
+        if (docMap['status'] == 'COMPLETED') {
+          completedCount++;
+        }
+      }
+    }
+
+    final progress = totalRequired > 0
+        ? (completedCount / totalRequired * 100).round()
+        : 0;
+
+    // Determine overall status
+    if (docs.isEmpty) {
+      overallStatus = 'NOT STARTED';
+    } else {
+      final hasPending = docs.any((doc) => (doc as Map)['status'] == 'PENDING');
+      final hasCompleted = docs.any(
+        (doc) => (doc as Map)['status'] == 'COMPLETED',
+      );
+
+      if (hasPending) {
+        overallStatus = 'IN PROGRESS';
+      } else if (hasCompleted && progress == 100) {
+        overallStatus = 'COMPLETED';
+      } else if (hasCompleted) {
+        overallStatus = 'IN PROGRESS';
+      } else {
+        overallStatus = 'NOT STARTED';
+      }
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refreshProfile,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with progress
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-              )
-            : Column(
-                children: docs
-                    .map((doc) => _buildDocTile(doc as Map<String, dynamic>))
-                    .toList(),
+                ],
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Documents',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // Put progress text on its own line to avoid overflow
+                  Text(
+                    'Progress: $progress% • Status: $overallStatus',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 12),
+                  // Progress bar
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Overall Progress',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black,
+                            ),
+                          ),
+                          Text(
+                            '$progress%',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: progress / 100,
+                          backgroundColor: Colors.grey[200],
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            progress == 100 ? Colors.green : AppColors.primary,
+                          ),
+                          minHeight: 8,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Documents list
+            docs.isEmpty
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 40,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.02),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.cloud_upload_outlined,
+                          size: 48,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No documents found.',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Upload your joining documents here.',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Once HR/Admin verifies them, they will show as Verified.',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                : Column(
+                    children: docs
+                        .map(
+                          (doc) => _buildDocTile(doc as Map<String, dynamic>),
+                        )
+                        .toList(),
+                  ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDocTile(Map<String, dynamic> doc) {
-    final status = doc['status'] ?? 'Pending';
-    // API returns 'COMPLETED' for approved docs, also check 'Approved' for backward compatibility
-    final isApproved = status == 'Approved' || status == 'COMPLETED';
+    final status = doc['status'] ?? 'NOT_STARTED';
+    final docName = doc['name'] ?? doc['type'] ?? 'Document';
+    final docType = doc['type'] ?? 'document';
+    final isRequired = doc['required'] == true;
+    final hasUrl = doc['url'] != null && doc['url'].toString().isNotEmpty;
+    final isPending = status == 'PENDING';
+    final isCompleted = status == 'COMPLETED';
+    final isRejected = status == 'REJECTED';
+    // IMPORTANT: Show upload if status is NOT_STARTED/null OR if no URL exists
+    // This ensures all missing documents show upload button
+    final isNotStarted =
+        status == 'NOT_STARTED' || status == null || status.toString().isEmpty;
+    final uploadedAt = doc['uploadedAt'];
+    final documentId = doc['_id']?.toString();
+    final isUploading = _uploadingDocumentId == documentId;
+
+    // Log document state for debugging
+    print('[ProfileScreen] Building doc tile for: $docName');
+    print('  - Status: $status (isNotStarted: $isNotStarted)');
+    print('  - Has URL: $hasUrl');
+    print('  - Will show Upload: ${isNotStarted || !hasUrl}');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -681,76 +1103,264 @@ class _ProfileScreenState extends State<ProfileScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.file_present_outlined,
-              color: AppColors.primary,
-              size: 24,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  docType == 'form'
+                      ? Icons.description_outlined
+                      : Icons.file_present_outlined,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      docName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        if (isRequired)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Required',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        _buildStatusBadge(status),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Type: ${docType == 'form' ? 'form' : 'document'}',
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              fontSize: 9,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (uploadedAt != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Uploaded: ${_formatDate(uploadedAt)}',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  doc['name'] ?? doc['type'] ?? 'Document',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          const SizedBox(height: 12),
+          // Action buttons
+          // CRITICAL: Show Upload button if document is NOT_STARTED OR has no URL
+          // This ensures all missing documents show upload option
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              if (isNotStarted || !hasUrl) ...[
+                // Upload button - show for all documents without URL or with NOT_STARTED status
+                ElevatedButton.icon(
+                  onPressed: isUploading
+                      ? null
+                      : () {
+                          print(
+                            '[ProfileScreen] Upload button pressed for: $docName',
+                          );
+                          print('[ProfileScreen] Document ID: $documentId');
+                          print(
+                            '[ProfileScreen] Onboarding ID: ${_onboardingData?['_id']}',
+                          );
+                          _uploadDocument(doc);
+                        },
+                  icon: isUploading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.upload, size: 18),
+                  label: Text(isUploading ? 'Uploading...' : 'Upload'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 4),
-                _buildStatusBadge(
-                  status,
-                  isApproved ? Colors.green : Colors.orange,
+              ] else if (isPending || isCompleted || isRejected) ...[
+                // View, Download buttons (always shown)
+                TextButton.icon(
+                  onPressed: () => _viewDocument(doc['url']),
+                  icon: const Icon(Icons.visibility_outlined, size: 16),
+                  label: const Text('View', style: TextStyle(fontSize: 11)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey[700],
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    minimumSize: const Size(0, 32),
+                  ),
                 ),
+                const SizedBox(width: 4),
+                TextButton.icon(
+                  onPressed: () => _downloadDocument(doc['url']),
+                  icon: const Icon(Icons.download_outlined, size: 16),
+                  label: const Text('Download', style: TextStyle(fontSize: 11)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    minimumSize: const Size(0, 32),
+                  ),
+                ),
+                // Replace button - only show for PENDING/REJECTED (not COMPLETED)
+                if (!isCompleted) ...[
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: isUploading ? null : () => _uploadDocument(doc),
+                    icon: isUploading
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.grey,
+                              ),
+                            ),
+                          )
+                        : const Icon(Icons.upload_outlined, size: 16),
+                    label: Text(
+                      isUploading ? 'Replacing...' : 'Replace',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey[700],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      minimumSize: const Size(0, 32),
+                    ),
+                  ),
+                ],
               ],
-            ),
+            ],
           ),
-          if (doc['url'] != null && doc['url'].toString().isNotEmpty) ...[
-            IconButton(
-              icon: const Icon(
-                Icons.visibility_outlined,
-                color: Colors.grey,
-                size: 20,
-              ),
-              onPressed: () => _viewDocument(doc['url']),
-              tooltip: 'View',
-            ),
-            IconButton(
-              icon: Icon(
-                Icons.download_outlined,
-                color: AppColors.primary,
-                size: 20,
-              ),
-              onPressed: () => _downloadDocument(doc['url']),
-              tooltip: 'Download',
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildStatusBadge(String text, Color color) {
+  Widget _buildStatusBadge(String status) {
+    String displayText;
+    Color badgeColor;
+    IconData? icon;
+
+    switch (status) {
+      case 'PENDING':
+        displayText = 'Under Review';
+        badgeColor = Colors.orange;
+        icon = Icons.access_time;
+        break;
+      case 'COMPLETED':
+        displayText = 'Verified';
+        badgeColor = Colors.green;
+        icon = Icons.check_circle;
+        break;
+      case 'REJECTED':
+        displayText = 'Rejected';
+        badgeColor = Colors.red;
+        icon = Icons.cancel;
+        break;
+      default:
+        displayText = 'Not Started';
+        badgeColor = Colors.grey;
+        icon = Icons.radio_button_unchecked;
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
+        color: badgeColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 10, color: badgeColor),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            displayText,
+            style: TextStyle(
+              color: badgeColor,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -760,6 +1370,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     required String title,
     required Widget content,
     bool showProgress = false,
+    Widget? trailing,
   }) {
     return Container(
       width: double.infinity,
@@ -801,6 +1412,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                   ],
                 ),
+                if (trailing != null) trailing,
                 if (showProgress)
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -843,19 +1455,50 @@ class _ProfileScreenState extends State<ProfileScreen>
         Text(
           label,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 12,
             color: Colors.grey[600],
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           value?.toString() ?? 'N/A',
           style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
             color: AppColors.textPrimary,
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMultilineInfoItem(String label, String value) {
+    if (value.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+          textAlign: TextAlign.left,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -884,18 +1527,757 @@ class _ProfileScreenState extends State<ProfileScreen>
       builder: (context) => _EditProfileSheet(
         userData: flattenedData,
         onSave: (updatedData) async {
+          // Separate optional password change payload
+          Map<String, dynamic>? passwordChange = updatedData['passwordChange'];
+          if (passwordChange != null) {
+            updatedData = Map<String, dynamic>.from(updatedData)
+              ..remove('passwordChange');
+          }
+
           final result = await _authService.updateProfile(updatedData);
-          if (result['success']) {
-            _loadProfile();
-            if (context.mounted) Navigator.pop(context);
-          } else {
+
+          if (!result['success']) {
             if (context.mounted) {
-              ScaffoldMessenger.of(
+              SnackBarUtils.showSnackBar(
                 context,
-              ).showSnackBar(SnackBar(content: Text(result['message'])));
+                result['message'] ?? 'Failed to update profile',
+                isError: true,
+              );
+            }
+            return;
+          }
+
+          // If profile update succeeded and password change requested, handle it
+          if (passwordChange != null) {
+            final pwdResult = await _authService.changePassword(
+              oldPassword: passwordChange['oldPassword'] ?? '',
+              newPassword: passwordChange['newPassword'] ?? '',
+            );
+
+            if (context.mounted) {
+              SnackBarUtils.showSnackBar(
+                context,
+                pwdResult['message'] ??
+                    (pwdResult['success'] == true
+                        ? 'Password updated successfully'
+                        : 'Failed to update password'),
+                isError: pwdResult['success'] != true,
+              );
+            }
+
+            if (pwdResult['success'] != true) {
+              // Do not close sheet if password change failed
+              _loadProfile();
+              return;
             }
           }
+
+          _loadProfile();
+          if (context.mounted) Navigator.pop(context);
         },
+      ),
+    );
+  }
+
+  Future<void> _changeProfilePhoto() async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+
+      if (pickedFile == null) return;
+
+      final file = File(pickedFile.path);
+
+      final result = await _authService.updateProfilePhoto(file);
+
+      if (!mounted) return;
+
+      SnackBarUtils.showSnackBar(
+        context,
+        result['message'] ??
+            (result['success'] == true
+                ? 'Profile photo updated'
+                : 'Failed to update photo'),
+        isError: result['success'] != true,
+      );
+
+      if (result['success'] == true) {
+        _loadProfile();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarUtils.showSnackBar(
+        context,
+        'Failed to update photo: $e',
+        isError: true,
+      );
+    }
+  }
+
+  void _showEditEducationSheet() {
+    final education = _candidateData?['education'] as List? ?? [];
+    final list = education
+        .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _EditEducationSheet(
+        initialEducation: list,
+        onSave: (updated) async {
+          final result = await _authService.updateEducation(updated);
+          if (!mounted) return;
+          Navigator.of(context).pop();
+          if (result['success']) {
+            SnackBarUtils.showSnackBar(
+              context,
+              'Education updated successfully',
+              backgroundColor: AppColors.success,
+            );
+            _loadProfile();
+          } else {
+            SnackBarUtils.showSnackBar(
+              context,
+              result['message'] ?? 'Failed to update education',
+              isError: true,
+            );
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _EditEducationSheet extends StatefulWidget {
+  final List<Map<String, dynamic>> initialEducation;
+  final Function(List<Map<String, dynamic>>) onSave;
+
+  const _EditEducationSheet({
+    required this.initialEducation,
+    required this.onSave,
+  });
+
+  @override
+  State<_EditEducationSheet> createState() => _EditEducationSheetState();
+}
+
+class _EditEducationSheetState extends State<_EditEducationSheet> {
+  late List<Map<String, dynamic>> _education;
+
+  @override
+  void initState() {
+    super.initState();
+    _education = widget.initialEducation.isEmpty
+        ? [_emptyEduEntry()]
+        : widget.initialEducation
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+  }
+
+  void _onEducationChanged(int index, Map<String, dynamic> updated) {
+    setState(() {
+      _education[index] = updated;
+    });
+  }
+
+  Map<String, dynamic> _emptyEduEntry() {
+    return {
+      'qualification': '',
+      'courseName': '',
+      'institution': '',
+      'university': '',
+      'yearOfPassing': '',
+      'percentage': '',
+      'cgpa': '',
+    };
+  }
+
+  void _addEntry() {
+    // Check if previous entry has all required fields filled
+    if (_education.isNotEmpty) {
+      final lastEntry = _education.last;
+      final qualification = (lastEntry['qualification'] ?? '')
+          .toString()
+          .trim();
+      final courseName = (lastEntry['courseName'] ?? lastEntry['course'] ?? '')
+          .toString()
+          .trim();
+      final institution = (lastEntry['institution'] ?? '').toString().trim();
+      final university = (lastEntry['university'] ?? '').toString().trim();
+      final yearOfPassing = (lastEntry['yearOfPassing'] ?? '')
+          .toString()
+          .trim();
+      final percentage = (lastEntry['percentage'] ?? '').toString().trim();
+      final cgpa = (lastEntry['cgpa'] ?? '').toString().trim();
+
+      // Qualification is required, check if it's empty
+      if (qualification.isEmpty) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Please fill all fields in Education ${_education.length} before adding a new entry',
+          isError: true,
+        );
+        return;
+      }
+
+      // Check if any other field is empty
+      if (courseName.isEmpty ||
+          institution.isEmpty ||
+          university.isEmpty ||
+          yearOfPassing.isEmpty ||
+          (percentage.isEmpty && cgpa.isEmpty)) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Please fill all fields in Education ${_education.length} before adding a new entry',
+          isError: true,
+        );
+        return;
+      }
+    }
+    setState(() => _education.add(_emptyEduEntry()));
+  }
+
+  void _removeAt(int index) {
+    setState(() {
+      _education.removeAt(index);
+      if (_education.isEmpty) _education.add(_emptyEduEntry());
+    });
+  }
+
+  bool _validateEducation() {
+    for (var i = 0; i < _education.length; i++) {
+      final e = _education[i];
+      final qualification = (e['qualification'] ?? '').toString().trim();
+      final courseName = (e['courseName'] ?? e['course'] ?? '')
+          .toString()
+          .trim();
+      final institution = (e['institution'] ?? '').toString().trim();
+      final university = (e['university'] ?? '').toString().trim();
+      final yearOfPassing = (e['yearOfPassing'] ?? '').toString().trim();
+      final percentage = (e['percentage'] ?? '').toString().trim();
+      final cgpa = (e['cgpa'] ?? '').toString().trim();
+
+      // Qualification is required
+      if (qualification.isEmpty) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Qualification is required for Education ${i + 1}',
+          isError: true,
+        );
+        return false;
+      }
+
+      // All other fields must be filled
+      if (courseName.isEmpty ||
+          institution.isEmpty ||
+          university.isEmpty ||
+          yearOfPassing.isEmpty ||
+          (percentage.isEmpty && cgpa.isEmpty)) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Please fill all fields for Education ${i + 1}',
+          isError: true,
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<Map<String, dynamic>> _collectEducation() {
+    return _education
+        .map(
+          (e) => {
+            'qualification': (e['qualification'] ?? '').toString().trim(),
+            'courseName': (e['courseName'] ?? e['course'] ?? '')
+                .toString()
+                .trim(),
+            'institution': (e['institution'] ?? '').toString().trim(),
+            'university': (e['university'] ?? '').toString().trim(),
+            'yearOfPassing': (e['yearOfPassing'] ?? '').toString().trim(),
+            'percentage': (e['percentage'] ?? '').toString().trim(),
+            'cgpa': (e['cgpa'] ?? '').toString().trim(),
+          },
+        )
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Keep a stable, tall sheet so it doesn't visually
+    // shrink when the keyboard opens; instead we let the
+    // content scroll and add bottom padding for the keyboard.
+    final formHeight = screenHeight * 0.95;
+
+    return Container(
+      height: formHeight,
+      padding: EdgeInsets.only(
+        bottom: keyboardHeight + 16,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Edit Education',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: _addEntry,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add', style: TextStyle(fontSize: 14)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, size: 24),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const Divider(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(top: 8, bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...List.generate(_education.length, (index) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: _EditEducationTile(
+                        index: index + 1,
+                        entry: _education[index],
+                        onChanged: (updated) =>
+                            _onEducationChanged(index, updated),
+                        onRemove: _education.length > 1
+                            ? () => _removeAt(index)
+                            : null,
+                      ),
+                    );
+                  }),
+                  const SizedBox(
+                    height: 20,
+                  ), // Extra bottom spacing for scrolling
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.only(
+              top: 8,
+              bottom: keyboardHeight > 0 ? 8 : 0,
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: () {
+                  if (_validateEducation()) {
+                    widget.onSave(_collectEducation());
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Save Education',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditEducationTile extends StatefulWidget {
+  final int index;
+  final Map<String, dynamic> entry;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+  final VoidCallback? onRemove;
+
+  const _EditEducationTile({
+    required this.index,
+    required this.entry,
+    required this.onChanged,
+    this.onRemove,
+  });
+
+  @override
+  State<_EditEducationTile> createState() => _EditEducationTileState();
+}
+
+class _EditEducationTileState extends State<_EditEducationTile> {
+  late TextEditingController _qualificationController;
+  late TextEditingController _courseController;
+  late TextEditingController _institutionController;
+  late TextEditingController _universityController;
+  late TextEditingController _yearController;
+  late TextEditingController _percentageController;
+  late TextEditingController _cgpaController;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.entry;
+    _qualificationController = TextEditingController(
+      text: (e['qualification'] ?? '').toString(),
+    );
+    _courseController = TextEditingController(
+      text: (e['courseName'] ?? e['course'] ?? '').toString(),
+    );
+    _institutionController = TextEditingController(
+      text: (e['institution'] ?? '').toString(),
+    );
+    _universityController = TextEditingController(
+      text: (e['university'] ?? '').toString(),
+    );
+    _yearController = TextEditingController(
+      text: (e['yearOfPassing'] ?? '').toString(),
+    );
+    _percentageController = TextEditingController(
+      text: (e['percentage'] ?? '').toString(),
+    );
+    _cgpaController = TextEditingController(text: (e['cgpa'] ?? '').toString());
+  }
+
+  @override
+  void dispose() {
+    _qualificationController.dispose();
+    _courseController.dispose();
+    _institutionController.dispose();
+    _universityController.dispose();
+    _yearController.dispose();
+    _percentageController.dispose();
+    _cgpaController.dispose();
+    super.dispose();
+  }
+
+  void _notify() {
+    widget.onChanged({
+      'qualification': _qualificationController.text,
+      'courseName': _courseController.text,
+      'institution': _institutionController.text,
+      'university': _universityController.text,
+      'yearOfPassing': _yearController.text,
+      'percentage': _percentageController.text,
+      'cgpa': _cgpaController.text,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Education ${widget.index}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                if (widget.onRemove != null)
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 22,
+                    ),
+                    onPressed: widget.onRemove,
+                    tooltip: 'Remove',
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _qualificationController,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Qualification *',
+                prefixIcon: Icon(
+                  Icons.school,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              onChanged: (_) => _notify(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _courseController,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Course',
+                prefixIcon: Icon(
+                  Icons.book,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              onChanged: (_) => _notify(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _institutionController,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Institution',
+                prefixIcon: Icon(
+                  Icons.business,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              onChanged: (_) => _notify(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _universityController,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'University',
+                prefixIcon: Icon(
+                  Icons.account_balance,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              onChanged: (_) => _notify(),
+            ),
+            const SizedBox(height: 16),
+            // Year field - full width for better visibility
+            TextField(
+              controller: _yearController,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Year of Passing',
+                prefixIcon: Icon(
+                  Icons.calendar_today,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              onChanged: (_) => _notify(),
+            ),
+            const SizedBox(height: 16),
+            // Percentage and CGPA in a row
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _percentageController,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Percentage',
+                      prefixIcon: Icon(
+                        Icons.percent,
+                        size: 20,
+                        color: AppColors.primary,
+                      ),
+                      labelStyle: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 13,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: AppColors.primary,
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    onChanged: (_) => _notify(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _cgpaController,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'CGPA',
+                      prefixIcon: Icon(
+                        Icons.grade,
+                        size: 20,
+                        color: AppColors.primary,
+                      ),
+                      labelStyle: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 13,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: AppColors.primary,
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    onChanged: (_) => _notify(),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -915,6 +2297,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nameController;
+  late TextEditingController _emailController;
   late TextEditingController _phoneController;
   late TextEditingController _genderController;
   late TextEditingController _dobController;
@@ -931,22 +2314,63 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late TextEditingController _uanController;
   late TextEditingController _panController;
   late TextEditingController _aadhaarController;
-  late TextEditingController _pfController;
-  late TextEditingController _esiController;
-  late TextEditingController _designationController;
-  late TextEditingController _deptController;
-  late TextEditingController _statusController;
+  late TextEditingController _pfNumberController;
+  late TextEditingController _esiNumberController;
+  DateTime? _selectedDob;
+  late TextEditingController _oldPasswordController;
+  late TextEditingController _newPasswordController;
+  late TextEditingController _confirmPasswordController;
+
+  bool _showOldPassword = false;
+  bool _showNewPassword = false;
+  bool _showConfirmPassword = false;
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(value.trim())) {
+      return 'Please enter a valid email';
+    }
+    return null;
+  }
+
+  String? _validatePhone(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final digitsOnly = value.replaceAll(RegExp(r'\D'), '');
+    if (digitsOnly.length < 10 || digitsOnly.length > 15) {
+      return 'Please enter a valid phone number';
+    }
+    return null;
+  }
 
   @override
   void initState() {
     super.initState();
     final d = widget.userData;
     _nameController = TextEditingController(text: d['name']);
+    _emailController = TextEditingController(text: d['email'] ?? '');
     _phoneController = TextEditingController(text: d['phone']);
     _genderController = TextEditingController(text: d['gender']);
-    _dobController = TextEditingController(
-      text: d['dob'] != null ? d['dob'].toString().split('T')[0] : '',
-    );
+
+    // Parse DOB for date picker
+    if (d['dob'] != null) {
+      try {
+        final dobString = d['dob'].toString();
+        if (dobString.contains('T')) {
+          _selectedDob = DateTime.parse(dobString.split('T')[0]);
+        } else {
+          _selectedDob = DateTime.parse(dobString);
+        }
+        _dobController = TextEditingController(
+          text: DateFormat('yyyy-MM-dd').format(_selectedDob!),
+        );
+      } catch (e) {
+        _dobController = TextEditingController();
+      }
+    } else {
+      _dobController = TextEditingController();
+    }
+
     _maritalStatusController = TextEditingController(text: d['maritalStatus']);
     _bloodGroupController = TextEditingController(text: d['bloodGroup']);
     _addrLine1Controller = TextEditingController(text: d['address']?['line1']);
@@ -965,19 +2389,25 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       text: d['bankDetails']?['accountHolderName'],
     );
     _upiController = TextEditingController(text: d['bankDetails']?['upiId']);
-    _uanController = TextEditingController(text: d['uan']);
-    _panController = TextEditingController(text: d['pan']);
-    _aadhaarController = TextEditingController(text: d['aadhaar']);
-    _pfController = TextEditingController(text: d['pfNumber']);
-    _esiController = TextEditingController(text: d['esiNumber']);
-    _designationController = TextEditingController(text: d['designation']);
-    _deptController = TextEditingController(text: d['department']);
-    _statusController = TextEditingController(text: d['status']);
+
+    // Employment IDs
+    final empIds = d['employmentIds'] ?? {};
+    _uanController = TextEditingController(text: empIds['uan'] ?? '');
+    _panController = TextEditingController(text: empIds['pan'] ?? '');
+    _aadhaarController = TextEditingController(text: empIds['aadhaar'] ?? '');
+    _pfNumberController = TextEditingController(text: empIds['pfNumber'] ?? '');
+    _esiNumberController = TextEditingController(
+      text: empIds['esiNumber'] ?? '',
+    );
+    _oldPasswordController = TextEditingController();
+    _newPasswordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _phoneController.dispose();
     _genderController.dispose();
     _dobController.dispose();
@@ -994,11 +2424,11 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _uanController.dispose();
     _panController.dispose();
     _aadhaarController.dispose();
-    _pfController.dispose();
-    _esiController.dispose();
-    _designationController.dispose();
-    _deptController.dispose();
-    _statusController.dispose();
+    _pfNumberController.dispose();
+    _esiNumberController.dispose();
+    _oldPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -1038,33 +2468,56 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                     const SizedBox(height: 16),
                     _buildSectionTitle('Personal Information'),
                     _buildTextField(_nameController, 'Full Name', Icons.person),
-                    _buildTextField(_phoneController, 'Phone', Icons.phone),
+                    _buildTextField(
+                      _emailController,
+                      'Email',
+                      Icons.email,
+                      keyboardType: TextInputType.emailAddress,
+                      validator: _validateEmail,
+                    ),
+                    _buildTextField(
+                      _phoneController,
+                      'Phone',
+                      Icons.phone,
+                      keyboardType: TextInputType.phone,
+                      validator: _validatePhone,
+                    ),
                     Row(
                       children: [
                         Expanded(
-                          child: _buildTextField(
-                            _genderController,
-                            'Gender',
-                            Icons.group,
+                          child: _buildDropdownField(
+                            label: 'Gender',
+                            icon: Icons.group,
+                            options: const ['Male', 'Female', 'Other'],
+                            value: _genderController.text.isEmpty
+                                ? null
+                                : _genderController.text,
+                            onChanged: (val) {
+                              setState(() {
+                                _genderController.text = val ?? '';
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildTextField(
-                            _dobController,
-                            'DOB (YYYY-MM-DD)',
-                            Icons.calendar_today,
-                          ),
-                        ),
+                        Expanded(child: _buildDatePickerField()),
                       ],
                     ),
                     Row(
                       children: [
                         Expanded(
-                          child: _buildTextField(
-                            _maritalStatusController,
-                            'Marital Status',
-                            Icons.favorite,
+                          child: _buildDropdownField(
+                            label: 'Marital Status',
+                            icon: Icons.favorite,
+                            options: const ['Single', 'Married'],
+                            value: _maritalStatusController.text.isEmpty
+                                ? null
+                                : _maritalStatusController.text,
+                            onChanged: (val) {
+                              setState(() {
+                                _maritalStatusController.text = val ?? '';
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1077,19 +2530,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    _buildSectionTitle('Professional Details'),
-                    _buildTextField(
-                      _designationController,
-                      'Designation',
-                      Icons.work,
-                    ),
-                    _buildTextField(
-                      _deptController,
-                      'Department',
-                      Icons.business,
-                    ),
-                    _buildTextField(_statusController, 'Status', Icons.info),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Address'),
                     _buildTextField(
@@ -1117,6 +2557,42 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       ],
                     ),
                     const SizedBox(height: 24),
+                    _buildSectionTitle('Employment IDs'),
+                    _buildTextField(
+                      _uanController,
+                      'UAN Number',
+                      Icons.badge_outlined,
+                    ),
+                    _buildTextField(
+                      _panController,
+                      'PAN Number',
+                      Icons.credit_card,
+                    ),
+                    _buildTextField(
+                      _aadhaarController,
+                      'Aadhaar Number',
+                      Icons.perm_identity,
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTextField(
+                            _pfNumberController,
+                            'PF Number',
+                            Icons.numbers,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildTextField(
+                            _esiNumberController,
+                            'ESI Number',
+                            Icons.numbers,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
                     _buildSectionTitle('Bank Details'),
                     _buildTextField(
                       _bankNameController,
@@ -1136,19 +2612,18 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                     ),
                     _buildTextField(_upiController, 'UPI ID', Icons.payment),
                     const SizedBox(height: 24),
-                    _buildSectionTitle('Employment IDs'),
-                    _buildTextField(_uanController, 'UAN', Icons.numbers),
-                    _buildTextField(_panController, 'PAN', Icons.credit_card),
-                    _buildTextField(
-                      _aadhaarController,
-                      'Aadhaar',
-                      Icons.fingerprint,
+                    _buildSectionTitle('Change Password'),
+                    _buildPasswordField(
+                      controller: _oldPasswordController,
+                      label: 'Old Password',
                     ),
-                    _buildTextField(_pfController, 'PF Number', Icons.numbers),
-                    _buildTextField(
-                      _esiController,
-                      'ESI Number',
-                      Icons.numbers,
+                    _buildPasswordField(
+                      controller: _newPasswordController,
+                      label: 'New Password',
+                    ),
+                    _buildPasswordField(
+                      controller: _confirmPasswordController,
+                      label: 'Confirm New Password',
                     ),
                     const SizedBox(height: 30),
                   ],
@@ -1162,36 +2637,93 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 height: 55,
                 child: ElevatedButton(
                   onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      widget.onSave({
-                        'name': _nameController.text,
-                        'phone': _phoneController.text,
-                        'gender': _genderController.text,
-                        'maritalStatus': _maritalStatusController.text,
-                        'dob': _dobController.text,
-                        'bloodGroup': _bloodGroupController.text,
-                        'designation': _designationController.text,
-                        'department': _deptController.text,
-                        'status': _statusController.text,
-                        'address': {
-                          'line1': _addrLine1Controller.text,
-                          'city': _cityController.text,
-                          'state': _stateController.text,
-                        },
-                        'bankDetails': {
-                          'bankName': _bankNameController.text,
-                          'accountNumber': _accNumController.text,
-                          'ifscCode': _ifscController.text,
-                          'accountHolderName': _holderController.text,
-                          'upiId': _upiController.text,
-                        },
+                    if (!_formKey.currentState!.validate()) {
+                      return;
+                    }
+
+                    final oldPwd = _oldPasswordController.text.trim();
+                    final newPwd = _newPasswordController.text.trim();
+                    final confirmPwd = _confirmPasswordController.text.trim();
+
+                    Map<String, String>? passwordChange;
+
+                    if (oldPwd.isNotEmpty ||
+                        newPwd.isNotEmpty ||
+                        confirmPwd.isNotEmpty) {
+                      if (oldPwd.isEmpty ||
+                          newPwd.isEmpty ||
+                          confirmPwd.isEmpty) {
+                        SnackBarUtils.showSnackBar(
+                          context,
+                          'Please fill all password fields',
+                          isError: true,
+                        );
+                        return;
+                      }
+
+                      if (newPwd != confirmPwd) {
+                        SnackBarUtils.showSnackBar(
+                          context,
+                          'New passwords do not match',
+                          isError: true,
+                        );
+                        return;
+                      }
+
+                      if (oldPwd == newPwd) {
+                        SnackBarUtils.showSnackBar(
+                          context,
+                          'Old password and new password should not be the same',
+                          isError: true,
+                        );
+                        return;
+                      }
+
+                      if (newPwd.length < 6) {
+                        SnackBarUtils.showSnackBar(
+                          context,
+                          'New password should be at least 6 characters',
+                          isError: true,
+                        );
+                        return;
+                      }
+
+                      passwordChange = {
+                        'oldPassword': oldPwd,
+                        'newPassword': newPwd,
+                      };
+                    }
+
+                    widget.onSave({
+                      'name': _nameController.text,
+                      'email': _emailController.text,
+                      'phone': _phoneController.text,
+                      'gender': _genderController.text,
+                      'maritalStatus': _maritalStatusController.text,
+                      'dob': _dobController.text,
+                      'bloodGroup': _bloodGroupController.text,
+                      'address': {
+                        'line1': _addrLine1Controller.text,
+                        'city': _cityController.text,
+                        'state': _stateController.text,
+                      },
+                      'employmentIds': {
                         'uan': _uanController.text,
                         'pan': _panController.text,
                         'aadhaar': _aadhaarController.text,
-                        'pfNumber': _pfController.text,
-                        'esiNumber': _esiController.text,
-                      });
-                    }
+                        'pfNumber': _pfNumberController.text,
+                        'esiNumber': _esiNumberController.text,
+                      },
+                      'bankDetails': {
+                        'bankName': _bankNameController.text,
+                        'accountNumber': _accNumController.text,
+                        'ifscCode': _ifscController.text,
+                        'accountHolderName': _holderController.text,
+                        'upiId': _upiController.text,
+                      },
+                      if (passwordChange != null)
+                        'passwordChange': passwordChange,
+                    });
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
@@ -1236,13 +2768,133 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   Widget _buildTextField(
     TextEditingController controller,
     String label,
-    IconData icon,
-  ) {
+    IconData icon, {
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+    bool obscureText = false,
+    Widget? suffixIcon,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: TextFormField(
         controller: controller,
+        keyboardType: keyboardType,
+        validator: validator,
+        obscureText: obscureText,
         style: const TextStyle(fontWeight: FontWeight.w500),
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+          suffixIcon: suffixIcon,
+          labelStyle: const TextStyle(color: Colors.black),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: AppColors.primary, width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDatePickerField() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: InkWell(
+        onTap: () async {
+          final DateTime? picked = await showDatePicker(
+            context: context,
+            initialDate:
+                _selectedDob ??
+                DateTime.now().subtract(const Duration(days: 365 * 25)),
+            firstDate: DateTime(1950),
+            lastDate: DateTime.now(),
+            builder: (context, child) {
+              return Theme(
+                data: Theme.of(context).copyWith(
+                  colorScheme: ColorScheme.light(
+                    primary: AppColors.primary,
+                    onPrimary: Colors.white,
+                    surface: Colors.white,
+                    onSurface: Colors.black,
+                  ),
+                ),
+                child: child!,
+              );
+            },
+          );
+          if (picked != null && picked != _selectedDob) {
+            setState(() {
+              _selectedDob = picked;
+              _dobController.text = DateFormat('yyyy-MM-dd').format(picked);
+            });
+          }
+        },
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: 'Date of Birth',
+            prefixIcon: Icon(
+              Icons.calendar_today,
+              size: 22,
+              color: AppColors.primary,
+            ),
+            labelStyle: const TextStyle(color: Colors.grey),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: AppColors.primary, width: 2),
+            ),
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          ),
+          child: Text(
+            _selectedDob != null
+                ? DateFormat('yyyy-MM-dd').format(_selectedDob!)
+                : 'Select Date',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: _selectedDob != null ? Colors.black : Colors.grey,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownField({
+    required String label,
+    required IconData icon,
+    required List<String> options,
+    required String? value,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        items: options
+            .map(
+              (opt) => DropdownMenuItem<String>(value: opt, child: Text(opt)),
+            )
+            .toList(),
+        onChanged: onChanged,
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
@@ -1264,6 +2916,47 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             vertical: 16,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+  }) {
+    bool isOld = controller == _oldPasswordController;
+    bool isNew = controller == _newPasswordController;
+
+    bool visible;
+    if (isOld) {
+      visible = _showOldPassword;
+    } else if (isNew) {
+      visible = _showNewPassword;
+    } else {
+      visible = _showConfirmPassword;
+    }
+
+    return _buildTextField(
+      controller,
+      label,
+      Icons.lock,
+      obscureText: !visible,
+      suffixIcon: IconButton(
+        icon: Icon(
+          visible ? Icons.visibility : Icons.visibility_off,
+          color: Colors.grey,
+        ),
+        onPressed: () {
+          setState(() {
+            if (isOld) {
+              _showOldPassword = !_showOldPassword;
+            } else if (isNew) {
+              _showNewPassword = !_showNewPassword;
+            } else {
+              _showConfirmPassword = !_showConfirmPassword;
+            }
+          });
+        },
       ),
     );
   }

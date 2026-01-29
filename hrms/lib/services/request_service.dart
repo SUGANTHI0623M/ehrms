@@ -351,10 +351,13 @@ class RequestService {
             headers: headers,
             body: jsonEncode(data),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 201) {
         final body = jsonDecode(response.body);
+        if (body is Map && body['success'] == true) {
+          return {'success': true, 'data': body['data'], 'message': body['message']};
+        }
         return {'success': true, 'data': body};
       } else {
         return _handleErrorResponse(response, 'Failed to request payslip');
@@ -407,6 +410,54 @@ class RequestService {
           response,
           'Failed to fetch payslip requests',
         );
+      }
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> viewPayslipRequest(String requestId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/requests/payslip/$requestId/view'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        // Return PDF bytes
+        return {
+          'success': true,
+          'data': response.bodyBytes,
+        };
+      } else {
+        return _handleErrorResponse(response, 'Failed to view payslip');
+      }
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> downloadPayslipRequest(String requestId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/requests/payslip/$requestId/download'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        // Return PDF bytes
+        return {
+          'success': true,
+          'data': response.bodyBytes,
+        };
+      } else {
+        return _handleErrorResponse(response, 'Failed to download payslip');
       }
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};

@@ -99,4 +99,20 @@ class SalaryService {
       throw Exception('Error fetching payrolls: $e');
     }
   }
+
+  Future<Map<String, dynamic>?> getStaffSalaryDetails() async {
+    try {
+      final profileResult = await _authService.getProfile();
+      if (profileResult['success'] == true) {
+        final staffData = profileResult['data']?['staffData'];
+        if (staffData != null && staffData['salary'] != null) {
+          return staffData['salary'] as Map<String, dynamic>;
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching staff salary details: $e');
+      return null;
+    }
+  }
 }

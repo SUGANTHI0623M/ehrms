@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const expenseSchema = new mongoose.Schema({
-    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
     expenseType: { type: String, required: true }, // e.g., "Travel", "Food"
     amount: { type: Number, required: true },

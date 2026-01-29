@@ -6,6 +6,7 @@ import '../config/app_colors.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/settings/settings_screen.dart';
+import '../screens/assets/assets_listing_screen.dart';
 // import '../screens/chatbot/chatbot_screen.dart';
 
 class AppDrawer extends StatefulWidget {
@@ -77,6 +78,19 @@ class _AppDrawerState extends State<AppDrawer> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const ProfileScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.inventory_2_rounded,
+                  title: 'My Assets',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AssetsListingScreen(),
                       ),
                     );
                   },
@@ -202,10 +216,17 @@ class _AppDrawerState extends State<AppDrawer> {
       children: [
         Icon(icon, color: Colors.white60, size: 16),
         const SizedBox(width: 12),
-        Text(
+      Expanded(
+        child: Text(
           text,
-          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13),
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 12,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
+      ),
       ],
     );
   }
@@ -248,11 +269,11 @@ class _AppDrawerState extends State<AppDrawer> {
     Color? iconColor,
   }) {
     return ListTile(
-      leading: Icon(icon, color: iconColor ?? AppColors.textSecondary),
+      leading: Icon(icon, color: iconColor ?? Colors.black),
       title: Text(
         title,
         style: TextStyle(
-          color: textColor ?? AppColors.textPrimary,
+          color: textColor ?? Colors.black,
           fontWeight: FontWeight.w500,
         ),
       ),
