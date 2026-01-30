@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // Unique Application ID for Google Play Store (reverse domain notation)
-        // Based on your domain: ehrms.askeva.io → io.askeva.ehrms
+     
         applicationId = "io.askeva.ehrms"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
