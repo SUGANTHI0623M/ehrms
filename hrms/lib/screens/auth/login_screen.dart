@@ -33,6 +33,22 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
 
       if (result['success']) {
+        // Check user role - candidates are not allowed to login
+        final userData = result['data']['user'] ?? result['data'];
+        final role = (userData['role'] ?? '').toString().toLowerCase();
+
+        if (role == 'candidate') {
+          await _authService.logout();
+          if (mounted) {
+            SnackBarUtils.showSnackBar(
+              context,
+              'login credentials not matching',
+              isError: true,
+            );
+          }
+          return;
+        }
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => DashboardScreen()),
@@ -60,6 +76,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (mounted) {
           if (backendResult['success']) {
+            // Check user role - candidates are not allowed to login
+            final userData = backendResult['data']['user'] ?? backendResult['data'];
+            final role = (userData['role'] ?? '').toString().toLowerCase();
+
+            if (role == 'candidate') {
+              await _authService.logout();
+              SnackBarUtils.showSnackBar(
+                context,
+                'login credentials not matching',
+                isError: true,
+              );
+              return;
+            }
+
             SnackBarUtils.showSnackBar(
               context,
               'Login Successful!',
@@ -321,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 Text(
-                  'AskEva',
+                  'Hrms',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.bold,

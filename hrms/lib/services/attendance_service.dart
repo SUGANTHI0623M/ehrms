@@ -10,14 +10,16 @@ class AttendanceService {
   Map<String, dynamic>? attendanceTemplate;
   Map<String, dynamic>? _cachedTodayAttendance;
   DateTime? _lastTodayAttendanceFetch;
-  
+
   // Cache for month attendance: key = "year-month", value = cached data
   final Map<String, Map<String, dynamic>> _cachedMonthAttendance = {};
   final Map<String, DateTime> _lastMonthAttendanceFetch = {};
 
   // Simple per-endpoint throttle map (URL -> last call time)
   static final Map<String, DateTime> _lastCallTimestamps = {};
-  static const Duration _throttleDuration = Duration(seconds: 2); // Reduced from 3 to allow faster retries
+  static const Duration _throttleDuration = Duration(
+    seconds: 2,
+  ); // Reduced from 3 to allow faster retries
   static const Duration _cacheValidDuration = Duration(minutes: 5);
 
   bool _isThrottled(String url) {
@@ -68,7 +70,8 @@ class AttendanceService {
           )
           .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 201) {
+      // Backend returns 201 for new check-in, 200 for Half Day update
+      if (response.statusCode == 201 || response.statusCode == 200) {
         final data = jsonDecode(response.body);
         // Invalidate today attendance cache after a successful check-in
         _cachedTodayAttendance = null;
@@ -125,10 +128,24 @@ class AttendanceService {
     }
   }
 
-  Future<Map<String, dynamic>> getTodayAttendance({bool forceRefresh = false}) async {
+  Future<Map<String, dynamic>> getTodayAttendance({
+    bool forceRefresh = false,
+  }) async {
     try {
       const endpointPath = '/attendance/today';
       final url = '$baseUrl$endpointPath';
+
+      // Invalidate cache if it's from a different day
+      if (_cachedTodayAttendance != null) {
+        final now = DateTime.now();
+        final isSameDay =
+            _lastTodayAttendanceFetch?.year == now.year &&
+            _lastTodayAttendanceFetch?.month == now.month &&
+            _lastTodayAttendanceFetch?.day == now.day;
+        if (!isSameDay) {
+          _cachedTodayAttendance = null;
+        }
+      }
 
       // Return cached value if available and not forced to refresh
       if (!forceRefresh && _cachedTodayAttendance != null) {
@@ -195,10 +212,7 @@ class AttendanceService {
       }
 
       final response = await http
-          .get(
-            Uri.parse(url),
-            headers: headers,
-          )
+          .get(Uri.parse(url), headers: headers)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -262,8 +276,17 @@ class AttendanceService {
     }
   }
 
-  Future<Map<String, dynamic>> getMonthAttendance(int year, int month, {bool forceRefresh = false}) async {
-    return _getMonthAttendanceWithRetry(year, month, forceRefresh: forceRefresh, retryCount: 0);
+  Future<Map<String, dynamic>> getMonthAttendance(
+    int year,
+    int month, {
+    bool forceRefresh = false,
+  }) async {
+    return _getMonthAttendanceWithRetry(
+      year,
+      month,
+      forceRefresh: forceRefresh,
+      retryCount: 0,
+    );
   }
 
   Future<Map<String, dynamic>> _getMonthAttendanceWithRetry(
@@ -275,11 +298,11 @@ class AttendanceService {
     try {
       final cacheKey = '$year-$month';
       final url = '$baseUrl/attendance/month?year=$year&month=$month';
-      
+
       // Check cache first (unless forced refresh)
       if (!forceRefresh && _cachedMonthAttendance.containsKey(cacheKey)) {
         final lastFetch = _lastMonthAttendanceFetch[cacheKey];
-        if (lastFetch != null && 
+        if (lastFetch != null &&
             DateTime.now().difference(lastFetch) < _cacheValidDuration) {
           return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
         }
@@ -294,7 +317,12 @@ class AttendanceService {
         // If no cache and first retry, wait and retry once
         if (retryCount == 0) {
           await Future.delayed(const Duration(milliseconds: 1500));
-          return _getMonthAttendanceWithRetry(year, month, forceRefresh: forceRefresh, retryCount: 1);
+          return _getMonthAttendanceWithRetry(
+            year,
+            month,
+            forceRefresh: forceRefresh,
+            retryCount: 1,
+          );
         }
         return {
           'success': false,
@@ -304,20 +332,17 @@ class AttendanceService {
 
       final headers = await _getHeaders();
       final response = await http
-          .get(
-            Uri.parse(url),
-            headers: headers,
-          )
+          .get(Uri.parse(url), headers: headers)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final attendanceData = data['data'];
-        
+
         // Cache the successful response
         _cachedMonthAttendance[cacheKey] = attendanceData;
         _lastMonthAttendanceFetch[cacheKey] = DateTime.now();
-        
+
         return {'success': true, 'data': attendanceData};
       } else if (response.statusCode == 429) {
         // On rate limit, return cached data if available
@@ -327,7 +352,12 @@ class AttendanceService {
         // If no cache and first retry, wait and retry once with exponential backoff
         if (retryCount == 0) {
           await Future.delayed(const Duration(milliseconds: 2000));
-          return _getMonthAttendanceWithRetry(year, month, forceRefresh: forceRefresh, retryCount: 1);
+          return _getMonthAttendanceWithRetry(
+            year,
+            month,
+            forceRefresh: forceRefresh,
+            retryCount: 1,
+          );
         }
         return {
           'success': false,
@@ -352,7 +382,12 @@ class AttendanceService {
       // If no cache and first retry, wait and retry once
       if (retryCount == 0 && e is TimeoutException) {
         await Future.delayed(const Duration(milliseconds: 1000));
-        return _getMonthAttendanceWithRetry(year, month, forceRefresh: forceRefresh, retryCount: 1);
+        return _getMonthAttendanceWithRetry(
+          year,
+          month,
+          forceRefresh: forceRefresh,
+          retryCount: 1,
+        );
       }
       return {'success': false, 'message': _handleException(e)};
     }
@@ -378,11 +413,23 @@ class AttendanceService {
 
   String _handleException(dynamic error) {
     if (error is SocketException) {
-      return 'Network error: Please check your internet connection.';
+      // SocketException can occur even with internet if server is unreachable
+      // Check error message to provide more specific feedback
+      String errorMsg = error.message.toLowerCase();
+      if (errorMsg.contains('failed host lookup') || 
+          errorMsg.contains('name resolution') ||
+          errorMsg.contains('nodename nor servname provided')) {
+        return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
+      } else if (errorMsg.contains('connection refused') ||
+                 errorMsg.contains('connection reset')) {
+        return 'Server is not responding. Please try again in a moment or contact support.';
+      } else {
+        return 'Connection error. Please check your internet connection and try again.';
+      }
     } else if (error is TimeoutException) {
-      return 'Connection timed out. Please try again.';
+      return 'Connection timed out. The server is taking too long to respond. Please try again.';
     } else if (error is FormatException) {
-      return 'Invalid response format from server.';
+      return 'Invalid response format from server. Please try again.';
     }
 
     String msg = error.toString();

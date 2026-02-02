@@ -53,7 +53,7 @@ class SalaryStructureInputs {
     // Auto-calculate DA and HRA based on basic salary (50% and 20% respectively)
     // Logic: If DA/HRA exist in database and are > 0, use them; otherwise auto-calculate from basic
     // This matches the web component behavior
-    
+
     final dearnessAllowance = existingDA > 0
         ? existingDA
         : (basicSalary > 0
@@ -328,7 +328,7 @@ class ProratedSalary {
 ProratedSalary calculateProratedSalary(
   CalculatedSalaryStructure calculatedSalary,
   int workingDays,
-  int presentDays, [
+  num presentDays, [
   double fineAmount = 0,
 ]) {
   if (workingDays == 0) {
@@ -362,7 +362,7 @@ ProratedSalary calculateProratedSalary(
   final originalBasic = calculatedSalary.monthly.basicSalary;
   final originalGrossFixed = calculatedSalary.monthly.grossFixedSalary;
   final originalGross = calculatedSalary.monthly.grossSalary;
-  
+
   // Calculate rates from original values (backward calculation)
   final employerPFRate = originalBasic > 0
       ? (calculatedSalary.monthly.employerPF / originalBasic) * 100

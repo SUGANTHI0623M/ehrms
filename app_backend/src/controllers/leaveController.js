@@ -13,6 +13,17 @@ const calculateDays = (start, end) => {
     return diffDays;
 };
 
+/**
+ * Normalize a date to the calendar day at midnight UTC.
+ * Prevents timezone shift: e.g. 2026-02-02 00:00 IST → store as 2026-02-02T00:00:00.000Z
+ * Uses the date components from the parsed value (local interpretation) then builds UTC midnight.
+ */
+const normalizeToDateOnlyUTC = (dateInput) => {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return dateInput;
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0));
+};
+
 const getLeaves = async (req, res) => {
     try {
         const currentStaff = req.staff; // From middleware
@@ -41,9 +52,21 @@ const getLeaves = async (req, res) => {
         }
 
         if (startDate || endDate) {
-            query.startDate = {};
-            if (startDate) query.startDate.$gte = new Date(startDate);
-            if (endDate) query.startDate.$lte = new Date(endDate);
+            // Robust UTC parsing: ignore local time shifts
+            const parseDate = (d, isEnd) => {
+                const date = new Date(d);
+                const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+                if (isEnd) utc.setUTCHours(23, 59, 59, 999);
+                else utc.setUTCHours(0, 0, 0, 0);
+                return utc;
+            };
+
+            const rangeStart = startDate ? parseDate(startDate, false) : new Date(0);
+            const rangeEnd = endDate ? parseDate(endDate, true) : new Date(8640000000000000);
+
+            // Simple, robust overlap query
+            query.startDate = { $lte: rangeEnd };
+            query.endDate = { $gte: rangeStart };
         }
 
         const skip = (Number(page) - 1) * Number(limit);
@@ -77,106 +100,107 @@ const getLeaves = async (req, res) => {
 const getLeaveTypes = async (req, res) => {
     try {
         const staffId = req.staff._id;
-        const staff = await Staff.findById(staffId).populate('leaveTemplateId');
+        const { month, year, startDate, endDate } = req.query;
+        
+        let rangeStart, rangeEnd;
 
-        const DEFAULT_TYPES = ['Casual', 'Sick', 'Earned', 'Unpaid', 'Paid', 'Maternity', 'Paternity', 'Other'];
-        let templateTypes = [];
+        // Robust parsing: ignore local time shifts for boundaries
+        const parseBoundaryDate = (d, isEnd) => {
+            const date = new Date(d);
+            if (isEnd) return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999));
+            return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
+        };
 
-        if (staff && staff.leaveTemplateId) {
-            const template = staff.leaveTemplateId;
-            // Support various template structures
-            if (template.leaveTypes && Array.isArray(template.leaveTypes)) {
-                templateTypes = template.leaveTypes.map(t => ({
-                    type: t.type,
-                    limit: t.limit || t.days
-                }));
-            } else if (template.limits) {
-                templateTypes = Object.keys(template.limits).map(k => ({
-                    type: k,
-                    limit: template.limits[k]
-                }));
-            }
+        if (startDate && endDate) {
+            rangeStart = parseBoundaryDate(startDate, false);
+            rangeEnd = parseBoundaryDate(endDate, true);
+        } else {
+            const now = new Date();
+            const targetMonth = month ? parseInt(month) - 1 : now.getMonth();
+            const targetYear = year ? parseInt(year) : now.getFullYear();
+            rangeStart = new Date(Date.UTC(targetYear, targetMonth, 1, 0, 0, 0, 0));
+            rangeEnd = new Date(Date.UTC(targetYear, targetMonth + 1, 0, 23, 59, 59, 999));
         }
 
-        // If staff has a template with leaveTypes, return template types + always include Paid and Unpaid
-        // This ensures the app shows the exact template type names (e.g., "Casual Leave", "Sick Leave")
-        // and always includes Paid/Unpaid options
-        if (templateTypes.length > 0) {
-            const now = new Date();
-            const availableTypes = await Promise.all(templateTypes.map(async (templateType) => {
-                const typeName = templateType.type;
-                const limit = templateType.limit;
+        // 1. Fetch Approved leaves that overlap with the requested range
+        const approvedLeaves = await Leave.find({
+            employeeId: staffId,
+            status: { $regex: /^approved$/i },
+            startDate: { $lte: rangeEnd },
+            endDate: { $gte: rangeStart }
+        });
 
-                if (limit === null || limit === undefined) {
-                    // No restriction for this type
-                    return {
-                        type: typeName,
-                        limit: null,
-                        used: 0,
-                        balance: 999, // Practically unlimited
-                        isUnrestricted: true
-                    };
+        // 2. Identify and group all leave types
+        const staff = await Staff.findById(staffId).populate('leaveTemplateId');
+        const typeGroups = new Map();
+        
+        // Robust normalization helper:
+        // - trim extra spaces
+        // - lowercase
+        // - remove "leave" suffix (optional)
+        // - remove all internal whitespace for strict matching
+        const normalize = (str) => (str || '').toLowerCase().trim().replace(/\s*leave\s*$/i, '').replace(/\s+/g, '');
+
+        // Define default cards to show in UI
+        const defaultTypes = ['Casual Leave', 'Sick Leave', 'Half Day', 'Earned Leave', 'Unpaid Leave'];
+        
+        // Add template types if they exist
+        if (staff?.leaveTemplateId?.leaveTypes) {
+            staff.leaveTemplateId.leaveTypes.forEach(t => {
+                if (t.type && !defaultTypes.some(dt => normalize(dt) === normalize(t.type))) {
+                    defaultTypes.push(t.type);
                 }
-
-                // Use calculateAvailableLeaves to handle carryForward logic
-                const leaveInfo = await calculateAvailableLeaves(staff, typeName, now);
-
-                return {
-                    type: typeName,
-                    limit: leaveInfo.baseLimit,
-                    carriedForward: leaveInfo.carriedForward,
-                    totalAvailable: leaveInfo.totalAvailable,
-                    used: leaveInfo.used,
-                    balance: leaveInfo.balance,
-                    isMonthly: leaveInfo.isMonthly,
-                    carryForwardEnabled: leaveInfo.carryForwardEnabled,
-                    isUnrestricted: false
-                };
-            }));
-
-            // Always add Paid and Unpaid leave types (unrestricted)
-            // Check if they're not already in template types
-            const templateTypeNames = templateTypes.map(t => t.type.toLowerCase());
-            if (!templateTypeNames.includes('paid')) {
-                availableTypes.push({
-                    type: 'Paid',
-                    limit: null,
-                    used: 0,
-                    balance: 999,
-                    isUnrestricted: true
-                });
-            }
-            if (!templateTypeNames.includes('unpaid')) {
-                availableTypes.push({
-                    type: 'Unpaid',
-                    limit: null,
-                    used: 0,
-                    balance: 999,
-                    isUnrestricted: true
-                });
-            }
-
-            return res.json({
-                success: true,
-                data: availableTypes
             });
         }
 
-        // Fallback: If no template, return DEFAULT_TYPES with no restrictions
-        const now = new Date();
-        const availableTypes = await Promise.all(DEFAULT_TYPES.map(async (typeName) => {
-            return {
-                type: typeName,
-                limit: null,
-                used: 0,
-                balance: 999, // Practically unlimited
-                isUnrestricted: true
-            };
+        // Initialize groups with original names
+        defaultTypes.forEach(t => {
+            const norm = normalize(t);
+            if (!typeGroups.has(norm)) {
+                typeGroups.set(norm, { originalName: t, takenCount: 0 });
+            }
+        });
+
+        // 3. Process leaves and count days accurately within range
+        approvedLeaves.forEach(l => {
+            const norm = normalize(l.leaveType);
+            if (!typeGroups.has(norm)) {
+                typeGroups.set(norm, { originalName: l.leaveType, takenCount: 0 });
+            }
+
+            const group = typeGroups.get(norm);
+            const lStart = new Date(l.startDate);
+            const lEnd = new Date(l.endDate);
+
+            // Use local components to be timezone-independent during the loop
+            const current = new Date(Date.UTC(lStart.getFullYear(), lStart.getMonth(), lStart.getDate()));
+            const end = new Date(Date.UTC(lEnd.getFullYear(), lEnd.getMonth(), lEnd.getDate()));
+
+            while (current <= end) {
+                // If this day of the leave falls within our filter range, count it
+                if (current >= rangeStart && current <= rangeEnd) {
+                    const typeNorm = normalize(l.leaveType);
+                    // Half Day is stored as days=1; count 0.5 for display
+                    if (typeNorm === 'halfday') {
+                        group.takenCount += 0.5;
+                    } else {
+                        group.takenCount += 1;
+                    }
+                }
+                current.setUTCDate(current.getUTCDate() + 1);
+            }
+        });
+
+        // Convert Map to response format
+        const leaveSummary = Array.from(typeGroups.values()).map(g => ({
+            type: g.originalName,
+            takenCount: g.takenCount
         }));
 
         res.json({
             success: true,
-            data: availableTypes
+            data: leaveSummary,
+            range: { start: rangeStart, end: rangeEnd }
         });
     } catch (error) {
         console.error(error);
@@ -184,10 +208,49 @@ const getLeaveTypes = async (req, res) => {
     }
 };
 
+// Map template/database leave type names to canonical values for consistent storage
+const normalizeLeaveType = (raw) => {
+    const t = (raw || '').trim().toLowerCase();
+    if (!t) return null;
+    if (/^\s*half\s*day\s*(leave)?\s*$/i.test(raw) || t === 'half day') return 'Half Day';
+    if (/^\s*first\s*half\s*(leave)?\s*$/i.test(raw) || t === 'first half') return { canonical: 'Half Day', session: '1' };
+    if (/^\s*second\s*half\s*(leave)?\s*$/i.test(raw) || t === 'second half') return { canonical: 'Half Day', session: '2' };
+    if (/^\s*casual\s*(leave)?\s*$/i.test(raw) || t === 'casual') return 'Casual Leave';
+    if (/^\s*sick\s*(leave)?\s*$/i.test(raw) || t === 'sick') return 'Sick Leave';
+    if (/^\s*earned\s*(leave)?\s*$/i.test(raw) || t === 'earned') return 'Earned Leave';
+    if (/^\s*unpaid\s*(leave)?\s*$/i.test(raw) || t === 'unpaid') return 'Unpaid';
+    if (/^\s*paid\s*(leave)?\s*$/i.test(raw) || t === 'paid') return 'Paid';
+    if (/^\s*maternity\s*(leave)?\s*$/i.test(raw) || t === 'maternity') return 'Maternity';
+    if (/^\s*paternity\s*(leave)?\s*$/i.test(raw) || t === 'paternity') return 'Paternity';
+    if (/^\s*other\s*$/i.test(raw) || t === 'other') return 'Other';
+    return raw.trim(); // Keep template-defined names as-is
+};
+
 const createLeave = async (req, res) => {
     try {
-        const { startDate, endDate, leaveType, reason } = req.body;
+        console.log('[Leave Submit] Request Body:', JSON.stringify(req.body));
+        console.log('[Leave Submit] leaveType value:', req.body?.leaveType, '(type:', typeof req.body?.leaveType, ')');
+
+        let { startDate, endDate, leaveType, reason, session } = req.body;
         const currentStaffId = req.staff._id;
+
+        // Normalize dates to calendar day at midnight UTC (no timezone shift)
+        startDate = normalizeToDateOnlyUTC(startDate);
+        endDate = normalizeToDateOnlyUTC(endDate);
+
+        leaveType = (leaveType || '').trim();
+        if (!leaveType) {
+            return res.status(400).json({ success: false, error: { message: 'Leave type is required' } });
+        }
+
+        // Normalize to canonical value (matches DB/template names to expected format)
+        const normalized = normalizeLeaveType(leaveType);
+        if (normalized && typeof normalized === 'object') {
+            leaveType = normalized.canonical;
+            session = normalized.session;
+        } else if (normalized) {
+            leaveType = normalized;
+        }
 
         const staff = await Staff.findById(currentStaffId).populate('leaveTemplateId');
 
@@ -195,7 +258,21 @@ const createLeave = async (req, res) => {
             return res.status(400).json({ success: false, error: { message: 'Staff profile not found' } });
         }
 
-        const days = calculateDays(startDate, endDate);
+        // Calculate days - 1 for Half Day (integer only in DB), otherwise standard calculation
+        const days = leaveType === 'Half Day' ? 1 : calculateDays(startDate, endDate);
+
+        // Validation for Half Day
+        if (leaveType === 'Half Day') {
+            if (!session || !['1', '2'].includes(session)) {
+                return res.status(400).json({ success: false, error: { message: 'Session (1 or 2) is mandatory for Half Day leave' } });
+            }
+            // Ensure start and end date are the same for Half Day (compare UTC date parts)
+            const startUtc = `${startDate.getUTCFullYear()}-${startDate.getUTCMonth()}-${startDate.getUTCDate()}`;
+            const endUtc = `${endDate.getUTCFullYear()}-${endDate.getUTCMonth()}-${endDate.getUTCDate()}`;
+            if (startUtc !== endUtc) {
+                return res.status(400).json({ success: false, error: { message: 'Half Day leave can only be applied for a single date' } });
+            }
+        }
 
         let limit = null;
         let leaveConfig = null;
@@ -236,11 +313,11 @@ const createLeave = async (req, res) => {
             }
 
             // IMPORTANT: If staff has a template with leaveTypes array, validate that the leave type exists
-            // Exception: Always allow "Paid" and "Unpaid" leave types even if not in template
-            const alwaysAllowedTypes = ['Paid', 'Unpaid'];
-            const isAlwaysAllowed = alwaysAllowedTypes.some(allowedType => 
-                leaveType.toLowerCase() === allowedType.toLowerCase()
-            );
+            // Exception: Always allow "Unpaid", "Half Day", "First Half", "Second Half" even if not in template
+            const isAlwaysAllowed = /^\s*unpaid(\s+leave)?\s*$/i.test(leaveType) ||
+                /^\s*half\s*day\s*$/i.test(leaveType) ||
+                /^\s*first\s*half\s*$/i.test(leaveType) ||
+                /^\s*second\s*half\s*$/i.test(leaveType);
 
             // Only reject if template has leaveTypes array defined (not empty/null) AND leave type is not always allowed
             if (!leaveTypeFound && !isAlwaysAllowed && template.leaveTypes && Array.isArray(template.leaveTypes) && template.leaveTypes.length > 0) {
@@ -356,15 +433,36 @@ const createLeave = async (req, res) => {
             }
         }
 
-        const leave = await Leave.create({
+        // Check if employee already has leave (Pending or Approved) on any of the requested dates
+        const existingLeave = await Leave.findOne({
+            employeeId: staff._id,
+            status: { $in: ['Pending', 'Approved'] },
+            startDate: { $lte: endDate },
+            endDate: { $gte: startDate }
+        });
+
+        if (existingLeave) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    message: 'You have already applied for leave on one or more of these dates. Please choose different dates or check your existing leave requests.'
+                }
+            });
+        }
+
+        const leaveDoc = {
             employeeId: staff._id,
             businessId: staff.businessId,
             leaveType,
             startDate,
             endDate,
             days,
-            reason
-        });
+            reason,
+            session: leaveType === 'Half Day' ? session : null
+        };
+        console.log('[Leave Submit] Before Leave.create - leaveType:', leaveType, '| full doc:', JSON.stringify(leaveDoc));
+
+        const leave = await Leave.create(leaveDoc);
 
         res.status(201).json({
             success: true,
@@ -399,6 +497,28 @@ const updateLeaveStatus = async (req, res) => {
                 success: false,
                 error: { message: 'Leave not found' }
             });
+        }
+
+        // If approving, check limits one last time
+        if (status === 'Approved') {
+            const staff = await Staff.findById(leave.employeeId).populate('leaveTemplateId');
+            if (staff && staff.leaveTemplateId) {
+                const leaveInfo = await calculateAvailableLeaves(staff, leave.leaveType, leave.startDate);
+                
+                // When approving, we check if the ALREADY APPLIED leave (which is in Pending)
+                // would still be within limits. calculateAvailableLeaves includes Pending leaves.
+                // If used > totalAvailable, it means some leaves were approved in between that 
+                // now make this one exceed the limit.
+                if (leaveInfo.totalAvailable !== null && leaveInfo.used > leaveInfo.totalAvailable) {
+                    return res.status(400).json({
+                        success: false,
+                        error: { 
+                            message: `Cannot approve leave. ${leave.leaveType} limit exceeded for this ${leaveInfo.isMonthly ? 'month' : 'year'}.`,
+                            details: leaveInfo
+                        }
+                    });
+                }
+            }
         }
 
         // Update leave status

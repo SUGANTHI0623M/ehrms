@@ -30,7 +30,8 @@ function deg2rad(deg) {
 }
 
 // Helper function to get shift timing from Company settings based on shiftName
-function getShiftFromCompanySettings(company, shiftName) {
+// If shiftName is not provided, returns the first shift from the array
+function getShiftFromCompanySettings(company, shiftName = null) {
     if (!company || !company.settings || !company.settings.attendance || !company.settings.attendance.shifts) {
         return null;
     }
@@ -40,15 +41,23 @@ function getShiftFromCompanySettings(company, shiftName) {
         return null;
     }
     
-    // Find shift matching the shiftName (case-insensitive)
-    const matchedShift = shifts.find(shift => {
-        const shiftNameLower = (shift.name || '').toLowerCase();
-        const staffShiftNameLower = (shiftName || '').toLowerCase();
-        return shiftNameLower === staffShiftNameLower;
-    });
+    // Find shift matching the shiftName (case-insensitive), or use first shift if shiftName is not provided
+    let matchedShift = null;
+    if (shiftName) {
+        matchedShift = shifts.find(shift => {
+            const shiftNameLower = (shift.name || '').toLowerCase();
+            const staffShiftNameLower = (shiftName || '').toLowerCase();
+            return shiftNameLower === staffShiftNameLower;
+        });
+    }
     
+    // If no match found and shiftName was provided, return null
+    // If shiftName was not provided, use first shift
     if (!matchedShift) {
-        return null;
+        if (shiftName) {
+            return null; // Shift name specified but not found
+        }
+        matchedShift = shifts[0]; // Use first shift as default
     }
     
     // Extract grace time
@@ -239,15 +248,45 @@ function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySal
 }
 
 // Helper function to calculate combined fine (late + early)
-async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, template, staff, company) {
+// @param {Object} leave - Optional approved leave (for Half Day session-aware calculation)
+async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, template, staff, company, leave = null) {
     try {
-        // Get shift timings
-        const shiftStartTime = template.shiftStartTime || "09:30";
-        const shiftEndTime = template.shiftEndTime || "18:30";
-        const gracePeriodMinutes = template.gracePeriodMinutes || 0;
+        // Check if Half Day leave and get session
+        const isHalfDay = leave && String(leave.leaveType || '').trim().toLowerCase() === 'half day';
+        const session = isHalfDay ? String(leave.session || '').trim() : null;
         
-        // Calculate shift hours
-        const shiftHours = calculateShiftHours(shiftStartTime, shiftEndTime);
+        // Get shift timings from DB (use Company settings if available, else template)
+        const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
+        const dbShiftTimings = getShiftTimings(company, staff);
+        const dbShiftStartTime = dbShiftTimings.startTime;
+        const dbShiftEndTime = dbShiftTimings.endTime;
+        const dbGracePeriodMinutes = dbShiftTimings.gracePeriodMinutes || 0;
+        
+        // Get shift timings (session-aware for Half Day, regular shift otherwise)
+        let shiftStartTime, shiftEndTime, shiftHours;
+        if (isHalfDay && (session === '1' || session === '2')) {
+            const { getWorkingSessionTimings } = require('../utils/leaveAttendanceHelper');
+            // Calculate working session from DB shift times
+            const sessionTimings = getWorkingSessionTimings(session, dbShiftStartTime, dbShiftEndTime);
+            if (sessionTimings) {
+                shiftStartTime = sessionTimings.startTime;
+                shiftEndTime = sessionTimings.endTime;
+                shiftHours = calculateShiftHours(shiftStartTime, shiftEndTime); // 5 hours for half-day session
+            } else {
+                // Fallback to regular shift from DB
+                shiftStartTime = dbShiftStartTime;
+                shiftEndTime = dbShiftEndTime;
+                shiftHours = calculateShiftHours(shiftStartTime, shiftEndTime);
+            }
+        } else {
+            // Full-day: use DB shift times
+            shiftStartTime = dbShiftStartTime;
+            shiftEndTime = dbShiftEndTime;
+            shiftHours = calculateShiftHours(shiftStartTime, shiftEndTime);
+        }
+        
+        // Use grace period from company settings if available, otherwise from template
+        const gracePeriodMinutes = dbGracePeriodMinutes || template.gracePeriodMinutes || 0;
         
         // Calculate daily salary
         let dailySalary = null;
@@ -294,13 +333,24 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             return { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0 };
         }
         
-        // Calculate late fine
-        const lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours);
+        // Calculate late fine (session-aware for Half Day)
+        let lateFine;
+        if (isHalfDay && (session === '1' || session === '2')) {
+            const { calculateHalfDayLateFine } = require('../utils/leaveAttendanceHelper');
+            lateFine = calculateHalfDayLateFine(punchInTime, attendanceDate, session, gracePeriodMinutes, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime);
+        } else {
+            lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours);
+        }
         
-        // Calculate early fine if punch-out exists
+        // Calculate early fine if punch-out exists (session-aware for Half Day)
         let earlyFine = { earlyMinutes: 0, fineAmount: 0 };
         if (punchOutTime) {
-            earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours);
+            if (isHalfDay && (session === '1' || session === '2')) {
+                const { calculateHalfDayEarlyFine } = require('../utils/leaveAttendanceHelper');
+                earlyFine = calculateHalfDayEarlyFine(punchOutTime, attendanceDate, session, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime);
+            } else {
+                earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours);
+            }
         }
         
         // Combine fines
@@ -340,9 +390,12 @@ const checkIn = async (req, res) => {
 
     // Date Logic: Store as Date object set to midnight (start of day) - UTC safe approach
     const now = new Date();
-    // Create Date object for start/end of day based on current time
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    // Create Date object for start/end of day in UTC to ensure MongoDB ISODate format
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
     try {
         // Re-fetch staff with populated branch and template
@@ -350,16 +403,23 @@ const checkIn = async (req, res) => {
         const template = normalizeTemplate(staff.attendanceTemplateId);
 
         // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
-        // This check must happen FIRST before any other attendance validations
         const Leave = require('../models/Leave');
+        const { canCheckInWithHalfDayLeave } = require('../utils/leaveAttendanceHelper');
         const activeLeave = await Leave.findOne({
             employeeId: staffId,
-            status: 'Approved',
-            startDate: { $lt: endOfDay },
-            endDate: { $gt: startOfDay }
+            status: { $regex: /^approved$/i },
+            startDate: { $lte: endOfDay },
+            endDate: { $gte: startOfDay }
         });
         if (activeLeave) {
-            return res.status(403).json({ message: 'Today is a Leave Day. Check-in not allowed.' });
+            if (activeLeave.leaveType === 'Half Day') {
+                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now);
+                if (!checkInResult.allowed) {
+                    return res.status(403).json({ message: checkInResult.message || 'Half-day leave approved. Check-in not allowed at this time.' });
+                }
+            } else {
+                return res.status(403).json({ message: 'You are on leave today. Enjoy your leave.' });
+            }
         }
 
         // 2. Check for Holiday
@@ -398,11 +458,11 @@ const checkIn = async (req, res) => {
         }
 
         // 4. Check Late Entry - Always allow, but add warning if not allowed in settings
-        // PRIORITY: Get shift timing from Company settings based on staff's shiftName
+        // PRIORITY: Get shift timing from Company settings (matches shiftName if available, otherwise first shift)
         // Fallback to AttendanceTemplate if shift not found in Company settings
         let shiftTiming = null;
-        if (company && staff.shiftName) {
-            shiftTiming = getShiftFromCompanySettings(company, staff.shiftName);
+        if (company) {
+            shiftTiming = getShiftFromCompanySettings(company, staff.shiftName || null);
         }
         
         const shiftStartStr = shiftTiming?.startTime || template.shiftStartTime || "09:30";
@@ -483,6 +543,66 @@ const checkIn = async (req, res) => {
             });
         }
 
+        // Half Day: if record exists for today and day is Half Day (approved leave or status), update existing instead of blocking
+        const isHalfDayLeave = activeLeave && String(activeLeave.leaveType || '').trim().toLowerCase() === 'half day';
+        const isHalfDayStatus = existing && String(existing.status || '').trim().toLowerCase() === 'half day';
+        const isHalfDayDay = isHalfDayLeave || isHalfDayStatus;
+
+        if (existing && isHalfDayDay) {
+            // Update existing Half Day record with punchIn (do not create new, do not return "Already checked in")
+            let selfieUrl = null;
+            if (selfie && template.requireSelfie !== false) {
+                selfieUrl = await uploadToCloudinary(selfie);
+            }
+            const fineShiftStartTime = shiftTiming?.startTime || template.shiftStartTime || '09:30';
+            const fineShiftEndTime = shiftTiming?.endTime || template.shiftEndTime || '18:30';
+            const fineGracePeriod = shiftTiming?.gracePeriodMinutes ?? template.gracePeriodMinutes ?? 0;
+            const fineTemplate = {
+                ...template,
+                shiftStartTime: fineShiftStartTime,
+                shiftEndTime: fineShiftEndTime,
+                gracePeriodMinutes: fineGracePeriod
+            };
+            let fineResult = { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0 };
+            if (lateMinutes > 0) {
+                fineResult = await calculateCombinedFine(now, null, startOfDay, fineTemplate, staff, company, activeLeave);
+            }
+            existing.punchIn = now;
+            
+            // Update location using Mongoose set() method for nested paths to avoid validation issues
+            // This ensures punchOut is not touched if it doesn't exist
+            existing.set('location.latitude', userLat);
+            existing.set('location.longitude', userLng);
+            existing.set('location.address', address || '');
+            existing.set('location.area', area || '');
+            existing.set('location.city', city || '');
+            existing.set('location.pincode', pincode || '');
+            
+            // Update punchIn nested object
+            existing.set('location.punchIn.latitude', userLat);
+            existing.set('location.punchIn.longitude', userLng);
+            existing.set('location.punchIn.address', address || '');
+            existing.set('location.punchIn.area', area || '');
+            existing.set('location.punchIn.city', city || '');
+            existing.set('location.punchIn.pincode', pincode || '');
+            
+            // punchOut is NOT set - Mongoose will preserve existing value or leave it undefined
+            // This avoids the "Cast to Object failed" error
+            
+            existing.punchInSelfie = selfieUrl;
+            existing.punchInIpAddress = req.ip || req.connection.remoteAddress;
+            existing.ipAddress = req.ip || req.connection.remoteAddress;
+            existing.lateMinutes = fineResult.lateMinutes;
+            existing.earlyMinutes = fineResult.earlyMinutes ?? 0;
+            existing.fineHours = fineResult.fineHours ?? 0;
+            existing.fineAmount = fineResult.fineAmount ?? 0;
+            existing.workHours = 0;
+            await existing.save();
+            const response = existing.toObject ? existing.toObject() : existing;
+            if (warnings.length > 0) response.warnings = warnings;
+            return res.status(200).json(response);
+        }
+
         if (existing) {
             return res.status(400).json({ message: 'Already checked in today' });
         }
@@ -526,7 +646,7 @@ const checkIn = async (req, res) => {
         
         let fineResult = { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0 };
         if (lateMinutes > 0) {
-            fineResult = await calculateCombinedFine(now, null, startOfDay, fineTemplate, staff, company);
+            fineResult = await calculateCombinedFine(now, null, startOfDay, fineTemplate, staff, company, activeLeave);
         }
 
         // Create initial attendance record.
@@ -577,8 +697,12 @@ const checkOut = async (req, res) => {
     const staffId = req.staff._id;
     const now = new Date();
 
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    // Create Date object for start/end of day in UTC to ensure MongoDB ISODate format
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
     try {
         const staff = await Staff.findById(staffId).populate('branchId').populate('attendanceTemplateId');
@@ -613,32 +737,46 @@ const checkOut = async (req, res) => {
 async function processCheckOut(attendance, req, res, staff, now, data, template = {}) {
     const { latitude, longitude, address, area, city, pincode, selfie } = data;
 
-    if (attendance.punchOut) {
+    // Half Day: allow updating punchOut even if already set (update existing record)
+    const isHalfDayStatus = attendance && String(attendance.status || '').trim().toLowerCase() === 'half day';
+    if (attendance.punchOut && !isHalfDayStatus) {
         return res.status(400).json({ message: 'Already checked out today' });
     }
 
     // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
     const Leave = require('../models/Leave');
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const { canCheckOutWithHalfDayLeave } = require('../utils/leaveAttendanceHelper');
+    // Create Date object for start/end of day in UTC to ensure MongoDB ISODate format
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
     const activeLeave = await Leave.findOne({
         employeeId: staff._id,
-        status: 'Approved',
-        startDate: { $lt: endOfDay },
-        endDate: { $gt: startOfDay }
+        status: { $regex: /^approved$/i },
+        startDate: { $lte: endOfDay },
+        endDate: { $gte: startOfDay }
     });
     if (activeLeave) {
-        return res.status(403).json({ message: 'Today is a Leave Day. Check-out not allowed.' });
+        if (activeLeave.leaveType === 'Half Day') {
+            const checkOutResult = canCheckOutWithHalfDayLeave(activeLeave, now);
+            if (!checkOutResult.allowed) {
+                return res.status(403).json({ message: checkOutResult.message || 'Half-day leave (Session 2). Check-out not allowed.' });
+            }
+        } else {
+            return res.status(403).json({ message: 'Your leave request is approved for today. Enjoy your leave.' });
+        }
     }
 
     // Check Early Exit - Always allow, but add warning if not allowed in settings
-    // PRIORITY: Get shift timing from Company settings based on staff's shiftName
+    // PRIORITY: Get shift timing from Company settings (matches shiftName if available, otherwise first shift)
     // Fallback to AttendanceTemplate if shift not found in Company settings
     const Company = require('../models/Company');
     const company = await Company.findById(staff.businessId);
     let shiftTiming = null;
-    if (company && staff.shiftName) {
-        shiftTiming = getShiftFromCompanySettings(company, staff.shiftName);
+    if (company) {
+        shiftTiming = getShiftFromCompanySettings(company, staff.shiftName || null);
     }
     
     const shiftEndStr = shiftTiming?.endTime || template.shiftEndTime || "18:30";
@@ -655,7 +793,7 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
             // Add warning but still allow check-out
             warnings.push({
                 type: 'early_checkout',
-                message: `Early exit not allowed. You are ${earlyMinutes} minute(s) early. Shift end time: ${shiftEndStr}`,
+                message: `You are ${earlyMinutes} minute(s) early. Shift end time: ${shiftEndStr}`,
                 minutes: earlyMinutes,
                 notAllowed: true
             });
@@ -734,13 +872,25 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
         gracePeriodMinutes: fineGracePeriod
     };
     
+    // For Half Day: use session-aware fine calculation
+    // If activeLeave exists, use it; otherwise construct from attendance if status is Half Day
+    let leaveForFine = activeLeave;
+    if (!leaveForFine && isHalfDayStatus && attendance.session) {
+        leaveForFine = {
+            leaveType: 'Half Day',
+            session: attendance.session,
+            status: 'Approved'
+        };
+    }
+    
     const fineResult = await calculateCombinedFine(
         attendance.punchIn,
         now,
         attendance.date,
         fineTemplate,
         staff,
-        company
+        company,
+        leaveForFine
     );
     
     // Update fine fields
@@ -771,15 +921,19 @@ const getTodayAttendance = async (req, res) => {
         if (req.query.date) {
             const parts = req.query.date.split('-').map(Number);
             if (parts.length === 3) {
-                // components: YYYY, MM-1, DD
-                queryDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                // components: YYYY, MM-1, DD - create UTC date
+                queryDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
             } else {
                 queryDate = new Date(req.query.date);
             }
         }
 
-        const startOfDay = new Date(queryDate.getFullYear(), queryDate.getMonth(), queryDate.getDate(), 0, 0, 0, 0);
-        const endOfDay = new Date(queryDate.getFullYear(), queryDate.getMonth(), queryDate.getDate(), 23, 59, 59, 999);
+        // Create Date object for start/end of day in UTC to ensure MongoDB ISODate format
+        const year = queryDate.getUTCFullYear();
+        const month = queryDate.getUTCMonth();
+        const day = queryDate.getUTCDate();
+        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
         // Fetch attendance
         let attendance = await Attendance.findOne({
@@ -824,41 +978,88 @@ const getTodayAttendance = async (req, res) => {
         // Check for approved leave from Leave collection
         const activeLeave = await Leave.findOne({
             employeeId: req.staff._id,
-            status: 'Approved',
-            startDate: { $lt: endOfDay },
-            endDate: { $gt: startOfDay }
+            status: { $regex: /^approved$/i },
+            startDate: { $lte: endOfDay },
+            endDate: { $gte: startOfDay }
         });
         
-        // Only set isOnLeave to true if:
-        // 1. Attendance record has status "On Leave" OR
-        // 2. There's an approved leave
-        // Do NOT set it to true for pending leaves or when leave is not applied
-        const isOnLeave = attendanceStatusIsOnLeave || !!activeLeave;
+        const now = new Date();
+        const isToday = queryDate.getFullYear() === now.getFullYear() &&
+            queryDate.getMonth() === now.getMonth() &&
+            queryDate.getDate() === now.getDate();
 
-        // Check for Holiday
-        const HolidayTemplate = require('../models/HolidayTemplate');
-        const holidayTemplate = await HolidayTemplate.findOne({
-            businessId: req.staff.businessId,
-            isActive: true
-        });
+        const { isCurrentlyInLeaveSession, getLeaveMessageForUI, canCheckInWithHalfDayLeave, canCheckOutWithHalfDayLeave, getHalfDaySessionMessage } = require('../utils/leaveAttendanceHelper');
 
-        let holidayInfo = null;
-        if (holidayTemplate) {
-            holidayInfo = (holidayTemplate.holidays || []).find(h => {
-                const hd = new Date(h.date);
-                return hd.getDate() === queryDate.getDate() &&
-                    hd.getMonth() === queryDate.getMonth() &&
-                    hd.getFullYear() === queryDate.getFullYear();
-            });
+        // If approved leave exists, it overrides any existing attendance status
+        if (activeLeave) {
+            const leaveStatus = activeLeave.leaveType === 'Half Day' ? 'Half Day' : 'On Leave';
+            if (attendance) {
+                attendance.status = leaveStatus;
+            } else {
+                attendance = {
+                    status: leaveStatus,
+                    date: startOfDay,
+                    employeeId: req.staff._id
+                };
+            }
         }
 
-        // Check for Weekly Off (company already fetched above)
+        // Session-based: isOnLeave = true only when full-day leave OR half-day and current time inside leave session
+        const isOnLeave = activeLeave
+            ? (activeLeave.leaveType !== 'Half Day' ? true : (isToday ? isCurrentlyInLeaveSession(activeLeave, now) : true))
+            : (attendance && attendance.status === 'On Leave');
+        const leaveMessage = activeLeave && isToday ? getLeaveMessageForUI(activeLeave, now) : null;
+
+        // Half-day leave: session-based check-in/check-out allowed flags (for today only)
+        let halfDayLeave = null;
+        let checkInAllowed = true;
+        let checkOutAllowed = true;
+        if (activeLeave && activeLeave.leaveType === 'Half Day') {
+            halfDayLeave = {
+                session: activeLeave.session || null,
+                message: getHalfDaySessionMessage(activeLeave.session)
+            };
+            if (isToday) {
+                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now);
+                const checkOutResult = canCheckOutWithHalfDayLeave(activeLeave, now);
+                checkInAllowed = checkInResult.allowed;
+                checkOutAllowed = checkOutResult.allowed;
+            }
+        } else if (activeLeave && isToday) {
+            checkInAllowed = false;
+            checkOutAllowed = false;
+        }
+
+        const finalTemplate = staff?.attendanceTemplateId ? normalizeTemplate(staff.attendanceTemplateId) : {};
+        
+        // Merge shift timings from company settings into template
+        const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
+        const dbShiftTimings = getShiftTimings(company, staff);
+        if (dbShiftTimings.startTime) {
+            finalTemplate.shiftStartTime = dbShiftTimings.startTime;
+        }
+        if (dbShiftTimings.endTime) {
+            finalTemplate.shiftEndTime = dbShiftTimings.endTime;
+        }
+        if (dbShiftTimings.gracePeriodMinutes !== undefined) {
+            finalTemplate.gracePeriodMinutes = dbShiftTimings.gracePeriodMinutes;
+        }
+        
+        let holidayInfo = null;
+        let isWeeklyOff = false;
+        const HolidayTemplate = require('../models/HolidayTemplate');
+        const holidayTemplate = await HolidayTemplate.findOne({ businessId: req.staff.businessId, isActive: true });
+        if (holidayTemplate && holidayTemplate.holidays && holidayTemplate.holidays.length > 0) {
+            const dayMatch = holidayTemplate.holidays.find(h => {
+                const d = new Date(h.date);
+                return d.getFullYear() === queryDate.getFullYear() && d.getMonth() === queryDate.getMonth() && d.getDate() === queryDate.getDate();
+            });
+            if (dayMatch) holidayInfo = dayMatch;
+        }
         const businessSettings = company?.settings?.business || {};
         const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
         const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
-
         const dayOfWeek = queryDate.getDay();
-        let isWeeklyOff = false;
         if (weeklyOffPattern === 'oddEvenSaturday') {
             if (dayOfWeek === 0) isWeeklyOff = true;
             else if (dayOfWeek === 6 && queryDate.getDate() % 2 === 0) isWeeklyOff = true;
@@ -866,29 +1067,16 @@ const getTodayAttendance = async (req, res) => {
             isWeeklyOff = weeklyHolidays.some(h => h.day === dayOfWeek);
         }
 
-        const finalTemplate = normalizeTemplate(staff.attendanceTemplateId);
-        
-        // PRIORITY: Get shift timing from Company settings based on staff's shiftName
-        // Merge shift timings into template for response
-        let shiftTiming = null;
-        if (company && staff.shiftName) {
-            shiftTiming = getShiftFromCompanySettings(company, staff.shiftName);
-            console.log(`[getTodayAttendance] Shift from Company settings: ${shiftTiming ? 'Found' : 'Not Found'} for shiftName: ${staff.shiftName}`);
-            
-            if (shiftTiming) {
-                // Override template shift timings with Company shift settings
-                finalTemplate.shiftStartTime = shiftTiming.startTime;
-                finalTemplate.shiftEndTime = shiftTiming.endTime;
-                finalTemplate.gracePeriodMinutes = shiftTiming.gracePeriodMinutes;
-            }
-        }
-
         res.json({
             data: attendance,
             branch: branchInfo,
             template: finalTemplate,
             isOnLeave: isOnLeave,
+            leaveMessage: leaveMessage || (isOnLeave ? 'Your leave request is approved. Enjoy your leave.' : null),
             leaveInfo: activeLeave,
+            halfDayLeave,
+            checkInAllowed,
+            checkOutAllowed,
             isHoliday: !!holidayInfo,
             holidayInfo: holidayInfo,
             isWeeklyOff: isWeeklyOff
@@ -897,6 +1085,46 @@ const getTodayAttendance = async (req, res) => {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
+};
+
+// Helper: enrich attendance record with half-day leave details from Leaves collection
+const enrichWithLeaveDetails = async (attendanceList, staffId) => {
+    const Leave = require('../models/Leave');
+    const enriched = [];
+    for (const doc of attendanceList) {
+        const plain = doc.toObject ? doc.toObject() : { ...doc };
+        const isHalfDay = (plain.status === 'Half Day' || (plain.leaveType && String(plain.leaveType).toLowerCase() === 'half day'));
+        if (isHalfDay && plain.date) {
+            const attDate = new Date(plain.date);
+            // Create Date object for start/end of day in UTC to ensure MongoDB ISODate format
+            const year = attDate.getUTCFullYear();
+            const month = attDate.getUTCMonth();
+            const day = attDate.getUTCDate();
+            const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+            const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+            const leave = await Leave.findOne({
+                employeeId: plain.employeeId || staffId,
+                leaveType: 'Half Day',
+                status: { $regex: /^approved$/i },
+                startDate: { $lte: endOfDay },
+                endDate: { $gte: startOfDay }
+            }).populate('approvedBy', 'name email').lean();
+            if (leave) {
+                plain.leaveDetails = {
+                    session: leave.session || null,
+                    leaveType: leave.leaveType,
+                    startDate: leave.startDate,
+                    endDate: leave.endDate,
+                    status: leave.status,
+                    reason: leave.reason,
+                    approvedAt: leave.approvedAt || null,
+                    approvedBy: leave.approvedBy ? { name: leave.approvedBy.name || null, email: leave.approvedBy.email || null } : null
+                };
+            }
+        }
+        enriched.push(plain);
+    }
+    return enriched;
 };
 
 // @desc    Get Attendance History
@@ -927,9 +1155,10 @@ const getAttendanceHistory = async (req, res) => {
             .limit(limit);
 
         const total = await Attendance.countDocuments(query);
+        const data = await enrichWithLeaveDetails(attendance, req.staff._id);
 
         res.json({
-            data: attendance,
+            data,
             pagination: {
                 page, limit, total, pages: Math.ceil(total / limit)
             }
@@ -952,13 +1181,15 @@ const getMonthAttendance = async (req, res) => {
         const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
 
         // Fetch attendance
-        const attendance = await Attendance.find({
+        const attendanceRaw = await Attendance.find({
             $or: [
                 { employeeId: req.staff._id },
                 { user: req.staff._id }
             ],
             date: { $gte: startOfMonth, $lte: endOfMonth }
         }).sort({ date: 1 });
+
+        const attendance = await enrichWithLeaveDetails(attendanceRaw, req.staff._id);
 
         // Fetch holidays
         const HolidayTemplate = require('../models/HolidayTemplate');
@@ -1066,6 +1297,30 @@ const getMonthAttendance = async (req, res) => {
             holidayDateSet.add(dateStr);
         });
 
+        // Fetch leaves for the month
+        const Leave = require('../models/Leave');
+        const leaves = await Leave.find({
+            employeeId: req.staff._id,
+            status: { $regex: /^approved$/i },
+            $or: [
+                { startDate: { $gte: startOfMonth, $lte: endOfMonth } },
+                { endDate: { $gte: startOfMonth, $lte: endOfMonth } },
+                { startDate: { $lte: startOfMonth }, endDate: { $gte: endOfMonth } }
+            ]
+        });
+
+        const leaveDateSet = new Set();
+        leaves.forEach(leave => {
+            let curr = new Date(leave.startDate);
+            const end = new Date(leave.endDate);
+            while (curr <= end) {
+                if (curr >= startOfMonth && curr <= endOfMonth) {
+                    leaveDateSet.add(formatDateString(curr));
+                }
+                curr.setDate(curr.getDate() + 1);
+            }
+        });
+
         // Filter weekOffDates: exclude dates that have attendance records
         // If someone marked attendance on a week off day, it should be treated as a working day
         // BUT: Always include Sundays (day 0) even if they have attendance, as they are always week off
@@ -1090,6 +1345,7 @@ const getMonthAttendance = async (req, res) => {
         const absentDates = [];
         const presentDates = [];
         const holidayDates = [];
+        const leaveDates = Array.from(leaveDateSet);
 
         // Today (used to ensure we don't mark future dates as absent)
         const today = new Date();
@@ -1103,7 +1359,15 @@ const getMonthAttendance = async (req, res) => {
             const date = new Date(year, month - 1, d);
             const dayOfWeek = date.getDay();
 
-            // Check if attendance exists FIRST - attendance takes precedence over week off/holiday
+            // PRIORITY 1: Check if it's a leave day (Approved leave overrides everything)
+            if (leaveDateSet.has(dateStr)) {
+                // If there's an attendance record, we might want to override its status in the response
+                // But leaveDates is already being populated and returned.
+                // We should ensure this date is NOT in presentDates or absentDates.
+                continue;
+            }
+
+            // Check if attendance exists - attendance takes precedence over week off/holiday (but not over leave)
             if (attendanceDateSet.has(dateStr)) {
                 // Find the attendance record to get status
                 const attRecord = attendance.find(a => {
@@ -1117,14 +1381,14 @@ const getMonthAttendance = async (req, res) => {
                 continue;
             }
 
-            // Check if it's a holiday (only if no attendance)
+            // Check if it's a holiday (only if no attendance and not on leave)
             const isHoliday = holidayDateSet.has(dateStr);
             if (isHoliday) {
                 holidayDates.push(dateStr);
                 continue;
             }
 
-            // Check if it's a week off (only if no attendance and not a holiday)
+            // Check if it's a week off (only if no attendance, holiday or leave)
             let isWeekOff = false;
 
             if (weeklyOffPattern === 'oddEvenSaturday') {
@@ -1165,10 +1429,11 @@ const getMonthAttendance = async (req, res) => {
             data: {
                 attendance,
                 holidays,
-                weekOffDates: filteredWeekOffDates, // Use filtered week off dates (excluding dates with attendance)
-                absentDates, // Add absent dates array
-                presentDates, // Add present dates array for reference
-                holidayDates, // Add holiday dates array for reference
+                weekOffDates: filteredWeekOffDates,
+                absentDates,
+                presentDates,
+                holidayDates,
+                leaveDates,
                 settings: {
                     weeklyOffPattern,
                     weeklyHolidays
@@ -1177,8 +1442,76 @@ const getMonthAttendance = async (req, res) => {
                     workingDays,
                     holidaysCount,
                     weekOffs,
-                    presentDays: attendance.filter(a => ['Present', 'Approved', 'Half Day'].includes(a.status)).length,
-                    absentDays: Math.max(0, workingDays - attendance.filter(a => ['Present', 'Approved', 'Half Day'].includes(a.status)).length)
+                    presentDays: (() => {
+                        const leaveRecords = leaves.filter(l => l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day');
+                        const leaveDateSetHalf = new Set();
+                        leaveRecords.forEach(leave => {
+                            let curr = new Date(leave.startDate);
+                            const end = new Date(leave.endDate);
+                            while (curr <= end) {
+                                if (curr >= startOfMonth && curr <= endOfMonth) {
+                                    leaveDateSetHalf.add(formatDateString(curr));
+                                }
+                                curr.setDate(curr.getDate() + 1);
+                            }
+                        });
+
+                        const dateMap = {};
+                        attendance.forEach(a => {
+                            const d = formatDateString(a.date);
+                            const status = (a.status || '').trim().toLowerCase();
+                            const leaveType = (a.leaveType || '').trim().toLowerCase();
+                            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+                        });
+                        leaveDateSetHalf.forEach(d => {
+                            if (!dateMap[d]) dateMap[d] = {};
+                            dateMap[d].hasHalfDayLeave = true;
+                        });
+
+                        return Object.values(dateMap).reduce((sum, data) => {
+                            const status = data.attendanceStatus || '';
+                            const attLeaveType = data.attendanceLeaveType || '';
+                            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+                            if (isHalfDay) return sum + 0.5;
+                            if (status === 'present' || status === 'approved') return sum + 1;
+                            return sum;
+                        }, 0);
+                    })(),
+                    absentDays: Math.max(0, workingDays - (() => {
+                        const leaveRecords = leaves.filter(l => l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day');
+                        const leaveDateSetHalf = new Set();
+                        leaveRecords.forEach(leave => {
+                            let curr = new Date(leave.startDate);
+                            const end = new Date(leave.endDate);
+                            while (curr <= end) {
+                                if (curr >= startOfMonth && curr <= endOfMonth) {
+                                    leaveDateSetHalf.add(formatDateString(curr));
+                                }
+                                curr.setDate(curr.getDate() + 1);
+                            }
+                        });
+
+                        const dateMap = {};
+                        attendance.forEach(a => {
+                            const d = formatDateString(a.date);
+                            const status = (a.status || '').trim().toLowerCase();
+                            const leaveType = (a.leaveType || '').trim().toLowerCase();
+                            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+                        });
+                        leaveDateSetHalf.forEach(d => {
+                            if (!dateMap[d]) dateMap[d] = {};
+                            dateMap[d].hasHalfDayLeave = true;
+                        });
+
+                        return Object.values(dateMap).reduce((sum, data) => {
+                            const status = data.attendanceStatus || '';
+                            const attLeaveType = data.attendanceLeaveType || '';
+                            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+                            if (isHalfDay) return sum + 0.5;
+                            if (status === 'present' || status === 'approved') return sum + 1;
+                            return sum;
+                        }, 0);
+                    })())
                 }
             }
         });

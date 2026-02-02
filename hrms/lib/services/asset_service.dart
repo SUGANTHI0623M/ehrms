@@ -134,11 +134,22 @@ class AssetService {
 
   String _handleException(dynamic error) {
     if (error is SocketException) {
-      return 'Network error: Please check your internet connection.';
+      // SocketException can occur even with internet if server is unreachable
+      String errorMsg = error.message.toLowerCase();
+      if (errorMsg.contains('failed host lookup') || 
+          errorMsg.contains('name resolution') ||
+          errorMsg.contains('nodename nor servname provided')) {
+        return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
+      } else if (errorMsg.contains('connection refused') ||
+                 errorMsg.contains('connection reset')) {
+        return 'Server is not responding. Please try again in a moment or contact support.';
+      } else {
+        return 'Connection error. Please check your internet connection and try again.';
+      }
     } else if (error is TimeoutException) {
-      return 'Connection timed out. Please try again.';
+      return 'Connection timed out. The server is taking too long to respond. Please try again.';
     } else if (error is FormatException) {
-      return 'Invalid response format from server.';
+      return 'Invalid response format from server. Please try again.';
     }
 
     String msg = error.toString();

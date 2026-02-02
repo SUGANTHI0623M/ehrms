@@ -63,8 +63,7 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
         });
     }
     
-    // Calculate working days for FULL MONTH (not just up to today, like dashboard)
-    // This is for payslip, so we need full month calculation
+    // Calculate working days for FULL MONTH (salary/payslip always uses full month)
     const daysInMonth = new Date(year, month, 0).getDate();
     console.log(`[_generatePayrollForPayslip] Calculating working days for ${month}/${year} - Total days in month: ${daysInMonth}`);
     console.log(`[_generatePayrollForPayslip] Weekly Off Pattern: ${weeklyOffPattern}`);
@@ -74,21 +73,12 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     let totalWorkingDays = 0;
     let weeklyOffDaysCount = 0;
     let holidaysCount = 0;
-    const joiningDate = staff.joiningDate ? new Date(staff.joiningDate) : null;
-    if (joiningDate) {
-        joiningDate.setHours(0, 0, 0, 0);
-        console.log(`[_generatePayrollForPayslip] Joining Date: ${joiningDate.toISOString()}`);
-    }
     
-    // Calculate for FULL month (not just up to today)
+    // Calculate working days for FULL month
+    // NOTE: Working days is the COMPANY's total working days, NOT filtered by employee joining date
     for (let d = 1; d <= daysInMonth; d++) {
         const date = new Date(year, month - 1, d);
         date.setHours(0, 0, 0, 0);
-        
-        // Check if day is on or after joining date
-        if (joiningDate && date < joiningDate) {
-            continue; // Skip days before joining
-        }
         
         const dayOfWeek = date.getDay();
         let isWeekOff = false;
@@ -123,7 +113,7 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     }
     
     console.log(`[_generatePayrollForPayslip] Working Days Calculation:`);
-    console.log(`[_generatePayrollForPayslip]   - Total Days: ${daysInMonth}`);
+    console.log(`[_generatePayrollForPayslip]   - Total Days in Month: ${daysInMonth}`);
     console.log(`[_generatePayrollForPayslip]   - Weekly Off Days: ${weeklyOffDaysCount}`);
     console.log(`[_generatePayrollForPayslip]   - Holidays: ${holidaysCount}`);
     console.log(`[_generatePayrollForPayslip]   - Working Days: ${totalWorkingDays}`);
@@ -154,10 +144,57 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
         });
     }
     
-    // Calculate Present Days (same logic as dashboard)
-    const presentDays = monthAttendance.filter(a =>
-        ['Present', 'Approved', 'Half Day', 'Pending'].includes(a.status)
-    ).length;
+    // Calculate Present Days with specific Half Day logic
+    // Rule: Check both Attendance and Leave collections for Half Day
+    // Filter leaves by date range to avoid including leaves from other months
+    const leaveRecords = await Leave.find({
+        employeeId: employeeId,
+        status: { $regex: /^approved$/i },
+        $or: [
+            { startDate: { $gte: startOfMonth, $lte: endOfMonth } },
+            { endDate: { $gte: startOfMonth, $lte: endOfMonth } },
+            { startDate: { $lte: startOfMonth }, endDate: { $gte: endOfMonth } }
+        ]
+    }).lean();
+
+    const dateMap = {};
+
+    // 1. Process Attendance Records
+    monthAttendance.forEach(a => {
+        if (!a.date) return;
+        const d = new Date(a.date).toISOString().split('T')[0];
+        const status = (a.status || '').trim().toLowerCase();
+        const leaveType = (a.leaveType || '').trim().toLowerCase();
+        dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+    });
+
+    // 2. Process Leave Records for Half Day
+    leaveRecords.forEach(l => {
+        const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
+        if (isHalfDayLeave) {
+            const start = new Date(Math.max(new Date(l.startDate), startOfMonth));
+            const end = new Date(Math.min(new Date(l.endDate), endOfMonth));
+            let curr = new Date(start);
+            while (curr <= end) {
+                const d = curr.toISOString().split('T')[0];
+                if (!dateMap[d]) dateMap[d] = {};
+                dateMap[d].hasHalfDayLeave = true;
+                curr.setDate(curr.getDate() + 1);
+            }
+        }
+    });
+
+    // 3. Calculate Weighted Present Days
+    // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
+    // Full day present/approved (and NOT half day) -> 1.0
+    const presentDays = Object.values(dateMap).reduce((sum, data) => {
+        const status = data.attendanceStatus || '';
+        const attLeaveType = data.attendanceLeaveType || '';
+        const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+        if (isHalfDay) return sum + 0.5;
+        if (status === 'present' || status === 'approved') return sum + 1;
+        return sum;
+    }, 0);
     
     const absentDays = Math.max(0, totalWorkingDays - presentDays);
     
@@ -217,9 +254,13 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     // STEP 3: Calculate Prorated Gross Salary
     const proratedGrossSalary = proratedGrossFixed + proratedEmployerPF + proratedEmployerESI;
     
-    // Fine amount only from Present or Approved (same as proration)
+    // Fine amount from Present, Approved, or Half Day (late login fine applies to half day too)
     const totalFineAmount = monthAttendance
-        .filter(r => r.status === 'Present' || r.status === 'Approved')
+        .filter(r => {
+            const s = (r.status || '').trim().toLowerCase();
+            const lt = (r.leaveType || '').trim().toLowerCase();
+            return s === 'present' || s === 'approved' || s === 'half day' || lt === 'half day';
+        })
         .reduce((sum, record) => sum + (record.fineAmount || 0), 0);
     
     console.log(`[_generatePayrollForPayslip] Fine Amount: ${totalFineAmount}`);

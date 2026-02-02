@@ -12,12 +12,6 @@ import '../../services/request_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
-// --- Shared Constants ---
-const double kDialogFormWidth = 750.0;
-final BorderRadius kButtonRadius = BorderRadius.circular(
-  8.0,
-); // Slightly curved, nearly rectangular
-
 class MyRequestsScreen extends StatefulWidget {
   final int initialTabIndex;
   const MyRequestsScreen({super.key, this.initialTabIndex = 0});
@@ -192,7 +186,9 @@ class LeaveRequestsTab extends StatefulWidget {
 class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   final RequestService _requestService = RequestService();
   List<dynamic> _leaves = [];
+  List<dynamic> _leaveBalances = [];
   bool _isLoading = true;
+  bool _isLoadingBalances = true;
   String _selectedStatus = 'All Status';
   final List<String> _statusOptions = [
     'All Status',
@@ -219,6 +215,33 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   void initState() {
     super.initState();
     _fetchLeaves();
+    _fetchLeaveBalances();
+  }
+
+  Future<void> _fetchLeaveBalances() async {
+    setState(() => _isLoadingBalances = true);
+
+    // Pass custom date range if available, otherwise pass current month/year
+    final result = await _requestService.getLeaveTypes(
+      startDate: _startDate,
+      endDate: _endDate,
+      month: _startDate == null ? DateTime.now().month : null,
+      year: _startDate == null ? DateTime.now().year : null,
+    );
+
+    if (mounted) {
+      if (result['success']) {
+        setState(() {
+          _leaveBalances = (result['data'] as List).where((e) {
+            final type = e['type'].toString().toLowerCase();
+            return type != 'paid' && type != 'paid leave';
+          }).toList();
+          _isLoadingBalances = false;
+        });
+      } else {
+        setState(() => _isLoadingBalances = false);
+      }
+    }
   }
 
   @override
@@ -229,6 +252,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   Future<void> _fetchLeaves() async {
+    _fetchLeaveBalances(); // Also refresh balances
     setState(() => _isLoading = true);
     final result = await _requestService.getLeaveRequests(
       status: _selectedStatus,
@@ -284,26 +308,26 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   void showApplyLeaveDialog() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (ctx) => ApplyLeaveDialog(onSuccess: _fetchLeaves),
     );
   }
 
   void _showLeaveDetails(Map<String, dynamic> leave) {
-    final start = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['startDate']).toLocal(),
-    );
-    final end = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['endDate']).toLocal(),
-    );
-    final appliedDate = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['createdAt']),
-    );
+    final start = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['startDate']).toLocal());
+    final end = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['endDate']).toLocal());
+    final appliedDate = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['createdAt']));
     final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map
-              ? leave['approvedBy']['name']
-              : 'System')
+        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
         : '-';
 
     showDialog(
@@ -329,7 +353,8 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
               _detailRow('Applied Date', appliedDate),
               _detailRow('Approved By', approvedBy),
               _detailRow('Status', leave['status'] ?? ''),
-              if (leave['reason'] != null && leave['reason'].toString().isNotEmpty)
+              if (leave['reason'] != null &&
+                  leave['reason'].toString().isNotEmpty)
                 _detailRow('Reason', leave['reason']),
               const SizedBox(height: 20),
               Align(
@@ -369,19 +394,17 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   Widget _buildLeaveCard(Map<String, dynamic> leave) {
-    final start = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['startDate']).toLocal(),
-    );
-    final end = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['endDate']).toLocal(),
-    );
-    final appliedDate = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(leave['createdAt']),
-    );
+    final start = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['startDate']).toLocal());
+    final end = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['endDate']).toLocal());
+    final appliedDate = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(leave['createdAt']));
     final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map
-              ? leave['approvedBy']['name']
-              : 'System')
+        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
         : '-';
 
     Color statusColor = Colors.grey;
@@ -450,7 +473,10 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
@@ -468,14 +494,30 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                     ),
                     const SizedBox(height: 8),
                     // Details
-                    _buildCardDetailRow(Icons.date_range, 'Dates', '$start - $end'),
+                    _buildCardDetailRow(
+                      Icons.date_range,
+                      'Dates',
+                      '$start - $end',
+                    ),
                     const SizedBox(height: 4),
-                    _buildCardDetailRow(Icons.event, 'Days', '${leave['days']}'),
+                    _buildCardDetailRow(
+                      Icons.event,
+                      'Days',
+                      '${leave['days']}',
+                    ),
                     const SizedBox(height: 4),
-                    _buildCardDetailRow(Icons.access_time, 'Applied', appliedDate),
+                    _buildCardDetailRow(
+                      Icons.access_time,
+                      'Applied',
+                      appliedDate,
+                    ),
                     if (approvedBy != '-') ...[
                       const SizedBox(height: 4),
-                      _buildCardDetailRow(Icons.person, 'Approved By', approvedBy),
+                      _buildCardDetailRow(
+                        Icons.person,
+                        'Approved By',
+                        approvedBy,
+                      ),
                     ],
                   ],
                 ),
@@ -503,10 +545,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF424242),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -515,10 +554,77 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     );
   }
 
+  Widget _buildBalanceCard(dynamic balance) {
+    return Container(
+      width: 140, // Slightly wider for longer text
+      margin: const EdgeInsets.only(right: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 8,
+      ), // Reduced vertical padding
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            balance['type'] ?? 'Leave',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${balance['takenCount'] ?? 0}',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primary,
+            ),
+          ),
+          Text(
+            'Leaves Taken',
+            style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // Leave Balance Summary
+        if (!_isLoadingBalances && _leaveBalances.isNotEmpty)
+          Container(
+            height: 110, // Increased from 100
+            margin: const EdgeInsets.only(top: 12, bottom: 4),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _leaveBalances.length,
+              itemBuilder: (context, index) {
+                final balance = _leaveBalances[index];
+                return _buildBalanceCard(balance);
+              },
+            ),
+          ),
         // Controls Column
         if (_showFilters)
           Padding(
@@ -748,6 +854,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   final RequestService _requestService = RequestService();
 
   String? _leaveType;
+  String? _session; // New field for Half Day
   List<dynamic> _allowedTypes = [];
   DateTime? _startDate;
   DateTime? _endDate;
@@ -767,7 +874,20 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     if (mounted) {
       if (result['success']) {
         setState(() {
-          _allowedTypes = result['data'];
+          // Leave types from leave template (exclude paid leave)
+          _allowedTypes = (result['data'] as List).where((e) {
+            final type = e['type'].toString().toLowerCase();
+            return type != 'paid' && type != 'paid leave';
+          }).toList();
+
+          // Extra option: Unpaid Leave only
+          final hasUnpaidLeave = _allowedTypes.any(
+            (e) => e['type'].toString().toLowerCase() == 'unpaid leave',
+          );
+          if (!hasUnpaidLeave) {
+            _allowedTypes.add({'type': 'Unpaid Leave'});
+          }
+
           if (_allowedTypes.isNotEmpty) {
             _leaveType = _allowedTypes.first['type'];
           }
@@ -781,6 +901,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
 
   int get _days {
     if (_startDate == null) return 0;
+    if (_leaveType == 'Half Day') return 0; // Handled as 0.5 on backend
     if (_isOneDay) return 1;
     if (_endDate == null) return 0;
     return _endDate!.difference(_startDate!).inDays + 1;
@@ -823,19 +944,42 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       return;
     }
 
-    // Ensure end date is set for one day leave
-    if (_isOneDay && _endDate == null) {
+    // Ensure end date is set for one day leave or half day
+    if ((_isOneDay || _leaveType == 'Half Day') && _endDate == null) {
       _endDate = _startDate;
     }
 
-    setState(() => _isSubmitting = true);
-    final result = await _requestService.applyLeave({
+    if (_leaveType == 'Half Day' && _session == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Please select a session for Half Day leave',
+        isError: true,
+      );
+      return;
+    }
+
+    final daysValue = _leaveType == 'Half Day' ? 1 : _days;
+    final payload = {
       'leaveType': _leaveType,
       'startDate': _startDate!.toIso8601String(),
       'endDate': _endDate!.toIso8601String(),
-      'days': _days,
+      'days': daysValue,
       'reason': _reasonController.text,
-    });
+      'session': _leaveType == 'Half Day' ? _session : null,
+    };
+    debugPrint('Leave Request Payload:');
+    debugPrint(
+      '  leaveType: ${payload['leaveType']} (type: ${payload['leaveType'].runtimeType})',
+    );
+    debugPrint('  startDate: ${payload['startDate']}');
+    debugPrint('  endDate: ${payload['endDate']}');
+    debugPrint('  days: ${payload['days']}');
+    debugPrint('  session: ${payload['session']}');
+    debugPrint('  reason: ${payload['reason']}');
+    debugPrint('Full payload: $payload');
+
+    setState(() => _isSubmitting = true);
+    final result = await _requestService.applyLeave(payload);
     setState(() => _isSubmitting = false);
 
     if (mounted) {
@@ -853,267 +997,384 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     }
   }
 
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+      labelStyle: const TextStyle(color: Colors.black),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: AppColors.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Container(
-        width: kDialogFormWidth,
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
                       children: [
+                        Icon(
+                          Icons.calendar_month,
+                          color: AppColors.primary,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 8),
                         const Text(
-                          'Apply for Leave',
+                          'Apply Leave',
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          'Submit a new leave request',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
                       ],
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Submit a new leave request',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Leave Type',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 28),
                 ),
-                if (_isLoadingTypes)
-                  const Center(child: CircularProgressIndicator())
-                else if (_allowedTypes.isEmpty)
-                  const Text(
-                    'No leave types available. Please contact HR to assign a leave template.',
-                    style: TextStyle(color: Colors.red),
-                  )
-                else
-                  DropdownButtonFormField<String>(
-                    initialValue: _leaveType,
-                    items: _allowedTypes
-                        .map(
-                          (e) => DropdownMenuItem(
-                            value: e['type'] as String,
-                            child: Text('${e['type']}'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (val) => setState(() => _leaveType = val!),
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 10),
-
-                // Template Info Alert (Top of Layout)
-                if (_leaveType != null && _allowedTypes.isNotEmpty)
-                  Builder(
-                    builder: (context) {
-                      final selected = _allowedTypes.firstWhere(
-                        (e) => e['type'] == _leaveType,
-                        orElse: () => null,
-                      );
-                      // Only show alert if limit exists (not unlimited)
-                      if (selected['limit'] == null) {
-                        return const SizedBox.shrink();
-                      }
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.shade200),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    if (_isLoadingTypes)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 20),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_allowedTypes.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 20),
+                        child: Text(
+                          'No leave types available. Please contact HR to assign a leave template.',
+                          style: TextStyle(color: Colors.red),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.orange[800],
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Balance: ${selected['balance']} days${selected['limit'] != null ? ' (Limit: ${selected['limit']} per ${selected['isMonthly'] ? "month" : "year"})' : ''}',
-                                style: TextStyle(
-                                  color: Colors.orange[900],
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                      )
+                    else
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: DropdownButtonFormField<String>(
+                          value: _leaveType,
+                          items: _allowedTypes
+                              .map(
+                                (e) => DropdownMenuItem(
+                                  value: e['type'] as String,
+                                  child: Text('${e['type']}'),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) {
+                            setState(() {
+                              _leaveType = val!;
+                              if (_leaveType == 'Half Day') {
+                                _isOneDay = true;
+                                _session = '1';
+                                if (_startDate != null) _endDate = _startDate;
+                              }
+                            });
+                          },
+                          decoration: _inputDecoration(
+                            'Leave Type *',
+                            Icons.calendar_today,
+                          ),
+                        ),
+                      ),
+
+                    if (_leaveType == 'Half Day') ...[
+                      const Text(
+                        'Select Session',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _session = '1'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _session == '1'
+                                      ? AppColors.primary.withOpacity(0.1)
+                                      : Colors.white,
+                                  border: Border.all(
+                                    color: _session == '1'
+                                        ? AppColors.primary
+                                        : Colors.grey.shade300,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'Session 1',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: _session == '1'
+                                            ? AppColors.primary
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                    const Text(
+                                      'First Half',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-
-                // One Day Toggle with improved UI
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'One Day Leave',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Switch.adaptive(
-                        value: _isOneDay,
-                        activeColor: AppColors.primary,
-                        onChanged: (val) {
-                          setState(() {
-                            _isOneDay = val;
-                            if (_isOneDay && _startDate != null) {
-                              _endDate = _startDate;
-                            }
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                Text(
-                  _isOneDay ? 'Date' : 'Start Date',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                InkWell(
-                  onTap: () => _pickDate(true),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _startDate == null
-                              ? 'dd-mm-yyyy'
-                              : DateFormat('dd-MM-yyyy').format(_startDate!),
-                        ),
-                        const Icon(Icons.calendar_today, size: 16),
-                      ],
-                    ),
-                  ),
-                ),
-                if (!_isOneDay) ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'End Date',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  InkWell(
-                    onTap: () => _pickDate(false),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _endDate == null
-                                ? 'dd-mm-yyyy'
-                                : DateFormat('dd-MM-yyyy').format(_endDate!),
                           ),
-                          const Icon(Icons.calendar_today, size: 16),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _session = '2'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _session == '2'
+                                      ? AppColors.primary.withOpacity(0.1)
+                                      : Colors.white,
+                                  border: Border.all(
+                                    color: _session == '2'
+                                        ? AppColors.primary
+                                        : Colors.grey.shade300,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'Session 2',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: _session == '2'
+                                            ? AppColors.primary
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                    const Text(
+                                      'Second Half',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                  ),
-                ],
-                if (_days > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      'Total Days: $_days',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 16),
+                    ],
+
+                    if (_leaveType != 'Half Day')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'One Day Leave',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Switch.adaptive(
+                              value: _isOneDay,
+                              activeColor: AppColors.primary,
+                              onChanged: (val) {
+                                setState(() {
+                                  _isOneDay = val;
+                                  if (_isOneDay && _startDate != null)
+                                    _endDate = _startDate;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: InkWell(
+                        onTap: () => _pickDate(true),
+                        child: InputDecorator(
+                          decoration:
+                              _inputDecoration(
+                                'Start Date *',
+                                Icons.calendar_today,
+                              ).copyWith(
+                                helperText:
+                                    'Select the start date of your leave',
+                                helperStyle: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                          child: Text(
+                            _startDate == null
+                                ? 'dd-mm-yyyy'
+                                : DateFormat('dd-MM-yyyy').format(_startDate!),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: _startDate == null
+                                  ? Colors.grey
+                                  : Colors.black,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Reason',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _reasonController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Enter reason for leave',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                    if (!_isOneDay && _leaveType != 'Half Day') ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: InkWell(
+                          onTap: () => _pickDate(false),
+                          child: InputDecorator(
+                            decoration:
+                                _inputDecoration(
+                                  'End Date *',
+                                  Icons.calendar_today,
+                                ).copyWith(
+                                  helperText:
+                                      'End date must be after start date',
+                                  helperStyle: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                            child: Text(
+                              _endDate == null
+                                  ? 'dd-mm-yyyy'
+                                  : DateFormat('dd-MM-yyyy').format(_endDate!),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                                color: _endDate == null
+                                    ? Colors.grey
+                                    : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (_days > 0 || _leaveType == 'Half Day')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _leaveType == 'Half Day'
+                              ? 'Total Days: 0.5'
+                              : 'Total Days: $_days',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _reasonController,
+                      maxLines: 3,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Reason *',
+                        Icons.note,
+                      ).copyWith(hintText: 'Enter reason for leave'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Reason is required'
+                          : null,
                     ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.isEmpty ? 'Reason is required' : null,
+                    const SizedBox(height: 24),
+                  ],
                 ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                       child: const Text('Cancel'),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: kButtonRadius,
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                        elevation: 0,
                       ),
                       child: _isSubmitting
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,
@@ -1121,11 +1382,11 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                             )
                           : const Text('Submit Request'),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1222,8 +1483,10 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   }
 
   void showRequestLoanDialog() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (ctx) => RequestLoanDialog(onSuccess: _fetchLoans),
     );
   }
@@ -1326,9 +1589,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
 
   Widget _buildLoanCard(Map<String, dynamic> loan) {
     final appliedDate = loan['createdAt'] != null
-        ? DateFormat('MMM dd, yyyy').format(
-            DateTime.parse(loan['createdAt']),
-          )
+        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(loan['createdAt']))
         : '-';
     Color statusColor = Colors.grey;
     if (loan['status'] == 'Approved' || loan['status'] == 'Active') {
@@ -1405,7 +1666,10 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
@@ -1423,16 +1687,36 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                     ),
                     const SizedBox(height: 8),
                     // Details
-                    _buildLoanCardDetailRow(Icons.currency_rupee, 'Amount', '₹${loan['amount']}'),
+                    _buildLoanCardDetailRow(
+                      Icons.currency_rupee,
+                      'Amount',
+                      '₹${loan['amount']}',
+                    ),
                     const SizedBox(height: 4),
-                    _buildLoanCardDetailRow(Icons.calendar_today, 'Tenure', '${loan['tenure'] ?? loan['tenureMonths']} Months'),
+                    _buildLoanCardDetailRow(
+                      Icons.calendar_today,
+                      'Tenure',
+                      '${loan['tenure'] ?? loan['tenureMonths']} Months',
+                    ),
                     const SizedBox(height: 4),
-                    _buildLoanCardDetailRow(Icons.payment, 'EMI', '₹${loan['emi'] ?? 0}'),
+                    _buildLoanCardDetailRow(
+                      Icons.payment,
+                      'EMI',
+                      '₹${loan['emi'] ?? 0}',
+                    ),
                     const SizedBox(height: 4),
-                    _buildLoanCardDetailRow(Icons.access_time, 'Applied', appliedDate),
+                    _buildLoanCardDetailRow(
+                      Icons.access_time,
+                      'Applied',
+                      appliedDate,
+                    ),
                     if (approvedByName != '-') ...[
                       const SizedBox(height: 4),
-                      _buildLoanCardDetailRow(Icons.person, 'Approved By', approvedByName),
+                      _buildLoanCardDetailRow(
+                        Icons.person,
+                        'Approved By',
+                        approvedByName,
+                      ),
                     ],
                   ],
                 ),
@@ -1460,10 +1744,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF424242),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1743,169 +2024,192 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
     }
   }
 
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+      labelStyle: const TextStyle(color: Colors.black),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: AppColors.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Container(
-        width: kDialogFormWidth,
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
                       children: [
+                        Icon(
+                          Icons.account_balance_wallet,
+                          color: AppColors.primary,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 8),
                         const Text(
                           'Request Loan',
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          'Submit a new loan request',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
                           ),
                         ),
                       ],
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Submit a new loan request',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Loan Type',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 28),
                 ),
-                DropdownButtonFormField<String>(
-                  initialValue: _loanType,
-                  items: ['Personal', 'Advance', 'Emergency']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                      .toList(),
-                  onChanged: (val) => setState(() => _loanType = val!),
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Amount (₹)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Enter loan amount',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.isEmpty ? 'Amount is required' : null,
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Tenure (Months)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _tenureController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Enter tenure in months',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Tenure is required';
-                    final n = int.tryParse(val);
-                    if (n == null || n <= 0) return 'Must be > 0';
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Interest Rate (%)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _interestController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Purpose',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _purposeController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Enter purpose of loan',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.isEmpty ? 'Purpose is required' : null,
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextButton(
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: DropdownButtonFormField<String>(
+                        value: _loanType,
+                        items: ['Personal', 'Advance', 'Emergency']
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                        onChanged: (val) => setState(() => _loanType = val!),
+                        decoration: _inputDecoration(
+                          'Loan Type',
+                          Icons.category,
+                        ),
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _amountController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Amount (₹)',
+                        Icons.currency_rupee,
+                      ).copyWith(hintText: 'Enter loan amount'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Amount is required'
+                          : null,
+                    ),
+                    TextFormField(
+                      controller: _tenureController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Tenure (Months)',
+                        Icons.calendar_month,
+                      ).copyWith(hintText: 'Enter tenure in months'),
+                      validator: (val) {
+                        if (val == null || val.isEmpty)
+                          return 'Tenure is required';
+                        final n = int.tryParse(val);
+                        if (n == null || n <= 0) return 'Must be > 0';
+                        return null;
+                      },
+                    ),
+                    TextFormField(
+                      controller: _interestController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Interest Rate (%)',
+                        Icons.percent,
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _purposeController,
+                      maxLines: 3,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Purpose',
+                        Icons.note,
+                      ).copyWith(hintText: 'Enter purpose of loan'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Purpose is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                       child: const Text('Cancel'),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: kButtonRadius,
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                        elevation: 0,
                       ),
                       child: _isSubmitting
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,
@@ -1913,11 +2217,11 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                             )
                           : const Text('Submit Request'),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -2069,13 +2373,13 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
 
   // Changed to public for GlobalKey access
   void _showExpenseDetails(Map<String, dynamic> expense) {
-    final date = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(expense['date']),
-    );
+    final date = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(expense['date']));
     final appliedDate = expense['createdAt'] != null
-        ? DateFormat('MMM dd, yyyy').format(
-            DateTime.parse(expense['createdAt']),
-          )
+        ? DateFormat(
+            'MMM dd, yyyy',
+          ).format(DateTime.parse(expense['createdAt']))
         : '-';
 
     String approvedByName = '-';
@@ -2105,11 +2409,15 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
               ),
               const Divider(),
               const SizedBox(height: 10),
-              _expenseDetailRow('Type', expense['type'] ?? expense['expenseType'] ?? 'Expense'),
+              _expenseDetailRow(
+                'Type',
+                expense['type'] ?? expense['expenseType'] ?? 'Expense',
+              ),
               _expenseDetailRow('Amount', '₹${expense['amount']}'),
               _expenseDetailRow('Date', date),
               _expenseDetailRow('Applied Date', appliedDate),
-              if (expense['description'] != null && expense['description'].toString().isNotEmpty)
+              if (expense['description'] != null &&
+                  expense['description'].toString().isNotEmpty)
                 _expenseDetailRow('Description', expense['description']),
               _expenseDetailRow('Status', expense['status'] ?? ''),
               if (approvedByName != '-')
@@ -2126,11 +2434,15 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                   final proof = entry.value;
                   String fileName;
                   String proofUrl;
-                  
+
                   // Handle both Map and String types
                   if (proof is Map) {
-                    fileName = proof['fileName']?.toString() ?? 'Proof ${index + 1}';
-                    proofUrl = proof['url']?.toString() ?? proof['fileUrl']?.toString() ?? proof.toString();
+                    fileName =
+                        proof['fileName']?.toString() ?? 'Proof ${index + 1}';
+                    proofUrl =
+                        proof['url']?.toString() ??
+                        proof['fileUrl']?.toString() ??
+                        proof.toString();
                   } else {
                     // If proof is a String (URL), extract filename or use default
                     final urlString = proof.toString();
@@ -2138,14 +2450,14 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                     // Try to extract filename from URL
                     try {
                       final uri = Uri.parse(urlString);
-                      fileName = uri.pathSegments.isNotEmpty 
-                          ? uri.pathSegments.last 
+                      fileName = uri.pathSegments.isNotEmpty
+                          ? uri.pathSegments.last
                           : 'Proof ${index + 1}';
                     } catch (e) {
                       fileName = 'Proof ${index + 1}';
                     }
                   }
-                  
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 5),
                     child: InkWell(
@@ -2204,13 +2516,13 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   }
 
   Widget _buildExpenseCard(Map<String, dynamic> expense) {
-    final date = DateFormat('MMM dd, yyyy').format(
-      DateTime.parse(expense['date']),
-    );
+    final date = DateFormat(
+      'MMM dd, yyyy',
+    ).format(DateTime.parse(expense['date']));
     final appliedDate = expense['createdAt'] != null
-        ? DateFormat('MMM dd, yyyy').format(
-            DateTime.parse(expense['createdAt']),
-          )
+        ? DateFormat(
+            'MMM dd, yyyy',
+          ).format(DateTime.parse(expense['createdAt']))
         : '-';
 
     Color statusColor = Colors.grey;
@@ -2261,11 +2573,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                   color: AppColors.primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  Icons.receipt,
-                  color: AppColors.primary,
-                  size: 32,
-                ),
+                child: Icon(Icons.receipt, color: AppColors.primary, size: 32),
               ),
               const SizedBox(width: 16),
               // Content
@@ -2279,7 +2587,9 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                       children: [
                         Expanded(
                           child: Text(
-                            expense['type'] ?? expense['expenseType'] ?? 'Expense',
+                            expense['type'] ??
+                                expense['expenseType'] ??
+                                'Expense',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -2291,7 +2601,10 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
@@ -2309,20 +2622,41 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                     ),
                     const SizedBox(height: 8),
                     // Details
-                    _buildExpenseCardDetailRow(Icons.currency_rupee, 'Amount', '₹${expense['amount']}'),
+                    _buildExpenseCardDetailRow(
+                      Icons.currency_rupee,
+                      'Amount',
+                      '₹${expense['amount']}',
+                    ),
                     const SizedBox(height: 4),
-                    _buildExpenseCardDetailRow(Icons.calendar_today, 'Date', date),
+                    _buildExpenseCardDetailRow(
+                      Icons.calendar_today,
+                      'Date',
+                      date,
+                    ),
                     const SizedBox(height: 4),
-                    _buildExpenseCardDetailRow(Icons.access_time, 'Applied', appliedDate),
-                    if (expense['description'] != null && expense['description'].toString().isNotEmpty) ...[
+                    _buildExpenseCardDetailRow(
+                      Icons.access_time,
+                      'Applied',
+                      appliedDate,
+                    ),
+                    if (expense['description'] != null &&
+                        expense['description'].toString().isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      _buildExpenseCardDetailRow(Icons.description, 'Description', expense['description'] ?? ''),
+                      _buildExpenseCardDetailRow(
+                        Icons.description,
+                        'Description',
+                        expense['description'] ?? '',
+                      ),
                     ],
                     if (hasProof) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.attach_file, size: 14, color: const Color(0xFF424242)),
+                          Icon(
+                            Icons.attach_file,
+                            size: 14,
+                            color: const Color(0xFF424242),
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             'Proof: Available',
@@ -2337,7 +2671,11 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                     ],
                     if (approvedByName != '-') ...[
                       const SizedBox(height: 4),
-                      _buildExpenseCardDetailRow(Icons.person, 'Approved By', approvedByName),
+                      _buildExpenseCardDetailRow(
+                        Icons.person,
+                        'Approved By',
+                        approvedByName,
+                      ),
                     ],
                   ],
                 ),
@@ -2365,10 +2703,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF424242),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2378,8 +2713,10 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   }
 
   void showClaimExpenseDialog() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (ctx) => ClaimExpenseDialog(onSuccess: _fetchExpenses),
     );
   }
@@ -2696,202 +3033,220 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
     }
   }
 
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+      labelStyle: const TextStyle(color: Colors.black),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: AppColors.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Container(
-        width: kDialogFormWidth,
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
                       children: [
+                        Icon(
+                          Icons.receipt_long,
+                          color: AppColors.primary,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 8),
                         const Text(
                           'Claim Expense',
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          'Submit a new expense claim',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
                       ],
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Submit a new expense claim',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Expense Type',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 28),
                 ),
-                DropdownButtonFormField<String>(
-                  initialValue: _expenseType,
-                  items: ['Travel', 'Food', 'Accommodation', 'Other']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                      .toList(),
-                  onChanged: (val) => setState(() => _expenseType = val!),
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: DropdownButtonFormField<String>(
+                        value: _expenseType,
+                        items: ['Travel', 'Food', 'Accommodation', 'Other']
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                        onChanged: (val) => setState(() => _expenseType = val!),
+                        decoration: _inputDecoration(
+                          'Expense Type',
+                          Icons.category,
+                        ),
+                      ),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                    TextFormField(
+                      controller: _amountController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Amount (₹)',
+                        Icons.currency_rupee,
+                      ).copyWith(hintText: 'Enter expense amount'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Amount is required'
+                          : null,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Amount (₹)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Enter expense amount',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.isEmpty ? 'Amount is required' : null,
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Date',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                InkWell(
-                  onTap: _pickDate,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
+                    InkWell(
+                      onTap: _pickDate,
+                      child: InputDecorator(
+                        decoration: _inputDecoration(
+                          'Date *',
+                          Icons.calendar_today,
+                        ),
+                        child: Text(
                           _date == null
                               ? 'dd-mm-yyyy'
                               : DateFormat('dd-MM-yyyy').format(_date!),
-                        ),
-                        const Icon(Icons.calendar_today, size: 16),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Description',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _descriptionController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Enter expense description',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) => val == null || val.isEmpty
-                      ? 'Description is required'
-                      : null,
-                ),
-                const SizedBox(height: 10),
-
-                // Proof Document Picker
-                const Text(
-                  'Proof Document *',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                InkWell(
-                  onTap: _pickFile,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                      color: Colors.grey[50],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _selectedFile != null
-                                ? _selectedFile!.path.split('/').last
-                                : 'Select file (Image/PDF)',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: _selectedFile != null
-                                  ? Colors.black
-                                  : Colors.grey,
-                            ),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: _date == null ? Colors.grey : Colors.black,
                           ),
                         ),
-                        const Icon(
-                          Icons.attach_file,
-                          size: 20,
-                          color: Colors.grey,
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 4),
+                    TextFormField(
+                      controller: _descriptionController,
+                      maxLines: 3,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Description',
+                        Icons.note,
+                      ).copyWith(hintText: 'Enter expense description'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Description is required'
+                          : null,
+                    ),
+                    InkWell(
+                      onTap: _pickFile,
+                      child: InputDecorator(
+                        decoration: _inputDecoration(
+                          'Proof Document *',
+                          Icons.attach_file,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedFile != null
+                                    ? _selectedFile!.path
+                                          .split(RegExp(r'[/\\]'))
+                                          .last
+                                    : 'Select file (Image/PDF)',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  color: _selectedFile != null
+                                      ? Colors.black
+                                      : Colors.grey,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              Icons.attach_file,
+                              size: 20,
+                              color: Colors.grey.shade600,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-
-                const SizedBox(height: 20),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                       child: const Text('Cancel'),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: kButtonRadius,
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                        elevation: 0,
                       ),
                       child: _isSubmitting
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,
@@ -2899,11 +3254,11 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                             )
                           : const Text('Submit Claim'),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -3007,10 +3362,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
       );
 
       final result = await _requestService.viewPayslipRequest(requestId);
-      
+
       if (mounted) {
         Navigator.pop(context); // Close loading dialog
-        
+
         if (result['success'] && result['data'] != null) {
           // For viewing, we'll show a dialog with PDF viewer
           // For now, we'll download and open it
@@ -3051,7 +3406,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
       'November',
       'December',
     ];
-    
+
     if (month is int && month >= 1 && month <= 12) {
       return months[month - 1];
     } else if (month is String) {
@@ -3080,7 +3435,11 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     return '-';
   }
 
-  Future<void> _downloadPayslip(String requestId, String month, int year) async {
+  Future<void> _downloadPayslip(
+    String requestId,
+    String month,
+    int year,
+  ) async {
     try {
       // Show loading
       showDialog(
@@ -3090,10 +3449,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
       );
 
       final result = await _requestService.downloadPayslipRequest(requestId);
-      
+
       if (mounted) {
         Navigator.pop(context); // Close loading dialog
-        
+
         if (result['success'] && result['data'] != null) {
           _openPdf(result['data'], 'download', month: month, year: year);
         } else {
@@ -3116,7 +3475,12 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     }
   }
 
-  Future<void> _openPdf(List<int> pdfBytes, String action, {String? month, int? year}) async {
+  Future<void> _openPdf(
+    List<int> pdfBytes,
+    String action, {
+    String? month,
+    int? year,
+  }) async {
     try {
       // 1) Save PDF to app documents directory (visible via "App internal storage")
       final baseDir = await getApplicationDocumentsDirectory();
@@ -3164,9 +3528,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
         : '-';
     final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map
-              ? req['approvedBy']['name']
-              : 'System')
+        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
         : '-';
 
     showDialog(
@@ -3234,9 +3596,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
         : '-';
     final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map
-              ? req['approvedBy']['name']
-              : 'System')
+        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
         : '-';
 
     // Get month name from month number or period
@@ -3258,7 +3618,8 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
       statusColor = AppColors.warning;
     }
 
-    final isApproved = req['status'] == 'Approved' || req['status'] == 'Generated';
+    final isApproved =
+        req['status'] == 'Approved' || req['status'] == 'Generated';
 
     return InkWell(
       onTap: () => _showPayslipDetails(req),
@@ -3317,7 +3678,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
@@ -3335,8 +3699,13 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                     ),
                     const SizedBox(height: 8),
                     // Details
-                    if (req['reason'] != null && req['reason'].toString().isNotEmpty) ...[
-                      _buildPayslipCardDetailRow(Icons.info_outline, 'Reason', req['reason'] ?? ''),
+                    if (req['reason'] != null &&
+                        req['reason'].toString().isNotEmpty) ...[
+                      _buildPayslipCardDetailRow(
+                        Icons.info_outline,
+                        'Reason',
+                        req['reason'] ?? '',
+                      ),
                       const SizedBox(height: 4),
                     ],
                     _buildPayslipCardDetailRow(
@@ -3361,7 +3730,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                           // View payslip
                           IconButton(
                             tooltip: 'View Payslip',
-                            icon: const Icon(Icons.visibility_outlined, size: 20),
+                            icon: const Icon(
+                              Icons.visibility_outlined,
+                              size: 20,
+                            ),
                             color: AppColors.primary,
                             onPressed: () {
                               final requestId = req['_id']?.toString();
@@ -3452,10 +3824,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF424242),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -3465,8 +3834,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   }
 
   void showRequestPayslipDialog() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (ctx) => RequestPayslipDialog(onSuccess: _fetchRequests),
     );
   }
@@ -3745,24 +4116,6 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     'December',
   ];
 
-  // Helper function to convert month number or name to month name
-  String _getMonthName(dynamic month) {
-    if (month is int && month >= 1 && month <= 12) {
-      return _months[month - 1];
-    } else if (month is String) {
-      // If it's already a month name, return it
-      if (_months.contains(month)) {
-        return month;
-      }
-      // Try to parse as number
-      final monthNum = int.tryParse(month);
-      if (monthNum != null && monthNum >= 1 && monthNum <= 12) {
-        return _months[monthNum - 1];
-      }
-    }
-    return month?.toString() ?? 'Unknown';
-  }
-
   @override
   void initState() {
     super.initState();
@@ -3790,8 +4143,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     return _existingRequests.any((req) {
       final reqMonth = req['month'];
       // Handle both number and string formats
-      final reqMonthNumber = reqMonth is int 
-          ? reqMonth 
+      final reqMonthNumber = reqMonth is int
+          ? reqMonth
           : (reqMonth is String ? _months.indexOf(reqMonth) + 1 : 0);
       return reqMonthNumber == monthNumber && req['year'] == year;
     });
@@ -3800,7 +4153,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final selectedYear = int.tryParse(_yearController.text) ?? DateTime.now().year;
+    final selectedYear =
+        int.tryParse(_yearController.text) ?? DateTime.now().year;
     final reason = _reasonController.text.trim();
 
     if (_isBulkMode) {
@@ -3815,9 +4169,9 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
       }
 
       // Check for duplicates
-      final duplicateMonths = _selectedMonths.where((month) => 
-        _isDuplicateRequest(month, selectedYear)
-      ).toList();
+      final duplicateMonths = _selectedMonths
+          .where((month) => _isDuplicateRequest(month, selectedYear))
+          .toList();
 
       if (duplicateMonths.isNotEmpty) {
         SnackBarUtils.showSnackBar(
@@ -3830,7 +4184,9 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
 
       setState(() => _isSubmitting = true);
       // Convert month names to numbers (January = 1, December = 12)
-      final monthNumbers = _selectedMonths.map((monthName) => _months.indexOf(monthName) + 1).toList();
+      final monthNumbers = _selectedMonths
+          .map((monthName) => _months.indexOf(monthName) + 1)
+          .toList();
       final result = await _requestService.requestPayslip({
         'months': monthNumbers,
         'year': selectedYear,
@@ -3842,7 +4198,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
         if (result['success']) {
           widget.onSuccess();
           Navigator.pop(context);
-          final createdCount = result['data']?['created']?.length ?? _selectedMonths.length;
+          final createdCount =
+              result['data']?['created']?.length ?? _selectedMonths.length;
           SnackBarUtils.showSnackBar(
             context,
             'Created $createdCount payslip request(s)',
@@ -3892,220 +4249,265 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     }
   }
 
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+      labelStyle: const TextStyle(color: Colors.black),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: AppColors.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Container(
-        width: kDialogFormWidth,
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
                       children: [
+                        Icon(
+                          Icons.description,
+                          color: AppColors.primary,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 8),
                         const Text(
                           'Request Payslip',
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Mode Toggle
-                Row(
-                  children: [
-                    Expanded(
-                      child: ChoiceChip(
-                        label: const Text('Single Month'),
-                        selected: !_isBulkMode,
-                        onSelected: (selected) {
-                          setState(() {
-                            _isBulkMode = !selected;
-                            if (!_isBulkMode) {
-                              _selectedMonths.clear();
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ChoiceChip(
-                        label: const Text('Bulk Months'),
-                        selected: _isBulkMode,
-                        onSelected: (selected) {
-                          setState(() {
-                            _isBulkMode = selected;
-                            if (_isBulkMode) {
-                              _month = 'January';
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                if (!_isBulkMode) ...[
-                  const Text(
-                    'Month',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  DropdownButtonFormField<String>(
-                    value: _month,
-                    items: _months
-                        .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (val) => setState(() => _month = val!),
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ] else ...[
-                  const Text(
-                    'Select Months *',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.all(8),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _months.map((month) {
-                        final isSelected = _selectedMonths.contains(month);
-                        return FilterChip(
-                          label: Text(month),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedMonths.add(month);
-                              } else {
-                                _selectedMonths.remove(month);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  if (_selectedMonths.isNotEmpty) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 4),
                     Text(
-                      'Selected: ${_selectedMonths.length} month(s)',
+                      'Submit a new payslip request',
                       style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                ],
-
-                const Text(
-                  'Year',
-                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                TextFormField(
-                  controller: _yearController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Enter year',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.isEmpty ? 'Year is required' : null,
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 28),
                 ),
-                const SizedBox(height: 10),
-
-                const Text(
-                  'Reason *',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextFormField(
-                  controller: _reasonController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Enter reason for payslip request',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (val) =>
-                      val == null || val.trim().isEmpty ? 'Reason is required' : null,
-                ),
-                const SizedBox(height: 20),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextButton(
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Text('Single Month'),
+                            selected: !_isBulkMode,
+                            selectedColor: AppColors.primary.withOpacity(0.2),
+                            onSelected: (selected) {
+                              setState(() {
+                                _isBulkMode = !selected;
+                                if (!_isBulkMode) _selectedMonths.clear();
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Text('Bulk Months'),
+                            selected: _isBulkMode,
+                            selectedColor: AppColors.primary.withOpacity(0.2),
+                            onSelected: (selected) {
+                              setState(() {
+                                _isBulkMode = selected;
+                                if (_isBulkMode) _month = 'January';
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    if (!_isBulkMode) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: DropdownButtonFormField<String>(
+                          value: _month,
+                          items: _months
+                              .map(
+                                (e) =>
+                                    DropdownMenuItem(value: e, child: Text(e)),
+                              )
+                              .toList(),
+                          onChanged: (val) => setState(() => _month = val!),
+                          decoration: _inputDecoration(
+                            'Month',
+                            Icons.calendar_month,
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      const Text(
+                        'Select Months *',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _months.map((month) {
+                            final isSelected = _selectedMonths.contains(month);
+                            return FilterChip(
+                              label: Text(month),
+                              selected: isSelected,
+                              selectedColor: AppColors.primary.withOpacity(0.2),
+                              onSelected: (selected) {
+                                setState(() {
+                                  if (selected) {
+                                    _selectedMonths.add(month);
+                                  } else {
+                                    _selectedMonths.remove(month);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      if (_selectedMonths.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Selected: ${_selectedMonths.length} month(s)',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                    ],
+
+                    TextFormField(
+                      controller: _yearController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Year',
+                        Icons.calendar_today,
+                      ).copyWith(hintText: 'Enter year'),
+                      validator: (val) => val == null || val.isEmpty
+                          ? 'Year is required'
+                          : null,
+                    ),
+                    TextFormField(
+                      controller: _reasonController,
+                      maxLines: 3,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      decoration: _inputDecoration(
+                        'Reason *',
+                        Icons.note,
+                      ).copyWith(hintText: 'Enter reason for payslip request'),
+                      validator: (val) => val == null || val.trim().isEmpty
+                          ? 'Reason is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                       child: const Text('Cancel'),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
                       onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: kButtonRadius,
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                        elevation: 0,
                       ),
                       child: _isSubmitting
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,
                               ),
                             )
-                          : Text(_isBulkMode ? 'Submit Bulk Request' : 'Submit Request'),
+                          : Text(
+                              _isBulkMode
+                                  ? 'Submit Bulk Request'
+                                  : 'Submit Request',
+                            ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

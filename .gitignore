@@ -40,6 +40,8 @@ Thumbs.db
 *.output.txt
 *.debug.txt
 *.check.txt
+*.hprof
+**/*.hprof
 
 # AI/LLM conversation history
 .gemini/

@@ -47,6 +47,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   // Active loans count (from loan request module)
   int _activeLoansCount = 0;
 
+  bool _isCandidate = false;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +70,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         if (mounted) {
           setState(() {
             _userName = data['name'] ?? 'User';
+            _isCandidate =
+                (data['role'] ?? '').toString().toLowerCase() == 'candidate';
             final cachedCompanyName = data['companyName'];
             if (cachedCompanyName is String &&
                 cachedCompanyName.trim().isNotEmpty) {
@@ -109,7 +113,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Future<void> _fetchMonthAttendance() async {
     // Prevent concurrent calls
     if (_isFetchingMonthAttendance) return;
-    
+
     _isFetchingMonthAttendance = true;
     try {
       // We don't want to show a big loader for just the calendar update
@@ -257,13 +261,24 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // 4. Present days – same as Salary Overview: count records with status 'Present' or 'Approved' only (no today exclusion)
-      int presentDays = 0;
+      // 4. Present days – Present=1, Approved=1, Half Day=0.5 (weighted sum for salary)
+      // Half day: status="half day" OR leaveType="half day" (e.g. approved half-day leave marked as Present)
+      double presentDays = 0;
       if (attendanceRecords.isNotEmpty) {
-        presentDays = attendanceRecords.where((record) {
-          final status = record['status'] as String?;
-          return status == 'Present' || status == 'Approved';
-        }).length;
+        for (final record in attendanceRecords) {
+          final status = (record['status'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final leaveType = (record['leaveType'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final isHalfDay = status == 'half day' || leaveType == 'half day';
+          if (isHalfDay) {
+            presentDays += 0.5;
+          } else if (status == 'present' || status == 'approved') {
+            presentDays += 1;
+          }
+        }
       }
       // 5. Working days - use full-month working days (same as Salary Overview)
       // Prefer payroll/stats API (full month); if missing or suspiciously low (e.g. "days so far"),
@@ -355,46 +370,64 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         } catch (_) {}
       }
 
-      // 7. Fine calculation – Present only (Approved/Half Day not included in fine)
+      // 7. Fine calculation – Present, Approved, or Half Day (late login fine applies to half day too)
       double totalFineAmount = 0.0;
       for (final record in attendanceRecords) {
-        final status = record['status'] as String?;
-        if (status == 'Present') {
-          double fineAmount = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
-          int lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
-          if (fineAmount == 0 && lateMinutes == 0 && dailySalary != null) {
-            final punchInStr = record['punchIn'] as String?;
-            if (punchInStr != null) {
-              try {
-                final punchInTime = DateTime.parse(punchInStr).toLocal();
-                final attendanceDateStr = record['date'] as String?;
-                final attendanceDate = attendanceDateStr != null
-                    ? DateTime.parse(attendanceDateStr).toLocal()
-                    : DateTime(
-                        punchInTime.year,
-                        punchInTime.month,
-                        punchInTime.day,
-                      );
-                final fineResult = calculateFine(
-                  punchInTime: punchInTime,
-                  attendanceDate: attendanceDate,
-                  shiftTiming: shiftTiming,
-                  fineSettings: fineSettings,
-                  dailySalary: dailySalary,
-                );
-                lateMinutes = fineResult.lateMinutes;
-                fineAmount = fineResult.fineAmount;
-              } catch (_) {}
-            }
+        final status = (record['status'] as String? ?? '').trim().toLowerCase();
+        final leaveType = (record['leaveType'] as String? ?? '')
+            .trim()
+            .toLowerCase();
+        final isCounted =
+            status == 'present' ||
+            status == 'approved' ||
+            status == 'half day' ||
+            leaveType == 'half day';
+        if (!isCounted) continue;
+        double fineAmount = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+        int lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
+        if (fineAmount == 0 && lateMinutes == 0 && dailySalary != null) {
+          final punchInStr = record['punchIn'] as String?;
+          if (punchInStr != null) {
+            try {
+              final punchInTime = DateTime.parse(punchInStr).toLocal();
+              final attendanceDateStr = record['date'] as String?;
+              final attendanceDate = attendanceDateStr != null
+                  ? DateTime.parse(attendanceDateStr).toLocal()
+                  : DateTime(
+                      punchInTime.year,
+                      punchInTime.month,
+                      punchInTime.day,
+                    );
+              final fineResult = calculateFine(
+                punchInTime: punchInTime,
+                attendanceDate: attendanceDate,
+                shiftTiming: shiftTiming,
+                fineSettings: fineSettings,
+                dailySalary: dailySalary,
+              );
+              lateMinutes = fineResult.lateMinutes;
+              fineAmount = fineResult.fineAmount;
+            } catch (_) {}
           }
-          if (fineAmount > 0 || lateMinutes > 0) totalFineAmount += fineAmount;
         }
+        if (fineAmount > 0 || lateMinutes > 0) totalFineAmount += fineAmount;
       }
 
-      // Use calculatePayrollFine only for Present records (same as loop above)
+      // Use calculatePayrollFine for Present, Approved, or Half Day
       if (dailySalary != null && dailySalary > 0) {
         final attendanceRecordsList = attendanceRecords
-            .where((record) => record['status'] == 'Present')
+            .where((record) {
+              final s = (record['status'] as String? ?? '')
+                  .trim()
+                  .toLowerCase();
+              final lt = (record['leaveType'] as String? ?? '')
+                  .trim()
+                  .toLowerCase();
+              return s == 'present' ||
+                  s == 'approved' ||
+                  s == 'half day' ||
+                  lt == 'half day';
+            })
             .map((record) => record as Map<String, dynamic>)
             .toList();
         final calculatedTotalFine = calculatePayrollFine(
@@ -515,12 +548,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         : (salaryStatus == 'Pending' ? 'Pending' : ''),
                     isWide: isWide,
                   ),
-                  _buildSummaryCard(
-                    title: 'Present Days',
-                    value: presentDays,
-                    subValue: 'Out of $totalDaysForCard working days',
-                    isWide: isWide,
-                  ),
+                  if (!_isCandidate)
+                    _buildSummaryCard(
+                      title: 'Present Days',
+                      value: presentDays,
+                      subValue: 'Out of $totalDaysForCard working days',
+                      isWide: isWide,
+                    ),
                 ],
               ),
 
@@ -570,15 +604,19 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(child: _buildRecentLeavesCard()),
-                        const SizedBox(width: 24),
-                        Expanded(child: _buildMonthAttendanceCard()),
+                        if (!_isCandidate) ...[
+                          const SizedBox(width: 24),
+                          Expanded(child: _buildMonthAttendanceCard()),
+                        ],
                       ],
                     )
                   : Column(
                       children: [
                         _buildRecentLeavesCard(),
-                        const SizedBox(height: 24),
-                        _buildMonthAttendanceCard(),
+                        if (!_isCandidate) ...[
+                          const SizedBox(height: 24),
+                          _buildMonthAttendanceCard(),
+                        ],
                       ],
                     ),
             ],
@@ -613,7 +651,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              _companyName.isNotEmpty ? _companyName : 'Askeva eHRMS',
+              _companyName.isNotEmpty ? _companyName : '',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -653,13 +691,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   List<Widget> _buildQuickActionButtons() {
-    return [
-      _buildQuickActionButton(
-        icon: Icons.fingerprint,
-        label: 'Attendance',
-        color: Colors.redAccent,
-        onTap: () => widget.onNavigate?.call(4, subTabIndex: 0),
-      ),
+    final buttons = <Widget>[];
+
+    if (!_isCandidate) {
+      buttons.add(
+        _buildQuickActionButton(
+          icon: Icons.fingerprint,
+          label: 'Attendance',
+          color: Colors.redAccent,
+          onTap: () => widget.onNavigate?.call(4, subTabIndex: 0),
+        ),
+      );
+    }
+
+    buttons.addAll([
       _buildQuickActionButton(
         icon: Icons.calendar_today,
         label: 'Apply Leave',
@@ -684,7 +729,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         color: Colors.purple,
         onTap: () => widget.onNavigate?.call(1, subTabIndex: 3),
       ),
-    ];
+    ]);
+
+    return buttons;
   }
 
   Widget _buildSummaryCard({
@@ -1150,7 +1197,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                               ? 'Waiting for Approval'
                               : AttendanceDisplayUtil.formatAttendanceDisplayStatus(
                                   _todayAttendance?['status'] ?? 'Present',
-                                  _todayAttendance?['leaveType']))
+                                  _todayAttendance?['leaveType'],
+                                ))
                         : 'Absent',
                     style: TextStyle(
                       fontSize: 12,
@@ -1159,9 +1207,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                           ? (_todayAttendance?['status'] == 'Pending'
                                 ? Colors.orange
                                 : (_todayAttendance?['status'] == 'Rejected' ||
-                                          _todayAttendance?['status'] == 'Absent'
+                                          _todayAttendance?['status'] ==
+                                              'Absent'
                                       ? Colors.red
-                                      : _todayAttendance?['status'] == 'On Leave'
+                                      : _todayAttendance?['status'] ==
+                                            'On Leave'
                                       ? Colors.blue
                                       : Colors.green))
                           : Colors.red,
@@ -1439,6 +1489,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
 
+    // Create a set of approved leave dates (for showing "L" on calendar)
+    Set<String> leaveDateSet = {};
+    if (_monthData != null && _monthData!['leaveDates'] != null) {
+      for (var dateStr in _monthData!['leaveDates']) {
+        if (dateStr is String) {
+          leaveDateSet.add(dateStr);
+        }
+      }
+    }
+
     return Column(
       children: [
         Row(
@@ -1503,7 +1563,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ),
         const SizedBox(height: 8),
         GridView.builder(
-          key: ValueKey('calendar_${_selectedMonth.year}_${_selectedMonth.month}'),
+          key: ValueKey(
+            'calendar_${_selectedMonth.year}_${_selectedMonth.month}',
+          ),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -1525,6 +1587,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             Color textColor = isCurrentMonth
                 ? const Color(0xFF1E293B)
                 : const Color(0xFFCBD5E1);
+
+            // Initialize variables before use
+            num? workHours;
+            bool isLowHours = false;
+            bool isFuture = false;
+            String? leaveTypeAbbr;
+
             if (isCurrentMonth) {
               final bool isHoliday = holidayDateSet.contains(dateStr);
 
@@ -1551,56 +1620,101 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 textColor = const Color(0xFF475569); // Dark grey color
               }
 
-              // Priority: Holiday > Week Off > Present (from backend or attendance) > Attendance Status > Absent > Not Marked
+              // Priority: Present with LeaveType (Green) > Half Day (On Leave Blue) > Holiday > Week Off > Leave without attendance (On Leave Blue) > Present > Absent > Not Marked
               // IMPORTANT: Week offs (especially Sundays) should NEVER be marked as absent
-              if (isHoliday) {
+              final status = dayStatusByDate[dateStr];
+              final hasLeaveType = dayLeaveTypeByDate.containsKey(dateStr);
+              final isPresentStatus =
+                  status == 'Present' ||
+                  status == 'Approved' ||
+                  isPresentFromBackend;
+              final isHalfDayStatus =
+                  status == 'Half Day' || (status?.toLowerCase() == 'half day');
+
+              // 1. Present with leaveType → Green background with CL/SL/HA
+              if (isPresentStatus && hasLeaveType) {
+                bgColor = const Color(0xFFDCFCE7); // Present - Light Green
+              }
+              // 2. Half Day status → On Leave blue background with "HA"
+              else if (isHalfDayStatus) {
+                bgColor = const Color(0xFFBFDBFE); // Half Day - On Leave blue
+              }
+              // 3. Holiday
+              else if (isHoliday) {
                 bgColor = const Color(0xFFFEF3C7); // Holiday - Light yellow
-              } else if (isWeekOff) {
+              }
+              // 4. Week Off
+              else if (isWeekOff) {
                 bgColor = const Color(0xFFE9D5FF); // Week Off - Light purple
-              } else if (isPresentFromBackend ||
-                  dayStatusByDate.containsKey(dateStr)) {
-                // Check attendance status from records
-                final status = dayStatusByDate[dateStr] ?? 'Present';
-                if (status == 'Present' ||
-                    status == 'Approved' ||
-                    isPresentFromBackend) {
-                  bgColor = const Color(0xFFDCFCE7); // Present - Light Green
-                } else if (status == 'Pending') {
+              }
+              // 5. Leave date but no attendance → Blue with "L"
+              else if (leaveDateSet.contains(dateStr)) {
+                bgColor = const Color(0xFFBFDBFE); // On Leave - light blue
+              }
+              // 6. Present without leaveType → Green
+              else if (isPresentStatus) {
+                bgColor = const Color(0xFFDCFCE7); // Present - Light Green
+              }
+              // 7. Other attendance statuses
+              else if (dayStatusByDate.containsKey(dateStr)) {
+                if (status == 'Pending') {
                   bgColor = const Color(0xFFFFEDD5); // Pending - Light orange
                 } else if (status == 'Absent' || status == 'Rejected') {
                   bgColor = const Color(0xFFFEE2E2); // Absent - Light red
-                } else if (status == 'Half Day') {
-                  bgColor = const Color(0xFFDBEAFE); // Half Day - Light blue
                 } else if (status == 'On Leave') {
-                  bgColor = const Color(0xFFF3E8FF); // On Leave - Light purple
+                  bgColor = const Color(0xFFBFDBFE); // On Leave - light blue
                 }
-              } else if (absentDateSet.contains(dateStr)) {
-                // Working day without attendance record = Absent (light red)
-                // Only if it's NOT a week off (backend should not include week offs in absentDates)
+              }
+              // 8. Absent from backend
+              else if (absentDateSet.contains(dateStr)) {
                 if (!isWeekOff) {
                   bgColor = const Color(0xFFFEE2E2); // Absent - Light red
                 }
-              } else {
-                // Future working day without attendance record - show as "Not Marked"
+              }
+              // 9. Future dates
+              else {
                 final todayOnly = DateTime(now.year, now.month, now.day);
                 final dateOnly = DateTime(
                   dayDate.year,
                   dayDate.month,
                   dayDate.day,
                 );
-                // Only show "Not Marked" for future dates
                 if (dateOnly.isAfter(todayOnly)) {
                   bgColor = const Color(0xFFE2E8F0); // Not Marked - Light grey
                 }
               }
-            }
 
-            // Check for low work hours (less than 9 hours) - only for current month dates
-            num? workHours;
-            bool isLowHours = false;
-            bool isFuture = false;
-            if (isCurrentMonth) {
-              final dateStr = DateFormat('yyyy-MM-dd').format(dayDate);
+              // Leave type abbreviation logic (inside isCurrentMonth block where variables are available):
+              // - If Present with leaveType → Show CL/SL/HA (green background)
+              // - If Half Day → Show "HA" (blue background)
+              // - If Leave date without attendance → Show "L" (purple background)
+              final statusForDay = dayStatusByDate[dateStr] ?? '';
+              final isPresentStatusForAbbr =
+                  statusForDay == 'Present' ||
+                  statusForDay == 'Approved' ||
+                  isPresentFromBackend;
+              final isHalfDayStatusForAbbr =
+                  statusForDay == 'Half Day' ||
+                  statusForDay.toLowerCase() == 'half day';
+              final hasLeaveTypeForAbbr = dayLeaveTypeByDate.containsKey(
+                dateStr,
+              );
+
+              if (isPresentStatusForAbbr && hasLeaveTypeForAbbr) {
+                // Present with leaveType → Show CL/SL/HA (green background)
+                leaveTypeAbbr = AttendanceDisplayUtil.leaveTypeToAbbreviation(
+                  dayLeaveTypeByDate[dateStr],
+                );
+              } else if (isHalfDayStatusForAbbr) {
+                // Half Day → Show "HA" (blue background)
+                leaveTypeAbbr = 'HA';
+              } else if (leaveDateSet.contains(dateStr) &&
+                  !isPresentStatusForAbbr) {
+                // Leave date without attendance → Show "L" (purple background)
+                leaveTypeAbbr = 'L';
+              }
+
+              // Low work-hours indicator
               workHours = dayWorkHoursByDate[dateStr];
 
               // Calculate workHours from punchIn and punchOut if not available
@@ -1654,16 +1768,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               ).isAfter(DateTime(now.year, now.month, now.day));
             }
 
-            // Leave type abbreviation (CL/SL) for present days with leaveType
-            final statusForDay = dayStatusByDate[dateStr] ?? '';
-            final leaveTypeAbbr = (statusForDay == 'Present' ||
-                        statusForDay == 'Approved') &&
-                    dayLeaveTypeByDate.containsKey(dateStr)
-                ? AttendanceDisplayUtil.leaveTypeToAbbreviation(
-                    dayLeaveTypeByDate[dateStr])
-                : null;
-
             return Container(
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: bgColor,
                 borderRadius: BorderRadius.circular(8),
@@ -1673,33 +1779,41 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               ),
               child: Stack(
                 children: [
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          '${dayDate.day}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                isToday ? FontWeight.bold : FontWeight.w500,
-                            color: textColor,
-                          ),
-                        ),
-                        if (leaveTypeAbbr != null &&
-                            leaveTypeAbbr.isNotEmpty) ...[
-                          const SizedBox(height: 0),
-                          Text(
-                            leaveTypeAbbr,
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w600,
-                              color: textColor.withOpacity(0.9),
+                  Align(
+                    alignment: Alignment.center,
+                    child: Padding(
+                      padding: const EdgeInsets.all(1.0),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${dayDate.day}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                height: 1.0,
+                                fontWeight: isToday
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: textColor,
+                              ),
                             ),
-                          ),
-                        ],
-                      ],
+                            if (leaveTypeAbbr != null &&
+                                leaveTypeAbbr.isNotEmpty) ...[
+                              Text(
+                                leaveTypeAbbr,
+                                style: TextStyle(
+                                  fontSize: 7,
+                                  height: 1.0,
+                                  fontWeight: FontWeight.w600,
+                                  color: textColor.withOpacity(0.9),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   // Red dot indicator for low work hours (top-left corner)
@@ -1733,13 +1847,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       runSpacing: 12,
       children: [
         _buildLegendItem(const Color(0xFFDCFCE7), 'Present'),
-        _buildLegendItem(const Color(0xFFEF4444), 'Absent'),
-        _buildLegendItem(const Color(0xFFF59E0B), 'Holiday'),
+        // Use light red to match calendar cell background for Absent
+        _buildLegendItem(const Color(0xFFFEE2E2), 'Absent'),
+        // Use same soft yellow as calendar Holiday cell background
+        _buildLegendItem(const Color(0xFFFEF3C7), 'Holiday'),
         _buildLegendItem(const Color(0xFFE9D5FF), 'Weekend'),
-        _buildLegendItem(const Color(0xFF3B82F6), 'Half Day'),
-        _buildLegendItem(const Color(0xFFA855F7), 'On Leave'),
-        _buildLegendItem(const Color(0xFFF97316), 'Pending'),
-        _buildLegendItem(const Color(0xFFE2E8F0), 'Not Marked'),
+        _buildLegendItem(const Color(0xFFBFDBFE), 'On Leave'),
         // Low Work Hours with red dot
         Row(
           mainAxisSize: MainAxisSize.min,

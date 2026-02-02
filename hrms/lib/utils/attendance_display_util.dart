@@ -9,7 +9,8 @@ class AttendanceDisplayUtil {
     // "Sick Leave", "sick leave", "sick" -> SL
     if (normalized == 'sick' ||
         normalized == 'sick leave' ||
-        normalized.contains('sick')) return 'SL';
+        normalized.contains('sick'))
+      return 'SL';
     if (normalized == 'earned' || normalized.contains('earned')) return 'EL';
     // Fallback: first two letters uppercase (e.g. "Other" -> "OT")
     final trimmed = leaveType.trim();
@@ -21,8 +22,19 @@ class AttendanceDisplayUtil {
 
   /// Returns display string for attendance status.
   /// When status is Present (or Approved) and leaveType is set, appends (CL)/(SL) etc.
-  static String formatAttendanceDisplayStatus(String? status, String? leaveType) {
+  /// For Half Day, appends session when provided (e.g. "Half Day (Session 1)").
+  static String formatAttendanceDisplayStatus(
+    String? status, [
+    String? leaveType,
+    String? session,
+  ]) {
     final s = status ?? 'Present';
+    if (s == 'Half Day' && session != null && session.isNotEmpty) {
+      final sessionLabel = session == '1'
+          ? 'Session 1'
+          : (session == '2' ? 'Session 2' : session);
+      return 'Half Day ($sessionLabel)';
+    }
     final abbr = leaveTypeToAbbreviation(leaveType);
     if (abbr.isEmpty) return s;
     if (s == 'Present' || s == 'Approved') return 'Present ($abbr)';

@@ -75,11 +75,31 @@ class RequestService {
 
   // --- LEAVE ---
 
-  Future<Map<String, dynamic>> getLeaveTypes() async {
+  Future<Map<String, dynamic>> getLeaveTypes({
+    int? month,
+    int? year,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     try {
       final headers = await _getHeaders();
+      String url = '$baseUrl/requests/leave-types';
+      List<String> queryParams = [];
+
+      if (startDate != null && endDate != null) {
+        queryParams.add('startDate=${startDate.toIso8601String()}');
+        queryParams.add('endDate=${endDate.toIso8601String()}');
+      } else if (month != null && year != null) {
+        queryParams.add('month=$month');
+        queryParams.add('year=$year');
+      }
+
+      if (queryParams.isNotEmpty) {
+        url += '?${queryParams.join('&')}';
+      }
+
       final response = await http
-          .get(Uri.parse('$baseUrl/requests/leave-types'), headers: headers)
+          .get(Uri.parse(url), headers: headers)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -477,7 +497,18 @@ class RequestService {
 
   String _handleException(dynamic error) {
     if (error is SocketException) {
-      return 'Network error: Please check your internet connection.';
+      // SocketException can occur even with internet if server is unreachable
+      String errorMsg = error.message.toLowerCase();
+      if (errorMsg.contains('failed host lookup') || 
+          errorMsg.contains('name resolution') ||
+          errorMsg.contains('nodename nor servname provided')) {
+        return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
+      } else if (errorMsg.contains('connection refused') ||
+                 errorMsg.contains('connection reset')) {
+        return 'Server is not responding. Please try again in a moment or contact support.';
+      } else {
+        return 'Connection error. Please check your internet connection and try again.';
+      }
     } else if (error is TimeoutException) {
       return 'Connection timed out. Please try again.';
     } else if (error is FormatException) {

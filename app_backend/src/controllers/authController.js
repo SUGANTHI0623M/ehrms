@@ -50,6 +50,34 @@ const findOrCreateUserByEmail = async (rawEmail) => {
         return user;
     }
 
+    // 2.5 Staff fallback
+    const staff = await Staff.findOne({ email: buildEmailRegex(email) });
+    if (staff) {
+        // If staff already has a linked user, try to return it
+        if (staff.userId) {
+            user = await User.findById(staff.userId);
+            if (user) return user;
+        }
+
+        // Create user from staff
+        const randomPassword = Math.random().toString(36).slice(-10) + '!aA1';
+        user = await User.create({
+            name: staff.name,
+            email: normalizedEmail,
+            password: randomPassword,
+            role: 'Employee',
+            companyId: staff.businessId,
+            branchId: staff.branchId,
+            phone: staff.phone
+        });
+
+        // Link staff to new user
+        staff.userId = user._id;
+        await staff.save();
+
+        return user;
+    }
+
     // 3. Candidate fallback
     const candidate = await Candidate.findOne({
         email: buildEmailRegex(email)
@@ -166,6 +194,11 @@ const login = async (req, res) => {
             return res.status(401).json({ success: false, error: { message: 'User record not found' } });
         }
 
+        // Prevent candidates from logging in
+        if (user.role && user.role.toLowerCase() === 'candidate') {
+            return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
+        }
+
         // Generate Token
         // Use consistent secret with middleware
         const secret = process.env.JWT_SECRET || 'secret';
@@ -241,6 +274,11 @@ const googleLogin = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User not registered. Please sign up first.' } });
+        }
+
+        // Prevent candidates from logging in
+        if (user.role && user.role.toLowerCase() === 'candidate') {
+            return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
         }
 
         const accessToken = generateToken(user._id);

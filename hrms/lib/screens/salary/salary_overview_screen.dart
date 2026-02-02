@@ -36,7 +36,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   CalculatedSalaryStructure? _calculatedSalary;
   ProratedSalary? _proratedSalary;
   WorkingDaysInfo? _workingDaysInfo;
-  int _presentDays = 0;
+  double _presentDays = 0;
   Map<String, dynamic>? _staffSalary;
   Map<String, dynamic>? _currentPayroll;
   List<dynamic> _attendanceRecords = [];
@@ -121,15 +121,19 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
       final staffData = profileResult['data']?['staffData'];
       if (staffData == null || staffData['salary'] == null) {
-        throw Exception('No salary structure found. Please contact HR to set up your salary structure.');
+        throw Exception(
+          'No salary structure found. Please contact HR to set up your salary structure.',
+        );
       }
 
       _staffSalary = staffData['salary'] as Map<String, dynamic>;
-      
+
       // Validate that basicSalary exists and is valid
       final basicSalary = _staffSalary!['basicSalary'];
       if (basicSalary == null || (basicSalary is num && basicSalary <= 0)) {
-        throw Exception('Salary structure is incomplete. Basic salary is missing or invalid. Please contact HR.');
+        throw Exception(
+          'Salary structure is incomplete. Basic salary is missing or invalid. Please contact HR.',
+        );
       }
 
       // Get weekly off pattern and weekly holidays from business settings
@@ -209,7 +213,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       if (_attendanceRecords.isEmpty && prevAttendanceRecords.isEmpty) {
         await Future.delayed(const Duration(milliseconds: 300));
       }
-      
+
       final attendanceResult = await _attendanceService.getMonthAttendance(
         year,
         monthIndex,
@@ -256,16 +260,29 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       }
 
       // 4. Calculate present days from attendance and fine information
-      // Only calculate if we have records (either newly fetched or existing)
+      // Half day: status="half day" OR leaveType="half day" (e.g. approved half-day leave marked as Present)
+      // Present=1, Approved=1, Half Day=0.5
       if (_attendanceRecords.isNotEmpty) {
-        _presentDays = _attendanceRecords.where((record) {
-          final status = record['status'] as String?;
-          return status == 'Present' || status == 'Approved';
-        }).length;
+        _presentDays = 0;
+        for (final record in _attendanceRecords) {
+          final status = (record['status'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final leaveType = (record['leaveType'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final isHalfDay = status == 'half day' || leaveType == 'half day';
+          if (isHalfDay) {
+            _presentDays += 0.5;
+          } else if (status == 'present' || status == 'approved') {
+            _presentDays += 1;
+          }
+        }
       } else {
         // No attendance records available
         // Only restore previous data if we had it and this wasn't a successful update
-        if (!attendanceUpdated && (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
+        if (!attendanceUpdated &&
+            (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
           _attendanceRecords
             ..clear()
             ..addAll(prevAttendanceRecords);
@@ -389,69 +406,85 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       int totalLateMinutes = 0;
 
       for (final record in _attendanceRecords) {
-        final status = record['status'] as String?;
-        if (status == 'Present' ||
-            status == 'Approved' ||
-            status == 'Half Day') {
-          // Try to get existing fineAmount first (from backend calculation)
-          final existingFineAmount =
-              (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
-          final existingLateMinutes =
-              (record['lateMinutes'] as num?)?.toInt() ?? 0;
+        final status = (record['status'] as String? ?? '').trim().toLowerCase();
+        final leaveType = (record['leaveType'] as String? ?? '')
+            .trim()
+            .toLowerCase();
+        final isCounted =
+            status == 'present' ||
+            status == 'approved' ||
+            status == 'half day' ||
+            leaveType == 'half day';
+        if (!isCounted) continue;
+        // Try to get existing fineAmount first (from backend calculation)
+        final existingFineAmount =
+            (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+        final existingLateMinutes =
+            (record['lateMinutes'] as num?)?.toInt() ?? 0;
 
-          // If backend already calculated fine, use it
-          // Otherwise, calculate it client-side using the same logic
-          double fineAmount = existingFineAmount;
-          int lateMinutes = existingLateMinutes;
+        // If backend already calculated fine, use it
+        // Otherwise, calculate it client-side using the same logic
+        double fineAmount = existingFineAmount;
+        int lateMinutes = existingLateMinutes;
 
-          if (fineAmount == 0 && lateMinutes == 0) {
-            // Calculate fine client-side if not provided by backend
-            final punchInStr = record['punchIn'] as String?;
-            if (punchInStr != null && dailySalary != null) {
-              try {
-                final punchInTime = DateTime.parse(punchInStr).toLocal();
-                final attendanceDateStr = record['date'] as String?;
-                DateTime attendanceDate;
-                if (attendanceDateStr != null) {
-                  attendanceDate = DateTime.parse(attendanceDateStr).toLocal();
-                } else {
-                  // Fallback to punchIn date
-                  attendanceDate = DateTime(
-                    punchInTime.year,
-                    punchInTime.month,
-                    punchInTime.day,
-                  );
-                }
-
-                final fineResult = calculateFine(
-                  punchInTime: punchInTime,
-                  attendanceDate: attendanceDate,
-                  shiftTiming: shiftTiming,
-                  fineSettings: fineSettings,
-                  dailySalary: dailySalary,
+        if (fineAmount == 0 && lateMinutes == 0) {
+          // Calculate fine client-side if not provided by backend
+          final punchInStr = record['punchIn'] as String?;
+          if (punchInStr != null && dailySalary != null) {
+            try {
+              final punchInTime = DateTime.parse(punchInStr).toLocal();
+              final attendanceDateStr = record['date'] as String?;
+              DateTime attendanceDate;
+              if (attendanceDateStr != null) {
+                attendanceDate = DateTime.parse(attendanceDateStr).toLocal();
+              } else {
+                // Fallback to punchIn date
+                attendanceDate = DateTime(
+                  punchInTime.year,
+                  punchInTime.month,
+                  punchInTime.day,
                 );
+              }
 
-                lateMinutes = fineResult.lateMinutes;
-                fineAmount = fineResult.fineAmount;
-              } catch (e) {}
-            }
+              final fineResult = calculateFine(
+                punchInTime: punchInTime,
+                attendanceDate: attendanceDate,
+                shiftTiming: shiftTiming,
+                fineSettings: fineSettings,
+                dailySalary: dailySalary,
+              );
+
+              lateMinutes = fineResult.lateMinutes;
+              fineAmount = fineResult.fineAmount;
+            } catch (e) {}
           }
+        }
 
-          if (fineAmount > 0 || lateMinutes > 0) {
-            totalFineAmount += fineAmount;
-            if (lateMinutes > 0) {
-              lateDays++;
-              totalLateMinutes += lateMinutes;
-            }
+        if (fineAmount > 0 || lateMinutes > 0) {
+          totalFineAmount += fineAmount;
+          if (lateMinutes > 0) {
+            lateDays++;
+            totalLateMinutes += lateMinutes;
           }
         }
       }
 
       // Alternative: Use payroll fine calculation utility for aggregation
-      // This matches backend's calculatePayrollFine function
+      // Pass Present, Approved, or Half Day (late login fine applies to half day too)
       if (dailySalary != null && dailySalary > 0) {
-        // Convert List<dynamic> to List<Map<String, dynamic>>
         final attendanceRecordsList = _attendanceRecords
+            .where((record) {
+              final s = (record['status'] as String? ?? '')
+                  .trim()
+                  .toLowerCase();
+              final lt = (record['leaveType'] as String? ?? '')
+                  .trim()
+                  .toLowerCase();
+              return s == 'present' ||
+                  s == 'approved' ||
+                  s == 'half day' ||
+                  lt == 'half day';
+            })
             .map((record) => record as Map<String, dynamic>)
             .toList();
 
@@ -476,14 +509,12 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
       // 5. Calculate prorated salary (working days and salary structure already set above, before fine)
       if (_calculatedSalary != null && _workingDaysInfo != null) {
-
         _proratedSalary = calculateProratedSalary(
           _calculatedSalary!,
           _workingDaysInfo!.workingDays,
           _presentDays,
           _fineInfo['totalFineAmount'] as double,
         );
-
       }
 
       // 8. Fetch current month payroll if available
@@ -522,7 +553,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       } else {
         errorMessage = e.toString();
       }
-      
+
       if (mounted) {
         setState(() {
           _error = errorMessage;
@@ -634,10 +665,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                     const SizedBox(height: 8),
                     const Text(
                       'Please contact HR to set up your salary structure.',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
@@ -911,7 +939,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               Expanded(
                 child: Text(
                   'Attendance Summary',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -938,7 +969,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 runSpacing: 8,
                 children: [
                   _buildAttStat('Working Days', '$working'),
-                  _buildAttStat('Present Days', '$present', color: Colors.green),
+                  _buildAttStat(
+                    'Present Days',
+                    '$present',
+                    color: Colors.green,
+                  ),
                   _buildAttStat('Absent Days', '$absent', color: Colors.red),
                   _buildAttStat('Holidays', '$holidays', color: Colors.orange),
                 ],
@@ -1195,7 +1230,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               alignment: Alignment.centerRight,
               child: Text(
                 format.format(amount),
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
                 textAlign: TextAlign.right,
               ),
             ),

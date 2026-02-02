@@ -27,6 +27,9 @@ const attendanceSchema = new mongoose.Schema({
     },
     approvedAt: Date,
     remarks: String,
+    // Leave-driven attendance: set when record is created/updated from approved leave
+    leaveType: { type: String, default: null },
+    session: { type: String, enum: ['1', '2', null], default: null },
     workHours: Number,
     overtime: Number,
     fineHours: Number,
