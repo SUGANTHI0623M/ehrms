@@ -78,7 +78,12 @@ class _ProfileScreenState extends State<ProfileScreen>
         _profileImageError = false;
         _cachedAvatarUrl = cachedUrl;
         if (result['success']) {
-          _userData = result['data'];
+          final data = result['data'];
+          if (data is Map) {
+            _userData = Map<String, dynamic>.from(data);
+          } else {
+            _userData = null;
+          }
         } else {
           SnackBarUtils.showSnackBar(
             context,
@@ -91,10 +96,26 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  Map<String, dynamic>? get _profile => _userData?['profile'];
-  Map<String, dynamic>? get _staffData => _userData?['staffData'];
-  Map<String, dynamic>? get _candidateData =>
-      _staffData?['candidateId'] as Map<String, dynamic>?;
+  Map<String, dynamic>? get _profile {
+    final profile = _userData?['profile'];
+    if (profile == null) return null;
+    return Map<String, dynamic>.from(profile as Map);
+  }
+
+  Map<String, dynamic>? get _staffData {
+    final staffData = _userData?['staffData'];
+    if (staffData == null) return null;
+    return Map<String, dynamic>.from(staffData as Map);
+  }
+
+  Map<String, dynamic>? get _candidateData {
+    final candidateId = _staffData?['candidateId'];
+    if (candidateId == null) return null;
+    if (candidateId is Map) {
+      return Map<String, dynamic>.from(candidateId);
+    }
+    return null;
+  }
 
   Future<void> _refreshProfile() async {
     await Future.wait([_loadProfile(), _loadDocuments()]);
@@ -369,15 +390,18 @@ class _ProfileScreenState extends State<ProfileScreen>
     final email = _profile?['email'] ?? '';
     final phone = _profile?['phone'] ?? '';
     final dept = _staffData?['department'] ?? '';
-    final photoUrl = _profile?['avatar'] ??
+    final photoUrl =
+        _profile?['avatar'] ??
         _profile?['photoUrl'] ??
         _profile?['profilePic'] ??
         _staffData?['avatar'] ??
         _cachedAvatarUrl;
     final photoUrlStr = photoUrl?.toString().trim();
-    final showPhoto = photoUrlStr != null &&
+    final showPhoto =
+        photoUrlStr != null &&
         photoUrlStr.isNotEmpty &&
-        (photoUrlStr.startsWith('http://') || photoUrlStr.startsWith('https://')) &&
+        (photoUrlStr.startsWith('http://') ||
+            photoUrlStr.startsWith('https://')) &&
         !_profileImageError;
     final joiningDate = _staffData?['joiningDate'];
 
@@ -1571,7 +1595,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         if (mounted) {
           SnackBarUtils.showSnackBar(
             context,
-            faceResult.message ?? 'Please take a selfie with exactly one face visible.',
+            faceResult.message ??
+                'Please take a selfie with exactly one face visible.',
             isError: true,
           );
         }
@@ -2339,8 +2364,8 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
     _experience = widget.initialExperience.isEmpty
         ? [_emptyExpEntry()]
         : widget.initialExperience
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
   }
 
   void _onExperienceChanged(int index, Map<String, dynamic> updated) {
@@ -2382,9 +2407,7 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
       }
 
       // Check if other required fields are empty
-      if (designation.isEmpty ||
-          durationFrom.isEmpty ||
-          durationTo.isEmpty) {
+      if (designation.isEmpty || durationFrom.isEmpty || durationTo.isEmpty) {
         SnackBarUtils.showSnackBar(
           context,
           'Please fill all fields in Experience ${_experience.length} before adding a new entry',
@@ -2423,9 +2446,7 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
       }
 
       // Date fields must be filled
-      if (designation.isEmpty ||
-          durationFrom.isEmpty ||
-          durationTo.isEmpty) {
+      if (designation.isEmpty || durationFrom.isEmpty || durationTo.isEmpty) {
         SnackBarUtils.showSnackBar(
           context,
           'Please fill all fields for Experience ${i + 1}',
@@ -2461,15 +2482,19 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
 
   List<Map<String, dynamic>> _collectExperience() {
     return _experience
-        .map((e) => {
-              'company': (e['company'] ?? '').toString().trim(),
-              'role': (e['role'] ?? '').toString().trim(),
-              'designation': (e['designation'] ?? '').toString().trim(),
-              'durationFrom': (e['durationFrom'] ?? '').toString().trim(),
-              'durationTo': (e['durationTo'] ?? '').toString().trim(),
-              'keyResponsibilities': (e['keyResponsibilities'] ?? '').toString().trim(),
-              'reasonForLeaving': (e['reasonForLeaving'] ?? '').toString().trim(),
-            })
+        .map(
+          (e) => {
+            'company': (e['company'] ?? '').toString().trim(),
+            'role': (e['role'] ?? '').toString().trim(),
+            'designation': (e['designation'] ?? '').toString().trim(),
+            'durationFrom': (e['durationFrom'] ?? '').toString().trim(),
+            'durationTo': (e['durationTo'] ?? '').toString().trim(),
+            'keyResponsibilities': (e['keyResponsibilities'] ?? '')
+                .toString()
+                .trim(),
+            'reasonForLeaving': (e['reasonForLeaving'] ?? '').toString().trim(),
+          },
+        )
         .toList();
   }
 
@@ -2502,20 +2527,14 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
             children: [
               const Text(
                 'Edit Experience',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               Row(
                 children: [
                   TextButton.icon(
                     onPressed: _addEntry,
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text(
-                      'Add',
-                      style: TextStyle(fontSize: 14),
-                    ),
+                    label: const Text('Add', style: TextStyle(fontSize: 14)),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.primary,
                     ),
@@ -2541,12 +2560,17 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
                       child: _EditExperienceTile(
                         index: index + 1,
                         entry: _experience[index],
-                        onChanged: (updated) => _onExperienceChanged(index, updated),
-                        onRemove: _experience.length > 1 ? () => _removeAt(index) : null,
+                        onChanged: (updated) =>
+                            _onExperienceChanged(index, updated),
+                        onRemove: _experience.length > 1
+                            ? () => _removeAt(index)
+                            : null,
                       ),
                     );
                   }),
-                  const SizedBox(height: 20), // Extra bottom spacing for scrolling
+                  const SizedBox(
+                    height: 20,
+                  ), // Extra bottom spacing for scrolling
                 ],
               ),
             ),
@@ -2573,10 +2597,7 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
                 ),
                 child: const Text(
                   'Save Experience',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -2612,7 +2633,7 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
   late TextEditingController _toController;
   late TextEditingController _responsibilitiesController;
   late TextEditingController _reasonController;
-  
+
   DateTime? _selectedFromDate;
   DateTime? _selectedToDate;
 
@@ -2620,7 +2641,7 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
   void initState() {
     super.initState();
     final e = widget.entry;
-    
+
     // Handle dates - convert Date objects to strings for display
     String formatDate(dynamic date) {
       if (date == null) return '';
@@ -2631,17 +2652,21 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
       return date.toString();
     }
 
-    _companyController = TextEditingController(text: (e['company'] ?? '').toString());
+    _companyController = TextEditingController(
+      text: (e['company'] ?? '').toString(),
+    );
     _roleController = TextEditingController(text: (e['role'] ?? '').toString());
-    _designationController = TextEditingController(text: (e['designation'] ?? '').toString());
-    
+    _designationController = TextEditingController(
+      text: (e['designation'] ?? '').toString(),
+    );
+
     // Parse dates
     final fromDateStr = formatDate(e['durationFrom']);
     final toDateStr = formatDate(e['durationTo']);
-    
+
     _fromController = TextEditingController(text: fromDateStr);
     _toController = TextEditingController(text: toDateStr);
-    
+
     // Parse dates to DateTime objects if available
     if (fromDateStr.isNotEmpty && fromDateStr != 'Present') {
       try {
@@ -2650,7 +2675,7 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
         // Invalid date format, leave as null
       }
     }
-    
+
     if (toDateStr.isNotEmpty && toDateStr != 'Present') {
       try {
         _selectedToDate = DateFormat('yyyy-MM-dd').parse(toDateStr);
@@ -2658,9 +2683,13 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
         // Invalid date format, leave as null
       }
     }
-    
-    _responsibilitiesController = TextEditingController(text: (e['keyResponsibilities'] ?? '').toString());
-    _reasonController = TextEditingController(text: (e['reasonForLeaving'] ?? '').toString());
+
+    _responsibilitiesController = TextEditingController(
+      text: (e['keyResponsibilities'] ?? '').toString(),
+    );
+    _reasonController = TextEditingController(
+      text: (e['reasonForLeaving'] ?? '').toString(),
+    );
   }
 
   @override
@@ -2781,7 +2810,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                 ),
                 if (widget.onRemove != null)
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 22),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 22,
+                    ),
                     onPressed: widget.onRemove,
                     tooltip: 'Remove',
                   ),
@@ -2793,7 +2826,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
               decoration: InputDecoration(
                 labelText: 'Company *',
-                prefixIcon: Icon(Icons.business, size: 20, color: AppColors.primary),
+                prefixIcon: Icon(
+                  Icons.business,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -2820,7 +2857,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
               decoration: InputDecoration(
                 labelText: 'Role *',
-                prefixIcon: Icon(Icons.work_outline, size: 20, color: AppColors.primary),
+                prefixIcon: Icon(
+                  Icons.work_outline,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -2847,7 +2888,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
               decoration: InputDecoration(
                 labelText: 'Designation',
-                prefixIcon: Icon(Icons.badge_outlined, size: 20, color: AppColors.primary),
+                prefixIcon: Icon(
+                  Icons.badge_outlined,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -2877,8 +2922,15 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                     child: InputDecorator(
                       decoration: InputDecoration(
                         labelText: 'From Date *',
-                        prefixIcon: Icon(Icons.calendar_today, size: 20, color: AppColors.primary),
-                        labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                        prefixIcon: Icon(
+                          Icons.calendar_today,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                        labelStyle: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                           borderSide: BorderSide(color: Colors.grey.shade300),
@@ -2889,7 +2941,10 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: AppColors.primary, width: 2),
+                          borderSide: BorderSide(
+                            color: AppColors.primary,
+                            width: 2,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -2901,7 +2956,9 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                         style: TextStyle(
                           fontWeight: FontWeight.w500,
                           fontSize: 12,
-                          color: _fromController.text.isEmpty ? Colors.grey : Colors.black,
+                          color: _fromController.text.isEmpty
+                              ? Colors.grey
+                              : Colors.black,
                         ),
                       ),
                     ),
@@ -2914,8 +2971,15 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                     child: InputDecorator(
                       decoration: InputDecoration(
                         labelText: 'To Date *',
-                        prefixIcon: Icon(Icons.calendar_month, size: 20, color: AppColors.primary),
-                        labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+                        prefixIcon: Icon(
+                          Icons.calendar_month,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                        labelStyle: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                           borderSide: BorderSide(color: Colors.grey.shade300),
@@ -2926,7 +2990,10 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: AppColors.primary, width: 2),
+                          borderSide: BorderSide(
+                            color: AppColors.primary,
+                            width: 2,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -2938,7 +3005,9 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
                         style: TextStyle(
                           fontWeight: FontWeight.w500,
                           fontSize: 12,
-                          color: _toController.text.isEmpty ? Colors.grey : Colors.black,
+                          color: _toController.text.isEmpty
+                              ? Colors.grey
+                              : Colors.black,
                         ),
                       ),
                     ),
@@ -2953,7 +3022,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
               maxLines: 3,
               decoration: InputDecoration(
                 labelText: 'Key Responsibilities',
-                prefixIcon: Icon(Icons.list_alt, size: 20, color: AppColors.primary),
+                prefixIcon: Icon(
+                  Icons.list_alt,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -2981,7 +3054,11 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
               maxLines: 2,
               decoration: InputDecoration(
                 labelText: 'Reason for Leaving',
-                prefixIcon: Icon(Icons.exit_to_app, size: 20, color: AppColors.primary),
+                prefixIcon: Icon(
+                  Icons.exit_to_app,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),

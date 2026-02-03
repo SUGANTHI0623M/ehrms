@@ -113,6 +113,26 @@ class RequestService {
     }
   }
 
+  /// Fetches leave types for Apply Leave dropdown: from staff's leave template + Unpaid Leave.
+  /// Returns list of { type, days } where days is the limit (null for Unpaid Leave).
+  Future<Map<String, dynamic>> getLeaveTypesForApply() async {
+    try {
+      final headers = await _getHeaders();
+      final url = Uri.parse('$baseUrl/requests/leave-types/for-apply');
+      final response = await http
+          .get(url, headers: headers)
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return {'success': true, 'data': body['data']};
+      } else {
+        return _handleErrorResponse(response, 'Failed to fetch leave types');
+      }
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
   Future<Map<String, dynamic>> applyLeave(Map<String, dynamic> data) async {
     try {
       final headers = await _getHeaders();
@@ -369,7 +389,11 @@ class RequestService {
       if (response.statusCode == 201) {
         final body = jsonDecode(response.body);
         if (body is Map && body['success'] == true) {
-          return {'success': true, 'data': body['data'], 'message': body['message']};
+          return {
+            'success': true,
+            'data': body['data'],
+            'message': body['message'],
+          };
         }
         return {'success': true, 'data': body};
       } else {
@@ -441,10 +465,7 @@ class RequestService {
 
       if (response.statusCode == 200) {
         // Return PDF bytes
-        return {
-          'success': true,
-          'data': response.bodyBytes,
-        };
+        return {'success': true, 'data': response.bodyBytes};
       } else {
         return _handleErrorResponse(response, 'Failed to view payslip');
       }
@@ -465,10 +486,7 @@ class RequestService {
 
       if (response.statusCode == 200) {
         // Return PDF bytes
-        return {
-          'success': true,
-          'data': response.bodyBytes,
-        };
+        return {'success': true, 'data': response.bodyBytes};
       } else {
         return _handleErrorResponse(response, 'Failed to download payslip');
       }
@@ -499,12 +517,12 @@ class RequestService {
     if (error is SocketException) {
       // SocketException can occur even with internet if server is unreachable
       String errorMsg = error.message.toLowerCase();
-      if (errorMsg.contains('failed host lookup') || 
+      if (errorMsg.contains('failed host lookup') ||
           errorMsg.contains('name resolution') ||
           errorMsg.contains('nodename nor servname provided')) {
         return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
       } else if (errorMsg.contains('connection refused') ||
-                 errorMsg.contains('connection reset')) {
+          errorMsg.contains('connection reset')) {
         return 'Server is not responding. Please try again in a moment or contact support.';
       } else {
         return 'Connection error. Please check your internet connection and try again.';
