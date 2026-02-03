@@ -133,6 +133,10 @@ class _AppDrawerState extends State<AppDrawer> {
     final company = _userData?['companyName'] ?? 'HRMS Corp';
 
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+    final avatarUrl = _userData?['avatar'] ?? _userData?['photoUrl'];
+    final showAvatar = avatarUrl != null &&
+        avatarUrl.toString().trim().isNotEmpty &&
+        avatarUrl.toString().startsWith('http');
 
     return Container(
       padding: const EdgeInsets.only(top: 60, left: 24, right: 24, bottom: 24),
@@ -157,14 +161,19 @@ class _AppDrawerState extends State<AppDrawer> {
                 child: CircleAvatar(
                   backgroundColor: AppColors.surface,
                   radius: 35,
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
+                  backgroundImage: showAvatar
+                      ? NetworkImage(avatarUrl.toString().trim())
+                      : null,
+                  child: showAvatar
+                      ? null
+                      : Text(
+                          initial,
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 16),

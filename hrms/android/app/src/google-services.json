@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "498441650956",
-    "project_id": "hrms-24dc5",
-    "storage_bucket": "hrms-24dc5.firebasestorage.app"
+    "project_number": "761328490721",
+    "project_id": "ehrms-929bb",
+    "storage_bucket": "ehrms-929bb.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:498441650956:android:d1823f9dc5ac4172c07f29",
+        "mobilesdk_app_id": "1:761328490721:android:3f05090eb421f840c2ffa0",
         "android_client_info": {
-          "package_name": "com.example.hrms"
+          "package_name": "io.askeva.ehrms"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyC316YWX8R_JODggkoc_rlnv7-ekGfikR8"
+          "current_key": "AIzaSyCNLUlI8TYeVA9Ind4YGZB79YiVj8peguQ"
         }
       ],
       "services": {

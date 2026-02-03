@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'providers/theme_provider.dart';
@@ -24,10 +23,10 @@ class MyApp extends StatelessWidget {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
         return MaterialApp(
-          title: 'Employee Attendance',
+          title: 'HRMS',
           debugShowCheckedModeBanner: false,
           theme: themeProvider.getThemeData().copyWith(
-            textTheme: GoogleFonts.interTextTheme(),
+            textTheme: themeProvider.getThemeData().textTheme.apply(fontFamily: 'Inter'),
           ),
           home: const SplashScreen(),
         );

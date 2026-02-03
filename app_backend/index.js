@@ -22,6 +22,10 @@ app.use(helmet());
 //cors
 // Configure CORS
 const allowedOrigins = ['https://ehrms.askeva.io', 'http://ehrms.askeva.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+
+// Configure CORS
+//***const allowedOrigins = ['https://ehrms.askeva.net', 'http://ehrms.askeva.net', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);

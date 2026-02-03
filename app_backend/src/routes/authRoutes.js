@@ -13,7 +13,8 @@ const {
     verifyOTP,
     resetPassword,
     changePassword,
-    updateProfilePhoto
+    updateProfilePhoto,
+    verifyFace
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const multer = require('multer');
@@ -60,5 +61,8 @@ router.post(
     upload.single('file'),
     updateProfilePhoto
 );
+
+// Verify face (selfie vs profile photo) – expect JSON { selfie: "data:image/...;base64,..." }
+router.post('/verify-face', protect, authLimiter, verifyFace);
 
 module.exports = router;

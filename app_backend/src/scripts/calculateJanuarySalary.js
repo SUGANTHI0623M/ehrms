@@ -319,16 +319,62 @@ const calculateJanuarySalary = async () => {
             date: { $gte: startOfMonth, $lte: endOfMonth }
         });
 
-        const presentDays = attendanceRecords.filter(a => 
-            ['Present', 'Approved', 'Half Day'].includes(a.status)
-        ).length;
+        // Calculate Present Days with specific Half Day logic
+        // Rule: Check both Attendance and Leave collections for Half Day
+        const Leave = require('../models/Leave');
+        const leaveRecords = await Leave.find({
+            employeeId: staff._id,
+            status: { $regex: /^approved$/i }
+        });
+
+        const dateMap = {};
+
+        // 1. Process Attendance Records
+        attendanceRecords.forEach(a => {
+            if (!a.date) return;
+            const d = new Date(a.date).toISOString().split('T')[0];
+            const status = (a.status || '').trim().toLowerCase();
+            const leaveType = (a.leaveType || '').trim().toLowerCase();
+            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+        });
+
+        // 2. Process Leave Records for Half Day
+        leaveRecords.forEach(l => {
+            const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
+            if (isHalfDayLeave) {
+                const start = new Date(l.startDate);
+                const end = new Date(l.endDate);
+                let curr = new Date(start);
+                while (curr <= end) {
+                    const d = curr.toISOString().split('T')[0];
+                    if (!dateMap[d]) dateMap[d] = {};
+                    dateMap[d].hasHalfDayLeave = true;
+                    curr.setDate(curr.getDate() + 1);
+                }
+            }
+        });
+
+        // 3. Calculate Weighted Present Days
+        // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
+        const presentDays = Object.values(dateMap).reduce((sum, data) => {
+            const status = data.attendanceStatus || '';
+            const attLeaveType = data.attendanceLeaveType || '';
+            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+            if (isHalfDay) return sum + 0.5;
+            if (status === 'present' || status === 'approved') return sum + 1;
+            return sum;
+        }, 0);
 
         const absentDays = Math.max(0, workingDaysInfo.workingDays - presentDays);
 
-        // Calculate total fine amount from attendance records
-        const totalFineAmount = attendanceRecords.reduce((sum, record) => {
-            return sum + (record.fineAmount || 0);
-        }, 0);
+        // Calculate total fine amount - include Half Day (late login fine applies to half day too)
+        const totalFineAmount = attendanceRecords
+            .filter(r => {
+                const s = (r.status || '').trim().toLowerCase();
+                const lt = (r.leaveType || '').trim().toLowerCase();
+                return s === 'present' || s === 'approved' || s === 'half day' || lt === 'half day';
+            })
+            .reduce((sum, record) => sum + (record.fineAmount || 0), 0);
 
         // Get late login details
         const lateLoginRecords = attendanceRecords.filter(a => (a.lateMinutes || 0) > 0);

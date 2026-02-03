@@ -1,12 +1,11 @@
 // hrms/lib/config/constants.dart
 class AppConstants {
-  // Use 10.0.2.2 for Android Emulator to access localhost
-  // Use your machine's IP (e.g., 192.168.16.104) for physical devices
-  // Production Server
+  /// Production API (HTTPS required for Google Play).
   static const String baseUrl = 'https://ehrms.askeva.io/api';
-  //urls
-  // Local (Android Emulator)
-  // static const String baseUrl = 'http://192.168.16.104:8001/api';
-  // For Physical Device, use your machine's LAN IP (e.g., http://192.168.1.5:5000/api)
-  // static const String baseUrl = 'http://192.168.16.102:8001/api';
+  // static const String baseUrl = 'http://192.168.16.103:9001/api';
+  // static const String baseUrl = 'https://ehrms.askeva.net/api';
+
+  /// Privacy policy URL (required for Play Store). Set to your published policy.
+  static const String privacyPolicyUrl =
+      'https://ehrms.askeva.io/privacy'; // TODO: Replace with your actual URL
 }

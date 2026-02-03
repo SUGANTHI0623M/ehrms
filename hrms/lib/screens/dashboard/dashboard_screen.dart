@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import 'home_dashboard_screen.dart';
 import '../attendance/attendance_screen.dart';
@@ -18,11 +20,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late int _currentIndex;
   int _requestTabIndex = 0; // State to hold the sub-tab index for Requests
   int _attendanceTabIndex = 0; // State to hold the sub-tab index for Attendance
+  bool _isCandidate = false;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex ?? 0;
+    _checkRole();
+  }
+
+  Future<void> _checkRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userString = prefs.getString('user');
+      if (userString != null) {
+        final userData = jsonDecode(userString);
+        if (mounted) {
+          setState(() {
+            _isCandidate = (userData['role'] ?? '').toString().toLowerCase() == 'candidate';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking role: $e');
+    }
   }
 
   void _onNavigationRequest(int index, {int subTabIndex = 0}) {
@@ -30,7 +51,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _currentIndex = index;
       if (index == 1) {
         _requestTabIndex = subTabIndex;
-      } else if (index == 4) {
+      } else if (index == 4 && !_isCandidate) {
         _attendanceTabIndex = subTabIndex;
       }
     });
@@ -49,11 +70,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       const SalaryOverviewScreen(),
       const HolidaysScreen(),
-      AttendanceScreen(
-        key: ValueKey('Attendance_$_attendanceTabIndex'),
-        initialTabIndex: _attendanceTabIndex,
-      ),
     ];
+
+    if (!_isCandidate) {
+      screens.add(
+        AttendanceScreen(
+          key: ValueKey('Attendance_$_attendanceTabIndex'),
+          initialTabIndex: _attendanceTabIndex,
+        ),
+      );
+    }
 
     return WillPopScope(
       onWillPop: () async {
@@ -66,7 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return true;
       },
       child: Scaffold(
-        body: screens[_currentIndex],
+        body: _currentIndex < screens.length ? screens[_currentIndex] : screens[0],
         bottomNavigationBar: AppBottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: (index) {

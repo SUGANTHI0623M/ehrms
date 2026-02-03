@@ -1,9 +1,11 @@
 // hrms/lib/screens/profile/profile_screen.dart
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../config/app_colors.dart';
@@ -13,6 +15,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/face_detection_helper.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -31,6 +34,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _isLoading = true;
   bool _isLoadingDocs = false;
   String? _uploadingDocumentId;
+  bool _profileImageError = false;
+  String? _cachedAvatarUrl;
   late TabController _tabController;
 
   @override
@@ -55,8 +60,23 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Future<void> _loadProfile() async {
     final result = await _authService.getProfile();
+    String? cachedUrl;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userStr = prefs.getString('user');
+      if (userStr != null) {
+        final user = jsonDecode(userStr) as Map<String, dynamic>?;
+        if (user != null) {
+          cachedUrl = (user['avatar'] ?? user['photoUrl'])?.toString();
+          if (cachedUrl != null) cachedUrl = cachedUrl.trim();
+          if (cachedUrl != null && cachedUrl.isEmpty) cachedUrl = null;
+        }
+      }
+    } catch (_) {}
     if (mounted) {
       setState(() {
+        _profileImageError = false;
+        _cachedAvatarUrl = cachedUrl;
         if (result['success']) {
           _userData = result['data'];
         } else {
@@ -349,8 +369,16 @@ class _ProfileScreenState extends State<ProfileScreen>
     final email = _profile?['email'] ?? '';
     final phone = _profile?['phone'] ?? '';
     final dept = _staffData?['department'] ?? '';
-    final photoUrl =
-        _profile?['photoUrl'] ?? _profile?['profilePic'] ?? _profile?['avatar'];
+    final photoUrl = _profile?['avatar'] ??
+        _profile?['photoUrl'] ??
+        _profile?['profilePic'] ??
+        _staffData?['avatar'] ??
+        _cachedAvatarUrl;
+    final photoUrlStr = photoUrl?.toString().trim();
+    final showPhoto = photoUrlStr != null &&
+        photoUrlStr.isNotEmpty &&
+        (photoUrlStr.startsWith('http://') || photoUrlStr.startsWith('https://')) &&
+        !_profileImageError;
     final joiningDate = _staffData?['joiningDate'];
 
     return Container(
@@ -393,19 +421,26 @@ class _ProfileScreenState extends State<ProfileScreen>
                       CircleAvatar(
                         radius: 40,
                         backgroundColor: Colors.white,
-                        backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                            ? NetworkImage(photoUrl)
+                        backgroundImage: showPhoto
+                            ? NetworkImage(photoUrlStr!)
                             : null,
-                        child: (photoUrl == null || photoUrl.isEmpty)
-                            ? Text(
+                        onBackgroundImageError: showPhoto
+                            ? (_, __) {
+                                if (mounted) {
+                                  setState(() => _profileImageError = true);
+                                }
+                              }
+                            : null,
+                        child: showPhoto
+                            ? null
+                            : Text(
                                 initial,
                                 style: TextStyle(
                                   fontSize: 32,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.primary,
                                 ),
-                              )
-                            : null,
+                              ),
                       ),
                       Positioned(
                         bottom: 2,
@@ -1520,35 +1555,63 @@ class _ProfileScreenState extends State<ProfileScreen>
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
         imageQuality: 80,
+        maxWidth: 800,
       );
 
       if (pickedFile == null) return;
 
       final file = File(pickedFile.path);
 
+      // Verify face detection before upload
+      final faceResult = await FaceDetectionHelper.detectFromFile(file);
+      if (!faceResult.valid) {
+        if (mounted) {
+          SnackBarUtils.showSnackBar(
+            context,
+            faceResult.message ?? 'Please take a selfie with exactly one face visible.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
       final result = await _authService.updateProfilePhoto(file);
 
       if (!mounted) return;
 
-      SnackBarUtils.showSnackBar(
-        context,
-        result['message'] ??
-            (result['success'] == true
-                ? 'Profile photo updated'
-                : 'Failed to update photo'),
-        isError: result['success'] != true,
-      );
-
       if (result['success'] == true) {
+        final url = result['data']?['photoUrl']?.toString();
+        if (url != null && url.isNotEmpty) {
+          setState(() {
+            _userData ??= {};
+            _userData!['profile'] ??= {};
+            _userData!['profile']['avatar'] = url;
+            _userData!['profile']['photoUrl'] = url;
+            _cachedAvatarUrl = url;
+            _profileImageError = false;
+          });
+        }
+        SnackBarUtils.showSnackBar(
+          context,
+          'Image uploaded',
+          backgroundColor: AppColors.success,
+        );
         _loadProfile();
+      } else {
+        SnackBarUtils.showSnackBar(
+          context,
+          'Image uploaded failed',
+          isError: true,
+        );
       }
     } catch (e) {
       if (!mounted) return;
       SnackBarUtils.showSnackBar(
         context,
-        'Failed to update photo: $e',
+        'Image uploaded failed',
         isError: true,
       );
     }

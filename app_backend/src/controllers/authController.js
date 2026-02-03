@@ -4,6 +4,12 @@ const Company = require('../models/Company');
 const Branch = require('../models/Branch');
 const Candidate = require('../models/Candidate');
 const jwt = require('jsonwebtoken');
+const fs = require('fs').promises;
+const path = require('path');
+const os = require('os');
+const https = require('https');
+const http = require('http');
+const { spawn } = require('child_process');
 const { sendOTPEmail } = require('../services/emailService');
 const cloudinary = require('cloudinary').v2;
 
@@ -44,6 +50,34 @@ const findOrCreateUserByEmail = async (rawEmail) => {
         return user;
     }
 
+    // 2.5 Staff fallback
+    const staff = await Staff.findOne({ email: buildEmailRegex(email) });
+    if (staff) {
+        // If staff already has a linked user, try to return it
+        if (staff.userId) {
+            user = await User.findById(staff.userId);
+            if (user) return user;
+        }
+
+        // Create user from staff
+        const randomPassword = Math.random().toString(36).slice(-10) + '!aA1';
+        user = await User.create({
+            name: staff.name,
+            email: normalizedEmail,
+            password: randomPassword,
+            role: 'Employee',
+            companyId: staff.businessId,
+            branchId: staff.branchId,
+            phone: staff.phone
+        });
+
+        // Link staff to new user
+        staff.userId = user._id;
+        await staff.save();
+
+        return user;
+    }
+
     // 3. Candidate fallback
     const candidate = await Candidate.findOne({
         email: buildEmailRegex(email)
@@ -81,8 +115,12 @@ const login = async (req, res) => {
             });
         }
 
+        // Normalize email for lookup; use case-insensitive match so DB "Boominathanaskeva@..." matches "boominathanaskeva@..."
+        const emailNorm = (email || '').trim().toLowerCase();
+        const emailRegex = buildEmailRegex(emailNorm);
+
         // 1. Try to find User (explicitly select password field to ensure it's included)
-        let user = await User.findOne({ email: email.toLowerCase().trim() })
+        let user = await User.findOne({ email: emailRegex })
             .select('+password')
             .populate('roleId');
         let staff = null;
@@ -109,7 +147,7 @@ const login = async (req, res) => {
             }
         } else {
             // 2. Fallback: Try to find Staff directly (explicitly select password field)
-            staff = await Staff.findOne({ email: email.toLowerCase().trim() })
+            staff = await Staff.findOne({ email: emailRegex })
                 .select('+password')
                 .populate('branchId')
                 .populate('businessId');
@@ -154,6 +192,11 @@ const login = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User record not found' } });
+        }
+
+        // Prevent candidates from logging in
+        if (user.role && user.role.toLowerCase() === 'candidate') {
+            return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
         }
 
         // Generate Token
@@ -231,6 +274,11 @@ const googleLogin = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User not registered. Please sign up first.' } });
+        }
+
+        // Prevent candidates from logging in
+        if (user.role && user.role.toLowerCase() === 'candidate') {
+            return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
         }
 
         const accessToken = generateToken(user._id);
@@ -878,6 +926,140 @@ const updateProfilePhoto = async (req, res) => {
     }
 };
 
+// -------------------------------
+// Verify face (selfie vs profile photo)
+// -------------------------------
+const verifyFace = async (req, res) => {
+    try {
+        const { selfie } = req.body || {};
+        if (!selfie || typeof selfie !== 'string') {
+            return res.status(400).json({
+                success: false,
+                match: false,
+                error: { message: 'Selfie image (base64 data URL) is required.' }
+            });
+        }
+
+        const user = req.user;
+        const staff = req.staff;
+        // Always fetch latest avatar from DB so face matching uses only the current profile photo
+        // (after user updates photo in profile, this returns the new URL; no cache)
+        const fullUser = await User.findById(user._id).select('avatar').lean();
+        let fullStaff = null;
+        if (staff && staff._id) fullStaff = await Staff.findById(staff._id).select('avatar').lean();
+        const profilePhotoUrl = fullUser?.avatar || fullStaff?.avatar;
+
+        if (!profilePhotoUrl || !profilePhotoUrl.startsWith('http')) {
+            return res.status(200).json({
+                success: true,
+                match: false,
+                message: 'No profile photo uploaded. Please upload a profile photo first.'
+            });
+        }
+
+        let selfiePath = null;
+        let profilePath = null;
+        const tmpDir = os.tmpdir();
+
+        try {
+            const base64Match = selfie.match(/^data:image\/\w+;base64,(.+)$/);
+            const base64Data = base64Match ? base64Match[1] : selfie;
+            const buf = Buffer.from(base64Data, 'base64');
+            selfiePath = path.join(tmpDir, `selfie_${Date.now()}.jpg`);
+            await fs.writeFile(selfiePath, buf);
+
+            profilePath = path.join(tmpDir, `profile_${Date.now()}.jpg`);
+            await new Promise((resolve, reject) => {
+                const url = new URL(profilePhotoUrl);
+                const client = url.protocol === 'https:' ? https : http;
+                const req = client.get(profilePhotoUrl, (resp) => {
+                    if (resp.statusCode !== 200) {
+                        reject(new Error(`Profile photo fetch failed: ${resp.statusCode}`));
+                        return;
+                    }
+                    const chunks = [];
+                    resp.on('data', (c) => chunks.push(c));
+                    resp.on('end', () => {
+                        fs.writeFile(profilePath, Buffer.concat(chunks))
+                            .then(resolve)
+                            .catch(reject);
+                    });
+                });
+                req.on('error', reject);
+                req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
+            });
+        } catch (e) {
+            try {
+                if (selfiePath) await fs.unlink(selfiePath).catch(() => {});
+                if (profilePath) await fs.unlink(profilePath).catch(() => {});
+            } catch (_) {}
+            return res.status(200).json({
+                success: true,
+                match: false,
+                message: 'Could not prepare images for verification.'
+            });
+        }
+
+        const scriptDir = path.join(__dirname, '../../face_verify');
+        const scriptPath = path.join(scriptDir, 'face_verify.py');
+        const venvPythonWin = path.join(scriptDir, 'venv', 'Scripts', 'python.exe');
+        const venvPythonUnix = path.join(scriptDir, 'venv', 'bin', 'python');
+        const venvPython = process.platform === 'win32' ? venvPythonWin : venvPythonUnix;
+        const py = require('fs').existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3');
+
+        const result = await new Promise((resolve) => {
+            const child = spawn(py, [scriptPath, selfiePath, profilePath], {
+                cwd: scriptDir,
+                timeout: 90000
+            });
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', (d) => { stdout += d.toString(); });
+            child.stderr.on('data', (d) => { stderr += d.toString(); });
+            child.on('error', () => resolve({ match: false, error: 'Face verification not available' }));
+            child.on('close', (code) => {
+                try {
+                    const out = JSON.parse(stdout.trim() || '{}');
+                    resolve({ match: !!out.match, error: out.error || null });
+                } catch {
+                    resolve({ match: false, error: stderr || 'Verification failed' });
+                }
+            });
+        });
+
+        try {
+            if (selfiePath) await fs.unlink(selfiePath).catch(() => {});
+            if (profilePath) await fs.unlink(profilePath).catch(() => {});
+        } catch (_) {}
+
+        // Map backend/script errors to clear user-facing message (no raw exceptions in app)
+        const userMessage = result.match ? 'Photo matched' : toUserFriendlyVerifyMessage(result.error);
+
+        return res.status(200).json({
+            success: true,
+            match: !!result.match,
+            message: userMessage
+        });
+    } catch (error) {
+        console.error('verifyFace Error:', error);
+        return res.status(500).json({
+            success: false,
+            match: false,
+            error: { message: 'Face verification failed. Please try again.' }
+        });
+    }
+};
+
+function toUserFriendlyVerifyMessage(raw) {
+    if (!raw || typeof raw !== 'string') return 'Face not matching. Please try again.';
+    const s = raw.toLowerCase();
+    if (s.includes('no face') || s.includes('face could not be detected')) return 'No face detected. Please ensure your face is clearly visible.';
+    if (s.includes('no profile') || s.includes('upload a profile')) return 'Please upload a profile photo first.';
+    if (s.includes('not available') || s.includes('verification failed') || s.includes('exception') || s.includes('error')) return 'Face verification failed. Please try again.';
+    if (s.includes('prepare images') || s.includes('could not')) return 'Could not verify. Please try again.';
+    return 'Face not matching. Please try again.';
+}
+
 module.exports = {
     login,
     googleLogin,
@@ -890,5 +1072,6 @@ module.exports = {
     verifyOTP,
     resetPassword,
     changePassword,
-    updateProfilePhoto
+    updateProfilePhoto,
+    verifyFace
 };

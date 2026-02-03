@@ -40,6 +40,8 @@ Thumbs.db
 *.output.txt
 *.debug.txt
 *.check.txt
+*.hprof
+**/*.hprof
 
 # AI/LLM conversation history
 .gemini/
@@ -50,6 +52,10 @@ Thumbs.db
 **/uploads/**
 backend/uploads/
 app_backend/uploads/
+
+# Python venv and DeepFace (create on server; weights downloaded at runtime)
+app_backend/face_verify/venv/
+app_backend/face_verify/.deepface/
 
 # Temporary/Test files
 **/temp/

@@ -22,10 +22,7 @@ class GraceTime {
   final int value;
   final String unit; // 'minutes' or 'hours'
 
-  GraceTime({
-    required this.value,
-    this.unit = 'minutes',
-  });
+  GraceTime({required this.value, this.unit = 'minutes'});
 }
 
 /// Fine settings configuration
@@ -74,33 +71,33 @@ int getGraceTimeMinutes(ShiftTiming? shiftTiming, int defaultGraceTimeMinutes) {
 double calculateShiftHours(String startTime, String endTime) {
   final startParts = startTime.split(':');
   final endParts = endTime.split(':');
-  
+
   final startHours = int.parse(startParts[0]);
   final startMinutes = int.parse(startParts[1]);
   final endHours = int.parse(endParts[0]);
   final endMinutes = int.parse(endParts[1]);
-  
+
   final startTotalMinutes = startHours * 60 + startMinutes;
   final endTotalMinutes = endHours * 60 + endMinutes;
-  
+
   // Handle overnight shifts
   var diffMinutes = endTotalMinutes - startTotalMinutes;
   if (diffMinutes < 0) {
     diffMinutes += 24 * 60; // Add 24 hours for overnight shift
   }
-  
+
   return diffMinutes / 60; // Convert to hours
 }
 
 /// Calculate late minutes and fine for a punch-in time
-/// 
+///
 /// [punchInTime] - Actual punch-in time
 /// [attendanceDate] - The attendance date (work day) to use for shift timing
 /// [shiftTiming] - Shift timing with grace time (optional, can be null)
 /// [fineSettings] - Fine configuration settings
 /// [dailySalary] - One day's salary (for shift-based calculation)
 /// [dailyNetSalary] - One day's net salary (for fixedPerHour calculation, optional)
-/// 
+///
 /// Returns FineCalculationResult with lateMinutes and fineAmount
 FineCalculationResult calculateFine({
   required DateTime punchInTime,
@@ -112,18 +109,14 @@ FineCalculationResult calculateFine({
 }) {
   // If fine settings are disabled, return zero
   if (!fineSettings.enabled) {
-    return FineCalculationResult(
-      lateMinutes: 0,
-      fineHours: 0,
-      fineAmount: 0,
-    );
+    return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
   // Parse shift start time (format: "HH:mm")
   final startParts = (shiftTiming?.startTime ?? "09:30").split(':');
   final shiftHours = int.parse(startParts[0]);
   final shiftMinutes = int.parse(startParts[1]);
-  
+
   // Use attendance date to set shift start time (ensures correct date context)
   final shiftStartDate = DateTime(
     attendanceDate.year,
@@ -134,30 +127,26 @@ FineCalculationResult calculateFine({
   );
 
   // Get grace time (from shift or default) - convert to minutes
-  final graceTimeMinutes = getGraceTimeMinutes(shiftTiming, fineSettings.graceTimeMinutes);
+  final graceTimeMinutes = getGraceTimeMinutes(
+    shiftTiming,
+    fineSettings.graceTimeMinutes,
+  );
 
   // Calculate grace time end
   final graceTimeEnd = shiftStartDate.add(Duration(minutes: graceTimeMinutes));
 
   // If punch-in is before or within grace time, no fine
-  if (punchInTime.isBefore(graceTimeEnd) || punchInTime.isAtSameMomentAs(graceTimeEnd)) {
-    return FineCalculationResult(
-      lateMinutes: 0,
-      fineHours: 0,
-      fineAmount: 0,
-    );
+  if (punchInTime.isBefore(graceTimeEnd) ||
+      punchInTime.isAtSameMomentAs(graceTimeEnd)) {
+    return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
   // Calculate late minutes from shift start time (not grace end)
   // This matches backend logic: late minutes are calculated from original shift start
   final lateMinutes = punchInTime.difference(shiftStartDate).inMinutes;
-  
+
   if (lateMinutes <= 0) {
-    return FineCalculationResult(
-      lateMinutes: 0,
-      fineHours: 0,
-      fineAmount: 0,
-    );
+    return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
   // Calculate shift hours
@@ -168,8 +157,9 @@ FineCalculationResult calculateFine({
 
   // Calculate fine amount
   double fineAmount = 0;
-  
-  if (fineSettings.calculationType == 'fixedPerHour' && fineSettings.finePerHour != null) {
+
+  if (fineSettings.calculationType == 'fixedPerHour' &&
+      fineSettings.finePerHour != null) {
     // Fixed per hour calculation
     final lateHours = lateMinutes / 60;
     fineAmount = fineSettings.finePerHour! * lateHours;
@@ -178,7 +168,7 @@ FineCalculationResult calculateFine({
     // Daily Salary = Monthly Gross Salary / Working Days
     // Hourly Rate = Daily Salary / Shift Hours
     // Fine Amount = Hourly Rate * Late Hours
-    
+
     if (dailySalary != null && dailySalary > 0 && shiftHoursTotal > 0) {
       final hourlyRate = dailySalary / shiftHoursTotal;
       final lateHours = lateMinutes / 60;
@@ -198,13 +188,13 @@ FineCalculationResult calculateFine({
 
 /// Calculate fine for payroll based on attendance records
 /// Aggregates fine amounts from multiple attendance records
-/// 
+///
 /// [attendanceRecords] - List of attendance records with lateMinutes and fineAmount
 /// [dailySalary] - One day's salary (gross or net based on calculation type)
 /// [shiftHours] - Shift hours per day
 /// [fineSettings] - Fine configuration settings
 /// [dailyNetSalary] - One day's net salary (for fixedPerHour calculation, optional)
-/// 
+///
 /// Returns total fine amount for payroll
 double calculatePayrollFine({
   required List<Map<String, dynamic>> attendanceRecords,
@@ -215,10 +205,20 @@ double calculatePayrollFine({
 }) {
   if (!fineSettings.enabled) {
     // If fine settings are disabled, use existing fine amounts if available
+    // Include Half Day - late login fine applies to half day too
     double total = 0;
     for (final record in attendanceRecords) {
-      final fineAmount = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
-      total += fineAmount;
+      final status = (record['status'] as String? ?? '').trim().toLowerCase();
+      final leaveType = (record['leaveType'] as String? ?? '')
+          .trim()
+          .toLowerCase();
+      final isCounted =
+          status == 'present' ||
+          status == 'approved' ||
+          status == 'half day' ||
+          leaveType == 'half day';
+      if (!isCounted) continue;
+      total += (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
     }
     return total;
   }
@@ -227,35 +227,44 @@ double calculatePayrollFine({
 
   for (final record in attendanceRecords) {
     final status = record['status'] as String?;
-    
-    // Only calculate fine for Present/Approved/Half Day status
-    if (status == 'Present' || status == 'Approved' || status == 'Half Day') {
-      final lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
-      
-      if (lateMinutes > 0) {
-        double fineAmount = 0;
-        
-        if (fineSettings.calculationType == 'fixedPerHour' && fineSettings.finePerHour != null) {
-          // Fixed per hour calculation
-          final lateHours = lateMinutes / 60;
-          fineAmount = fineSettings.finePerHour! * lateHours;
-        } else {
-          // Shift-based calculation (default)
-          if (dailySalary > 0 && shiftHours > 0) {
-            final hourlyRate = dailySalary / shiftHours;
-            final lateHours = lateMinutes / 60;
-            fineAmount = hourlyRate * lateHours;
-          }
-        }
-        
-        // Round to 2 decimal places
-        fineAmount = (fineAmount * 100).round() / 100;
-        totalFine += fineAmount;
+
+    // Calculate fine for Present, Approved, or Half Day (late login fine applies to half day too)
+    final statusLower = (status ?? '').trim().toLowerCase();
+    final leaveType = (record['leaveType'] as String? ?? '')
+        .trim()
+        .toLowerCase();
+    final isCounted =
+        statusLower == 'present' ||
+        statusLower == 'approved' ||
+        statusLower == 'half day' ||
+        leaveType == 'half day';
+    if (!isCounted) continue;
+    final lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
+
+    if (lateMinutes > 0) {
+      double fineAmount = 0;
+
+      if (fineSettings.calculationType == 'fixedPerHour' &&
+          fineSettings.finePerHour != null) {
+        // Fixed per hour calculation
+        final lateHours = lateMinutes / 60;
+        fineAmount = fineSettings.finePerHour! * lateHours;
       } else {
-        // Use existing fineAmount if available (for backward compatibility)
-        final existingFine = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
-        totalFine += existingFine;
+        // Shift-based calculation (default)
+        if (dailySalary > 0 && shiftHours > 0) {
+          final hourlyRate = dailySalary / shiftHours;
+          final lateHours = lateMinutes / 60;
+          fineAmount = hourlyRate * lateHours;
+        }
       }
+
+      // Round to 2 decimal places
+      fineAmount = (fineAmount * 100).round() / 100;
+      totalFine += fineAmount;
+    } else {
+      // Use existing fineAmount if available (for backward compatibility)
+      final existingFine = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+      totalFine += existingFine;
     }
   }
 
@@ -266,19 +275,16 @@ double calculatePayrollFine({
 /// This matches the backend's shift timing structure
 ShiftTiming? createShiftTimingFromTemplate(Map<String, dynamic>? template) {
   if (template == null) return null;
-  
+
   final startTime = template['shiftStartTime'] as String? ?? "09:30";
   final endTime = template['shiftEndTime'] as String? ?? "18:30";
   final gracePeriodMinutes = template['gracePeriodMinutes'] as int?;
-  
+
   GraceTime? graceTime;
   if (gracePeriodMinutes != null) {
-    graceTime = GraceTime(
-      value: gracePeriodMinutes,
-      unit: 'minutes',
-    );
+    graceTime = GraceTime(value: gracePeriodMinutes, unit: 'minutes');
   }
-  
+
   return ShiftTiming(
     name: template['name'] as String? ?? 'Default Shift',
     startTime: startTime,
@@ -297,17 +303,17 @@ ShiftTiming? createShiftTimingFromBusinessSettings(
   if (businessSettings == null || shiftName == null || shiftName.isEmpty) {
     return null;
   }
-  
+
   // Navigate to settings.attendance.shifts
   final settings = businessSettings['settings'] as Map<String, dynamic>?;
   if (settings == null) return null;
-  
+
   final attendance = settings['attendance'] as Map<String, dynamic>?;
   if (attendance == null) return null;
-  
+
   final shifts = attendance['shifts'] as List?;
   if (shifts == null || shifts.isEmpty) return null;
-  
+
   // Find shift matching the shiftName
   Map<String, dynamic>? matchedShift;
   for (final shift in shifts) {
@@ -319,26 +325,23 @@ ShiftTiming? createShiftTimingFromBusinessSettings(
       }
     }
   }
-  
+
   if (matchedShift == null) return null;
-  
+
   // Extract shift timing information
   final startTime = matchedShift['startTime'] as String? ?? "09:30";
   final endTime = matchedShift['endTime'] as String? ?? "18:30";
   final graceTimeData = matchedShift['graceTime'] as Map<String, dynamic>?;
-  
+
   GraceTime? graceTime;
   if (graceTimeData != null) {
     final value = graceTimeData['value'] as num?;
     final unit = graceTimeData['unit'] as String? ?? 'minutes';
     if (value != null) {
-      graceTime = GraceTime(
-        value: value.toInt(),
-        unit: unit,
-      );
+      graceTime = GraceTime(value: value.toInt(), unit: unit);
     }
   }
-  
+
   return ShiftTiming(
     name: matchedShift['name'] as String? ?? shiftName,
     startTime: startTime,
@@ -350,7 +353,9 @@ ShiftTiming? createShiftTimingFromBusinessSettings(
 /// Helper function to create FineSettings from business/company settings
 /// Falls back to defaults if not provided
 /// Grace time is taken from the shift, not from fineSettings
-FineSettings createFineSettingsFromBusinessSettings(Map<String, dynamic>? businessSettings) {
+FineSettings createFineSettingsFromBusinessSettings(
+  Map<String, dynamic>? businessSettings,
+) {
   if (businessSettings == null) {
     return FineSettings(
       enabled: true,
@@ -358,7 +363,7 @@ FineSettings createFineSettingsFromBusinessSettings(Map<String, dynamic>? busine
       calculationType: 'shiftBased',
     );
   }
-  
+
   // Extract fine settings from business settings
   // Navigate to settings.attendance.fineSettings
   final settings = businessSettings['settings'] as Map<String, dynamic>?;
@@ -369,7 +374,7 @@ FineSettings createFineSettingsFromBusinessSettings(Map<String, dynamic>? busine
       calculationType: 'shiftBased',
     );
   }
-  
+
   final attendance = settings['attendance'] as Map<String, dynamic>?;
   if (attendance == null) {
     return FineSettings(
@@ -378,7 +383,7 @@ FineSettings createFineSettingsFromBusinessSettings(Map<String, dynamic>? busine
       calculationType: 'shiftBased',
     );
   }
-  
+
   final fineSettingsData = attendance['fineSettings'] as Map<String, dynamic>?;
   if (fineSettingsData == null) {
     return FineSettings(
@@ -387,13 +392,14 @@ FineSettings createFineSettingsFromBusinessSettings(Map<String, dynamic>? busine
       calculationType: 'shiftBased',
     );
   }
-  
+
   final fineEnabled = fineSettingsData['enabled'] as bool? ?? true;
   // Note: graceTimeMinutes here is a fallback, actual grace time comes from shift
   final defaultGraceTime = fineSettingsData['graceTimeMinutes'] as int? ?? 10;
-  final calculationType = fineSettingsData['calculationType'] as String? ?? 'shiftBased';
+  final calculationType =
+      fineSettingsData['calculationType'] as String? ?? 'shiftBased';
   final finePerHour = fineSettingsData['finePerHour'] as num?;
-  
+
   return FineSettings(
     enabled: fineEnabled,
     graceTimeMinutes: defaultGraceTime, // Fallback grace time

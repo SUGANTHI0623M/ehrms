@@ -107,7 +107,6 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
           }
           
           _isLoadingFilters = false;
-          print('DEBUG: Fetched ${_assetTypes.length} asset types and ${_branches.length} branches');
         });
       }
     } catch (e) {

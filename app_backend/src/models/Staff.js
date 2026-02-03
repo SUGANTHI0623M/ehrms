@@ -17,6 +17,7 @@ const staffSchema = new mongoose.Schema({
     holidayTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'HolidayTemplate' },
     status: { type: String, default: 'Active' },
     joiningDate: { type: Date, default: Date.now },
+    avatar: { type: String },
     gender: { type: String },
     maritalStatus: { type: String },
     dob: { type: Date },
