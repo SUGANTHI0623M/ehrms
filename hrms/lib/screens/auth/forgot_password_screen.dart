@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../utils/snackbar_utils.dart';
@@ -37,15 +38,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendOtp() async {
-    if (_email.isEmpty ||
-        !_email.contains('@') ||
-        !_email.contains('.')) {
+    if (_email.isEmpty || !_email.contains('@') || !_email.contains('.')) {
+      if (kDebugMode) {
+        debugPrint('[ForgotPassword] Invalid email format: $_email');
+      }
       SnackBarUtils.showSnackBar(
         context,
         'Please enter a valid email address',
         isError: true,
       );
       return;
+    }
+
+    if (kDebugMode) {
+      debugPrint('[ForgotPassword] Initiating OTP send for: $_email');
     }
 
     setState(() => _isLoading = true);
@@ -57,12 +63,22 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
+      if (kDebugMode) {
+        debugPrint(
+          '[ForgotPassword] ✅ OTP sent successfully, moving to step 1',
+        );
+      }
       setState(() => _step = 1);
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'OTP sent to your email',
       );
     } else {
+      if (kDebugMode) {
+        debugPrint(
+          '[ForgotPassword] ❌ Failed to send OTP: ${result['message']}',
+        );
+      }
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'Failed to send OTP',
@@ -73,7 +89,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _verifyOtp() async {
     final otp = _otpController.text.trim();
+    if (kDebugMode) {
+      debugPrint('[ForgotPassword] Verifying OTP for: $_email');
+    }
     if (otp.length != 6) {
+      if (kDebugMode) {
+        debugPrint('[ForgotPassword] Invalid OTP length: ${otp.length}');
+      }
       SnackBarUtils.showSnackBar(
         context,
         'Please enter the 6-digit OTP',
@@ -91,12 +113,22 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
+      if (kDebugMode) {
+        debugPrint(
+          '[ForgotPassword] ✅ OTP verified successfully, moving to step 2',
+        );
+      }
       setState(() => _step = 2);
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'OTP verified successfully',
       );
     } else {
+      if (kDebugMode) {
+        debugPrint(
+          '[ForgotPassword] ❌ OTP verification failed: ${result['message']}',
+        );
+      }
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'Invalid or expired OTP',
@@ -153,18 +185,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           children: [
             const Text(
               'Forgot Password',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Enter your registered email address. We will send a 6-digit OTP to reset your password.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 24),
             TextFormField(
@@ -181,16 +207,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.grey.shade300,
-                  ),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: AppColors.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
                 ),
               ),
             ),
@@ -230,18 +251,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           children: [
             const Text(
               'Enter OTP',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'We have sent a 6-digit OTP to $_email. Please enter it below to verify.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 24),
             TextField(
@@ -260,16 +275,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.grey.shade300,
-                  ),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: AppColors.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
                 ),
               ),
             ),
@@ -315,18 +325,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           children: [
             const Text(
               'Reset Password',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Create a strong new password for your account.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 24),
             TextFormField(
@@ -343,10 +347,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               },
               decoration: InputDecoration(
                 labelText: 'New Password',
-                prefixIcon: Icon(
-                  Icons.lock_outline,
-                  color: AppColors.primary,
-                ),
+                prefixIcon: Icon(Icons.lock_outline, color: AppColors.primary),
                 suffixIcon: IconButton(
                   icon: Icon(
                     _isPasswordVisible
@@ -365,16 +366,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.grey.shade300,
-                  ),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: AppColors.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
                 ),
               ),
             ),
@@ -415,16 +411,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.grey.shade300,
-                  ),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: AppColors.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: AppColors.primary, width: 2),
                 ),
               ),
             ),
@@ -473,13 +464,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: _buildStepContent(),
-          ),
+          child: Form(key: _formKey, child: _buildStepContent()),
         ),
       ),
     );
   }
 }
-

@@ -41,10 +41,14 @@ const sendOTPEmail = async (toEmail, otp) => {
     };
 
     try {
+        console.log(`[EmailService] Attempting to send OTP email to: ${toEmail}`);
+        console.log(`[EmailService] From: ${fromEmail} (${fromName})`);
+        console.log(`[EmailService] OTP: ${otp}`);
         await transporter.sendMail(mailOptions);
-        console.log(`[EmailService] OTP email sent to ${toEmail}`);
+        console.log(`[EmailService] ✅ OTP email sent successfully to ${toEmail}`);
     } catch (error) {
-        console.error('[EmailService] Failed to send OTP email:', error.message);
+        console.error('[EmailService] ❌ Failed to send OTP email:', error.message);
+        console.error('[EmailService] Error details:', error);
         // Do not throw error further to avoid leaking email status to client
     }
 };

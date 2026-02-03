@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
@@ -62,10 +63,12 @@ class AuthService {
       } else {
         // Check if response is HTML (like 502 Bad Gateway from nginx)
         String responseBody = response.body.trim();
-        if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+        if (responseBody.startsWith('<html>') ||
+            responseBody.startsWith('<!DOCTYPE')) {
           return {
             'success': false,
-            'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+            'message':
+                'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
           };
         }
 
@@ -84,7 +87,8 @@ class AuthService {
           // Response is not valid JSON
           return {
             'success': false,
-            'message': 'Server error (${response.statusCode}). Invalid response format.',
+            'message':
+                'Server error (${response.statusCode}). Invalid response format.',
           };
         }
       }
@@ -145,10 +149,12 @@ class AuthService {
       } else {
         // Check if response is HTML (like 502 Bad Gateway from nginx)
         String responseBody = response.body.trim();
-        if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+        if (responseBody.startsWith('<html>') ||
+            responseBody.startsWith('<!DOCTYPE')) {
           return {
             'success': false,
-            'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+            'message':
+                'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
           };
         }
 
@@ -165,7 +171,8 @@ class AuthService {
         } catch (e) {
           return {
             'success': false,
-            'message': 'Server error (${response.statusCode}). Invalid response format.',
+            'message':
+                'Server error (${response.statusCode}). Invalid response format.',
           };
         }
       }
@@ -178,12 +185,12 @@ class AuthService {
     if (error is SocketException) {
       // SocketException can occur even with internet if server is unreachable
       String errorMsg = error.message.toLowerCase();
-      if (errorMsg.contains('failed host lookup') || 
+      if (errorMsg.contains('failed host lookup') ||
           errorMsg.contains('name resolution') ||
           errorMsg.contains('nodename nor servname provided')) {
         return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
       } else if (errorMsg.contains('connection refused') ||
-                 errorMsg.contains('connection reset')) {
+          errorMsg.contains('connection reset')) {
         return 'Server is not responding. Please try again in a moment or contact support.';
       } else {
         return 'Connection error. Please check your internet connection and try again.';
@@ -311,7 +318,9 @@ class AuthService {
 
   /// Update education details. [education] is a list of maps with keys:
   /// qualification, courseName, institution, university, yearOfPassing, percentage, cgpa
-  Future<Map<String, dynamic>> updateEducation(List<Map<String, dynamic>> education) async {
+  Future<Map<String, dynamic>> updateEducation(
+    List<Map<String, dynamic>> education,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
@@ -333,12 +342,12 @@ class AuthService {
       if (response.statusCode == 200) {
         try {
           final body = jsonDecode(response.body);
-          return {
-            'success': true,
-            'data': body['data'],
-          };
+          return {'success': true, 'data': body['data']};
         } catch (e) {
-          return {'success': false, 'message': 'Invalid response format from server'};
+          return {
+            'success': false,
+            'message': 'Invalid response format from server',
+          };
         }
       } else {
         String message = 'Failed to update education';
@@ -351,7 +360,8 @@ class AuthService {
           }
         } catch (e) {
           // Response is not JSON (likely HTML error page)
-          message = 'Server error (${response.statusCode}). Please check if the endpoint exists.';
+          message =
+              'Server error (${response.statusCode}). Please check if the endpoint exists.';
         }
         return {'success': false, 'message': message};
       }
@@ -362,7 +372,9 @@ class AuthService {
 
   /// Update experience details. [experience] is a list of maps with keys:
   /// company, role, designation, durationFrom, durationTo, keyResponsibilities, reasonForLeaving
-  Future<Map<String, dynamic>> updateExperience(List<Map<String, dynamic>> experience) async {
+  Future<Map<String, dynamic>> updateExperience(
+    List<Map<String, dynamic>> experience,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       String? token = prefs.getString('token');
@@ -395,7 +407,10 @@ class AuthService {
             'message': body['message'] ?? 'Experience updated successfully',
           };
         } catch (e) {
-          return {'success': false, 'message': 'Invalid response format from server'};
+          return {
+            'success': false,
+            'message': 'Invalid response format from server',
+          };
         }
       } else {
         String message = 'Failed to update experience';
@@ -408,7 +423,8 @@ class AuthService {
           }
         } catch (e) {
           // Response is not JSON (likely HTML error page)
-          message = 'Server error (${response.statusCode}). Please check if the endpoint exists.';
+          message =
+              'Server error (${response.statusCode}). Please check if the endpoint exists.';
         }
         return {'success': false, 'message': message};
       }
@@ -434,6 +450,11 @@ class AuthService {
   // -------------------------
 
   Future<Map<String, dynamic>> forgotPassword(String email) async {
+    if (kDebugMode) {
+      debugPrint(
+        '[AuthService] ForgotPassword: Requesting OTP for email: $email',
+      );
+    }
     try {
       final response = await http
           .post(
@@ -443,18 +464,39 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 15));
 
+      if (kDebugMode) {
+        debugPrint(
+          '[AuthService] ForgotPassword: Response status: ${response.statusCode}',
+        );
+      }
+
       // Check if response is HTML (like 502 Bad Gateway from nginx)
       String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+      if (responseBody.startsWith('<html>') ||
+          responseBody.startsWith('<!DOCTYPE')) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AuthService] ForgotPassword: Received HTML response (server error)',
+          );
+        }
         return {
           'success': false,
-          'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+          'message':
+              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
         };
       }
 
       final body = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AuthService] ForgotPassword: ✅ OTP sent successfully to $email',
+          );
+          debugPrint(
+            '[AuthService] ForgotPassword: Server message: ${body['message']}',
+          );
+        }
         return {
           'success': true,
           'message': body['message'] ?? 'OTP sent successfully',
@@ -466,9 +508,15 @@ class AuthService {
         } else if (body['message'] != null) {
           message = body['message'];
         }
+        if (kDebugMode) {
+          debugPrint('[AuthService] ForgotPassword: ❌ Failed - $message');
+        }
         return {'success': false, 'message': message};
       }
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AuthService] ForgotPassword: Exception - ${e.toString()}');
+      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -477,6 +525,9 @@ class AuthService {
     required String email,
     required String otp,
   }) async {
+    if (kDebugMode) {
+      debugPrint('[AuthService] VerifyOTP: Verifying OTP for email: $email');
+    }
     try {
       final response = await http
           .post(
@@ -486,18 +537,39 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 15));
 
+      if (kDebugMode) {
+        debugPrint(
+          '[AuthService] VerifyOTP: Response status: ${response.statusCode}',
+        );
+      }
+
       // Check if response is HTML (like 502 Bad Gateway from nginx)
       String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+      if (responseBody.startsWith('<html>') ||
+          responseBody.startsWith('<!DOCTYPE')) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AuthService] VerifyOTP: Received HTML response (server error)',
+          );
+        }
         return {
           'success': false,
-          'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+          'message':
+              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
         };
       }
 
       final body = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AuthService] VerifyOTP: ✅ OTP verified successfully for $email',
+          );
+          debugPrint(
+            '[AuthService] VerifyOTP: Server message: ${body['message']}',
+          );
+        }
         return {
           'success': true,
           'message': body['message'] ?? 'OTP verified successfully',
@@ -509,9 +581,15 @@ class AuthService {
         } else if (body['message'] != null) {
           message = body['message'];
         }
+        if (kDebugMode) {
+          debugPrint('[AuthService] VerifyOTP: ❌ Failed - $message');
+        }
         return {'success': false, 'message': message};
       }
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AuthService] VerifyOTP: Exception - ${e.toString()}');
+      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -536,10 +614,12 @@ class AuthService {
 
       // Check if response is HTML (like 502 Bad Gateway from nginx)
       String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+      if (responseBody.startsWith('<html>') ||
+          responseBody.startsWith('<!DOCTYPE')) {
         return {
           'success': false,
-          'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+          'message':
+              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
         };
       }
 
@@ -601,10 +681,12 @@ class AuthService {
 
       // Check if response is HTML (like 502 Bad Gateway from nginx)
       String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') || responseBody.startsWith('<!DOCTYPE')) {
+      if (responseBody.startsWith('<html>') ||
+          responseBody.startsWith('<!DOCTYPE')) {
         return {
           'success': false,
-          'message': 'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
+          'message':
+              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
         };
       }
 
@@ -654,8 +736,9 @@ class AuthService {
         await http.MultipartFile.fromPath('file', imageFile.path),
       );
 
-      final streamedResponse =
-          await request.send().timeout(const Duration(seconds: 30));
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 30),
+      );
       final responseBody = await streamedResponse.stream.bytesToString();
 
       final body = jsonDecode(responseBody);
@@ -700,12 +783,15 @@ class AuthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       String? token = prefs.getString('token');
-      if (token != null &&
-          (token.startsWith('"') || token.endsWith('"'))) {
+      if (token != null && (token.startsWith('"') || token.endsWith('"'))) {
         token = token.replaceAll('"', '');
       }
       if (token == null) {
-        return {'success': false, 'match': false, 'message': 'Please sign in and try again.'};
+        return {
+          'success': false,
+          'match': false,
+          'message': 'Please sign in and try again.',
+        };
       }
 
       final response = await http
@@ -721,15 +807,13 @@ class AuthService {
 
       final body = jsonDecode(response.body) as Map<String, dynamic>?;
       final match = body?['match'] == true;
-      final rawMessage = body?['message']?.toString() ?? body?['error']?['message']?.toString();
+      final rawMessage =
+          body?['message']?.toString() ??
+          body?['error']?['message']?.toString();
       final message = _userFriendlyVerifyMessage(rawMessage, match);
 
       if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'match': match,
-          'message': message,
-        };
+        return {'success': true, 'match': match, 'message': message};
       }
       return {
         'success': false,
@@ -748,16 +832,27 @@ class AuthService {
   /// Maps backend/exception text to clear, short text for the user.
   String _userFriendlyVerifyMessage(String? raw, bool matched) {
     if (matched) return 'Photo matched';
-    if (raw == null || raw.isEmpty) return 'Face not matching. Please try again.';
+    if (raw == null || raw.isEmpty)
+      return 'Face not matching. Please try again.';
     final s = raw.toLowerCase();
-    if (s.contains('timeout') || s.contains('timed out')) return 'Verification took too long. Please try again.';
-    if (s.contains('network') || s.contains('internet') || s.contains('connection')) return 'Check your internet connection and try again.';
-    if (s.contains('server') || s.contains('respond')) return 'Server is busy. Please try again.';
-    if (s.contains('no face') || s.contains('face could not be detected')) return 'No face detected. Ensure your face is clearly visible.';
-    if (s.contains('profile photo') || s.contains('upload a profile')) return 'Please upload a profile photo first.';
-    if (s.contains('not authenticated') || s.contains('sign in')) return 'Please sign in and try again.';
-    if (s.contains('exception') || s.contains('error') || s.length > 60) return 'Face verification failed. Please try again.';
-    if (s.contains('not matching') || s.contains('no match')) return 'Face not matching. Please try again.';
+    if (s.contains('timeout') || s.contains('timed out'))
+      return 'Verification took too long. Please try again.';
+    if (s.contains('network') ||
+        s.contains('internet') ||
+        s.contains('connection'))
+      return 'Check your internet connection and try again.';
+    if (s.contains('server') || s.contains('respond'))
+      return 'Server is busy. Please try again.';
+    if (s.contains('no face') || s.contains('face could not be detected'))
+      return 'No face detected. Ensure your face is clearly visible.';
+    if (s.contains('profile photo') || s.contains('upload a profile'))
+      return 'Please upload a profile photo first.';
+    if (s.contains('not authenticated') || s.contains('sign in'))
+      return 'Please sign in and try again.';
+    if (s.contains('exception') || s.contains('error') || s.length > 60)
+      return 'Face verification failed. Please try again.';
+    if (s.contains('not matching') || s.contains('no match'))
+      return 'Face not matching. Please try again.';
     return 'Face not matching. Please try again.';
   }
 }
