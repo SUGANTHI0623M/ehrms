@@ -658,6 +658,7 @@ const updateExperience = async (req, res) => {
 
 // Phase 1: Request OTP
 const forgotPassword = async (req, res) => {
+    console.log(`[ForgotPassword] Route handler called - Method: ${req.method}, Path: ${req.path}, OriginalUrl: ${req.originalUrl}`);
     try {
         const { email } = req.body;
 
@@ -707,9 +708,20 @@ const forgotPassword = async (req, res) => {
 
         // Send OTP via email (and potentially other channels later)
         console.log(`[ForgotPassword] Sending OTP email to: ${user.email}`);
-        sendOTPEmail(user.email, otp);
+        const emailResult = await sendOTPEmail(user.email, otp);
 
-        console.log(`[ForgotPassword] ✅ OTP sent successfully to ${user.email}`);
+        if (!emailResult.success) {
+            console.error(`[ForgotPassword] ❌ Failed to send OTP email: ${emailResult.error}`);
+            // Still return success to user (security: don't reveal email delivery status)
+            // But log the error for debugging
+            return res.status(200).json({
+                success: true,
+                message: 'OTP has been sent to your registered email address'
+            });
+        }
+
+        console.log(`[ForgotPassword] ✅ OTP email sent successfully to ${user.email}`);
+        console.log(`[ForgotPassword] Email Message ID: ${emailResult.messageId}`);
 
         return res.status(200).json({
             success: true,

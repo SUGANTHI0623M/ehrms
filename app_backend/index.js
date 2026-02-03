@@ -44,7 +44,9 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 
 // Routes (rate limiting is applied at router level, not globally)
+console.log('[Server] Registering routes...');
 app.use('/api/auth', authRoutes);
+console.log('[Server] Auth routes registered at /api/auth');
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/requests', requestRoutes);
@@ -54,6 +56,23 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/assets', assetsRoutes);
+
+// Debug: Log all incoming requests (only in development)
+if (process.env.NODE_ENV !== 'production') {
+    app.use((req, res, next) => {
+        console.log(`[Route Debug] ${req.method} ${req.path}`);
+        next();
+    });
+}
+
+// 404 handler - should return JSON, not HTML
+app.use((req, res) => {
+    console.error(`[404] Route not found: ${req.method} ${req.path}`);
+    res.status(404).json({
+        success: false,
+        error: { message: `Route not found: ${req.method} ${req.path}` }
+    });
+});
 
 const PORT = process.env.PORT || 5000;
 
