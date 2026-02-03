@@ -133,42 +133,42 @@ const getLeaveTypes = async (req, res) => {
         // 2. Identify and group all leave types
         const staff = await Staff.findById(staffId).populate('leaveTemplateId');
         const typeGroups = new Map();
-        
-        // Robust normalization helper:
-        // - trim extra spaces
-        // - lowercase
-        // - remove "leave" suffix (optional)
-        // - remove all internal whitespace for strict matching
-        const normalize = (str) => (str || '').toLowerCase().trim().replace(/\s*leave\s*$/i, '').replace(/\s+/g, '');
+
+        // Single canonical key so "Casual Leave" and "Casual" (and "Sick Leave" / "Sick") count together
+        const normalizeToKey = (str) => {
+            const s = (str || '').toLowerCase().trim();
+            const withoutLeave = s.replace(/\bleave\b/g, '').replace(/\s+/g, ' ').trim();
+            return withoutLeave.replace(/\s+/g, '');
+        };
 
         // Define default cards to show in UI
         const defaultTypes = ['Casual Leave', 'Sick Leave', 'Half Day', 'Earned Leave', 'Unpaid Leave'];
-        
-        // Add template types if they exist
+
+        // Add template types if they exist (avoid duplicate keys)
         if (staff?.leaveTemplateId?.leaveTypes) {
             staff.leaveTemplateId.leaveTypes.forEach(t => {
-                if (t.type && !defaultTypes.some(dt => normalize(dt) === normalize(t.type))) {
+                if (t.type && !defaultTypes.some(dt => normalizeToKey(dt) === normalizeToKey(t.type))) {
                     defaultTypes.push(t.type);
                 }
             });
         }
 
-        // Initialize groups with original names
+        // Initialize groups with original names (prefer default/template name for display)
         defaultTypes.forEach(t => {
-            const norm = normalize(t);
-            if (!typeGroups.has(norm)) {
-                typeGroups.set(norm, { originalName: t, takenCount: 0 });
+            const key = normalizeToKey(t);
+            if (!typeGroups.has(key)) {
+                typeGroups.set(key, { originalName: t, takenCount: 0 });
             }
         });
 
-        // 3. Process leaves and count days accurately within range
+        // 3. Process leaves and count days accurately within range (same key for "Casual" / "Casual Leave" etc.)
         approvedLeaves.forEach(l => {
-            const norm = normalize(l.leaveType);
-            if (!typeGroups.has(norm)) {
-                typeGroups.set(norm, { originalName: l.leaveType, takenCount: 0 });
+            const key = normalizeToKey(l.leaveType);
+            if (!typeGroups.has(key)) {
+                typeGroups.set(key, { originalName: l.leaveType, takenCount: 0 });
             }
 
-            const group = typeGroups.get(norm);
+            const group = typeGroups.get(key);
             const lStart = new Date(l.startDate);
             const lEnd = new Date(l.endDate);
 
@@ -179,9 +179,9 @@ const getLeaveTypes = async (req, res) => {
             while (current <= end) {
                 // If this day of the leave falls within our filter range, count it
                 if (current >= rangeStart && current <= rangeEnd) {
-                    const typeNorm = normalize(l.leaveType);
+                    const typeKey = normalizeToKey(l.leaveType);
                     // Half Day is stored as days=1; count 0.5 for display
-                    if (typeNorm === 'halfday') {
+                    if (typeKey === 'halfday') {
                         group.takenCount += 0.5;
                     } else {
                         group.takenCount += 1;
@@ -202,6 +202,40 @@ const getLeaveTypes = async (req, res) => {
             data: leaveSummary,
             range: { start: rangeStart, end: rangeEnd }
         });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: { message: error.message } });
+    }
+};
+
+/**
+ * Returns leave types for the Apply Leave dropdown: from staff's assigned leave template + Unpaid Leave.
+ * Each item has { type, days } where days is the limit from template (null for Unpaid Leave).
+ */
+const getLeaveTypesForApply = async (req, res) => {
+    try {
+        const staffId = req.staff._id;
+        const staff = await Staff.findById(staffId).populate('leaveTemplateId');
+
+        const list = [];
+
+        if (staff?.leaveTemplateId?.leaveTypes && Array.isArray(staff.leaveTemplateId.leaveTypes)) {
+            staff.leaveTemplateId.leaveTypes.forEach(t => {
+                if (t.type) {
+                    const days = t.days != null ? t.days : (t.limit != null ? t.limit : null);
+                    list.push({ type: t.type, days });
+                }
+            });
+        }
+
+        const hasUnpaid = list.some(
+            t => (t.type || '').toLowerCase().replace(/\s+/g, '') === 'unpaidleave'
+        );
+        if (!hasUnpaid) {
+            list.push({ type: 'Unpaid Leave', days: null });
+        }
+
+        res.json({ success: true, data: list });
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: { message: error.message } });
@@ -554,6 +588,7 @@ const updateLeaveStatus = async (req, res) => {
 module.exports = {
     getLeaves,
     getLeaveTypes,
+    getLeaveTypesForApply,
     createLeave,
     updateLeaveStatus
 };

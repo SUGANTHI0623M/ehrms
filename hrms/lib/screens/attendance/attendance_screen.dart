@@ -5,6 +5,7 @@ import '../../config/app_colors.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/attendance_service.dart';
+import '../../services/auth_service.dart';
 import '../../utils/attendance_display_util.dart';
 import '../attendance/selfie_checkin_screen.dart';
 import '../../utils/snackbar_utils.dart';
@@ -23,6 +24,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   TabController? _tabController;
   Map<String, dynamic>? _attendanceData;
   final AttendanceService _attendanceService = AttendanceService();
+  final AuthService _authService = AuthService();
 
   // History State
   List<dynamic> _historyList = [];
@@ -55,6 +57,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   // Template & Rule State
   Map<String, dynamic>? _attendanceTemplate;
+  bool _attendanceStatusFetched =
+      false; // true only after first fetch completes (avoids flashing "not mapped")
+  bool?
+  _staffHasAttendanceTemplate; // from profile/staff collection at load (null = not yet checked)
+  bool _retryingTemplateFetch = false; // avoid infinite retry
   bool _isOnLeave = false;
   String? _leaveMessage;
   Map<String, dynamic>? _halfDayLeave;
@@ -106,7 +113,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _monthData = null;
       _isLoadingHistory = true;
       _isLoadingMonthData = true;
+      _retryingTemplateFetch = false;
     });
+    if (!mounted) return;
+    // Check staff's template id from profile first (from staffs collection at login) so we never show "Template not mapped" then refresh to check-in/out
+    await _updateStaffHasAttendanceTemplate();
     if (!mounted) return;
     // Always fetch today's attendance status on init (for Mark Attendance tab)
     await _fetchAttendanceStatus(date: DateTime.now());
@@ -114,6 +125,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await _fetchHistory(refresh: true);
     if (!mounted) return;
     await _fetchMonthData(_focusedDay.year, _focusedDay.month);
+  }
+
+  /// Load from profile whether staff has attendanceTemplateId (staffs collection). Used to avoid showing "Template not mapped" then refreshing to punch.
+  Future<void> _updateStaffHasAttendanceTemplate() async {
+    try {
+      final profileResult = await _authService.getProfile();
+      if (!mounted) return;
+      final staffData =
+          profileResult['data']?['staffData'] as Map<String, dynamic>?;
+      final templateId = staffData?['attendanceTemplateId'];
+      final hasTemplate =
+          templateId != null &&
+          (templateId is String
+              ? templateId.toString().trim().isNotEmpty
+              : true);
+      if (mounted) setState(() => _staffHasAttendanceTemplate = hasTemplate);
+    } catch (_) {
+      if (mounted) setState(() => _staffHasAttendanceTemplate = null);
+    }
   }
 
   Future<void> _refreshData() async {
@@ -317,43 +347,57 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Future<void> _fetchAttendanceStatus({DateTime? date}) async {
     if (!mounted) return;
-    // For Mark Attendance tab, always use today's date. For History tab, use provided date or focused day.
     final dateToFetch = date ?? (DateTime.now());
     String formattedDate = dateToFetch.toIso8601String().split('T')[0];
+    bool didRetry = false;
 
-    final result = await _attendanceService.getAttendanceByDate(formattedDate);
+    try {
+      final result = await _attendanceService.getAttendanceByDate(
+        formattedDate,
+      );
 
-    if (result['success'] && mounted) {
-      final responseBody = result['data'];
-      Map<String, dynamic>? data;
-      Map<String, dynamic>? template;
+      if (result['success'] && mounted) {
+        final responseBody = result['data'];
+        Map<String, dynamic>? data;
+        Map<String, dynamic>? template;
 
-      if (responseBody != null) {
-        if (responseBody is Map<String, dynamic> &&
-            responseBody.containsKey('data')) {
-          data = responseBody['data'];
-          template = responseBody['template'];
+        if (responseBody != null) {
+          if (responseBody is Map<String, dynamic> &&
+              responseBody.containsKey('data')) {
+            data = responseBody['data'];
+            template = responseBody['template'];
 
-          setState(() {
-            _attendanceTemplate = template;
-            _isOnLeave = responseBody['isOnLeave'] ?? false;
-            _leaveMessage = responseBody['leaveMessage'] as String?;
-            _halfDayLeave =
-                responseBody['halfDayLeave'] as Map<String, dynamic>?;
-            _checkInAllowed = responseBody['checkInAllowed'] ?? true;
-            _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
-            _isHoliday = responseBody['isHoliday'] ?? false;
-            _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
-            _holidayInfo = responseBody['holidayInfo'];
-          });
-        } else {
-          data = responseBody;
+            setState(() {
+              _attendanceTemplate = template;
+              _isOnLeave = responseBody['isOnLeave'] ?? false;
+              _leaveMessage = responseBody['leaveMessage'] as String?;
+              _halfDayLeave =
+                  responseBody['halfDayLeave'] as Map<String, dynamic>?;
+              _checkInAllowed = responseBody['checkInAllowed'] ?? true;
+              _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
+              _isHoliday = responseBody['isHoliday'] ?? false;
+              _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
+              _holidayInfo = responseBody['holidayInfo'];
+            });
+          } else {
+            data = responseBody;
+          }
+        }
+
+        if (mounted) setState(() => _attendanceData = data);
+
+        // Staff has template id but response had no template (e.g. first request failed) — retry once so we don't show "Template not mapped" then refresh to punch
+        if (mounted &&
+            _attendanceTemplate == null &&
+            _staffHasAttendanceTemplate == true &&
+            !_retryingTemplateFetch) {
+          didRetry = true;
+          setState(() => _retryingTemplateFetch = true);
+          await _fetchAttendanceStatus(date: dateToFetch);
         }
       }
-
-      setState(() {
-        _attendanceData = data;
-      });
+    } finally {
+      if (mounted && !didRetry) setState(() => _attendanceStatusFetched = true);
     }
   }
 
@@ -888,7 +932,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               _buildDetailRow(
                                 'Work Hours',
                                 workHours != null
-                                    ? '${workHours.toStringAsFixed(2)} hrs'
+                                    ? '${workHours.toInt()} minutes'
                                     : 'N/A',
                                 Icons.access_time,
                               ),
@@ -1519,9 +1563,30 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return 15;
   }
 
-  // Helper to get working session timings for Half Day, calculated from shift times in DB
-  // Session 1 leave → employee works Session 2 (last 5 hours of shift)
-  // Session 2 leave → employee works Session 1 (first 5 hours of shift)
+  /// Shift start time from DB (template). Single fallback when template not loaded.
+  String _getShiftStartTime() {
+    return _attendanceTemplate?['shiftStartTime']?.toString().trim() ?? '09:30';
+  }
+
+  /// Shift end time from DB (template). Single fallback when template not loaded.
+  String _getShiftEndTime() {
+    return _attendanceTemplate?['shiftEndTime']?.toString().trim() ?? '18:30';
+  }
+
+  /// Shift start from DB only (no fallback). Use for notice message so we never show hardcoded time.
+  String? _getShiftStartTimeFromDb() {
+    final v = _attendanceTemplate?['shiftStartTime']?.toString().trim();
+    return (v != null && v.isNotEmpty) ? v : null;
+  }
+
+  /// Shift end from DB only (no fallback). Use for notice message so we never show hardcoded time.
+  String? _getShiftEndTimeFromDb() {
+    final v = _attendanceTemplate?['shiftEndTime']?.toString().trim();
+    return (v != null && v.isNotEmpty) ? v : null;
+  }
+
+  // Helper to get working session timings for Half Day, calculated from shift times in DB.
+  // Uses DB-only times so notice never shows hardcoded 18:30/19:00. Returns null if shift times not in DB.
   Map<String, String>? _getWorkingSessionTimings() {
     final bool isHalfDay =
         (_attendanceData?['status'] == 'Half Day') || _halfDayLeave != null;
@@ -1533,9 +1598,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     if (session != '1' && session != '2') return null;
 
-    // Get shift times from DB (template)
-    final shiftStartStr = _attendanceTemplate?['shiftStartTime'] ?? '10:00';
-    final shiftEndStr = _attendanceTemplate?['shiftEndTime'] ?? '19:00';
+    final shiftStartStr = _getShiftStartTimeFromDb();
+    final shiftEndStr = _getShiftEndTimeFromDb();
+    if (shiftStartStr == null || shiftEndStr == null) return null;
 
     try {
       final startParts = shiftStartStr.split(':').map(int.parse).toList();
@@ -1543,33 +1608,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       const sessionDurationMinutes = 5 * 60; // 5 hours = 300 minutes
 
       if (session == '1') {
-        // Session 1 leave: employee works Session 2 (fixed: 2:00 PM - shift end)
-        // Session 2 start is fixed at 14:00 (2:00 PM), end uses shift end from DB
-        return {
-          'startTime': '14:00', // Fixed: 2:00 PM
-          'endTime':
-              shiftEndStr, // Use shift end from DB (e.g., 19:00 or 19:15)
-        };
+        return {'startTime': '14:00', 'endTime': shiftEndStr};
       } else if (session == '2') {
-        // Session 2 leave: employee works Session 1 (first 5 hours of shift)
         final session1EndMinutes = startTotalMinutes + sessionDurationMinutes;
         final session1EndHours = session1EndMinutes ~/ 60;
         final session1EndMins = session1EndMinutes % 60;
-
         return {
           'startTime': shiftStartStr,
           'endTime':
               '${session1EndHours.toString().padLeft(2, '0')}:${session1EndMins.toString().padLeft(2, '0')}',
         };
       }
-    } catch (e) {
-      // Fallback to fixed times if calculation fails
-      if (session == '1') {
-        return {'startTime': '14:00', 'endTime': '19:00'};
-      } else if (session == '2') {
-        return {'startTime': '10:00', 'endTime': '15:00'};
-      }
-    }
+    } catch (e) {}
     return null;
   }
 
@@ -1579,12 +1629,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final punchIn = DateTime.parse(punchInTime).toLocal();
 
-      // For Half Day: use working session start time, otherwise use full-day shift start
+      // For Half Day: use working session start time, otherwise use full-day shift start from DB
       final sessionTimings = _getWorkingSessionTimings();
       final shiftStartStr =
-          sessionTimings?['startTime'] ??
-          _attendanceTemplate?['shiftStartTime'] ??
-          "09:30";
+          sessionTimings?['startTime'] ?? _getShiftStartTime();
       final parts = shiftStartStr.split(':').map(int.parse).toList();
       final gracePeriod = _getGracePeriodMinutes();
 
@@ -1607,7 +1655,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final punchOut = DateTime.parse(punchOutTime).toLocal();
 
-      final shiftEndStr = _attendanceTemplate?['shiftEndTime'] ?? "18:30";
+      final shiftEndStr = _getShiftEndTime();
       final parts = shiftEndStr.split(':').map(int.parse).toList();
 
       final shiftEnd = DateTime(
@@ -1629,7 +1677,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final punchOut = DateTime.parse(punchOutTime).toLocal();
 
-      final shiftEndStr = _attendanceTemplate?['shiftEndTime'] ?? "18:30";
+      final shiftEndStr = _getShiftEndTime();
       final parts = shiftEndStr.split(':').map(int.parse).toList();
 
       final shiftEnd = DateTime(
@@ -2449,6 +2497,58 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       holidayColor = Colors.orange;
     }
 
+    // Loading: until fetch completed, or staff has template but we're still loading/retrying (never show "Template not mapped" then refresh to punch)
+    if (!_attendanceStatusFetched ||
+        (_attendanceTemplate == null && _staffHasAttendanceTemplate == true)) {
+      return Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: const Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Template not mapped: only when staff has no attendance template id (from staffs collection at login)
+    if (_attendanceTemplate == null && _staffHasAttendanceTemplate != true) {
+      return Card(
+        elevation: 0,
+        color: Colors.orange.withOpacity(0.05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.orange.withOpacity(0.2)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.schedule, size: 48, color: Colors.orange),
+                const SizedBox(height: 16),
+                const Text(
+                  'Template not mapped. Contact HR.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (showHolidayCard) {
       return Card(
         elevation: 0,
@@ -2558,6 +2658,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () async {
+                    // Block if template not mapped
+                    if (_attendanceTemplate == null) {
+                      SnackBarUtils.showSnackBar(
+                        context,
+                        'Template not mapped. Contact HR.',
+                        isError: true,
+                      );
+                      return;
+                    }
                     // PRIORITY 1: Block if on approved leave (session-aware)
                     final bool isHalfDayLeave =
                         (_attendanceData?['status'] == 'Half Day') ||
@@ -2616,7 +2725,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       return;
                     }
 
-                    // 2. Check Late Entry / Early Exit - Show alert if NOT allowed, but still allow action
+                    // 2. Check Late Entry / Early Exit - Show alert if NOT allowed. Use only DB shift times in notice (no hardcoded 18:30/19:00).
                     final now = DateTime.now();
                     String? alertMessage;
 
@@ -2625,77 +2734,84 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       final allowLateEntry =
                           _attendanceTemplate?['allowLateEntry'] ??
                           _attendanceTemplate?['lateEntryAllowed'] ??
-                          true; // Default to true if not specified
+                          true;
 
-                      // For Half Day: use working session start time, otherwise use full-day shift start
                       final sessionTimings = _getWorkingSessionTimings();
                       final shiftStartStr =
                           sessionTimings?['startTime'] ??
-                          _attendanceTemplate?['shiftStartTime'] ??
-                          "09:30";
-                      final parts = shiftStartStr
-                          .split(':')
-                          .map(int.parse)
-                          .toList();
-                      // Grace time from DB (template merged from company settings)
-                      final gracePeriod = _getGracePeriodMinutes();
-                      final shiftStartOnly = DateTime(
-                        now.year,
-                        now.month,
-                        now.day,
-                        parts[0],
-                        parts[1],
-                      );
-                      final graceEnd = shiftStartOnly.add(
-                        Duration(minutes: gracePeriod),
-                      );
-
-                      if (now.isAfter(graceEnd)) {
-                        // Late minutes = minutes after grace period ended (matches backend fine logic)
-                        final lateMinutes = now.difference(graceEnd).inMinutes;
+                          _getShiftStartTimeFromDb();
+                      if (shiftStartStr == null) {
                         if (allowLateEntry == false) {
-                          // Show alert: shift start from DB, grace from DB
-                          alertMessage = gracePeriod > 0
-                              ? "You are $lateMinutes minute late. Shift start: $shiftStartStr (grace: ${gracePeriod} min)."
-                              : "You are $lateMinutes minute late. Shift start time: $shiftStartStr";
+                          alertMessage =
+                              'Shift start time not set. Contact HR.';
                         }
-                        // If allowed, proceed silently (no alert)
+                      } else {
+                        try {
+                          final parts = shiftStartStr
+                              .split(':')
+                              .map(int.parse)
+                              .toList();
+                          final gracePeriod = _getGracePeriodMinutes();
+                          final shiftStartOnly = DateTime(
+                            now.year,
+                            now.month,
+                            now.day,
+                            parts[0],
+                            parts[1],
+                          );
+                          final graceEnd = shiftStartOnly.add(
+                            Duration(minutes: gracePeriod),
+                          );
+                          if (now.isAfter(graceEnd) &&
+                              allowLateEntry == false) {
+                            final lateMinutes = now
+                                .difference(graceEnd)
+                                .inMinutes;
+                            alertMessage = gracePeriod > 0
+                                ? "You are $lateMinutes minute late. Shift start: $shiftStartStr (grace: ${gracePeriod} min)."
+                                : "You are $lateMinutes minute late. Shift start time: $shiftStartStr";
+                          }
+                        } catch (_) {}
                       }
                     }
 
-                    // Check Early Exit - show alert if NOT allowed
+                    // Check Early Exit - show alert if NOT allowed (only DB shift time in message)
                     if (isCheckedIn && alertMessage == null) {
                       final allowEarlyExit =
                           _attendanceTemplate?['allowEarlyExit'] ??
                           _attendanceTemplate?['earlyExitAllowed'] ??
-                          true; // Default to true if not specified
+                          true;
 
-                      // For Half Day: use working session end time, otherwise use full-day shift end
                       final sessionTimings = _getWorkingSessionTimings();
                       final shiftEndStr =
                           sessionTimings?['endTime'] ??
-                          _attendanceTemplate?['shiftEndTime'] ??
-                          "18:30";
-                      final parts = shiftEndStr
-                          .split(':')
-                          .map(int.parse)
-                          .toList();
-                      final shiftEnd = DateTime(
-                        now.year,
-                        now.month,
-                        now.day,
-                        parts[0],
-                        parts[1],
-                      );
-
-                      if (now.isBefore(shiftEnd)) {
-                        final earlyMinutes = shiftEnd.difference(now).inMinutes;
+                          _getShiftEndTimeFromDb();
+                      if (shiftEndStr == null) {
                         if (allowEarlyExit == false) {
-                          // Show alert but still allow check-out
-                          alertMessage =
-                              "You are ${earlyMinutes} minutes early. Shift end time: ${shiftEndStr}";
+                          alertMessage = 'Shift end time not set. Contact HR.';
                         }
-                        // If allowed, proceed silently (no alert)
+                      } else {
+                        try {
+                          final parts = shiftEndStr
+                              .split(':')
+                              .map(int.parse)
+                              .toList();
+                          final shiftEnd = DateTime(
+                            now.year,
+                            now.month,
+                            now.day,
+                            parts[0],
+                            parts[1],
+                          );
+                          if (now.isBefore(shiftEnd) &&
+                              allowEarlyExit == false) {
+                            final earlyMinutes = shiftEnd
+                                .difference(now)
+                                .inMinutes;
+                            alertMessage =
+                                "You are $earlyMinutes minutes early. Shift end time: $shiftEndStr";
+                          }
+                        } catch (_) {}
                       }
                     }
 

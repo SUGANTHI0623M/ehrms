@@ -205,6 +205,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   int _totalPages = 0;
   bool _showFilters = false;
 
+  /// Start of month for [date]; end of that month (23:59:59) for [_endDate].
+  static DateTime _firstDayOfMonth(DateTime date) =>
+      DateTime(date.year, date.month, 1);
+  static DateTime _lastDayOfMonth(DateTime date) =>
+      DateTime(date.year, date.month + 1, 0, 23, 59, 59, 999);
+
   void toggleFilters() {
     setState(() {
       _showFilters = !_showFilters;
@@ -214,6 +220,9 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = _firstDayOfMonth(now);
+    _endDate = _lastDayOfMonth(now);
     _fetchLeaves();
     _fetchLeaveBalances();
   }
@@ -221,12 +230,13 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   Future<void> _fetchLeaveBalances() async {
     setState(() => _isLoadingBalances = true);
 
-    // Pass custom date range if available, otherwise pass current month/year
+    final start = _startDate;
+    final end = _endDate;
     final result = await _requestService.getLeaveTypes(
-      startDate: _startDate,
-      endDate: _endDate,
-      month: _startDate == null ? DateTime.now().month : null,
-      year: _startDate == null ? DateTime.now().year : null,
+      startDate: start,
+      endDate: end,
+      month: start == null ? DateTime.now().month : null,
+      year: start == null ? DateTime.now().year : null,
     );
 
     if (mounted) {
@@ -290,21 +300,30 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     }
   }
 
-  Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+  /// Pick a date; leaves and balances are shown for that date's month.
+  Future<void> _pickMonth() async {
+    final picked = await showDatePicker(
       context: context,
+      initialDate: _startDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null) {
       setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end.add(
-          const Duration(hours: 23, minutes: 59, seconds: 59),
-        );
+        _startDate = _firstDayOfMonth(picked);
+        _endDate = _lastDayOfMonth(picked);
       });
       _fetchLeaves();
     }
+  }
+
+  void _resetToCurrentMonth() {
+    final now = DateTime.now();
+    setState(() {
+      _startDate = _firstDayOfMonth(now);
+      _endDate = _lastDayOfMonth(now);
+    });
+    _fetchLeaves();
   }
 
   void showApplyLeaveDialog() {
@@ -685,7 +704,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                     ),
                     const SizedBox(width: 10),
                     InkWell(
-                      onTap: _pickDateRange,
+                      onTap: _pickMonth,
                       child: Container(
                         height: 48,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -703,20 +722,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                             const SizedBox(width: 8),
                             Text(
                               _startDate == null
-                                  ? 'Date'
-                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                                  ? 'Select month'
+                                  : DateFormat('MMM yyyy').format(_startDate!),
                               style: const TextStyle(color: Colors.black),
                             ),
                             if (_startDate != null)
                               IconButton(
                                 icon: const Icon(Icons.close, size: 16),
-                                onPressed: () {
-                                  setState(() {
-                                    _startDate = null;
-                                    _endDate = null;
-                                  });
-                                  _fetchLeaves();
-                                },
+                                onPressed: _resetToCurrentMonth,
                               ),
                           ],
                         ),
@@ -870,26 +883,15 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   }
 
   Future<void> _fetchLeaveTypes() async {
-    final result = await _requestService.getLeaveTypes();
+    final result = await _requestService.getLeaveTypesForApply();
     if (mounted) {
       if (result['success']) {
         setState(() {
-          // Leave types from leave template (exclude paid leave)
-          _allowedTypes = (result['data'] as List).where((e) {
-            final type = e['type'].toString().toLowerCase();
-            return type != 'paid' && type != 'paid leave';
-          }).toList();
-
-          // Extra option: Unpaid Leave only
-          final hasUnpaidLeave = _allowedTypes.any(
-            (e) => e['type'].toString().toLowerCase() == 'unpaid leave',
-          );
-          if (!hasUnpaidLeave) {
-            _allowedTypes.add({'type': 'Unpaid Leave'});
-          }
+          // Leave types from staff's leave template + Unpaid Leave (from backend)
+          _allowedTypes = List<dynamic>.from(result['data'] as List? ?? []);
 
           if (_allowedTypes.isNotEmpty) {
-            _leaveType = _allowedTypes.first['type'];
+            _leaveType = _allowedTypes.first['type'] as String?;
           }
           _isLoadingTypes = false;
         });
@@ -897,6 +899,21 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
         setState(() => _isLoadingTypes = false);
       }
     }
+  }
+
+  /// Max days allowed for currently selected leave type (null = no limit, e.g. Unpaid Leave).
+  int? get _maxDaysForCurrentType {
+    if (_leaveType == null) return null;
+    for (final e in _allowedTypes) {
+      if (e is Map && (e['type'] as String?) == _leaveType) {
+        final d = e['days'];
+        if (d == null) return null;
+        if (d is int) return d;
+        if (d is num) return d.toInt();
+        return null;
+      }
+    }
+    return null;
   }
 
   int get _days {
@@ -959,6 +976,17 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     }
 
     final daysValue = _leaveType == 'Half Day' ? 1 : _days;
+
+    // Control by template days: if this leave type has a day limit, enforce it
+    final maxDays = _maxDaysForCurrentType;
+    if (maxDays != null && daysValue > maxDays) {
+      SnackBarUtils.showSnackBar(
+        context,
+        '$_leaveType allows maximum $maxDays day${maxDays == 1 ? '' : 's'}. You selected $daysValue day${daysValue == 1 ? '' : 's'}.',
+        isError: true,
+      );
+      return;
+    }
     final payload = {
       'leaveType': _leaveType,
       'startDate': _startDate!.toIso8601String(),
@@ -1096,14 +1124,17 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
                           value: _leaveType,
-                          items: _allowedTypes
-                              .map(
-                                (e) => DropdownMenuItem(
-                                  value: e['type'] as String,
-                                  child: Text('${e['type']}'),
-                                ),
-                              )
-                              .toList(),
+                          items: _allowedTypes.map((e) {
+                            final type = e['type'] as String? ?? '';
+                            final days = e['days'];
+                            final label = days != null
+                                ? '$type (${days == 1 ? '1 day' : '$days days'})'
+                                : type;
+                            return DropdownMenuItem<String>(
+                              value: type,
+                              child: Text(label),
+                            );
+                          }).toList(),
                           onChanged: (val) {
                             setState(() {
                               _leaveType = val!;

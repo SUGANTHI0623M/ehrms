@@ -1,11 +1,9 @@
 // hrms/lib/config/constants.dart
 class AppConstants {
   /// Production API (HTTPS required for Google Play).
-  static const String baseUrl = 'https://ehrms.askeva.io/api';
-  // static const String baseUrl = 'http://192.168.16.103:9001/api';
-  // static const String baseUrl = 'https://ehrms.askeva.net/api';
+ // static const String baseUrl = 'https://ehrms.askeva.io/api';
 
-  /// Privacy policy URL (required for Play Store). Set to your published policy.
+  static const String baseUrl = 'http://192.168.16.103:9001/api';  /// Privacy policy URL (required for Play Store).
   static const String privacyPolicyUrl =
-      'https://ehrms.askeva.io/privacy'; // TODO: Replace with your actual URL
+      'https://doc-hosting.flycricket.io/aehrms-privacy-policy/3c65b556-5dcd-4a0d-900e-d2a4801acea0/privacy';
 }

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { getLeaves, createLeave, getLeaveTypes, updateLeaveStatus } = require('../controllers/leaveController');
+const { getLeaves, createLeave, getLeaveTypes, getLeaveTypesForApply, updateLeaveStatus } = require('../controllers/leaveController');
 const { getReimbursements, createReimbursement } = require('../controllers/reimbursementController');
 
 const { getLoans, createLoan } = require('../controllers/loanController');
@@ -10,6 +10,7 @@ const { requestPayslip, getPayslipRequests, viewPayslipRequest, downloadPayslipR
 // Leave Routes
 router.get('/leave', protect, getLeaves);
 router.get('/leave-types', protect, getLeaveTypes);
+router.get('/leave-types/for-apply', protect, getLeaveTypesForApply);
 router.post('/leave', protect, createLeave);
 router.patch('/leave/:id/status', protect, updateLeaveStatus); // Approve/Reject leave
 
