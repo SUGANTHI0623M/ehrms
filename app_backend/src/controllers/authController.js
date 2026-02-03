@@ -668,24 +668,48 @@ const forgotPassword = async (req, res) => {
             });
         }
 
+        // First check if email exists in Staff collection
+        const emailRegex = buildEmailRegex(email.trim());
+        const staff = await Staff.findOne({ email: emailRegex });
+
+        if (!staff) {
+            console.log(`[ForgotPassword] ❌ Email not found in Staff collection: ${email}`);
+            return res.status(404).json({
+                success: false,
+                error: { message: 'No registered account with this email' }
+            });
+        }
+
+        console.log(`[ForgotPassword] ✅ Email found in Staff collection: ${email}`);
+
+        // Get or create user associated with this staff
         const user = await findOrCreateUserByEmail(email);
 
         if (!user) {
-            return res.status(404).json({
+            console.log(`[ForgotPassword] ❌ Failed to get/create user for staff email: ${email}`);
+            return res.status(500).json({
                 success: false,
-                error: { message: 'No account found with this email' }
+                error: { message: 'Failed to process password reset request' }
             });
         }
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
+        console.log(`[ForgotPassword] Generating OTP for email: ${email}`);
+        console.log(`[ForgotPassword] OTP: ${otp} (expires at: ${expiry.toISOString()})`);
+
         user.resetPasswordOTP = otp;
         user.resetPasswordOTPExpiry = expiry;
         await user.save();
 
+        console.log(`[ForgotPassword] OTP saved to database for user: ${user._id}`);
+
         // Send OTP via email (and potentially other channels later)
+        console.log(`[ForgotPassword] Sending OTP email to: ${user.email}`);
         sendOTPEmail(user.email, otp);
+
+        console.log(`[ForgotPassword] ✅ OTP sent successfully to ${user.email}`);
 
         return res.status(200).json({
             success: true,
@@ -705,23 +729,43 @@ const verifyOTP = async (req, res) => {
     try {
         const { email, otp } = req.body;
 
+        console.log(`[VerifyOTP] Verifying OTP for email: ${email}`);
+
         if (!email || !otp) {
+            console.log(`[VerifyOTP] ❌ Missing email or OTP`);
             return res.status(400).json({
                 success: false,
                 error: { message: 'Email and OTP are required' }
             });
         }
 
+        // First check if email exists in Staff collection
+        const emailRegex = buildEmailRegex(email.trim());
+        const staff = await Staff.findOne({ email: emailRegex });
+
+        if (!staff) {
+            console.log(`[VerifyOTP] ❌ Email not found in Staff collection: ${email}`);
+            return res.status(404).json({
+                success: false,
+                error: { message: 'No registered account with this email' }
+            });
+        }
+
         const user = await findOrCreateUserByEmail(email);
 
         if (!user || !user.resetPasswordOTP || !user.resetPasswordOTPExpiry) {
+            console.log(`[VerifyOTP] ❌ No OTP found for email: ${email}`);
             return res.status(400).json({
                 success: false,
                 error: { message: 'Invalid or expired OTP' }
             });
         }
 
+        console.log(`[VerifyOTP] Stored OTP: ${user.resetPasswordOTP}, Provided OTP: ${otp}`);
+        console.log(`[VerifyOTP] OTP expires at: ${user.resetPasswordOTPExpiry.toISOString()}`);
+
         if (user.resetPasswordOTP !== otp) {
+            console.log(`[VerifyOTP] ❌ OTP mismatch`);
             return res.status(400).json({
                 success: false,
                 error: { message: 'Invalid OTP' }
@@ -729,11 +773,14 @@ const verifyOTP = async (req, res) => {
         }
 
         if (new Date() > user.resetPasswordOTPExpiry) {
+            console.log(`[VerifyOTP] ❌ OTP expired`);
             return res.status(400).json({
                 success: false,
                 error: { message: 'OTP has expired' }
             });
         }
+
+        console.log(`[VerifyOTP] ✅ OTP verified successfully for ${email}`);
 
         return res.status(200).json({
             success: true,
@@ -757,6 +804,18 @@ const resetPassword = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 error: { message: 'Email, OTP and new password are required' }
+            });
+        }
+
+        // First check if email exists in Staff collection
+        const emailRegex = buildEmailRegex(email.trim());
+        const staff = await Staff.findOne({ email: emailRegex });
+
+        if (!staff) {
+            console.log(`[ResetPassword] ❌ Email not found in Staff collection: ${email}`);
+            return res.status(404).json({
+                success: false,
+                error: { message: 'No registered account with this email' }
             });
         }
 
