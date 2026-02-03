@@ -449,16 +449,21 @@ class AuthService {
   // Forgot password with OTP
   // -------------------------
 
-  Future<Map<String, dynamic>> forgotPassword(String email) async {
+  Future<Map<String, dynamic>> forgotPassword(
+    String email, {
+    int retryCount = 0,
+  }) async {
+    final url = '$baseUrl/auth/forgot-password';
     if (kDebugMode) {
       debugPrint(
-        '[AuthService] ForgotPassword: Requesting OTP for email: $email',
+        '[AuthService] ForgotPassword: Requesting OTP for email: $email (attempt ${retryCount + 1})',
       );
+      debugPrint('[AuthService] ForgotPassword: URL: $url');
     }
     try {
       final response = await http
           .post(
-            Uri.parse('$baseUrl/auth/forgot-password'),
+            Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email}),
           )
@@ -468,9 +473,12 @@ class AuthService {
         debugPrint(
           '[AuthService] ForgotPassword: Response status: ${response.statusCode}',
         );
+        debugPrint(
+          '[AuthService] ForgotPassword: Response headers: ${response.headers}',
+        );
       }
 
-      // Check if response is HTML (like 502 Bad Gateway from nginx)
+      // Check if response is HTML (like 404/502 from nginx or server)
       String responseBody = response.body.trim();
       if (responseBody.startsWith('<html>') ||
           responseBody.startsWith('<!DOCTYPE')) {
@@ -478,6 +486,27 @@ class AuthService {
           debugPrint(
             '[AuthService] ForgotPassword: Received HTML response (server error)',
           );
+          debugPrint(
+            '[AuthService] ForgotPassword: Response body preview: ${responseBody.substring(0, responseBody.length > 200 ? 200 : responseBody.length)}',
+          );
+        }
+        // Check if it's a 404 - retry once (route registration might be delayed)
+        if (response.statusCode == 404 && retryCount < 1) {
+          if (kDebugMode) {
+            debugPrint(
+              '[AuthService] ForgotPassword: Got 404, retrying once after 500ms delay...',
+            );
+          }
+          await Future.delayed(const Duration(milliseconds: 500));
+          return forgotPassword(email, retryCount: retryCount + 1);
+        }
+        // After retry or non-404 HTML error
+        if (response.statusCode == 404) {
+          return {
+            'success': false,
+            'message':
+                'Forgot password endpoint not found (404). Please try again or contact support.',
+          };
         }
         return {
           'success': false,

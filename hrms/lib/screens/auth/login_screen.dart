@@ -351,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 Text(
-                  'Hrms',
+                  'AskEva',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.bold,

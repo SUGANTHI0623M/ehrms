@@ -85,13 +85,24 @@ JWT_REFRESH_EXPIRES_IN=7d
 # Frontend (for CORS; use your real app URL)
 FRONTEND_URL=https://hrms.askeva.net
 
-# Email (e.g. Gmail SMTP)
+# Email (e.g. Gmail SMTP) – used if SendPulse/SendGrid not set
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_SECURE=false
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-app-password
 EMAIL_FROM=your-email@gmail.com
+
+# SendPulse (recommended on server – sends over HTTPS, no SMTP firewall issues)
+# Get client ID/secret from SendPulse dashboard. Verify sender in SendPulse (Settings → Senders).
+SENDPULSE_CLIENT_ID=your_client_id
+SENDPULSE_CLIENT_SECRET=your_client_secret
+SENDPULSE_FROM_EMAIL=dev@askeva.io
+SENDPULSE_FROM_NAME=ASKEVA HRMS
+
+# Optional: SendGrid (alternative to SendPulse when SMTP is blocked)
+# SENDGRID_API_KEY=SG.xxxx
+# Verify a sender in SendGrid dashboard; use that email as EMAIL_FROM
 
 # Cloudinary (image uploads / profile photos)
 CLOUDINARY_CLOUD_NAME=your-cloud-name
@@ -215,3 +226,30 @@ pm2 startup   # enable start on boot
 - PM2 (or systemd) to keep the process running  
 - nginx + HTTPS in front of the API  
 - Firewall and strong `JWT_SECRET` and DB credentials in `.env`
+
+---
+
+## OTP email: Connection timeout (ETIMEDOUT)
+
+If logs show **`[EmailService] ❌ Failed to send OTP email: Connection timeout`** with **`command: 'CONN'`**, the server cannot reach the SMTP host. Many hosts block outbound SMTP (ports 25, 465, 587).
+
+**Options:**
+
+1. **Use SendPulse (recommended)** – sends over HTTPS, no SMTP port needed:
+   - Get client ID and secret from [SendPulse](https://sendpulse.com) dashboard.
+   - In SendPulse, verify a sender (Settings → Senders); e.g. `dev@askeva.io`.
+   - In `.env` add:
+     - `SENDPULSE_CLIENT_ID=your_client_id`
+     - `SENDPULSE_CLIENT_SECRET=your_client_secret`
+     - `SENDPULSE_FROM_EMAIL=dev@askeva.io`
+     - `SENDPULSE_FROM_NAME=ASKEVA HRMS`
+   - Restart the backend. OTP emails will be sent via SendPulse.
+
+2. **Use SendGrid** – alternative HTTPS provider:
+   - Get an API key from [SendGrid](https://sendgrid.com). Verify a sender.
+   - In `.env` add: `SENDGRID_API_KEY=SG.your-key`
+   - Run: `npm install @sendgrid/mail`. Restart the backend.
+
+3. **Open outbound SMTP on the server** – ask your host to allow outbound connections to your SMTP host:port (e.g. `smtp.gmail.com:587`).
+
+4. **Increase timeout** – if the network is slow, set in `.env`: `EMAIL_CONNECTION_TIMEOUT=30000`, `EMAIL_SOCKET_TIMEOUT=30000`.

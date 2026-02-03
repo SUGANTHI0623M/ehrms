@@ -41,6 +41,7 @@ router.post('/register', authLimiter, register);
 
 // Password reset with OTP flow (also behind stricter limits)
 router.post('/forgot-password', authLimiter, forgotPassword);
+console.log('[AuthRoutes] Registered POST /forgot-password');
 router.post('/verify-otp', authLimiter, verifyOTP);
 router.post('/reset-password', authLimiter, resetPassword);
 
