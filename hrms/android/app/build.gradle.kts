@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+}
+
+// Load key.properties for release signing (Play Store); see key.properties.example
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
 
 android {
@@ -20,24 +29,36 @@ android {
     }
 
     defaultConfig {
-        // Unique Application ID for Google Play Store (reverse domain notation)
-     
         applicationId = "io.askeva.ehrms"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion  // ML Kit face detection requires minSdk 21+
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String?
+                keyPassword = keystoreProperties["keyPassword"] as String?
+                storeFile = keystoreProperties["storeFile"]?.let { rootProject.file(it) }
+                storePassword = keystoreProperties["storePassword"] as String?
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Note: For Play Store, use Play App Signing (recommended) or configure release signing.
-            // Play App Signing is automatic when you upload - no manual keystore needed.
-            // If you need manual signing, uncomment and configure:
-            // signingConfig = signingConfigs.getByName("release")
-            signingConfig = signingConfigs.getByName("debug")
+            // Use release signing when key.properties exists (required for Play Store).
+            // See PLAYSTORE_SETUP.md and key.properties.example.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            // Optional: enable for smaller AAB (add plugin-specific -keep rules if needed)
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
