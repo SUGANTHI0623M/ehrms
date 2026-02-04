@@ -1123,7 +1123,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
-                          value: _leaveType,
+                          initialValue: _leaveType,
                           items: _allowedTypes.map((e) {
                             final type = e['type'] as String? ?? '';
                             final days = e['days'];
@@ -1267,8 +1267,9 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                               onChanged: (val) {
                                 setState(() {
                                   _isOneDay = val;
-                                  if (_isOneDay && _startDate != null)
+                                  if (_isOneDay && _startDate != null) {
                                     _endDate = _startDate;
+                                  }
                                 });
                               },
                             ),
@@ -2139,7 +2140,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 20),
                       child: DropdownButtonFormField<String>(
-                        value: _loanType,
+                        initialValue: _loanType,
                         items: ['Personal', 'Advance', 'Emergency']
                             .map(
                               (e) => DropdownMenuItem(value: e, child: Text(e)),
@@ -2173,8 +2174,9 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                         Icons.calendar_month,
                       ).copyWith(hintText: 'Enter tenure in months'),
                       validator: (val) {
-                        if (val == null || val.isEmpty)
+                        if (val == null || val.isEmpty) {
                           return 'Tenure is required';
+                        }
                         final n = int.tryParse(val);
                         if (n == null || n <= 0) return 'Must be > 0';
                         return null;
@@ -3148,7 +3150,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 20),
                       child: DropdownButtonFormField<String>(
-                        value: _expenseType,
+                        initialValue: _expenseType,
                         items: ['Travel', 'Food', 'Accommodation', 'Other']
                             .map(
                               (e) => DropdownMenuItem(value: e, child: Text(e)),
@@ -4130,7 +4132,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   final TextEditingController _reasonController = TextEditingController();
   bool _isSubmitting = false;
   List<dynamic> _existingRequests = [];
-  Set<String> _selectedMonths = {};
+  final Set<String> _selectedMonths = {};
 
   final List<String> _months = [
     'January',
@@ -4398,7 +4400,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
-                          value: _month,
+                          initialValue: _month,
                           items: _months
                               .map(
                                 (e) =>

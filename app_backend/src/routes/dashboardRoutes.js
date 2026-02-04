@@ -1,16 +1,17 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { createRateLimitHandler } = require('../utils/rateLimitHandler');
 const router = express.Router();
 const dashboardController = require('../controllers/dashboardController');
 const { protect } = require('../middleware/authMiddleware');
 
-// High-throughput rate limiting for dashboard APIs
+// Dashboard: 100 req/min per IP
 const dashboardLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 2000, // allow up to 2000 requests per IP per minute
+    windowMs: 1 * 60 * 1000,
+    limit: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: 'Too many dashboard requests, please wait a moment and try again.'
+    handler: createRateLimitHandler('Too many dashboard requests. Please wait a moment and try again.')
 });
 
 // Apply rate limiting after authentication for dashboard routes

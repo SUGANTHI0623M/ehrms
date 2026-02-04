@@ -1,9 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Network: API calls only. HTTPS in production (usesCleartextTraffic=false). -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Location: foreground only, for attendance check-in/out. Not background. -->
+    <!-- Required for background location tracking -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Camera: selfie for attendance and profile photo. No gallery read. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -14,6 +16,7 @@
         android:usesCleartextTraffic="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher">
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyALUZkBfmbUvpOYOJoMSuFNBb9lTd4O4cc"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const rateLimit = require('express-rate-limit');
+const { createRateLimitHandler } = require('./src/utils/rateLimitHandler');
 const connectDB = require('./src/config/db');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -14,6 +16,8 @@ const chatbotRoutes = require('./src/routes/chatbotRoutes');
 const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
 const assetsRoutes = require('./src/routes/assetsRoutes');
+const taskRoutes = require('./src/routes/taskRoutes');
+const customerRoutes = require('./src/routes/customerRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -43,7 +47,23 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 
-// Routes (rate limiting is applied at router level, not globally)
+// Root / health check – avoids 404 for GET / (load balancers, uptime checks)
+app.get('/', (req, res) => {
+    res.json({ ok: true, message: 'Server is running', service: 'hrms-api' });
+});
+
+// Global API rate limit: 400 req/min per IP (applies to all /api/*)
+const globalApiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    limit: 400,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path === '/',
+    handler: createRateLimitHandler('Too many requests. Please try again later.')
+});
+app.use(globalApiLimiter);
+
+// Routes (per-route limiters are stricter for auth/attendance/dashboard)
 console.log('[Server] Registering routes...');
 app.use('/api/auth', authRoutes);
 console.log('[Server] Auth routes registered at /api/auth');
@@ -55,7 +75,12 @@ app.use('/api/payrolls', payrollRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/tasks', taskRoutes);
+console.log('[Server] Task routes registered at /api/tasks');
+app.use('/api/customers', customerRoutes);
 app.use('/api/assets', assetsRoutes);
+app.use('/api/onboarding/customers', customerRoutes);
+console.log('[Server] Customer routes registered at /api/onboarding/customers');
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {
@@ -66,8 +91,11 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // 404 handler - should return JSON, not HTML
+// Use console.log for 404s so PM2 error log isn't flooded by bot/scanner probes (/, /dns-query, /actuator/..., etc.)
 app.use((req, res) => {
-    console.error(`[404] Route not found: ${req.method} ${req.path}`);
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`[404] Route not found: ${req.method} ${req.path}`);
+    }
     res.status(404).json({
         success: false,
         error: { message: `Route not found: ${req.method} ${req.path}` }

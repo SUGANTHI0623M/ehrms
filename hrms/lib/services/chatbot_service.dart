@@ -1,40 +1,31 @@
-import 'dart:convert';
-import 'dart:async';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import 'api_client.dart';
 
 class ChatbotService {
-  final String baseUrl = AppConstants.baseUrl;
+  final ApiClient _api = ApiClient();
 
-  Future<Map<String, String>> _getHeaders() async {
+  Future<void> _setToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(
-      'token',
-    ); // Ensure token is saved during login
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
-    };
+    final token = prefs.getString('token');
+    if (token != null) _api.setAuthToken(token);
   }
 
   Future<Map<String, dynamic>> askQuestion(String question) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/chatbot/ask'),
-            headers: headers,
-            body: jsonEncode({'question': question}),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        return {'success': true, 'answer': responseData['answer']};
-      } else {
-        return {'success': false, 'message': 'Failed to get answer'};
+      await _setToken();
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/chatbot/ask',
+        data: {'question': question},
+      );
+      final data = response.data;
+      if (data != null && data['answer'] != null) {
+        return {'success': true, 'answer': data['answer']};
       }
+      return {'success': false, 'message': 'Failed to get answer'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': e.response?.data?['message'] ?? 'Failed to get answer'};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }

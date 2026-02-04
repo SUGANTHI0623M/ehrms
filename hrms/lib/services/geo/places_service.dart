@@ -1,0 +1,165 @@
+// Google Places Autocomplete (legacy) + Place Details for destination search.
+// Requires: Places API enabled, billing enabled on the project, API key unrestricted
+// or with HTTP referrer / Android/iOS app restriction that allows these endpoints.
+
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:hrms/config/constants.dart';
+import 'package:hrms/services/api_client.dart';
+
+class PlacePrediction {
+  final String placeId;
+  final String description;
+  final String mainText;
+  final String secondaryText;
+
+  const PlacePrediction({
+    required this.placeId,
+    required this.description,
+    required this.mainText,
+    required this.secondaryText,
+  });
+}
+
+class PlaceDetails {
+  final double lat;
+  final double lng;
+  final String? formattedAddress;
+
+  const PlaceDetails({
+    required this.lat,
+    required this.lng,
+    this.formattedAddress,
+  });
+}
+
+class PlacesService {
+  static final _dio = ApiClient().dio;
+
+  /// Autocomplete predictions for destination search (Uber-style).
+  /// Use types=geocode so cities/regions (e.g. "madurai") and addresses both return results.
+  static Future<List<PlacePrediction>> autocomplete(
+    String input, {
+    double? lat,
+    double? lng,
+  }) async {
+    final key = AppConstants.googleMapsApiKey;
+    if (key == null || key.isEmpty || input.trim().isEmpty) return [];
+
+    try {
+      // Full URL so Dio uses it as-is (baseUrl is ignored for absolute URLs).
+      var url =
+          'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+          '?input=${Uri.encodeComponent(input.trim())}'
+          '&key=$key'
+          '&types=geocode';
+      if (lat != null && lng != null) {
+        url += '&location=$lat,$lng&radius=50000';
+      }
+      final res = await _dio.get<Map<String, dynamic>>(
+        url,
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      final data = res.data;
+      if (data == null) return [];
+      final status = data['status'] as String?;
+      final errorMessage = data['error_message'] as String?;
+
+      if (status != 'OK' && status != 'ZERO_RESULTS') {
+        if (kDebugMode) {
+          debugPrint(
+            '[PlacesService] Autocomplete status=$status error_message=$errorMessage',
+          );
+        }
+        return [];
+      }
+      final predictions = data['predictions'] as List<dynamic>?;
+      if (predictions == null) return [];
+
+      final list = <PlacePrediction>[];
+      for (final p in predictions) {
+        if (p is! Map<String, dynamic>) continue;
+        final placeId = p['place_id'] as String?;
+        final description = p['description'] as String? ?? '';
+        final structured = p['structured_formatting'] as Map<String, dynamic>?;
+        final mainText = structured?['main_text'] as String? ?? description;
+        final secondaryText = structured?['secondary_text'] as String? ?? '';
+        if (placeId != null) {
+          list.add(
+            PlacePrediction(
+              placeId: placeId,
+              description: description,
+              mainText: mainText,
+              secondaryText: secondaryText,
+            ),
+          );
+        }
+      }
+      return list;
+    } on DioException catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[PlacesService] Autocomplete DioException: ${e.type} ${e.response?.data}',
+        );
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PlacesService] Autocomplete error: $e');
+      return [];
+    }
+  }
+
+  /// Get lat/lng and formatted address for a place_id (e.g. from autocomplete).
+  static Future<PlaceDetails?> getPlaceDetails(String placeId) async {
+    final key = AppConstants.googleMapsApiKey;
+    if (key == null || key.isEmpty) return null;
+
+    try {
+      final url =
+          'https://maps.googleapis.com/maps/api/place/details/json'
+          '?place_id=${Uri.encodeComponent(placeId)}'
+          '&fields=geometry,formatted_address'
+          '&key=$key';
+      final res = await _dio.get<Map<String, dynamic>>(
+        url,
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      final data = res.data;
+      if (data == null) return null;
+      final status = data['status'] as String?;
+      if (status != 'OK') {
+        if (kDebugMode) {
+          debugPrint(
+            '[PlacesService] Place details status=$status '
+            'error_message=${data['error_message']}',
+          );
+        }
+        return null;
+      }
+      final result = data['result'] as Map<String, dynamic>?;
+      if (result == null) return null;
+      final geometry = result['geometry'] as Map<String, dynamic>?;
+      final location = geometry?['location'] as Map<String, dynamic>?;
+      if (location == null) return null;
+      final lat = (location['lat'] as num?)?.toDouble();
+      final lng = (location['lng'] as num?)?.toDouble();
+      if (lat == null || lng == null) return null;
+      final formattedAddress = result['formatted_address'] as String?;
+      return PlaceDetails(
+        lat: lat,
+        lng: lng,
+        formattedAddress: formattedAddress,
+      );
+    } on DioException catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[PlacesService] Place details DioException: ${e.type} ${e.response?.data}',
+        );
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PlacesService] Place details error: $e');
+      return null;
+    }
+  }
+}

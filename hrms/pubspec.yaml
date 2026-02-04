@@ -35,14 +35,18 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_secure_storage: ^9.0.0
+  json_annotation: ^4.10.0
   shared_preferences: ^2.2.2 
   http: ^1.2.0 
   dio: ^5.4.0  
   geolocator: ^14.0.2
   permission_handler: ^11.0.1
   provider: ^6.1.1
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
   # Add this for location services
   google_maps_flutter: ^2.0.6
+  background_location_tracker: ^1.6.1
   google_fonts: ^6.1.0
   intl: ^0.19.0 
   image_picker: ^1.0.7
@@ -67,6 +71,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  build_runner: ^2.4.9
+  json_serializable: ^6.8.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

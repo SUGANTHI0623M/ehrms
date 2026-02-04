@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _loadThemeColor() async {
     final prefs = await SharedPreferences.getInstance();
     final colorValue = prefs.getInt('theme_color');
-    
+
     if (mounted) {
       setState(() {
         if (colorValue != null) {
@@ -45,7 +45,7 @@ class _SplashScreenState extends State<SplashScreen> {
     while (_isLoadingTheme) {
       await Future.delayed(const Duration(milliseconds: 100));
     }
-    
+
     // Simulate a short loading time for branding or initialization
     await Future.delayed(const Duration(seconds: 2));
 
@@ -63,7 +63,7 @@ class _SplashScreenState extends State<SplashScreen> {
       // User is not logged in, navigate to Login
       Navigator.of(
         context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => LoginScreen()));
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
   }
 
@@ -76,8 +76,8 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     // Use white for light colors, darker shade for dark colors
-    final iconColor = _isDarkColor(_primaryColor) 
-        ? Colors.white 
+    final iconColor = _isDarkColor(_primaryColor)
+        ? Colors.white
         : Colors.white.withOpacity(0.95);
     final textColor = iconColor;
     final loadingColor = iconColor;
@@ -95,11 +95,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.white.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.people_alt_rounded,
-                color: iconColor,
-                size: 80,
-              ),
+              child: Icon(Icons.people_alt_rounded, color: iconColor, size: 80),
             ),
             const SizedBox(height: 24),
             Text(
@@ -112,10 +108,7 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ),
             const SizedBox(height: 48),
-            CircularProgressIndicator(
-              color: loadingColor,
-              strokeWidth: 3,
-            ),
+            CircularProgressIndicator(color: loadingColor, strokeWidth: 3),
           ],
         ),
       ),

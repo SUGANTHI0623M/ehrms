@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { createRateLimitHandler } = require('../utils/rateLimitHandler');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
@@ -10,13 +11,13 @@ const {
     getMonthAttendance
 } = require('../controllers/attendanceController');
 
-// High-throughput rate limiting for attendance APIs
+// Attendance: 120 req/min per IP (check-in, check-out, today, month, history)
 const attendanceLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 2000, // allow up to 2000 requests per IP per minute
+    windowMs: 1 * 60 * 1000,
+    limit: 120,
     standardHeaders: true,
     legacyHeaders: false,
-    message: 'Too many attendance requests, please wait a moment and try again.'
+    handler: createRateLimitHandler('Too many attendance requests. Please wait a moment and try again.')
 });
 
 // Apply rate limiting after authentication for all attendance routes

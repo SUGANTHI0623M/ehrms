@@ -1,15 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/app_colors.dart';
-import '../../services/attendance_service.dart';
 import '../../services/auth_service.dart';
+import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
+import '../../utils/request_guard.dart';
 import '../../utils/snackbar_utils.dart';
 
 class SelfieCheckInScreen extends StatefulWidget {
@@ -32,7 +34,6 @@ const String _kAttendancePermissionDialogShown =
     'attendance_permission_dialog_shown';
 
 class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
-  final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
 
   File? _imageFile;
@@ -57,7 +58,10 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   bool _checkOutAllowed = true;
   String? _halfDayLeaveMessage;
 
-  bool _isToday = true;
+  /// Prevents double-tap on Check In / Check Out (429 and "server busy").
+  final RequestGuard _submitGuard = RequestGuard(
+    cooldown: const Duration(milliseconds: 1500),
+  );
 
   @override
   void initState() {
@@ -110,67 +114,56 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     await prefs.setBool(_kAttendancePermissionDialogShown, true);
   }
 
-  Future<void> _fetchAttendanceStatus([DateTime? date]) async {
-    DateTime targetDate = date ?? DateTime.now();
-    String formattedDate = targetDate.toIso8601String().split('T')[0];
+  void _fetchAttendanceStatus([DateTime? date]) {
+    final targetDate = date ?? DateTime.now();
+    final formattedDate = targetDate.toIso8601String().split('T')[0];
+    setState(() => _isStatusLoading = true);
+    context.read<AttendanceBloc>().add(
+      AttendanceStatusRequested(formattedDate),
+    );
+  }
 
-    // Check if we are viewing today
-    final now = DateTime.now();
-    final todayStr = now.toIso8601String().split('T')[0];
-    setState(() {
-      _isToday = formattedDate == todayStr;
-    });
-
-    // Use getAttendanceByDate if implemented, or fallback
-    // Note: You need to implement getAttendanceByDate in service or modify getTodayAttendance
-    // For now we will assume getTodayAttendance handles the current day,
-    // but we need a new method for historical data.
-    // Let's use getAttendanceByDate we just added.
-
-    final result = await _attendanceService.getAttendanceByDate(formattedDate);
-
-    if (result['success'] && mounted) {
-      final responseBody =
-          result['data']; // This is now { data: ..., branch: ... }
-
-      // Handle the nested structure
-      var data = responseBody;
-      var branch;
-      if (responseBody != null &&
-          (responseBody.containsKey('data') ||
-              responseBody.containsKey('branch'))) {
-        data = responseBody['data'];
-        branch = responseBody['branch'];
-      }
-
+  void _onAttendanceStateChanged(BuildContext context, AttendanceState state) {
+    if (state is AttendanceStatusLoaded) {
+      if (!mounted) return;
       setState(() {
-        _branchData = branch;
-        // Half-day leave: session-based check-in/check-out allowed (from backend)
-        _checkInAllowed = responseBody['checkInAllowed'] ?? true;
-        _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
-        final halfDay = responseBody['halfDayLeave'];
-        _halfDayLeaveMessage = halfDay is Map
-            ? halfDay['message'] as String?
-            : null;
-        // Logic for check-in/out button only applies to TODAY
-        if (data != null && _isToday) {
-          _isCheckedIn = data['punchIn'] != null && data['punchOut'] == null;
-          _isCompleted = data['punchIn'] != null && data['punchOut'] != null;
-        } else if (!_isToday) {
-          // Viewing past date - disable buttons or separate view
-          _isCheckedIn = false;
-          _isCompleted = true; // effectively disable actions
-        } else {
-          // No data for today yet
-          _isCheckedIn = false;
-          _isCompleted = false;
-        }
+        _branchData = state.branchData;
+        _checkInAllowed = state.checkInAllowed;
+        _checkOutAllowed = state.checkOutAllowed;
+        _halfDayLeaveMessage = state.halfDayLeaveMessage;
+        _isCheckedIn = state.isCheckedIn;
+        _isCompleted = state.isCompleted;
         _isStatusLoading = false;
       });
-    } else {
-      if (mounted) {
-        setState(() => _isStatusLoading = false);
-      }
+    } else if (state is AttendanceFailure) {
+      if (!mounted) return;
+      setState(() {
+        _isStatusLoading = false;
+        _isLoading = false;
+      });
+      SnackBarUtils.showSnackBar(context, state.message, isError: true);
+    } else if (state is AttendanceCheckInSuccess) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      SnackBarUtils.showSnackBar(
+        context,
+        'Checked In Successfully!',
+        backgroundColor: AppColors.success,
+      );
+      Navigator.pop(context, true);
+    } else if (state is AttendanceCheckOutSuccess) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      SnackBarUtils.showSnackBar(
+        context,
+        'Checked Out Successfully!',
+        backgroundColor: AppColors.success,
+      );
+      Navigator.pop(context, true);
+    } else if (state is AttendanceLoadInProgress && _isLoading) {
+      // Submitting check-in/out: keep _isLoading true (already set in _submitAttendance).
+    } else if (state is AttendanceLoadInProgress) {
+      // Loading status: _isStatusLoading already set in _fetchAttendanceStatus.
     }
   }
 
@@ -353,6 +346,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   }
 
   Future<void> _submitAttendance() async {
+    if (!_submitGuard.allow) return; // Throttle double-tap to avoid 429
     final requireSelfie = widget.template?['requireSelfie'] ?? true;
     // Check if geolocation is required (default to true if not specified)
     final bool requireGeolocation =
@@ -422,50 +416,33 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       );
     }
 
-    Map<String, dynamic> result;
-
+    if (!mounted) return;
     if (_isCheckedIn) {
-      result = await _attendanceService.checkOut(
-        _position?.latitude ?? 0.0,
-        _position?.longitude ?? 0.0,
-        _address ?? '',
-        area: _area,
-        city: _city,
-        pincode: _pincode,
-        selfie: selfiePayload,
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckOutRequested(
+          lat: _position?.latitude ?? 0.0,
+          lng: _position?.longitude ?? 0.0,
+          address: _address ?? '',
+          area: _area,
+          city: _city,
+          pincode: _pincode,
+          selfie: selfiePayload,
+        ),
       );
     } else {
-      result = await _attendanceService.checkIn(
-        _position?.latitude ?? 0.0,
-        _position?.longitude ?? 0.0,
-        _address ?? '',
-        area: _area,
-        city: _city,
-        pincode: _pincode,
-        selfie: selfiePayload,
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckInRequested(
+          lat: _position?.latitude ?? 0.0,
+          lng: _position?.longitude ?? 0.0,
+          address: _address ?? '',
+          area: _area,
+          city: _city,
+          pincode: _pincode,
+          selfie: selfiePayload,
+        ),
       );
     }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (result['success']) {
-        SnackBarUtils.showSnackBar(
-          context,
-          _isCheckedIn
-              ? 'Checked Out Successfully!'
-              : 'Checked In Successfully!',
-          backgroundColor: AppColors.success,
-        );
-
-        Navigator.pop(context, true); // Return success
-      } else {
-        SnackBarUtils.showSnackBar(
-          context,
-          result['message'] ?? 'Action failed',
-          isError: true,
-        );
-      }
-    }
+    // Success/failure handled in BlocListener (_onAttendanceStateChanged).
   }
 
   bool get _isCheckInDisabled => !_isCheckedIn && !_checkInAllowed;
@@ -479,6 +456,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return BlocListener<AttendanceBloc, AttendanceState>(
+      listener: _onAttendanceStateChanged,
+      child: _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     // Determine button text and state
     String buttonText = 'Check In';
     Color buttonColor = AppColors.primary;
@@ -494,7 +478,15 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       appBar: AppBar(title: const Text('Smart Attendance')),
       body: RefreshIndicator(
         onRefresh: () async {
-          await _fetchAttendanceStatus();
+          _fetchAttendanceStatus();
+          await context
+              .read<AttendanceBloc>()
+              .stream
+              .where(
+                (s) => s is AttendanceStatusLoaded || s is AttendanceFailure,
+              )
+              .first;
+          if (!mounted) return;
           if (widget.template?['requireGeolocation'] ?? true) {
             await _determinePosition();
           }

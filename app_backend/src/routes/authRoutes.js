@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { createRateLimitHandler } = require('../utils/rateLimitHandler');
 const router = express.Router();
 const {
     login,
@@ -19,13 +20,13 @@ const {
 const { protect } = require('../middleware/authMiddleware');
 const multer = require('multer');
 
-// Stricter rate limiting for authentication-related routes
+// Rate limiting for auth: 40 req/15min per IP (login, profile, photo, verify-face, etc.)
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // limit each IP to 20 requests per window
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    message: 'Too many authentication attempts, please try again later.'
+    windowMs: 15 * 60 * 1000,
+    limit: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: createRateLimitHandler('Too many authentication attempts. Please try again later.')
 });
 
 // Use memory storage for simple pass-through to Cloudinary

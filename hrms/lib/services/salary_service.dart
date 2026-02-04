@@ -1,49 +1,33 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import '../config/constants.dart';
 import '../services/auth_service.dart';
+import 'api_client.dart';
 
 class SalaryService {
   final AuthService _authService = AuthService();
+  final ApiClient _api = ApiClient();
 
   Future<Map<String, dynamic>> getSalaryStats({int? month, int? year}) async {
     final token = await _authService.getToken();
-    if (token == null) {
-      // throw Exception('No token found');
-      return {};
-    }
-
-    final queryParams = <String, String>{};
-    if (month != null) queryParams['month'] = month.toString();
-    if (year != null) queryParams['year'] = year.toString();
-
-    final uri = Uri.parse(
-      '${AppConstants.baseUrl}/payrolls/stats',
-    ).replace(queryParameters: queryParams);
-
+    if (token == null) return _getEmptySalaryData();
     try {
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
+      _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/payrolls/stats',
+        queryParameters: {
+          if (month != null) 'month': month,
+          if (year != null) 'year': year,
         },
       );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success'] == true) {
-          final result = data['data'];
-          return result is Map ? Map<String, dynamic>.from(result) : _getEmptySalaryData();
-        } else {
-          return _getEmptySalaryData();
-        }
-      } else if (response.statusCode == 404) {
-        return _getEmptySalaryData();
-      } else {
-        return _getEmptySalaryData();
+      final data = response.data;
+      if (data != null && data['success'] == true) {
+        final result = data['data'];
+        return result is Map ? Map<String, dynamic>.from(result) : _getEmptySalaryData();
       }
-    } catch (e) {
+      return _getEmptySalaryData();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return _getEmptySalaryData();
       return _getEmptySalaryData();
     }
   }
@@ -63,30 +47,19 @@ class SalaryService {
 
   Future<Map<String, dynamic>> getPayrolls({int? page, int? limit}) async {
     final token = await _authService.getToken();
-    if (token == null) {
-      throw Exception('No token found');
-    }
-
+    if (token == null) throw Exception('No token found');
     try {
-      final response = await http.get(
-        Uri.parse('${AppConstants.baseUrl}/payrolls?page=$page&limit=$limit'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+      _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/payrolls',
+        queryParameters: {'page': page ?? 1, 'limit': limit ?? 10},
       );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data; // Returns entire response including pagination
-      } else if (response.statusCode == 404) {
-        return {'success': true, 'data': []};
-      } else {
-        // Return empty list on error
-        return {'success': true, 'data': []};
-      }
-    } catch (e) {
-      throw Exception('Error fetching payrolls: $e');
+      final data = response.data;
+      if (data != null) return data;
+      return {'success': true, 'data': []};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return {'success': true, 'data': []};
+      throw Exception('Error fetching payrolls: ${e.message}');
     }
   }
 

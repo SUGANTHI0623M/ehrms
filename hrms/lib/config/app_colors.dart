@@ -9,6 +9,8 @@ class AppColors {
 
   // Secondary/Accent Colors
   static const Color accent = Color(0xFFFFA000);
+  static Color secondary = const Color(0xFF2196F3); // Blue 500
+  static Color text = const Color(0xFF263238); // Blue Grey 900
 
   // Neutral Colors
   static const Color background = Color(0xFFF5F7FA);

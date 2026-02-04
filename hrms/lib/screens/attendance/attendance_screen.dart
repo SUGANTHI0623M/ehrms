@@ -9,11 +9,18 @@ import '../../services/auth_service.dart';
 import '../../utils/attendance_display_util.dart';
 import '../attendance/selfie_checkin_screen.dart';
 import '../../utils/snackbar_utils.dart';
-import 'package:flutter/services.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int initialTabIndex;
-  const AttendanceScreen({super.key, this.initialTabIndex = 0});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const AttendanceScreen({
+    super.key,
+    this.initialTabIndex = 0,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -105,7 +112,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     super.dispose();
   }
 
-  Future<void> _initData() async {
+  Future<void> _initData({bool forceRefresh = false}) async {
     if (!mounted) return;
     // Clear lists and show loader so we never show stale data (avoids Jan → Feb flicker)
     setState(() {
@@ -124,7 +131,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!mounted) return;
     await _fetchHistory(refresh: true);
     if (!mounted) return;
-    await _fetchMonthData(_focusedDay.year, _focusedDay.month);
+    await _fetchMonthData(
+      _focusedDay.year,
+      _focusedDay.month,
+      forceRefresh: forceRefresh,
+    );
   }
 
   /// Load from profile whether staff has attendanceTemplateId (staffs collection). Used to avoid showing "Template not mapped" then refreshing to punch.
@@ -146,25 +157,33 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  Future<void> _refreshData() async {
+  Future<void> _refreshData({bool forceRefresh = false}) async {
     if (!mounted) return;
-    // Refresh all data for the current tab
+    if (forceRefresh) {
+      _attendanceService.clearCachesForRefresh();
+    }
+    final year = _focusedDay.year;
+    final month = _focusedDay.month;
     if (_tabController?.index == 0) {
-      // Mark Attendance tab - always fetch today's status
       await _fetchAttendanceStatus(date: DateTime.now());
       if (!mounted) return;
       await _fetchHistory(refresh: true);
+      if (!mounted) return;
+      await _fetchMonthData(year, month, forceRefresh: forceRefresh);
     } else {
-      // History tab - fetch status for focused day and refresh history/month data
       await _fetchAttendanceStatus(date: _focusedDay);
       if (!mounted) return;
       await _fetchHistory(refresh: true);
       if (!mounted) return;
-      await _fetchMonthData(_focusedDay.year, _focusedDay.month);
+      await _fetchMonthData(year, month, forceRefresh: forceRefresh);
     }
   }
 
-  Future<void> _fetchMonthData(int year, int month) async {
+  Future<void> _fetchMonthData(
+    int year,
+    int month, {
+    bool forceRefresh = false,
+  }) async {
     if (mounted) {
       setState(() {
         _isLoadingMonthData = true;
@@ -180,7 +199,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _leaveDateSet.clear();
       });
     }
-    final result = await _attendanceService.getMonthAttendance(year, month);
+    final result = await _attendanceService.getMonthAttendance(
+      year,
+      month,
+      forceRefresh: forceRefresh,
+    );
     if (!mounted) return;
 
     setState(() {
@@ -631,9 +654,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         punchOutAddress =
             punchOutLoc['address'] ??
             '${punchOutLoc['area'] ?? ''}, ${punchOutLoc['city'] ?? ''}, ${punchOutLoc['pincode'] ?? ''}';
-        if (branchName == null) {
-          branchName = punchOutLoc['branchName'] ?? record['branchName'];
-        }
+        branchName ??= punchOutLoc['branchName'] ?? record['branchName'];
       }
     }
 
@@ -2010,7 +2031,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: _refreshData,
+      onRefresh: () => _refreshData(forceRefresh: true),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
@@ -2041,7 +2062,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Widget _buildHistoryTab() {
     return RefreshIndicator(
-      onRefresh: _refreshData,
+      onRefresh: () => _refreshData(forceRefresh: true),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
@@ -2344,7 +2365,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             ),
         ],
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 2,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [_buildMarkAttendanceTab(), _buildHistoryTab()],
@@ -2768,7 +2792,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 .difference(graceEnd)
                                 .inMinutes;
                             alertMessage = gracePeriod > 0
-                                ? "You are $lateMinutes minute late. Shift start: $shiftStartStr (grace: ${gracePeriod} min)."
+                                ? "You are $lateMinutes minute late. Shift start: $shiftStartStr (grace: $gracePeriod min)."
                                 : "You are $lateMinutes minute late. Shift start time: $shiftStartStr";
                           }
                         } catch (_) {}
@@ -2821,7 +2845,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     }
 
                     // Always proceed to check-in/out (alert is informational only)
-                    await Navigator.push(
+                    if (!mounted) return;
+                    final changed = await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => SelfieCheckInScreen(
@@ -2831,7 +2856,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                         ),
                       ),
                     );
-                    _initData(); // Refresh everything on return
+                    if (!mounted) return;
+                    if (changed == true) {
+                      // Don't show any cached data — clear caches and force fresh fetch
+                      // so Recent Activity and History show punch-in/out immediately.
+                      _attendanceService.clearCachesForRefresh();
+                      await _initData(forceRefresh: true);
+                    } else {
+                      // If user backed out, just refresh current view (no force).
+                      await _refreshData();
+                    }
                   },
                   icon: Icon(
                     (_attendanceTemplate?['requireSelfie'] ?? true)

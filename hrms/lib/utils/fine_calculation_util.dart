@@ -1,6 +1,7 @@
 /// Fine Calculation Utility
 /// Implements the same grace time and fine calculation logic as the backend
 /// Matches the logic from backend/src/utils/fineCalculation.util.ts
+library;
 
 /// Shift timing information
 class ShiftTiming {

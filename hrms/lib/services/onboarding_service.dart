@@ -1,48 +1,38 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import 'api_client.dart';
 
 class OnboardingService {
-  final String baseUrl = AppConstants.baseUrl;
+  final ApiClient _api = ApiClient();
+
+  Future<void> _setToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token != null) _api.setAuthToken(token);
+  }
 
   Future<Map<String, dynamic>> getMyOnboarding() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-
-      if (token == null) {
-        return {'success': false, 'message': 'Not authenticated'};
-      }
-
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/onboarding/my-onboarding'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>('/onboarding/my-onboarding');
+      final body = response.data;
+      if (body != null && body['data'] != null) {
         return {'success': true, 'data': body['data']};
-      } else if (response.statusCode == 404) {
-        // Graceful fallback: If endpoint missing, return null data so UI just shows empty/nothing
-        return {'success': true, 'data': null};
-      } else {
-        final body = jsonDecode(response.body);
-        String message = 'Failed to fetch onboarding data';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
-        }
-        return {'success': false, 'message': message};
       }
+      return {'success': true, 'data': body?['data']};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        return {'success': true, 'data': null};
+      }
+      final d = e.response?.data;
+      String message = 'Failed to fetch onboarding data';
+      if (d is Map) {
+        message = (d['error']?['message'] ?? d['message']) as String? ?? message;
+      }
+      return {'success': false, 'message': message};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }
@@ -54,42 +44,33 @@ class OnboardingService {
     File file,
   ) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-
-      if (token == null) {
-        return {'success': false, 'message': 'Not authenticated'};
-      }
-
-      final dio = Dio();
+      await _setToken();
       final formData = FormData.fromMap({
         'file': await MultipartFile.fromFile(
           file.path,
-          filename: file.path.split('/').last,
+          filename: file.path.split(RegExp(r'[/\\]')).last,
         ),
       });
-
-      final response = await dio.post(
-        '$baseUrl/onboarding/$onboardingId/documents/$documentId/upload',
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/onboarding/$onboardingId/documents/$documentId/upload',
         data: formData,
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-          },
-        ),
       );
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': response.data['data']};
-      } else {
-        String message = 'Failed to upload document';
-        if (response.data != null && response.data['error'] != null) {
-          message = response.data['error']['message'] ?? message;
-        } else if (response.data != null && response.data['message'] != null) {
-          message = response.data['message'];
-        }
-        return {'success': false, 'message': message};
+      final body = response.data;
+      if (body != null && body['data'] != null) {
+        return {'success': true, 'data': body['data']};
       }
+      String message = 'Failed to upload document';
+      if (body != null) {
+        message = (body['error']?['message'] ?? body['message']) as String? ?? message;
+      }
+      return {'success': false, 'message': message};
+    } on DioException catch (e) {
+      final d = e.response?.data;
+      String message = 'Failed to upload document';
+      if (d is Map) {
+        message = (d['error']?['message'] ?? d['message']) as String? ?? message;
+      }
+      return {'success': false, 'message': message};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }

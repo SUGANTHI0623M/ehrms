@@ -1,76 +1,58 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../config/constants.dart';
+import 'api_client.dart';
 
 class RequestService {
-  final String baseUrl = AppConstants.baseUrl;
+  final ApiClient _api = ApiClient();
 
-  Future<Map<String, String>> _getHeaders() async {
+  Future<void> _setToken() async {
     final prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
-
-    // Sanitize token: Remove potential extra quotes which cause "jwt malformed"
     if (token != null && (token.startsWith('"') || token.endsWith('"'))) {
       token = token.replaceAll('"', '');
     }
-
-    // If token is strictly null (not logged in), don't send "Bearer null"
-    if (token == null || token.isEmpty) {
-      return {'Content-Type': 'application/json'};
-    }
-
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
-    };
+    if (token != null && token.isNotEmpty) _api.setAuthToken(token);
   }
 
   // --- DASHBOARD ---
 
   Future<Map<String, dynamic>> getDashboardData() async {
     try {
-      final headers = await _getHeaders();
-      final url = Uri.parse('$baseUrl/dashboard/employee');
-
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body['success'] == true) {
-          return {'success': true, 'data': body['data']};
-        }
-        return {
-          'success': false,
-          'message': body['message'] ?? 'Error fetching data',
-        };
-      } else if (response.statusCode == 404) {
-        // Graceful fallback for Production
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>('/dashboard/employee');
+      final body = response.data;
+      if (body != null && body['success'] == true) {
+        return {'success': true, 'data': body['data']};
+      }
+      return {'success': false, 'message': body?['message'] ?? 'Error fetching data'};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
         return {
           'success': true,
           'data': {
-            'attendance': {
-              'present': 0,
-              'absent': 0,
-              'late': 0,
-              'totalWorkingDays': 0,
-            },
+            'attendance': {'present': 0, 'absent': 0, 'late': 0, 'totalWorkingDays': 0},
             'leaves': {'pending': 0, 'approved': 0, 'rejected': 0},
             'loans': {'active': 0, 'pending': 0, 'total': 0},
             'reimbursements': {'pending': 0, 'approved': 0},
             'payslips': [],
           },
         };
-      } else {
-        return _handleErrorResponse(response, 'Failed to fetch dashboard data');
       }
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
+  }
+
+  String _dioMessage(DioException e) {
+    final d = e.response?.data;
+    if (d is Map) {
+      return (d['error']?['message'] ?? d['message']) as String? ?? 'Request failed';
+    }
+    if (e.response?.statusCode == 429) return 'Too many requests. Please wait a moment.';
+    return 'Request failed';
   }
 
   // --- LEAVE ---
@@ -82,32 +64,20 @@ class RequestService {
     DateTime? endDate,
   }) async {
     try {
-      final headers = await _getHeaders();
-      String url = '$baseUrl/requests/leave-types';
-      List<String> queryParams = [];
-
+      await _setToken();
+      final q = <String, dynamic>{};
       if (startDate != null && endDate != null) {
-        queryParams.add('startDate=${startDate.toIso8601String()}');
-        queryParams.add('endDate=${endDate.toIso8601String()}');
+        q['startDate'] = startDate.toIso8601String();
+        q['endDate'] = endDate.toIso8601String();
       } else if (month != null && year != null) {
-        queryParams.add('month=$month');
-        queryParams.add('year=$year');
+        q['month'] = month;
+        q['year'] = year;
       }
-
-      if (queryParams.isNotEmpty) {
-        url += '?${queryParams.join('&')}';
-      }
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return {'success': true, 'data': body['data']};
-      } else {
-        return _handleErrorResponse(response, 'Failed to fetch leave types');
-      }
+      final response = await _api.dio.get<Map<String, dynamic>>('/requests/leave-types', queryParameters: q);
+      final body = response.data;
+      return {'success': true, 'data': body?['data'] ?? body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -117,17 +87,12 @@ class RequestService {
   /// Returns list of { type, days } where days is the limit (null for Unpaid Leave).
   Future<Map<String, dynamic>> getLeaveTypesForApply() async {
     try {
-      final headers = await _getHeaders();
-      final url = Uri.parse('$baseUrl/requests/leave-types/for-apply');
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return {'success': true, 'data': body['data']};
-      } else {
-        return _handleErrorResponse(response, 'Failed to fetch leave types');
-      }
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>('/requests/leave-types/for-apply');
+      final body = response.data;
+      return {'success': true, 'data': body?['data'] ?? body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -135,31 +100,22 @@ class RequestService {
 
   Future<Map<String, dynamic>> applyLeave(Map<String, dynamic> data) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/requests/leave'),
-            headers: headers,
-            body: jsonEncode(data),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-        // Normalize response
-        var responseData = body;
-        if (body is Map &&
-            body.containsKey('data') &&
-            body['data'] is Map &&
-            body['data'].containsKey('leave')) {
-          responseData = body['data']['leave'];
-        } else if (body is Map && body.containsKey('data')) {
-          responseData = body['data'];
+      await _setToken();
+      final response = await _api.dio.post<Map<String, dynamic>>('/requests/leave', data: data);
+      final body = response.data;
+      if (body == null) return {'success': false, 'message': 'Invalid response'};
+      var responseData = body;
+      if (body.containsKey('data') && body['data'] is Map) {
+        final d = body['data'] as Map;
+        if (d.containsKey('leave')) {
+          responseData = d['leave'] as Map<String, dynamic>;
+        } else {
+          responseData = Map<String, dynamic>.from(d);
         }
-        return {'success': true, 'data': responseData};
-      } else {
-        return _handleErrorResponse(response, 'Failed to apply leave');
       }
+      return {'success': true, 'data': responseData};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -174,43 +130,22 @@ class RequestService {
     int limit = 10,
   }) async {
     try {
-      final headers = await _getHeaders();
-      String url = '$baseUrl/requests/leave';
-      List<String> queryParams = ['page=$page', 'limit=$limit'];
-
-      if (status != null && status != 'All Status') {
-        queryParams.add('status=$status');
-      }
-      if (search != null && search.isNotEmpty) {
-        queryParams.add('search=$search');
-      }
-      if (startDate != null) {
-        queryParams.add('startDate=${startDate.toIso8601String()}');
-      }
-      if (endDate != null) {
-        queryParams.add('endDate=${endDate.toIso8601String()}');
-      }
-
-      url += '?${queryParams.join('&')}';
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        // The API returns a direct List<dynamic>
-        if (body is List) {
-          return {'success': true, 'data': body};
-        }
-        // Fallback if it's a Map
-        if (body is Map && body['success'] == true) {
-          return {'success': true, 'data': body['data']};
-        }
-        return {'success': true, 'data': body};
-      } else {
-        return _handleErrorResponse(response, 'Failed to fetch leave requests');
-      }
+      await _setToken();
+      final q = <String, dynamic>{
+        'page': page,
+        'limit': limit,
+        if (status != null && status != 'All Status') 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate.toIso8601String(),
+        if (endDate != null) 'endDate': endDate.toIso8601String(),
+      };
+      final response = await _api.dio.get<dynamic>('/requests/leave', queryParameters: q);
+      final body = response.data;
+      if (body is List) return {'success': true, 'data': body};
+      if (body is Map && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      return {'success': true, 'data': body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -220,25 +155,13 @@ class RequestService {
 
   Future<Map<String, dynamic>> applyLoan(Map<String, dynamic> data) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/requests/loan'),
-            headers: headers,
-            body: jsonEncode(data),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-        var responseData = body;
-        if (body is Map && body.containsKey('data')) {
-          responseData = body['data'];
-        }
-        return {'success': true, 'data': responseData};
-      } else {
-        return _handleErrorResponse(response, 'Failed to apply loan');
-      }
+      await _setToken();
+      final response = await _api.dio.post<Map<String, dynamic>>('/requests/loan', data: data);
+      final body = response.data;
+      final responseData = body != null && body.containsKey('data') ? body['data']! : body;
+      return {'success': true, 'data': responseData};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -253,38 +176,21 @@ class RequestService {
     int limit = 10,
   }) async {
     try {
-      final headers = await _getHeaders();
-      String url = '$baseUrl/requests/loan';
-      List<String> queryParams = ['page=$page', 'limit=$limit'];
-
-      if (status != null && status != 'All Status') {
-        queryParams.add('status=$status');
-      }
-      if (search != null && search.isNotEmpty) {
-        queryParams.add('search=$search');
-      }
-      if (startDate != null) {
-        queryParams.add('startDate=${startDate.toIso8601String()}');
-      }
-      if (endDate != null) {
-        queryParams.add('endDate=${endDate.toIso8601String()}');
-      }
-
-      url += '?${queryParams.join('&')}';
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['success'] == true) {
-          return {'success': true, 'data': body['data']};
-        }
-        return {'success': true, 'data': body};
-      } else {
-        return _handleErrorResponse(response, 'Failed to fetch loan requests');
-      }
+      await _setToken();
+      final q = <String, dynamic>{
+        'page': page,
+        'limit': limit,
+        if (status != null && status != 'All Status') 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate.toIso8601String(),
+        if (endDate != null) 'endDate': endDate.toIso8601String(),
+      };
+      final response = await _api.dio.get<Map<String, dynamic>>('/requests/loan', queryParameters: q);
+      final body = response.data;
+      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      return {'success': true, 'data': body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -294,31 +200,18 @@ class RequestService {
 
   Future<Map<String, dynamic>> applyExpense(Map<String, dynamic> data) async {
     try {
-      final headers = await _getHeaders();
-      // Adjust endpoint if needed, sticking to old 'expense' for now but backend supports both
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/requests/expense'),
-            headers: headers,
-            body: jsonEncode(data),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-        var responseData = body;
-        if (body is Map &&
-            body.containsKey('data') &&
-            body['data'] is Map &&
-            body['data'].containsKey('reimbursement')) {
-          responseData = body['data']['reimbursement'];
-        } else if (body is Map && body.containsKey('data')) {
-          responseData = body['data'];
-        }
-        return {'success': true, 'data': responseData};
-      } else {
-        return _handleErrorResponse(response, 'Failed to apply expense');
+      await _setToken();
+      final response = await _api.dio.post<Map<String, dynamic>>('/requests/expense', data: data);
+      final body = response.data;
+      if (body == null) return {'success': false, 'message': 'Invalid response'};
+      var responseData = body;
+      if (body.containsKey('data') && body['data'] is Map) {
+        final d = body['data'] as Map;
+        responseData = d['reimbursement'] ?? d;
       }
+      return {'success': true, 'data': responseData};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -333,41 +226,21 @@ class RequestService {
     int limit = 10,
   }) async {
     try {
-      final headers = await _getHeaders();
-      String url = '$baseUrl/requests/expense';
-      List<String> queryParams = ['page=$page', 'limit=$limit'];
-
-      if (status != null && status != 'All Status') {
-        queryParams.add('status=$status');
-      }
-      if (search != null && search.isNotEmpty) {
-        queryParams.add('search=$search');
-      }
-      if (startDate != null) {
-        queryParams.add('startDate=${startDate.toIso8601String()}');
-      }
-      if (endDate != null) {
-        queryParams.add('endDate=${endDate.toIso8601String()}');
-      }
-
-      url += '?${queryParams.join('&')}';
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['success'] == true) {
-          return {'success': true, 'data': body['data']};
-        }
-        return {'success': true, 'data': body};
-      } else {
-        return _handleErrorResponse(
-          response,
-          'Failed to fetch expense requests',
-        );
-      }
+      await _setToken();
+      final q = <String, dynamic>{
+        'page': page,
+        'limit': limit,
+        if (status != null && status != 'All Status') 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate.toIso8601String(),
+        if (endDate != null) 'endDate': endDate.toIso8601String(),
+      };
+      final response = await _api.dio.get<Map<String, dynamic>>('/requests/expense', queryParameters: q);
+      final body = response.data;
+      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      return {'success': true, 'data': body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -377,28 +250,15 @@ class RequestService {
 
   Future<Map<String, dynamic>> requestPayslip(Map<String, dynamic> data) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/requests/payslip'),
-            headers: headers,
-            body: jsonEncode(data),
-          )
-          .timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['success'] == true) {
-          return {
-            'success': true,
-            'data': body['data'],
-            'message': body['message'],
-          };
-        }
-        return {'success': true, 'data': body};
-      } else {
-        return _handleErrorResponse(response, 'Failed to request payslip');
+      await _setToken();
+      final response = await _api.dio.post<Map<String, dynamic>>('/requests/payslip', data: data);
+      final body = response.data;
+      if (body != null && (body['success'] == true || response.statusCode == 201)) {
+        return {'success': true, 'data': body['data'], 'message': body['message']};
       }
+      return {'success': true, 'data': body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -413,41 +273,21 @@ class RequestService {
     int limit = 10,
   }) async {
     try {
-      final headers = await _getHeaders();
-      String url = '$baseUrl/requests/payslip';
-      List<String> queryParams = ['page=$page', 'limit=$limit'];
-
-      if (status != null && status != 'All Status') {
-        queryParams.add('status=$status');
-      }
-      if (search != null && search.isNotEmpty) {
-        queryParams.add('search=$search');
-      }
-      if (startDate != null) {
-        queryParams.add('startDate=${startDate.toIso8601String()}');
-      }
-      if (endDate != null) {
-        queryParams.add('endDate=${endDate.toIso8601String()}');
-      }
-
-      url += '?${queryParams.join('&')}';
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['success'] == true) {
-          return {'success': true, 'data': body['data']};
-        }
-        return {'success': true, 'data': body};
-      } else {
-        return _handleErrorResponse(
-          response,
-          'Failed to fetch payslip requests',
-        );
-      }
+      await _setToken();
+      final q = <String, dynamic>{
+        'page': page,
+        'limit': limit,
+        if (status != null && status != 'All Status') 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate.toIso8601String(),
+        if (endDate != null) 'endDate': endDate.toIso8601String(),
+      };
+      final response = await _api.dio.get<Map<String, dynamic>>('/requests/payslip', queryParameters: q);
+      final body = response.data;
+      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      return {'success': true, 'data': body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -455,20 +295,16 @@ class RequestService {
 
   Future<Map<String, dynamic>> viewPayslipRequest(String requestId) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/requests/payslip/$requestId/view'),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        // Return PDF bytes
-        return {'success': true, 'data': response.bodyBytes};
-      } else {
-        return _handleErrorResponse(response, 'Failed to view payslip');
-      }
+      await _setToken();
+      final response = await _api.dio.get<List<int>>(
+        '/requests/payslip/$requestId/view',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes != null) return {'success': true, 'data': bytes};
+      return {'success': false, 'message': 'Failed to view payslip'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -476,41 +312,19 @@ class RequestService {
 
   Future<Map<String, dynamic>> downloadPayslipRequest(String requestId) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/requests/payslip/$requestId/download'),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        // Return PDF bytes
-        return {'success': true, 'data': response.bodyBytes};
-      } else {
-        return _handleErrorResponse(response, 'Failed to download payslip');
-      }
+      await _setToken();
+      final response = await _api.dio.get<List<int>>(
+        '/requests/payslip/$requestId/download',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes != null) return {'success': true, 'data': bytes};
+      return {'success': false, 'message': 'Failed to download payslip'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
-  }
-
-  Map<String, dynamic> _handleErrorResponse(
-    http.Response response,
-    String defaultMessage,
-  ) {
-    String message = defaultMessage;
-    try {
-      final errorData = jsonDecode(response.body);
-      if (errorData['error'] != null && errorData['error']['message'] != null) {
-        message = errorData['error']['message'];
-      } else {
-        message = errorData['message'] ?? message;
-      }
-    } catch (_) {
-      message = 'Server error: ${response.statusCode}';
-    }
-    return {'success': false, 'message': message};
   }
 
   String _handleException(dynamic error) {

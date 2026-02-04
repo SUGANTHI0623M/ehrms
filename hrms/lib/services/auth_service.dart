@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
 import '../config/constants.dart';
+import 'api_client.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -15,86 +16,102 @@ class AuthService {
   final String baseUrl = AppConstants.baseUrl;
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final ApiClient _api = ApiClient();
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/login'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email, 'password': password}),
-          )
-          .timeout(const Duration(seconds: 15)); // Increased timeout
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/login',
+        data: {'email': email, 'password': password},
+      );
+      final body = response.data ?? {};
+      final data = body['data'];
 
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        final data = body['data']; // Extract 'data' object
-
-        final prefs = await SharedPreferences.getInstance();
-
-        // Handle both valid generic structures and flattened structures
-        String? accessToken;
-        if (data != null && data['accessToken'] != null) {
-          accessToken = data['accessToken'];
-        } else if (body['token'] != null) {
-          accessToken = body['token'];
-        } else if (body['accessToken'] != null) {
-          accessToken = body['accessToken'];
-        }
-
-        if (accessToken != null) {
-          await prefs.setString('token', accessToken);
-        }
-
-        // Handle User Data
-        dynamic userData;
-        if (data != null && data['user'] != null) {
-          userData = data['user'];
-        } else if (body['_id'] != null) {
-          // Fallback: If the body itself is the user object (flattened)
-          userData = body;
-        }
-
-        if (userData != null) {
-          await prefs.setString('user', jsonEncode(userData));
-        }
-
-        return {'success': true, 'data': data};
-      } else {
-        // Check if response is HTML (like 502 Bad Gateway from nginx)
-        String responseBody = response.body.trim();
-        if (responseBody.startsWith('<html>') ||
-            responseBody.startsWith('<!DOCTYPE')) {
-          return {
-            'success': false,
-            'message':
-                'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-          };
-        }
-
-        // Try to parse as JSON
-        try {
-          final body = jsonDecode(response.body);
-          // Handle nested error object { error: { message: "..." } }
-          String message = 'Login failed';
-          if (body['error'] != null && body['error']['message'] != null) {
-            message = body['error']['message'];
-          } else if (body['message'] != null) {
-            message = body['message'];
-          }
-          return {'success': false, 'message': message};
-        } catch (e) {
-          // Response is not valid JSON
-          return {
-            'success': false,
-            'message':
-                'Server error (${response.statusCode}). Invalid response format.',
-          };
-        }
+      final prefs = await SharedPreferences.getInstance();
+      String? accessToken;
+      if (data != null && data['accessToken'] != null) {
+        accessToken = data['accessToken'];
+      } else if (body['token'] != null) {
+        accessToken = body['token'];
+      } else if (body['accessToken'] != null) {
+        accessToken = body['accessToken'];
       }
+      if (accessToken != null) {
+        await prefs.setString('token', accessToken);
+      }
+      dynamic userData;
+      if (data != null && data['user'] != null) {
+        userData = data['user'];
+      } else if (body['_id'] != null) {
+        userData = body;
+      }
+      if (userData != null) {
+        await prefs.setString('user', jsonEncode(userData));
+      }
+      _api.setAuthToken(accessToken);
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Login failed', (code, body) {
+        if (code != null && code >= 500) {
+          return 'Server error ($code). The backend server is not responding. Please try again later.';
+        }
+        return _messageFromBody(body) ?? 'Login failed';
+      });
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
+  }
+
+  /// Shared Dio error handling: 429 message, JSON body parsing, HTML fallback.
+  Map<String, dynamic> _handleDioError(
+    DioException e,
+    String defaultMessage,
+    String Function(int? code, dynamic body)? messageFn,
+  ) {
+    final code = e.response?.statusCode;
+    final data = e.response?.data;
+    String? bodyStr;
+    Map<String, dynamic>? bodyMap;
+    if (data is String) {
+      bodyStr = data;
+      if (bodyStr.trim().startsWith('<')) {
+        return {
+          'success': false,
+          'message': code != null
+              ? 'Server error ($code). The backend server is not responding. Please try again later.'
+              : defaultMessage,
+        };
+      }
+      try {
+        bodyMap = jsonDecode(bodyStr) as Map<String, dynamic>?;
+      } catch (_) {}
+    } else if (data is Map) {
+      bodyMap = Map<String, dynamic>.from(data);
+    }
+    if (code == 429) {
+      return {
+        'success': false,
+        'message': bodyMap != null
+            ? (bodyMap['error']?['message'] ??
+                  bodyMap['message'] ??
+                  'Too many requests. Please try again later.')
+            : 'Too many requests. Please try again later.',
+      };
+    }
+    final message = messageFn != null
+        ? messageFn(code, bodyMap ?? bodyStr)
+        : _messageFromBody(bodyMap);
+    return {'success': false, 'message': message ?? defaultMessage};
+  }
+
+  static String? _messageFromBody(dynamic body) {
+    if (body is Map) {
+      if (body['error'] != null && body['error']['message'] != null) {
+        return body['error']['message'] as String?;
+      }
+      return body['message'] as String?;
+    }
+    return null;
   }
 
   Future<UserCredential?> signInWithGoogle() async {
@@ -126,56 +143,28 @@ class AuthService {
   // Verify email with backend after Google Sign-In
   Future<Map<String, dynamic>> googleLoginBackend(String email) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/google-login'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email}),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        final data = body['data'];
-
-        final prefs = await SharedPreferences.getInstance();
-        if (data != null && data['accessToken'] != null) {
-          await prefs.setString('token', data['accessToken']);
-        }
-        if (data != null && data['user'] != null) {
-          await prefs.setString('user', jsonEncode(data['user']));
-        }
-        return {'success': true, 'data': data};
-      } else {
-        // Check if response is HTML (like 502 Bad Gateway from nginx)
-        String responseBody = response.body.trim();
-        if (responseBody.startsWith('<html>') ||
-            responseBody.startsWith('<!DOCTYPE')) {
-          return {
-            'success': false,
-            'message':
-                'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-          };
-        }
-
-        // Try to parse as JSON
-        try {
-          final body = jsonDecode(response.body);
-          String message = 'Login failed';
-          if (body['error'] != null && body['error']['message'] != null) {
-            message = body['error']['message'];
-          } else if (body['message'] != null) {
-            message = body['message'];
-          }
-          return {'success': false, 'message': message};
-        } catch (e) {
-          return {
-            'success': false,
-            'message':
-                'Server error (${response.statusCode}). Invalid response format.',
-          };
-        }
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/google-login',
+        data: {'email': email},
+      );
+      final body = response.data ?? {};
+      final data = body['data'];
+      final prefs = await SharedPreferences.getInstance();
+      if (data != null && data['accessToken'] != null) {
+        await prefs.setString('token', data['accessToken']);
       }
+      if (data != null && data['user'] != null) {
+        await prefs.setString('user', jsonEncode(data['user']));
+      }
+      _api.setAuthToken(data?['accessToken']);
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Login failed', (code, body) {
+        if (code != null && code >= 500) {
+          return 'Server error ($code). The backend server is not responding. Please try again later.';
+        }
+        return _messageFromBody(body) ?? 'Login failed';
+      });
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -223,59 +212,33 @@ class AuthService {
       if (token == null) {
         return {'success': false, 'message': 'Not authenticated'};
       }
-
-      final url = Uri.parse('$baseUrl/auth/profile');
-
-      final response = await http
-          .get(
-            url,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
+      _api.setAuthToken(token);
+      try {
+        final response = await _api.dio.get<Map<String, dynamic>>(
+          '/auth/profile',
+        );
+        final body = response.data ?? {};
         return {'success': true, 'data': body['data']};
-      } else {
-        // Fallback: If 404 or other error, try to load from local storage
-        final userStr = prefs.getString('user');
-        if (userStr != null) {
-          try {
-            final userObj = jsonDecode(userStr);
-            return {
-              'success': true,
-              'data': {
-                'profile': userObj,
-                'staffData': prefs.getString('staff') != null
-                    ? jsonDecode(prefs.getString('staff')!)
-                    : {},
-              },
-            };
-          } catch (_) {}
-        }
-
-        if (response.statusCode == 404) {
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 404) {
+          final userStr = prefs.getString('user');
+          if (userStr != null) {
+            try {
+              final userObj = jsonDecode(userStr);
+              return {
+                'success': true,
+                'data': {
+                  'profile': userObj,
+                  'staffData': prefs.getString('staff') != null
+                      ? jsonDecode(prefs.getString('staff')!)
+                      : {},
+                },
+              };
+            } catch (_) {}
+          }
           return {'success': false, 'message': 'Profile not found (404).'};
         }
-
-        try {
-          final body = jsonDecode(response.body);
-          String message = 'Failed to fetch profile';
-          if (body['error'] != null && body['error']['message'] != null) {
-            message = body['error']['message'];
-          } else if (body['message'] != null) {
-            message = body['message'];
-          }
-          return {'success': false, 'message': message};
-        } catch (e) {
-          return {
-            'success': false,
-            'message': 'Server Error: ${response.statusCode}',
-          };
-        }
+        return _handleDioError(e, 'Failed to fetch profile', null);
       }
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
@@ -289,28 +252,11 @@ class AuthService {
       if (token == null) {
         return {'success': false, 'message': 'Not authenticated'};
       }
-
-      final response = await http
-          .put(
-            Uri.parse('$baseUrl/auth/profile'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(data),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return {'success': true};
-      } else {
-        final body = jsonDecode(response.body);
-        String message = 'Failed to update profile';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        }
-        return {'success': false, 'message': message};
-      }
+      _api.setAuthToken(token);
+      await _api.dio.put<Map<String, dynamic>>('/auth/profile', data: data);
+      return {'success': true};
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to update profile', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -328,43 +274,21 @@ class AuthService {
         return {'success': false, 'message': 'Not authenticated'};
       }
 
-      final response = await http
-          .patch(
-            Uri.parse('$baseUrl/auth/profile/education'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({'education': education}),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        try {
-          final body = jsonDecode(response.body);
-          return {'success': true, 'data': body['data']};
-        } catch (e) {
-          return {
-            'success': false,
-            'message': 'Invalid response format from server',
-          };
-        }
-      } else {
-        String message = 'Failed to update education';
-        try {
-          final body = jsonDecode(response.body);
-          if (body['error'] != null && body['error']['message'] != null) {
-            message = body['error']['message'];
-          } else if (body['message'] != null) {
-            message = body['message'];
-          }
-        } catch (e) {
-          // Response is not JSON (likely HTML error page)
-          message =
-              'Server error (${response.statusCode}). Please check if the endpoint exists.';
-        }
-        return {'success': false, 'message': message};
+      _api.setAuthToken(token);
+      final response = await _api.dio.patch<Map<String, dynamic>>(
+        '/auth/profile/education',
+        data: {'education': education},
+      );
+      final body = response.data;
+      if (body != null && body['data'] != null) {
+        return {'success': true, 'data': body['data']};
       }
+      return {
+        'success': false,
+        'message': 'Invalid response format from server',
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to update education', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -387,53 +311,32 @@ class AuthService {
         token = token.replaceAll('"', '');
       }
 
-      final response = await http
-          .patch(
-            Uri.parse('$baseUrl/auth/profile/experience'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({'experience': experience}),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        try {
-          final body = jsonDecode(response.body);
-          return {
-            'success': true,
-            'data': body['data'],
-            'message': body['message'] ?? 'Experience updated successfully',
-          };
-        } catch (e) {
-          return {
-            'success': false,
-            'message': 'Invalid response format from server',
-          };
-        }
-      } else {
-        String message = 'Failed to update experience';
-        try {
-          final body = jsonDecode(response.body);
-          if (body['error'] != null && body['error']['message'] != null) {
-            message = body['error']['message'];
-          } else if (body['message'] != null) {
-            message = body['message'];
-          }
-        } catch (e) {
-          // Response is not JSON (likely HTML error page)
-          message =
-              'Server error (${response.statusCode}). Please check if the endpoint exists.';
-        }
-        return {'success': false, 'message': message};
+      _api.setAuthToken(token);
+      final response = await _api.dio.patch<Map<String, dynamic>>(
+        '/auth/profile/experience',
+        data: {'experience': experience},
+      );
+      final body = response.data;
+      if (body != null) {
+        return {
+          'success': true,
+          'data': body['data'],
+          'message': body['message'] ?? 'Experience updated successfully',
+        };
       }
+      return {
+        'success': false,
+        'message': 'Invalid response format from server',
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to update experience', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
   }
 
   Future<void> logout() async {
+    _api.clearAuthToken();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     await _googleSignIn.signOut();
@@ -461,91 +364,42 @@ class AuthService {
       debugPrint('[AuthService] ForgotPassword: URL: $url');
     }
     try {
-      final response = await http
-          .post(
-            Uri.parse(url),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email}),
-          )
-          .timeout(const Duration(seconds: 15));
-
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/forgot-password',
+        data: {'email': email},
+      );
+      final body = response.data;
       if (kDebugMode) {
         debugPrint(
-          '[AuthService] ForgotPassword: Response status: ${response.statusCode}',
+          '[AuthService] ForgotPassword: ✅ OTP sent successfully to $email',
         );
         debugPrint(
-          '[AuthService] ForgotPassword: Response headers: ${response.headers}',
+          '[AuthService] ForgotPassword: Server message: ${body?['message']}',
         );
       }
-
-      // Check if response is HTML (like 404/502 from nginx or server)
-      String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') ||
-          responseBody.startsWith('<!DOCTYPE')) {
-        if (kDebugMode) {
-          debugPrint(
-            '[AuthService] ForgotPassword: Received HTML response (server error)',
-          );
-          debugPrint(
-            '[AuthService] ForgotPassword: Response body preview: ${responseBody.substring(0, responseBody.length > 200 ? 200 : responseBody.length)}',
-          );
-        }
-        // Check if it's a 404 - retry once (route registration might be delayed)
-        if (response.statusCode == 404 && retryCount < 1) {
-          if (kDebugMode) {
-            debugPrint(
-              '[AuthService] ForgotPassword: Got 404, retrying once after 500ms delay...',
-            );
-          }
-          await Future.delayed(const Duration(milliseconds: 500));
-          return forgotPassword(email, retryCount: retryCount + 1);
-        }
-        // After retry or non-404 HTML error
-        if (response.statusCode == 404) {
-          return {
-            'success': false,
-            'message':
-                'Forgot password endpoint not found (404). Please try again or contact support.',
-          };
-        }
-        return {
-          'success': false,
-          'message':
-              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-        };
+      return {
+        'success': true,
+        'message': body?['message'] as String? ?? 'OTP sent successfully',
+      };
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404 && retryCount < 1) {
+        if (kDebugMode)
+          debugPrint('[AuthService] ForgotPassword: Got 404, retrying once...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        return forgotPassword(email, retryCount: retryCount + 1);
       }
-
-      final body = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        if (kDebugMode) {
-          debugPrint(
-            '[AuthService] ForgotPassword: ✅ OTP sent successfully to $email',
-          );
-          debugPrint(
-            '[AuthService] ForgotPassword: Server message: ${body['message']}',
-          );
+      return _handleDioError(e, 'Failed to send OTP', (code, _) {
+        if (code == 404) {
+          return 'Forgot password endpoint not found (404). Please try again or contact support.';
         }
-        return {
-          'success': true,
-          'message': body['message'] ?? 'OTP sent successfully',
-        };
-      } else {
-        String message = 'Failed to send OTP';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
+        if (code != null && code >= 500) {
+          return 'Server error ($code). The backend server is not responding. Please try again later.';
         }
-        if (kDebugMode) {
-          debugPrint('[AuthService] ForgotPassword: ❌ Failed - $message');
-        }
-        return {'success': false, 'message': message};
-      }
+        return 'Failed to send OTP';
+      });
     } catch (e) {
-      if (kDebugMode) {
+      if (kDebugMode)
         debugPrint('[AuthService] ForgotPassword: Exception - ${e.toString()}');
-      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -558,67 +412,28 @@ class AuthService {
       debugPrint('[AuthService] VerifyOTP: Verifying OTP for email: $email');
     }
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/verify-otp'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email, 'otp': otp}),
-          )
-          .timeout(const Duration(seconds: 15));
-
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/verify-otp',
+        data: {'email': email, 'otp': otp},
+      );
+      final body = response.data;
       if (kDebugMode) {
         debugPrint(
-          '[AuthService] VerifyOTP: Response status: ${response.statusCode}',
+          '[AuthService] VerifyOTP: ✅ OTP verified successfully for $email',
+        );
+        debugPrint(
+          '[AuthService] VerifyOTP: Server message: ${body?['message']}',
         );
       }
-
-      // Check if response is HTML (like 502 Bad Gateway from nginx)
-      String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') ||
-          responseBody.startsWith('<!DOCTYPE')) {
-        if (kDebugMode) {
-          debugPrint(
-            '[AuthService] VerifyOTP: Received HTML response (server error)',
-          );
-        }
-        return {
-          'success': false,
-          'message':
-              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-        };
-      }
-
-      final body = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        if (kDebugMode) {
-          debugPrint(
-            '[AuthService] VerifyOTP: ✅ OTP verified successfully for $email',
-          );
-          debugPrint(
-            '[AuthService] VerifyOTP: Server message: ${body['message']}',
-          );
-        }
-        return {
-          'success': true,
-          'message': body['message'] ?? 'OTP verified successfully',
-        };
-      } else {
-        String message = 'Invalid or expired OTP';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
-        }
-        if (kDebugMode) {
-          debugPrint('[AuthService] VerifyOTP: ❌ Failed - $message');
-        }
-        return {'success': false, 'message': message};
-      }
+      return {
+        'success': true,
+        'message': body?['message'] as String? ?? 'OTP verified successfully',
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Invalid or expired OTP', null);
     } catch (e) {
-      if (kDebugMode) {
+      if (kDebugMode)
         debugPrint('[AuthService] VerifyOTP: Exception - ${e.toString()}');
-      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -629,45 +444,17 @@ class AuthService {
     required String newPassword,
   }) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/reset-password'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'email': email,
-              'otp': otp,
-              'newPassword': newPassword,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      // Check if response is HTML (like 502 Bad Gateway from nginx)
-      String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') ||
-          responseBody.startsWith('<!DOCTYPE')) {
-        return {
-          'success': false,
-          'message':
-              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-        };
-      }
-
-      final body = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'message': body['message'] ?? 'Password reset successfully',
-        };
-      } else {
-        String message = 'Failed to reset password';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
-        }
-        return {'success': false, 'message': message};
-      }
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/reset-password',
+        data: {'email': email, 'otp': otp, 'newPassword': newPassword},
+      );
+      final body = response.data;
+      return {
+        'success': true,
+        'message': body?['message'] as String? ?? 'Password reset successfully',
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to reset password', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -694,47 +481,19 @@ class AuthService {
         token = token.replaceAll('"', '');
       }
 
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/change-password'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({
-              'oldPassword': oldPassword,
-              'newPassword': newPassword,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      // Check if response is HTML (like 502 Bad Gateway from nginx)
-      String responseBody = response.body.trim();
-      if (responseBody.startsWith('<html>') ||
-          responseBody.startsWith('<!DOCTYPE')) {
-        return {
-          'success': false,
-          'message':
-              'Server error (${response.statusCode}). The backend server is not responding. Please try again later.',
-        };
-      }
-
-      final body = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'message': body['message'] ?? 'Password updated successfully',
-        };
-      } else {
-        String message = 'Failed to update password';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
-        }
-        return {'success': false, 'message': message};
-      }
+      _api.setAuthToken(token);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/change-password',
+        data: {'oldPassword': oldPassword, 'newPassword': newPassword},
+      );
+      final body = response.data;
+      return {
+        'success': true,
+        'message':
+            body?['message'] as String? ?? 'Password updated successfully',
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to update password', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -758,49 +517,45 @@ class AuthService {
         token = token.replaceAll('"', '');
       }
 
-      final uri = Uri.parse('$baseUrl/auth/profile-photo');
-      final request = http.MultipartRequest('POST', uri);
-      request.headers['Authorization'] = 'Bearer $token';
-      request.files.add(
-        await http.MultipartFile.fromPath('file', imageFile.path),
+      _api.setAuthToken(token);
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(
+          imageFile.path,
+          filename: imageFile.path.split(RegExp(r'[/\\]')).last,
+        ),
+      });
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/profile-photo',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
       );
-
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
-      );
-      final responseBody = await streamedResponse.stream.bytesToString();
-
-      final body = jsonDecode(responseBody);
-
-      if (streamedResponse.statusCode == 200) {
-        // Optionally update cached user profile photo locally if backend returns it
-        if (body['data'] != null && body['data']['photoUrl'] != null) {
-          final userStr = prefs.getString('user');
-          if (userStr != null) {
-            try {
-              final user = jsonDecode(userStr);
-              final url = body['data']['photoUrl'];
+      final body = response.data;
+      if (body != null &&
+          body['data'] != null &&
+          body['data']['photoUrl'] != null) {
+        final userStr = prefs.getString('user');
+        if (userStr != null) {
+          try {
+            final user = jsonDecode(userStr) as Map<String, dynamic>;
+            final url = body['data']['photoUrl'] as String?;
+            if (url != null) {
               user['photoUrl'] = url;
               user['avatar'] = url;
               await prefs.setString('user', jsonEncode(user));
-            } catch (_) {}
-          }
+            }
+          } catch (_) {}
         }
-
-        return {
-          'success': true,
-          'message': body['message'] ?? 'Profile photo updated successfully',
-          'data': body['data'],
-        };
-      } else {
-        String message = 'Failed to update profile photo';
-        if (body['error'] != null && body['error']['message'] != null) {
-          message = body['error']['message'];
-        } else if (body['message'] != null) {
-          message = body['message'];
-        }
-        return {'success': false, 'message': message};
       }
+      return {
+        'success': true,
+        'message': body?['message'] ?? 'Profile photo updated successfully',
+        'data': body?['data'],
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e, 'Failed to update profile photo', null);
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -823,27 +578,24 @@ class AuthService {
         };
       }
 
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/verify-face'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({'selfie': selfieDataUrl}),
-          )
-          .timeout(const Duration(seconds: 90));
-
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
+      _api.setAuthToken(token);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/auth/verify-face',
+        data: {'selfie': selfieDataUrl},
+        options: Options(receiveTimeout: const Duration(seconds: 90)),
+      );
+      final body = response.data;
       final match = body?['match'] == true;
       final rawMessage =
           body?['message']?.toString() ??
           body?['error']?['message']?.toString();
       final message = _userFriendlyVerifyMessage(rawMessage, match);
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'match': match, 'message': message};
-      }
+      return {'success': true, 'match': match, 'message': message};
+    } on DioException catch (e) {
+      final body = e.response?.data;
+      final rawMessage = body is Map
+          ? (body['message'] ?? body['error']?['message'])?.toString()
+          : null;
       return {
         'success': false,
         'match': false,
@@ -861,27 +613,36 @@ class AuthService {
   /// Maps backend/exception text to clear, short text for the user.
   String _userFriendlyVerifyMessage(String? raw, bool matched) {
     if (matched) return 'Photo matched';
-    if (raw == null || raw.isEmpty)
+    if (raw == null || raw.isEmpty) {
       return 'Face not matching. Please try again.';
+    }
     final s = raw.toLowerCase();
-    if (s.contains('timeout') || s.contains('timed out'))
+    if (s.contains('timeout') || s.contains('timed out')) {
       return 'Verification took too long. Please try again.';
+    }
     if (s.contains('network') ||
         s.contains('internet') ||
-        s.contains('connection'))
+        s.contains('connection')) {
       return 'Check your internet connection and try again.';
-    if (s.contains('server') || s.contains('respond'))
+    }
+    if (s.contains('server') || s.contains('respond')) {
       return 'Server is busy. Please try again.';
-    if (s.contains('no face') || s.contains('face could not be detected'))
+    }
+    if (s.contains('no face') || s.contains('face could not be detected')) {
       return 'No face detected. Ensure your face is clearly visible.';
-    if (s.contains('profile photo') || s.contains('upload a profile'))
+    }
+    if (s.contains('profile photo') || s.contains('upload a profile')) {
       return 'Please upload a profile photo first.';
-    if (s.contains('not authenticated') || s.contains('sign in'))
+    }
+    if (s.contains('not authenticated') || s.contains('sign in')) {
       return 'Please sign in and try again.';
-    if (s.contains('exception') || s.contains('error') || s.length > 60)
+    }
+    if (s.contains('exception') || s.contains('error') || s.length > 60) {
       return 'Face verification failed. Please try again.';
-    if (s.contains('not matching') || s.contains('no match'))
+    }
+    if (s.contains('not matching') || s.contains('no match')) {
       return 'Face not matching. Please try again.';
+    }
     return 'Face not matching. Please try again.';
   }
 }

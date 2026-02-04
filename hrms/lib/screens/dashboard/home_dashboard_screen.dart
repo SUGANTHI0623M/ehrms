@@ -15,7 +15,21 @@ import '../../utils/attendance_display_util.dart';
 
 class HomeDashboardScreen extends StatefulWidget {
   final Function(int index, {int subTabIndex})? onNavigate;
-  const HomeDashboardScreen({super.key, this.onNavigate});
+
+  /// When true, only the body content is built (no Scaffold/AppBar/drawer). Use when embedded in Dashboard.
+  final bool embeddedInDashboard;
+
+  /// Used when embedded in Dashboard: drawer tab index and callback for tab switching.
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const HomeDashboardScreen({
+    super.key,
+    this.onNavigate,
+    this.embeddedInDashboard = false,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<HomeDashboardScreen> createState() => _HomeDashboardScreenState();
@@ -174,8 +188,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
       final staffSalary = staffData['salary'] as Map<String, dynamic>;
       final basicSalary = staffSalary['basicSalary'];
-      if (basicSalary == null || (basicSalary is num && basicSalary <= 0))
+      if (basicSalary == null || (basicSalary is num && basicSalary <= 0)) {
         return;
+      }
 
       // Company name from business
       String? companyName;
@@ -304,15 +319,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           );
         }
       }
-      if (workingDaysInfo == null) {
-        workingDaysInfo = calculateWorkingDays(
-          year,
-          monthIndex,
-          holidays,
-          weeklyOffPattern,
-          weeklyHolidays,
-        );
-      }
+      workingDaysInfo ??= calculateWorkingDays(
+        year,
+        monthIndex,
+        holidays,
+        weeklyOffPattern,
+        weeklyHolidays,
+      );
 
       // 6. Salary structure (same as Salary Overview)
       final salaryInputs = SalaryStructureInputs.fromMap(staffSalary);
@@ -497,6 +510,136 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ? _workingDaysForSalary.toString()
         : (_stats?['attendanceSummary']?['totalDays']?.toString() ?? '0');
 
+    final content = RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Welcome Card
+            _buildWelcomeCard(),
+            const SizedBox(height: 32),
+
+            // 2. Summary Cards
+            GridView.count(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 1.6,
+              children: [
+                _buildSummaryCard(
+                  title: 'Pending Leaves',
+                  value: pendingLeaves,
+                  isWide: isWide,
+                ),
+                _buildActiveLoansCard(
+                  activeLoansCount: activeLoansCount,
+                  activeLoans: _activeLoans,
+                  isWide: isWide,
+                ),
+                _buildSummaryCard(
+                  title: 'This Month Net',
+                  value: monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
+                  subValue: presentDays != '0'
+                      ? '$presentDays days present'
+                      : (salaryStatus == 'Pending' ? 'Pending' : ''),
+                  isWide: isWide,
+                ),
+                if (!_isCandidate)
+                  _buildSummaryCard(
+                    title: 'Present Days',
+                    value: presentDays,
+                    subValue: 'Out of $totalDaysForCard working days',
+                    isWide: isWide,
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 32),
+
+            // 3. Quick Actions
+            const Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.02),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: _buildQuickActionButtons(),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // 4. Recent Leaves & Attendance
+            isWide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _buildRecentLeavesCard()),
+                      if (!_isCandidate) ...[
+                        const SizedBox(width: 24),
+                        Expanded(child: _buildMonthAttendanceCard()),
+                      ],
+                    ],
+                  )
+                : Column(
+                    children: [
+                      _buildRecentLeavesCard(),
+                      if (!_isCandidate) ...[
+                        const SizedBox(height: 24),
+                        _buildMonthAttendanceCard(),
+                      ],
+                    ],
+                  ),
+          ],
+        ),
+      ),
+    );
+    if (widget.embeddedInDashboard) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          leading: const MenuIconButton(),
+          title: const Text(
+            'Dashboard',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          centerTitle: true,
+          elevation: 0,
+        ),
+        drawer: AppDrawer(
+          currentIndex: widget.dashboardTabIndex ?? 0,
+          onNavigateToIndex: widget.onNavigateToIndex,
+        ),
+        body: content,
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -509,120 +652,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         elevation: 0,
       ),
       drawer: const AppDrawer(),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Welcome Card
-              _buildWelcomeCard(),
-              const SizedBox(height: 32),
-
-              // 2. Summary Cards
-              GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.6,
-                children: [
-                  _buildSummaryCard(
-                    title: 'Pending Leaves',
-                    value: pendingLeaves,
-                    isWide: isWide,
-                  ),
-                  _buildActiveLoansCard(
-                    activeLoansCount: activeLoansCount,
-                    activeLoans: _activeLoans,
-                    isWide: isWide,
-                  ),
-                  _buildSummaryCard(
-                    title: 'This Month Net',
-                    value: monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
-                    subValue: presentDays != '0'
-                        ? '$presentDays days present'
-                        : (salaryStatus == 'Pending' ? 'Pending' : ''),
-                    isWide: isWide,
-                  ),
-                  if (!_isCandidate)
-                    _buildSummaryCard(
-                      title: 'Present Days',
-                      value: presentDays,
-                      subValue: 'Out of $totalDaysForCard working days',
-                      isWide: isWide,
-                    ),
-                ],
-              ),
-
-              const SizedBox(height: 32),
-
-              // 3. Quick Actions
-              const Text(
-                'Quick Actions',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: _buildQuickActionButtons(),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // 4. Recent Leaves & Attendance
-              isWide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _buildRecentLeavesCard()),
-                        if (!_isCandidate) ...[
-                          const SizedBox(width: 24),
-                          Expanded(child: _buildMonthAttendanceCard()),
-                        ],
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        _buildRecentLeavesCard(),
-                        if (!_isCandidate) ...[
-                          const SizedBox(height: 24),
-                          _buildMonthAttendanceCard(),
-                        ],
-                      ],
-                    ),
-            ],
-          ),
-        ),
-      ),
+      body: content,
     );
   }
 
@@ -857,7 +887,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       ),
                     ),
                     Text(
-                      '₹${amount}',
+                      '₹$amount',
                       style: const TextStyle(
                         fontSize: 10,
                         color: Color(0xFF1E293B),
@@ -867,7 +897,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   ],
                 ),
               );
-            }).toList(),
+            }),
             if (activeLoans.length > 2)
               Text(
                 '+${activeLoans.length - 2} more',

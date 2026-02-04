@@ -432,8 +432,40 @@ const uploadDocument = async (req, res) => {
     }
 };
 
+const Customer = require('../models/Customer'); // Import Customer model
+
+// Create Customer
+const createCustomer = async (req, res) => {
+    try {
+        const { customerName, customerNumber, address, emailId, city, pincode, addedBy, businessId } = req.body;
+
+        // Set createdAt from request or default to now
+        const createdAt = req.body.createdAt ? new Date(req.body.createdAt) : new Date();
+
+        const newCustomer = new Customer({
+            customerName,
+            customerNumber,
+            address,
+            emailId,
+            city,
+            pincode,
+            addedBy,
+            businessId,
+            createdAt,
+            updatedAt: new Date(), // Set updatedAt as well
+        });
+
+        const customer = await newCustomer.save();
+        res.status(201).json({ success: true, data: customer });
+    } catch (error) {
+        console.error('Error creating customer:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 module.exports = {
     getMyOnboarding,
     getAllOnboardings,
-    uploadDocument
+    uploadDocument,
+    createCustomer,
 };

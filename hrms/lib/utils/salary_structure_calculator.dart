@@ -1,5 +1,6 @@
 /// Comprehensive Salary Structure Calculation Utility
 /// All calculations are done dynamically - NO values are stored except base inputs
+library;
 
 class SalaryStructureInputs {
   // Fixed Salary Components (Monthly)
@@ -465,7 +466,7 @@ WorkingDaysInfo calculateWorkingDays(
         ? 0
         : dartWeekday; // Convert to JS format: 0=Sunday, 1=Monday, ..., 6=Saturday
     final dateString =
-        '${year}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+        '$year-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
 
     // Check if it's a holiday first
     if (holidayDateStrings.contains(dateString)) {

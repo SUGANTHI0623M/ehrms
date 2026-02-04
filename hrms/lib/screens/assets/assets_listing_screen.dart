@@ -382,7 +382,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
                                       style: const TextStyle(fontSize: 13),
                                     ),
                                   );
-                                }).where((item) => item.value != null).toList(),
+                                }).where((item) => item.value != null),
                               ],
                               onChanged: (value) {
                                 setState(() {

@@ -1,12 +1,13 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
 import '../config/constants.dart';
+import 'api_client.dart';
 
 class AttendanceService {
   final String baseUrl = AppConstants.baseUrl;
+  final ApiClient _api = ApiClient();
   Map<String, dynamic>? attendanceTemplate;
   Map<String, dynamic>? _cachedTodayAttendance;
   DateTime? _lastTodayAttendanceFetch;
@@ -32,6 +33,15 @@ class AttendanceService {
     return false;
   }
 
+  /// Call after check-in/check-out so Recent Activity and History never show
+  /// cached data. Also call from the attendance screen before a forced refresh.
+  void clearCachesForRefresh() {
+    _cachedTodayAttendance = null;
+    _lastTodayAttendanceFetch = null;
+    _cachedMonthAttendance.clear();
+    _lastMonthAttendanceFetch.clear();
+  }
+
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token'); // This token is now the accessToken
@@ -52,6 +62,8 @@ class AttendanceService {
   }) async {
     try {
       final headers = await _getHeaders();
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
       final body = {
         'latitude': lat,
         'longitude': lng,
@@ -61,28 +73,33 @@ class AttendanceService {
         'pincode': pincode,
         'selfie': selfie,
       };
-
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/attendance/checkin'),
-            headers: headers,
-            body: jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      // Backend returns 201 for new check-in, 200 for Half Day update
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        // Invalidate today attendance cache after a successful check-in
-        _cachedTodayAttendance = null;
-        _lastTodayAttendanceFetch = null;
-        return {'success': true, 'data': data};
-      } else {
-        return _handleErrorResponse(response, 'Check-in failed');
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/attendance/checkin',
+        data: body,
+      );
+      final data = response.data;
+      clearCachesForRefresh();
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      if (e.response != null) {
+        final msg = _dioErrorMessage(e);
+        return {'success': false, 'message': msg ?? 'Check-in failed'};
       }
+      return {'success': false, 'message': _handleException(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
+  }
+
+  String? _dioErrorMessage(DioException e) {
+    final data = e.response?.data;
+    if (data is Map) {
+      return (data['error']?['message'] ?? data['message']) as String?;
+    }
+    if (e.response?.statusCode == 429) {
+      return 'Too many requests. Please wait a moment.';
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> checkOut(
@@ -96,6 +113,8 @@ class AttendanceService {
   }) async {
     try {
       final headers = await _getHeaders();
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
       final body = {
         'latitude': lat,
         'longitude': lng,
@@ -105,24 +124,18 @@ class AttendanceService {
         'pincode': pincode,
         'selfie': selfie,
       };
-
-      final response = await http
-          .put(
-            Uri.parse('$baseUrl/attendance/checkout'),
-            headers: headers,
-            body: jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        // Invalidate today attendance cache after a successful check-out
-        _cachedTodayAttendance = null;
-        _lastTodayAttendanceFetch = null;
-        return {'success': true, 'data': data};
-      } else {
-        return _handleErrorResponse(response, 'Check-out failed');
-      }
+      final response = await _api.dio.put<Map<String, dynamic>>(
+        '/attendance/checkout',
+        data: body,
+      );
+      final data = response.data;
+      clearCachesForRefresh();
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Check-out failed',
+      };
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -165,35 +178,31 @@ class AttendanceService {
       }
 
       final headers = await _getHeaders();
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 10));
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(endpointPath);
+      final data = response.data ?? {};
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        // Store template if available
-        if (data['template'] != null) {
-          attendanceTemplate = data['template'];
+      if (data['template'] != null) {
+        attendanceTemplate = data['template'];
+      }
+      _cachedTodayAttendance = data;
+      _lastTodayAttendanceFetch = DateTime.now();
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 429) {
+        if (_cachedTodayAttendance != null) {
+          return {'success': true, 'data': _cachedTodayAttendance};
         }
-
-        // Cache today attendance and timestamp
-        _cachedTodayAttendance = data;
-        _lastTodayAttendanceFetch = DateTime.now();
-
-        return {'success': true, 'data': data};
-      } else if (response.statusCode == 429) {
-        // Explicitly handle rate limit errors with a friendly message
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
         };
-      } else {
-        return {
-          'success': false,
-          'message': 'Failed to fetch status: ${response.statusCode}',
-        };
       }
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Failed to fetch status',
+      };
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -201,34 +210,33 @@ class AttendanceService {
 
   Future<Map<String, dynamic>> getAttendanceByDate(String date) async {
     try {
-      final headers = await _getHeaders();
       final url = '$baseUrl/attendance/today?date=$date';
-
       if (_isThrottled(url)) {
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
         };
       }
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return {'success': true, 'data': data};
-      } else if (response.statusCode == 429) {
+      final headers = await _getHeaders();
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/attendance/today',
+        queryParameters: {'date': date},
+      );
+      final data = response.data ?? {};
+      return {'success': true, 'data': data};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 429) {
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
         };
-      } else {
-        return {
-          'success': false,
-          'message': 'Failed to fetch attendance: ${response.statusCode}',
-        };
       }
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Failed to fetch attendance',
+      };
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -240,7 +248,6 @@ class AttendanceService {
     String? date,
   }) async {
     try {
-      final headers = await _getHeaders();
       String url = '$baseUrl/attendance/history?page=$page&limit=$limit';
       if (date != null) {
         url += '&date=$date';
@@ -252,25 +259,30 @@ class AttendanceService {
           'message': 'Too many requests. Please wait a moment.',
         };
       }
-
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return {'success': true, 'data': data};
-      } else if (response.statusCode == 429) {
+      final headers = await _getHeaders();
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/attendance/history',
+        queryParameters: {
+          'page': page,
+          'limit': limit,
+          if (date != null) 'date': date,
+        },
+      );
+      final data = response.data ?? {};
+      return {'success': true, 'data': data['data'] ?? data};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 429) {
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
         };
-      } else {
-        return {
-          'success': false,
-          'message': 'Failed to fetch history: ${response.statusCode}',
-        };
       }
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Failed to fetch history',
+      };
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -295,11 +307,11 @@ class AttendanceService {
     bool forceRefresh = false,
     int retryCount = 0,
   }) async {
+    final cacheKey = '$year-$month';
     try {
-      final cacheKey = '$year-$month';
       final url = '$baseUrl/attendance/month?year=$year&month=$month';
 
-      // Check cache first (unless forced refresh)
+      // Check cache first (unless forced refresh — never use cache after check-in/out)
       if (!forceRefresh && _cachedMonthAttendance.containsKey(cacheKey)) {
         final lastFetch = _lastMonthAttendanceFetch[cacheKey];
         if (lastFetch != null &&
@@ -308,13 +320,11 @@ class AttendanceService {
         }
       }
 
-      // Throttle repeated calls within a short window
+      // Throttle repeated calls — when forceRefresh, never return cached data
       if (_isThrottled(url)) {
-        // If we have cache, return it even if expired (better than nothing)
-        if (_cachedMonthAttendance.containsKey(cacheKey)) {
+        if (!forceRefresh && _cachedMonthAttendance.containsKey(cacheKey)) {
           return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
         }
-        // If no cache and first retry, wait and retry once
         if (retryCount == 0) {
           await Future.delayed(const Duration(milliseconds: 1500));
           return _getMonthAttendanceWithRetry(
@@ -331,25 +341,22 @@ class AttendanceService {
       }
 
       final headers = await _getHeaders();
-      final response = await http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final attendanceData = data['data'];
-
-        // Cache the successful response
-        _cachedMonthAttendance[cacheKey] = attendanceData;
-        _lastMonthAttendanceFetch[cacheKey] = DateTime.now();
-
-        return {'success': true, 'data': attendanceData};
-      } else if (response.statusCode == 429) {
-        // On rate limit, return cached data if available
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/attendance/month',
+        queryParameters: {'year': year, 'month': month},
+      );
+      final data = response.data ?? {};
+      final attendanceData = data['data'] ?? data;
+      _cachedMonthAttendance[cacheKey] = attendanceData;
+      _lastMonthAttendanceFetch[cacheKey] = DateTime.now();
+      return {'success': true, 'data': attendanceData};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 429) {
         if (_cachedMonthAttendance.containsKey(cacheKey)) {
           return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
         }
-        // If no cache and first retry, wait and retry once with exponential backoff
         if (retryCount == 0) {
           await Future.delayed(const Duration(milliseconds: 2000));
           return _getMonthAttendanceWithRetry(
@@ -363,19 +370,16 @@ class AttendanceService {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
         };
-      } else {
-        // On other errors, return cached data if available
-        if (_cachedMonthAttendance.containsKey(cacheKey)) {
-          return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
-        }
-        return {
-          'success': false,
-          'message': 'Failed to fetch month attendance: ${response.statusCode}',
-        };
       }
+      if (_cachedMonthAttendance.containsKey(cacheKey)) {
+        return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
+      }
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Failed to fetch month attendance',
+      };
     } catch (e) {
       // On exception, return cached data if available
-      final cacheKey = '$year-$month';
       if (_cachedMonthAttendance.containsKey(cacheKey)) {
         return {'success': true, 'data': _cachedMonthAttendance[cacheKey]};
       }
@@ -393,35 +397,32 @@ class AttendanceService {
     }
   }
 
-  Map<String, dynamic> _handleErrorResponse(
-    http.Response response,
-    String defaultMessage,
-  ) {
-    String message = defaultMessage;
-    try {
-      final errorData = jsonDecode(response.body);
-      if (errorData['error'] != null && errorData['error']['message'] != null) {
-        message = errorData['error']['message'];
-      } else {
-        message = errorData['message'] ?? message;
-      }
-    } catch (_) {
-      message = 'Server error: ${response.statusCode}';
-    }
-    return {'success': false, 'message': message};
-  }
-
   String _handleException(dynamic error) {
+    if (error is DioException) {
+      if (error.response != null) {
+        return _dioErrorMessage(error) ?? 'Request failed';
+      }
+      switch (error.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return 'Connection timed out. The server is taking too long to respond. Please try again.';
+        case DioExceptionType.connectionError:
+          return 'Connection error. Please check your internet connection and try again.';
+        default:
+          break;
+      }
+    }
     if (error is SocketException) {
       // SocketException can occur even with internet if server is unreachable
       // Check error message to provide more specific feedback
       String errorMsg = error.message.toLowerCase();
-      if (errorMsg.contains('failed host lookup') || 
+      if (errorMsg.contains('failed host lookup') ||
           errorMsg.contains('name resolution') ||
           errorMsg.contains('nodename nor servname provided')) {
         return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
       } else if (errorMsg.contains('connection refused') ||
-                 errorMsg.contains('connection reset')) {
+          errorMsg.contains('connection reset')) {
         return 'Server is not responding. Please try again in a moment or contact support.';
       } else {
         return 'Connection error. Please check your internet connection and try again.';

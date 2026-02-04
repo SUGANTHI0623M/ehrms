@@ -3,14 +3,20 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
+import '../services/auth_service.dart';
 import '../screens/auth/login_screen.dart';
-import '../screens/profile/profile_screen.dart';
+import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/assets/assets_listing_screen.dart';
-// import '../screens/chatbot/chatbot_screen.dart';
 
 class AppDrawer extends StatefulWidget {
-  const AppDrawer({super.key});
+  /// Current tab index when used from Dashboard (0=Home, 1=Tasks, 2=Attendance, 3=Profile).
+  final int? currentIndex;
+
+  /// Called when user selects a main tab; closes drawer and switches tab.
+  final void Function(int index)? onNavigateToIndex;
+
+  const AppDrawer({super.key, this.currentIndex, this.onNavigateToIndex});
 
   @override
   State<AppDrawer> createState() => _AppDrawerState();
@@ -35,12 +41,30 @@ class _AppDrawerState extends State<AppDrawer> {
     }
   }
 
+  void _navigateToTab(int index) {
+    final callback = widget.onNavigateToIndex;
+    Navigator.pop(context);
+    // Wait for drawer to close before switching tab so overlay doesn't leave screen black
+    Future.microtask(() {
+      if (callback != null) {
+        callback(index);
+      } else if (mounted && context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => DashboardScreen(initialIndex: index),
+          ),
+          (route) => route.isFirst,
+        );
+      }
+    });
+  }
+
   Future<void> _logout(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    // Clear token, prefs, and sign out from Google/Firebase (must complete before navigating).
+    await AuthService().logout();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => LoginScreen()),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }
@@ -56,28 +80,35 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                // _buildDrawerItem(
-                //   icon: Icons.chat_bubble_rounded,
-                //   title: 'Assistant',
-                //   onTap: () {
-                //     Navigator.pop(context);
-                //     Navigator.push(
-                //       context,
-                //       MaterialPageRoute(
-                //         builder: (context) => const ChatbotScreen(),
-                //       ),
-                //     );
-                //   },
-                // ),
+                _buildDrawerItem(
+                  icon: Icons.home_rounded,
+                  title: 'Home',
+                  onTap: () => _navigateToTab(0),
+                ),
+                _buildDrawerItem(
+                  icon: Icons.assignment_rounded,
+                  title: 'Tasks',
+                  onTap: () => _navigateToTab(1),
+                ),
+                _buildDrawerItem(
+                  icon: Icons.access_time_rounded,
+                  title: 'Attendance',
+                  onTap: () => _navigateToTab(2),
+                ),
                 _buildDrawerItem(
                   icon: Icons.person_rounded,
                   title: 'Profile',
+                  onTap: () => _navigateToTab(3),
+                ),
+                _buildDrawerItem(
+                  icon: Icons.settings_rounded,
+                  title: 'Settings',
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const ProfileScreen(),
+                        builder: (context) => const SettingsScreen(),
                       ),
                     );
                   },
@@ -91,19 +122,6 @@ class _AppDrawerState extends State<AppDrawer> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const AssetsListingScreen(),
-                      ),
-                    );
-                  },
-                ),
-                _buildDrawerItem(
-                  icon: Icons.settings_rounded,
-                  title: 'Settings',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const SettingsScreen(),
                       ),
                     );
                   },
@@ -134,7 +152,8 @@ class _AppDrawerState extends State<AppDrawer> {
 
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
     final avatarUrl = _userData?['avatar'] ?? _userData?['photoUrl'];
-    final showAvatar = avatarUrl != null &&
+    final showAvatar =
+        avatarUrl != null &&
         avatarUrl.toString().trim().isNotEmpty &&
         avatarUrl.toString().startsWith('http');
 
@@ -225,17 +244,17 @@ class _AppDrawerState extends State<AppDrawer> {
       children: [
         Icon(icon, color: Colors.white60, size: 16),
         const SizedBox(width: 12),
-      Expanded(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 12,
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
-      ),
       ],
     );
   }

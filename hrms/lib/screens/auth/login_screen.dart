@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../services/auth_service.dart';
 import '../../config/app_colors.dart';
+import '../../bloc/auth/auth_bloc.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../../utils/snackbar_utils.dart';
 import 'forgot_password_screen.dart';
@@ -15,104 +17,31 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  // Firebase Google Sign-In only; login/logout go through AuthBloc → AuthRepository.
   final _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
 
-  bool _isLoading = false;
   bool _isPasswordVisible = false;
+  bool _lastAttemptWasGoogle = false;
 
-  void _handleLogin() async {
+  void _handleLogin() {
     if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-
-      final result = await _authService.login(
-        _emailController.text,
-        _passwordController.text,
-      );
-
-      setState(() => _isLoading = false);
-
-      if (result['success']) {
-        // Check user role - candidates are not allowed to login
-        final userData = result['data']['user'] ?? result['data'];
-        final role = (userData['role'] ?? '').toString().toLowerCase();
-
-        if (role == 'candidate') {
-          await _authService.logout();
-          if (mounted) {
-            SnackBarUtils.showSnackBar(
-              context,
-              'login credentials not matching',
-              isError: true,
-            );
-          }
-          return;
-        }
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => DashboardScreen()),
-        );
-      } else {
-        SnackBarUtils.showSnackBar(
-          context,
-          result['message'] ?? 'Login failed',
-          isError: true,
-        );
-      }
+      context.read<AuthBloc>().add(AuthLoginRequested(
+            _emailController.text,
+            _passwordController.text,
+          ));
     }
   }
 
   Future<void> _handleGoogleLogin() async {
-    setState(() => _isLoading = true);
     try {
       final userCredential = await _authService.signInWithGoogle();
-
-      if (userCredential != null && userCredential.user?.email != null) {
-        // Now check with backend
-        final backendResult = await _authService.googleLoginBackend(
-          userCredential.user!.email!,
-        );
-
-        if (mounted) {
-          if (backendResult['success']) {
-            // Check user role - candidates are not allowed to login
-            final userData = backendResult['data']['user'] ?? backendResult['data'];
-            final role = (userData['role'] ?? '').toString().toLowerCase();
-
-            if (role == 'candidate') {
-              await _authService.logout();
-              SnackBarUtils.showSnackBar(
-                context,
-                'login credentials not matching',
-                isError: true,
-              );
-              return;
-            }
-
-            SnackBarUtils.showSnackBar(
-              context,
-              'Login Successful!',
-              backgroundColor: AppColors.success,
-            );
-
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => DashboardScreen()),
-            );
-          } else {
-            // Login failed on backend (e.g. user not in DB)
-            SnackBarUtils.showSnackBar(
-              context,
-              backendResult['message'] ?? 'Login failed',
-              isError: true,
-            );
-
-            // Optionally sign out from firebase if backend access is denied
-            await _authService.logout();
-          }
-        }
-      }
+      if (userCredential == null || userCredential.user?.email == null) return;
+      if (!mounted) return;
+      _lastAttemptWasGoogle = true;
+      context.read<AuthBloc>().add(
+            AuthGoogleLoginRequested(userCredential.user!.email!),
+          );
     } catch (error) {
       if (mounted) {
         SnackBarUtils.showSnackBar(
@@ -121,14 +50,49 @@ class _LoginScreenState extends State<LoginScreen> {
           isError: true,
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _onAuthStateChanged(BuildContext context, AuthState state) {
+    if (state is AuthLoginSuccess) {
+      final userData = state.data['user'] ?? state.data;
+      final role = (userData['role'] ?? '').toString().toLowerCase();
+      if (role == 'candidate') {
+        context.read<AuthBloc>().add(const AuthLogoutRequested());
+        SnackBarUtils.showSnackBar(
+          context,
+          'login credentials not matching',
+          isError: true,
+        );
+        return;
+      }
+      SnackBarUtils.showSnackBar(
+        context,
+        'Login Successful!',
+        backgroundColor: AppColors.success,
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => DashboardScreen()),
+      );
+    } else if (state is AuthFailure) {
+      if (_lastAttemptWasGoogle) {
+        _lastAttemptWasGoogle = false;
+        context.read<AuthBloc>().add(const AuthLogoutRequested());
+      }
+      SnackBarUtils.showSnackBar(context, state.message, isError: true);
+    } else if (state is AuthLoginSuccess || state is AuthLoadInProgress) {
+      _lastAttemptWasGoogle = false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return BlocConsumer<AuthBloc, AuthState>(
+      listener: _onAuthStateChanged,
+      builder: (context, state) {
+        final isLoading = state is AuthLoadInProgress;
+        return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
@@ -268,7 +232,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: TextButton(
-                                  onPressed: _isLoading
+                                  onPressed: isLoading
                                       ? null
                                       : () {
                                           Navigator.push(
@@ -293,7 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                               // Login Button
                               ElevatedButton(
-                                onPressed: _isLoading ? null : _handleLogin,
+                                onPressed: isLoading ? null : _handleLogin,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primary,
                                   foregroundColor: Colors.white,
@@ -305,7 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   elevation: 2,
                                 ),
-                                child: _isLoading
+                                child: isLoading
                                     ? const SizedBox(
                                         height: 20,
                                         width: 20,
@@ -363,6 +327,8 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
+    );
+      },
     );
   }
 }

@@ -18,7 +18,14 @@ import '../../utils/snackbar_utils.dart';
 import '../../utils/face_detection_helper.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const ProfileScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -301,7 +308,10 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 3,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       appBar: AppBar(
         leading: const MenuIconButton(),
         title: const Text(
@@ -446,7 +456,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         radius: 40,
                         backgroundColor: Colors.white,
                         backgroundImage: showPhoto
-                            ? NetworkImage(photoUrlStr!)
+                            ? NetworkImage(photoUrlStr)
                             : null,
                         onBackgroundImageError: showPhoto
                             ? (_, __) {
@@ -1344,7 +1354,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
+          ...[
             Icon(icon, size: 10, color: badgeColor),
             const SizedBox(width: 3),
           ],
@@ -3692,7 +3702,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         items: options
             .map(
               (opt) => DropdownMenuItem<String>(value: opt, child: Text(opt)),
