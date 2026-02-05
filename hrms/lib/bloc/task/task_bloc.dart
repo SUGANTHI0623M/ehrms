@@ -4,7 +4,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../models/task.dart';
-import '../../models/customer.dart';
 import '../../repository/task_repository.dart';
 
 part 'task_event.dart';

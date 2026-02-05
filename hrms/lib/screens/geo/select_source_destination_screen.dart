@@ -4,12 +4,14 @@
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/customer.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/screens/geo/start_ride_screen.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
 
 class SelectSourceDestinationScreen extends StatefulWidget {
   final Task task;
@@ -33,6 +35,9 @@ class _SelectSourceDestinationScreenState
 
   String _destinationAddress = '';
   bool _loadingDestination = true;
+
+  /// When staff changes destination via search, we keep lat/lng so StartRide uses it (no fallback to client).
+  LatLng? _selectedDestinationLatLng;
 
   @override
   void initState() {
@@ -120,8 +125,9 @@ class _SelectSourceDestinationScreenState
         desiredAccuracy: LocationAccuracy.high,
       );
       if (mounted) setState(() => _loadingSource = false);
-      if (mounted)
+      if (mounted) {
         _reverseGeocodeSourceAt(position.latitude, position.longitude);
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -190,6 +196,7 @@ class _SelectSourceDestinationScreenState
             _destinationAddress =
                 details.formattedAddress ??
                 '${details.lat.toStringAsFixed(5)}, ${details.lng.toStringAsFixed(5)}';
+            _selectedDestinationLatLng = LatLng(details.lat, details.lng);
           });
         },
       ),
@@ -199,7 +206,16 @@ class _SelectSourceDestinationScreenState
   void _onContinueToMap() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => StartRideScreen(task: _task),
+        builder: (context) => StartRideScreen(
+          task: _task,
+          initialDestinationAddress:
+              _destinationAddress.isNotEmpty &&
+                  _destinationAddress != 'No customer address' &&
+                  _destinationAddress != 'Could not load address'
+              ? _destinationAddress
+              : null,
+          initialDestinationLatLng: _selectedDestinationLatLng,
+        ),
       ),
     );
   }
@@ -247,7 +263,54 @@ class _SelectSourceDestinationScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 24),
+            // Top card: Source & Destination (Uber-like, at TOP).
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  _buildTopRow(
+                    icon: Icons.gps_fixed_rounded,
+                    iconColor: AppColors.primary,
+                    label: 'Your location',
+                    value: _sourceAddress,
+                    trailing: Icon(
+                      Icons.more_vert_rounded,
+                      size: 20,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  Divider(height: 24, color: Colors.grey.shade200),
+                  _buildTopRow(
+                    icon: Icons.location_on_rounded,
+                    iconColor: AppColors.error,
+                    label: 'Destination',
+                    value: _destinationAddress.isEmpty
+                        ? 'Set destination'
+                        : _destinationAddress,
+                    trailing: TextButton.icon(
+                      onPressed: _loadingDestination
+                          ? null
+                          : _onChangeDestinationTap,
+                      icon: const Icon(Icons.swap_vert_rounded, size: 20),
+                      label: const Text('Change'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Text(
@@ -255,38 +318,46 @@ class _SelectSourceDestinationScreenState
                 style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            // Taller form area for source/destination cards.
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildCard(
-                      icon: Icons.gps_fixed_rounded,
-                      iconColor: AppColors.primary,
-                      label: 'Source',
-                      value: _sourceAddress,
-                      subtitle: 'Your current location',
-                      showChange: false,
+                    SizedBox(
+                      height: 120,
+                      child: _buildCard(
+                        icon: Icons.gps_fixed_rounded,
+                        iconColor: AppColors.primary,
+                        label: 'Source',
+                        value: _sourceAddress,
+                        subtitle: 'Your current location',
+                        showChange: false,
+                      ),
                     ),
                     const SizedBox(height: 16),
-                    _buildCard(
-                      icon: Icons.location_on_rounded,
-                      iconColor: AppColors.error,
-                      label: 'Destination',
-                      value: _destinationAddress.isEmpty
-                          ? 'Set destination'
-                          : _destinationAddress,
-                      subtitle: _customer?.customerName ?? 'Customer',
-                      showChange: true,
-                      onChange: _onChangeDestinationTap,
-                      loading: _loadingDestination,
+                    SizedBox(
+                      height: 120,
+                      child: _buildCard(
+                        icon: Icons.location_on_rounded,
+                        iconColor: AppColors.error,
+                        label: 'Destination',
+                        value: _destinationAddress.isEmpty
+                            ? 'Set destination'
+                            : _destinationAddress,
+                        subtitle: _customer?.customerName ?? 'Customer',
+                        showChange: true,
+                        onChange: _onChangeDestinationTap,
+                        loading: _loadingDestination,
+                      ),
                     ),
                     if (_loadingCustomer || _loadingSource) ...[
                       const SizedBox(height: 24),
                       const Center(child: CircularProgressIndicator()),
                     ],
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
@@ -337,6 +408,51 @@ class _SelectSourceDestinationScreenState
           ],
         ),
       ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+    );
+  }
+
+  Widget _buildTopRow({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    Widget? trailing,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, color: iconColor, size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing,
+      ],
     );
   }
 
@@ -480,9 +596,18 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
 
   Widget _buildPredictionTile(PlacePrediction p) {
     return ListTile(
-      leading: Icon(Icons.place_rounded, color: Colors.grey.shade600),
-      title: Text(p.mainText),
-      subtitle: p.secondaryText.isNotEmpty ? Text(p.secondaryText) : null,
+      dense: true,
+      leading: Icon(Icons.place_rounded, size: 20, color: Colors.grey.shade600),
+      title: Text(
+        p.mainText,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      ),
+      subtitle: p.secondaryText.isNotEmpty
+          ? Text(
+              p.secondaryText,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            )
+          : null,
       onTap: () async {
         setState(() => _fetchingPlace = true);
         PlaceDetails? details;
@@ -503,89 +628,96 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.6,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 12),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.location_on_rounded,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Select Destination',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search location...',
-                prefixIcon: const Icon(Icons.search_rounded),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: Colors.grey.shade50,
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
               ),
-              autofocus: true,
             ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _searching || _fetchingPlace
-                ? const Center(child: CircularProgressIndicator())
-                : _predictions.isEmpty
-                ? Center(
-                    child: Text(
-                      _searchController.text.trim().isEmpty
-                          ? 'Type to search address'
-                          : 'No results',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _predictions.length,
-                    itemBuilder: (context, index) {
-                      final p = _predictions[index];
-                      return _buildPredictionTile(p);
-                    },
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.location_on_rounded,
+                    color: AppColors.primary,
+                    size: 28,
                   ),
-          ),
-        ],
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Select Destination',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search location...',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                autofocus: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _searching || _fetchingPlace
+                  ? const Center(child: CircularProgressIndicator())
+                  : _predictions.isEmpty
+                  ? Center(
+                      child: Text(
+                        _searchController.text.trim().isEmpty
+                            ? 'Type to search address'
+                            : 'No results',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _predictions.length,
+                      itemBuilder: (context, index) {
+                        final p = _predictions[index];
+                        return _buildPredictionTile(p);
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

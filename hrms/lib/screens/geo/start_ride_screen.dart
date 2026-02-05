@@ -14,11 +14,27 @@ import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
+import 'package:hrms/screens/geo/task_detail_screen.dart';
+import 'package:hrms/widgets/app_drawer.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
+import 'package:hrms/widgets/menu_icon_button.dart';
 
+/// Optional initial destination from Select Source & Destination screen.
+/// When set, use this and do NOT fall back to client address.
 class StartRideScreen extends StatefulWidget {
   final Task task;
 
-  const StartRideScreen({super.key, required this.task});
+  /// If staff changed destination on Select screen, pass it here so we use it.
+  final String? initialDestinationAddress;
+  final LatLng? initialDestinationLatLng;
+
+  const StartRideScreen({
+    super.key,
+    required this.task,
+    this.initialDestinationAddress,
+    this.initialDestinationLatLng,
+  });
 
   @override
   State<StartRideScreen> createState() => _StartRideScreenState();
@@ -50,6 +66,23 @@ class _StartRideScreenState extends State<StartRideScreen> {
   }
 
   Future<void> _loadData() async {
+    // If staff selected a destination on Select screen, use it and do NOT fall back to client.
+    if (widget.initialDestinationLatLng != null &&
+        widget.initialDestinationAddress != null &&
+        widget.initialDestinationAddress!.isNotEmpty) {
+      setState(() {
+        _customer = _task.customer;
+        _loadingCustomer = false;
+        _destinationLatLng = widget.initialDestinationLatLng;
+        _destinationAddress = widget.initialDestinationAddress!;
+        _loadingDestination = false;
+      });
+      await _lockStartOnly();
+      if (mounted && _currentPosition != null && _destinationLatLng != null) {
+        _fetchRouteAndFitBounds();
+      }
+      return;
+    }
     if (_task.customer != null) {
       setState(() {
         _customer = _task.customer;
@@ -115,8 +148,9 @@ class _StartRideScreenState extends State<StartRideScreen> {
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      if (mounted)
+      if (mounted) {
         setState(() => _sourceAddress = 'Location permission denied');
+      }
       return;
     }
     try {
@@ -175,46 +209,57 @@ class _StartRideScreenState extends State<StartRideScreen> {
     }
   }
 
+  /// Fetch road route from Google Directions API. Actual path built from GPS during tracking.
   Future<void> _fetchRouteAndFitBounds() async {
     if (_currentPosition == null || _destinationLatLng == null) return;
+    final origin = LatLng(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+    );
+    final dest = _destinationLatLng!;
     try {
-      final result = await DirectionsService.getDistanceAndDuration(
-        originLat: _currentPosition!.latitude,
-        originLng: _currentPosition!.longitude,
-        destLat: _destinationLatLng!.latitude,
-        destLng: _destinationLatLng!.longitude,
+      final result = await DirectionsService.getRouteBetweenCoordinates(
+        originLat: origin.latitude,
+        originLng: origin.longitude,
+        destLat: dest.latitude,
+        destLng: dest.longitude,
       );
       if (!mounted) return;
-      final points = result.polylinePoints.isNotEmpty
-          ? result.polylinePoints
-          : [
-              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-              _destinationLatLng!,
-            ];
       setState(() {
         _distanceKm = result.distanceKm;
         _durationText = result.durationText;
         _polylines = {
           Polyline(
             polylineId: const PolylineId('route'),
-            points: points,
+            points: result.points,
             color: AppColors.primary,
             width: 5,
           ),
         };
       });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not load route: $e')));
-        setState(() {
-          _distanceKm = null;
-          _durationText = null;
-          _polylines = {};
-        });
-        return;
-      }
+    } catch (_) {
+      final meters = Geolocator.distanceBetween(
+        origin.latitude,
+        origin.longitude,
+        dest.latitude,
+        dest.longitude,
+      );
+      final km = meters / 1000;
+      final min = (km / 30 * 60).round().clamp(0, 999);
+      final eta = min > 60 ? '~${min ~/ 60} h' : '~$min min';
+      if (!mounted) return;
+      setState(() {
+        _distanceKm = km;
+        _durationText = eta;
+        _polylines = {
+          Polyline(
+            polylineId: const PolylineId('route'),
+            points: [origin, dest],
+            color: AppColors.primary,
+            width: 5,
+          ),
+        };
+      });
     }
     if (!mounted) return;
     _mapController?.animateCamera(
@@ -270,20 +315,22 @@ class _StartRideScreenState extends State<StartRideScreen> {
         });
         _fetchRouteAndFitBounds();
       } else {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _destinationAddress =
                 '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
             _loadingDestination = false;
           });
+        }
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _destinationAddress =
               '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
           _loadingDestination = false;
         });
+      }
     }
   }
 
@@ -333,6 +380,20 @@ class _StartRideScreenState extends State<StartRideScreen> {
         startLat: _currentPosition!.latitude,
         startLng: _currentPosition!.longitude,
       );
+      // Store initial point in Tracking collection (separate route).
+      debugPrint(
+        '[StartRide] Sending to DB: lat=${_currentPosition!.latitude} lng=${_currentPosition!.longitude}',
+      );
+      TaskService()
+          .storeTracking(
+            _task.id!,
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+            movementType: 'stop',
+          )
+          .catchError(
+            (e) => debugPrint('[StartRide] storeTracking failed: $e'),
+          );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -344,6 +405,7 @@ class _StartRideScreenState extends State<StartRideScreen> {
               _currentPosition!.longitude,
             ),
             dropoffLocation: _destinationLatLng!,
+            task: _task,
           ),
         ),
       );
@@ -370,33 +432,57 @@ class _StartRideScreenState extends State<StartRideScreen> {
         Navigator.of(context).pop();
       },
       child: Scaffold(
+        backgroundColor: Colors.white,
         appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary,
-                  AppColors.primary.withOpacity(0.85),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-          ),
+          leading: const MenuIconButton(),
           title: const Text(
             'Start Ride',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+          centerTitle: true,
           elevation: 0,
+          actions: [
+            IconButton(
+              icon: Icon(Icons.assignment_rounded, color: AppColors.primary),
+              tooltip: 'Task details',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        TaskDetailScreen(task: _task, fromRideScreen: true),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: Icon(Icons.call_rounded, color: AppColors.primary),
+              tooltip: 'Call customer',
+              onPressed: () async {
+                final number = _customer?.customerNumber?.trim();
+                if (number == null || number.isEmpty) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Customer number not available'),
+                      ),
+                    );
+                  }
+                  return;
+                }
+                final uri = Uri.parse('tel:$number');
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri);
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Cannot make call')),
+                  );
+                }
+              },
+            ),
+          ],
         ),
+        drawer: AppDrawer(currentIndex: 1),
         body: Column(
           children: [
             Expanded(
@@ -429,6 +515,7 @@ class _StartRideScreenState extends State<StartRideScreen> {
             _buildBottomSheet(),
           ],
         ),
+        bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       ),
     );
   }
@@ -709,11 +796,12 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
       lat: widget.currentLat,
       lng: widget.currentLng,
     );
-    if (mounted)
+    if (mounted) {
       setState(() {
         _predictions = list;
         _searching = false;
       });
+    }
   }
 
   @override
@@ -725,121 +813,151 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.6,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 12),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
+    return Padding(
+      padding: EdgeInsets.only(bottom: viewInsets),
+      child: Container(
+        height: screenHeight * 0.85,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.location_on_rounded,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Select Destination',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.location_on_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Select Destination',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search location...',
-                prefixIcon: const Icon(Icons.search_rounded),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: Colors.grey.shade50,
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
-              autofocus: true,
             ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _searching || _fetchingPlace
-                ? const Center(child: CircularProgressIndicator())
-                : _predictions.isEmpty
-                ? Center(
-                    child: Text(
-                      _searchController.text.trim().isEmpty
-                          ? 'Type to search address'
-                          : 'No results',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _predictions.length,
-                    itemBuilder: (context, index) {
-                      final p = _predictions[index];
-                      return ListTile(
-                        leading: Icon(
-                          Icons.place_rounded,
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search location...',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+                autofocus: true,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: _searching || _fetchingPlace
+                  ? const Center(child: CircularProgressIndicator())
+                  : _predictions.isEmpty
+                  ? Center(
+                      child: Text(
+                        _searchController.text.trim().isEmpty
+                            ? 'Type to search address'
+                            : 'No results',
+                        style: TextStyle(
+                          fontSize: 13,
                           color: Colors.grey.shade600,
                         ),
-                        title: Text(p.mainText),
-                        subtitle: p.secondaryText.isNotEmpty
-                            ? Text(p.secondaryText)
-                            : null,
-                        onTap: () async {
-                          setState(() => _fetchingPlace = true);
-                          PlaceDetails? details;
-                          try {
-                            details = await PlacesService.getPlaceDetails(
-                              p.placeId,
-                            );
-                          } catch (_) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Could not get place coordinates',
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: _predictions.length,
+                      itemBuilder: (context, index) {
+                        final p = _predictions[index];
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.place_rounded,
+                            size: 20,
+                            color: Colors.grey.shade600,
+                          ),
+                          title: Text(
+                            p.mainText,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: p.secondaryText.isNotEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    p.secondaryText,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
-                                ),
+                                )
+                              : null,
+                          onTap: () async {
+                            setState(() => _fetchingPlace = true);
+                            PlaceDetails? details;
+                            try {
+                              details = await PlacesService.getPlaceDetails(
+                                p.placeId,
                               );
+                            } catch (_) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Could not get place coordinates',
+                                    ),
+                                  ),
+                                );
+                              }
                             }
-                          }
-                          if (mounted) setState(() => _fetchingPlace = false);
-                          if (details != null && mounted) {
-                            widget.onSelect(details);
-                          }
-                        },
-                      );
-                    },
-                  ),
-          ),
-        ],
+                            if (mounted) setState(() => _fetchingPlace = false);
+                            if (details != null && mounted) {
+                              widget.onSelect(details);
+                            }
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

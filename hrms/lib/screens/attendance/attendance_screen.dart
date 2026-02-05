@@ -15,11 +15,15 @@ class AttendanceScreen extends StatefulWidget {
   final int? dashboardTabIndex;
   final void Function(int index)? onNavigateToIndex;
 
+  /// When true, this screen is the active tab (e.g. user switched to Attendance). Used to refresh once on open.
+  final bool? isActiveTab;
+
   const AttendanceScreen({
     super.key,
     this.initialTabIndex = 0,
     this.dashboardTabIndex,
     this.onNavigateToIndex,
+    this.isActiveTab,
   });
 
   @override
@@ -40,6 +44,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   int _totalRecords = 0;
   bool _isLoadingHistory = false;
   final int _limit = 10;
+
+  /// Recent activity: always today + last 5 days. Not affected by History tab month change.
+  List<dynamic> _recentActivityList = [];
 
   // Calendar State
   Map<String, dynamic>? _monthData;
@@ -110,6 +117,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void dispose() {
     _tabController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(AttendanceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When user opens/switches to Attendance tab, refresh once
+    if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
+      _refreshData(forceRefresh: true);
+    }
   }
 
   Future<void> _initData({bool forceRefresh = false}) async {
@@ -323,6 +339,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             }
           }
         }
+      }
+      // Recent activity: always today + last 5 days. Only update when fetching current month.
+      final nowDate = DateTime.now();
+      if (year == nowDate.year &&
+          month == nowDate.month &&
+          _monthData != null) {
+        final combined = _getCombinedMonthHistory();
+        final todayOnly = DateTime(nowDate.year, nowDate.month, nowDate.day);
+        _recentActivityList = combined.where((e) {
+          try {
+            final d = _extractDateOnly(e['date']);
+            final dateOnly = DateTime(d.year, d.month, d.day);
+            final diff = todayOnly.difference(dateOnly).inDays;
+            return diff >= 0 && diff < 6; // today and last 5 days
+          } catch (_) {
+            return false;
+          }
+        }).toList();
+        _recentActivityList.sort((a, b) {
+          DateTime da = _extractDateOnly(a['date']);
+          DateTime db = _extractDateOnly(b['date']);
+          return db.compareTo(da); // newest first
+        });
       }
     });
   }
@@ -1353,31 +1392,109 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  Future<void> _showWarningAlert(String message) async {
+  Future<void> _showWarningAlert(
+    String message, {
+    bool isLate = false,
+    bool isEarly = false,
+  }) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-              const SizedBox(width: 8),
-              const Text('Notice'),
-            ],
-          ),
-          content: Text(message),
-          actions: <Widget>[
-            TextButton(
-              child: const Text(
-                'OK',
-                style: TextStyle(fontWeight: FontWeight.bold),
+        final String title = isLate
+            ? 'You are Late'
+            : isEarly
+            ? 'You are Early'
+            : 'Notice';
+        final IconData iconData = isLate
+            ? Icons.access_time_rounded
+            : isEarly
+            ? Icons.schedule_rounded
+            : Icons.info_outline_rounded;
+        final Color iconColor = isLate
+            ? const Color(0xFFFF9800)
+            : isEarly
+            ? const Color(0xFF2196F3)
+            : AppColors.warning;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 340),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icon in light bubble
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: iconColor.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(iconData, size: 48, color: iconColor),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Material(
+                      color: AppColors.error,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).pop(),
+                        borderRadius: BorderRadius.circular(12),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 14),
+                          child: Text(
+                            'OK',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         );
       },
     );
@@ -1792,8 +1909,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Priority: Present with LeaveType (Green) > Half Day (On Leave Blue) > Holiday > Week Off > Leave without attendance (On Leave Blue) > Present > Absent > Not Marked
       final status = _dayStatusByDate[dateStr];
       final hasLeaveType = _dayLeaveTypeByDate.containsKey(dateStr);
+      // Never treat as present when record is Pending/Absent/Rejected (trust attendance list over presentDates)
       final isPresentStatus =
-          status == 'Present' || status == 'Approved' || isPresentFromBackend;
+          (status == 'Present' ||
+              status == 'Approved' ||
+              isPresentFromBackend) &&
+          status != 'Pending' &&
+          status != 'Absent' &&
+          status != 'Rejected';
       final isHalfDayStatus =
           status == 'Half Day' || (status?.toLowerCase() == 'half day');
 
@@ -1821,11 +1944,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       else if (isPresentStatus) {
         bgColor = const Color(0xFFDCFCE7); // Present - Light Green
       }
-      // 7. Other attendance statuses
+      // 7. Other attendance statuses (Pending treated as Absent)
       else if (_dayStatusByDate.containsKey(dateStr)) {
-        if (status == 'Pending') {
-          bgColor = const Color(0xFFFFEDD5); // Pending - light orange
-        } else if (status == 'Absent' || status == 'Rejected') {
+        if (status == 'Pending' || status == 'Absent' || status == 'Rejected') {
           bgColor = const Color(0xFFFEE2E2); // Absent - light red
         } else if (status == 'On Leave') {
           bgColor = const Color(0xFFBFDBFE); // On Leave - light blue
@@ -1853,9 +1974,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // - If Leave date without attendance → Show "L" (purple background)
       final statusForDay = _dayStatusByDate[dateStr] ?? '';
       final isPresentStatusForAbbr =
-          statusForDay == 'Present' ||
-          statusForDay == 'Approved' ||
-          isPresentFromBackend;
+          (statusForDay == 'Present' ||
+              statusForDay == 'Approved' ||
+              isPresentFromBackend) &&
+          statusForDay != 'Pending' &&
+          statusForDay != 'Absent' &&
+          statusForDay != 'Rejected';
       final isHalfDayStatusForAbbr =
           statusForDay == 'Half Day' ||
           statusForDay.toLowerCase() == 'half day';
@@ -2014,22 +2138,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildMarkAttendanceTab() {
-    // Ensure we always have today's attendance data when Mark Attendance tab is visible
-    // Check if _attendanceData is for today, if not, fetch it
-    final now = DateTime.now();
-    final todayStr = now.toIso8601String().split('T')[0];
-    // If we don't have attendance data or it's for a different date, fetch today's data
-    if (_attendanceData == null ||
-        (_attendanceData?['date'] != null &&
-            !_attendanceData!['date'].toString().startsWith(todayStr))) {
-      // Fetch today's attendance status in the background
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _tabController?.index == 0) {
-          _fetchAttendanceStatus(date: DateTime.now());
-        }
-      });
-    }
-
+    // Today's attendance is fetched only on: screen init (_initData), tab switch (listener), and pull-to-refresh.
+    // Do NOT fetch inside build — it caused repeated /attendance/today calls and "Too many requests".
     return RefreshIndicator(
       onRefresh: () => _refreshData(forceRefresh: true),
       child: SingleChildScrollView(
@@ -2053,7 +2163,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               ),
             ),
             const SizedBox(height: 12),
-            _buildHistoryList(limit: 5),
+            _buildRecentActivityList(),
           ],
         ),
       ),
@@ -2336,12 +2446,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 setState(() {
                   _activeFilter = value;
                 });
-                // Fetch month data if needed for the selected filter
-                if (value == 'All' ||
-                    value == 'This Month' ||
-                    value == 'This Week' ||
-                    value == 'Late' ||
-                    value == 'Low Hours') {
+                if (value == 'All' || value == 'Late' || value == 'Low Hours') {
                   final now = DateTime.now();
                   _fetchMonthData(now.year, now.month);
                 }
@@ -2349,24 +2454,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               itemBuilder: (context) => [
                 const PopupMenuItem(value: 'All', child: Text('All')),
                 const PopupMenuItem(
-                  value: 'This Month',
-                  child: Text('This Month'),
+                  value: 'Late',
+                  child: Text('Late login / Early exit'),
                 ),
-                const PopupMenuItem(
-                  value: 'This Week',
-                  child: Text('This Week'),
-                ),
-                const PopupMenuItem(value: 'Late', child: Text('Late')),
                 const PopupMenuItem(
                   value: 'Low Hours',
-                  child: Text('Low Hours'),
+                  child: Text('Late hours'),
                 ),
               ],
             ),
         ],
       ),
       drawer: AppDrawer(
-        currentIndex: widget.dashboardTabIndex ?? 2,
+        currentIndex: widget.dashboardTabIndex ?? 4,
         onNavigateToIndex: widget.onNavigateToIndex,
       ),
       body: TabBarView(
@@ -2385,6 +2485,148 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         color: Colors.black,
       ),
     );
+  }
+
+  /// Opens the punch in/out (selfie check-in) screen. No-op if attendance already completed or admin-marked for today.
+  Future<void> _openMarkAttendanceScreen() async {
+    final punchIn = _attendanceData?['punchIn'];
+    final punchOut = _attendanceData?['punchOut'];
+    final isCheckedIn = punchIn != null && punchOut == null;
+    final isCompleted = punchIn != null && punchOut != null;
+    final isAdminMarked =
+        (punchIn == null && punchOut == null) &&
+        ((_attendanceData?['status'] ?? '') == 'Present' ||
+            (_attendanceData?['status'] ?? '') == 'Approved');
+
+    if (isCompleted || isAdminMarked) return;
+
+    if (_attendanceTemplate == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Template not mapped. Contact HR.',
+        isError: true,
+      );
+      return;
+    }
+
+    final bool isHalfDayLeave =
+        (_attendanceData?['status'] == 'Half Day') || _halfDayLeave != null;
+    final bool shouldBypassLeaveBlock = isHalfDayLeave && isCheckedIn;
+
+    if (_isOnLeave && !shouldBypassLeaveBlock) {
+      SnackBarUtils.showSnackBar(
+        context,
+        _leaveMessage ??
+            "Your leave request is approved. Check-in/out is not allowed.",
+        isError: true,
+      );
+      return;
+    }
+
+    if (!shouldBypassLeaveBlock && isCheckedIn && !_checkOutAllowed) {
+      SnackBarUtils.showSnackBar(
+        context,
+        _leaveMessage ??
+            'Half-day leave Approved for Session 2. Check-out not allowed at this time.',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_isHoliday &&
+        _attendanceTemplate?['allowAttendanceOnHolidays'] == false) {
+      SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
+      return;
+    }
+    if (_isWeeklyOff &&
+        _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == false) {
+      SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
+      return;
+    }
+
+    final now = DateTime.now();
+    String? alertMessage;
+    if (!isCheckedIn) {
+      final allowLateEntry =
+          _attendanceTemplate?['allowLateEntry'] ??
+          _attendanceTemplate?['lateEntryAllowed'] ??
+          true;
+      final sessionTimings = _getWorkingSessionTimings();
+      final shiftStartStr =
+          sessionTimings?['startTime'] ?? _getShiftStartTimeFromDb();
+      if (shiftStartStr == null && allowLateEntry == false) {
+        alertMessage = 'Shift start time not set. Contact HR.';
+      } else if (shiftStartStr != null) {
+        try {
+          final parts = shiftStartStr.split(':').map(int.parse).toList();
+          final gracePeriod = _getGracePeriodMinutes();
+          final shiftStartOnly = DateTime(
+            now.year,
+            now.month,
+            now.day,
+            parts[0],
+            parts[1],
+          );
+          final graceEnd = shiftStartOnly.add(Duration(minutes: gracePeriod));
+          if (now.isAfter(graceEnd) && allowLateEntry == false) {
+            final lateMinutes = now.difference(graceEnd).inMinutes;
+            alertMessage =
+                "You are $lateMinutes minute${lateMinutes == 1 ? '' : 's'} late. Shift start: $shiftStartStr.";
+          }
+        } catch (_) {}
+      }
+    }
+    if (isCheckedIn && alertMessage == null) {
+      final allowEarlyExit =
+          _attendanceTemplate?['allowEarlyExit'] ??
+          _attendanceTemplate?['earlyExitAllowed'] ??
+          true;
+      final sessionTimings = _getWorkingSessionTimings();
+      final shiftEndStr =
+          sessionTimings?['endTime'] ?? _getShiftEndTimeFromDb();
+      if (shiftEndStr == null && allowEarlyExit == false) {
+        alertMessage = 'Shift end time not set. Contact HR.';
+      } else if (shiftEndStr != null) {
+        try {
+          final parts = shiftEndStr.split(':').map(int.parse).toList();
+          final shiftEnd = DateTime(
+            now.year,
+            now.month,
+            now.day,
+            parts[0],
+            parts[1],
+          );
+          if (now.isBefore(shiftEnd) && allowEarlyExit == false) {
+            final earlyMinutes = shiftEnd.difference(now).inMinutes;
+            alertMessage =
+                "You are $earlyMinutes minutes early. Shift end time: $shiftEndStr";
+          }
+        } catch (_) {}
+      }
+    }
+    if (alertMessage != null) {
+      final isLate = alertMessage.contains('late');
+      final isEarly = alertMessage.contains('early');
+      await _showWarningAlert(alertMessage, isLate: isLate, isEarly: isEarly);
+    }
+    if (!mounted) return;
+    final changed = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SelfieCheckInScreen(
+          template: _attendanceTemplate,
+          isCheckedIn: isCheckedIn,
+          isCompleted: isCompleted,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (changed == true) {
+      _attendanceService.clearCachesForRefresh();
+      await _initData(forceRefresh: true);
+    } else {
+      await _refreshData();
+    }
   }
 
   Widget _buildAttendanceCard() {
@@ -2611,346 +2853,170 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
     }
 
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (halfDayCheckInAllowed && (_leaveMessage ?? '').isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 20,
-                        color: Colors.blue.shade700,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _leaveMessage ?? 'Check-in allowed',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue.shade800,
+    return GestureDetector(
+      onTap: () {
+        if (!isCompleted && !isAdminMarked) {
+          _openMarkAttendanceScreen();
+        }
+      },
+      child: Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (halfDayCheckInAllowed && (_leaveMessage ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 20,
+                          color: Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _leaveMessage ?? 'Check-in allowed',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade800,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            _buildAttendanceRow(
-              'Punch In',
-              _formatTime(punchIn),
-              Icons.login_rounded,
-              AppColors.success,
-              address: punchInAddress,
-              isPlaceholder: punchIn == null,
-              isLate: isLate,
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12.0),
-              child: Divider(height: 1, color: AppColors.divider),
-            ),
-            _buildAttendanceRow(
-              'Punch Out',
-              _formatTime(punchOut),
-              Icons.logout_rounded,
-              AppColors.error,
-              address: punchOutAddress,
-              isPlaceholder: punchOut == null,
-            ),
-            const SizedBox(height: 20),
-            // Show button only if not completed and not admin-marked
-            if (!isCompleted && !isAdminMarked)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    // Block if template not mapped
-                    if (_attendanceTemplate == null) {
-                      SnackBarUtils.showSnackBar(
-                        context,
-                        'Template not mapped. Contact HR.',
-                        isError: true,
-                      );
-                      return;
-                    }
-                    // PRIORITY 1: Block if on approved leave (session-aware)
-                    final bool isHalfDayLeave =
-                        (_attendanceData?['status'] == 'Half Day') ||
-                        _halfDayLeave != null;
-                    final bool hasOpenPunch = isCheckedIn;
-
-                    // For half-day with an open punch (checked in but not out),
-                    // we must always allow showing and using the Check In/Out button.
-                    final bool shouldBypassLeaveBlock =
-                        isHalfDayLeave && hasOpenPunch;
-
-                    if (isActuallyOnLeave && !shouldBypassLeaveBlock) {
-                      SnackBarUtils.showSnackBar(
-                        context,
-                        _leaveMessage ??
-                            "Your leave request is approved. Check-in/out is not allowed.",
-                        isError: true,
-                      );
-                      return;
-                    }
-
-                    // For half-day we never hide/block checkout once user is checked in.
-                    // Still honour _checkOutAllowed for non half-day scenarios only.
-                    if (!shouldBypassLeaveBlock &&
-                        isCheckedIn &&
-                        !_checkOutAllowed) {
-                      SnackBarUtils.showSnackBar(
-                        context,
-                        _leaveMessage ??
-                            'Half-day leave Approved for Session 2. Check-out not allowed at this time.',
-                        isError: true,
-                      );
-                      return;
-                    }
-
-                    // 1. HARD BLOCKS: Holiday/Weekly Off (if restricted)
-                    if (_isHoliday &&
-                        _attendanceTemplate?['allowAttendanceOnHolidays'] ==
-                            false) {
-                      SnackBarUtils.showSnackBar(
-                        context,
-                        "Today is a holiday",
-                        isError: true,
-                      );
-                      return;
-                    }
-
-                    if (_isWeeklyOff &&
-                        _attendanceTemplate?['allowAttendanceOnWeeklyOff'] ==
-                            false) {
-                      SnackBarUtils.showSnackBar(
-                        context,
-                        "Today is a holiday",
-                        isError: true,
-                      );
-                      return;
-                    }
-
-                    // 2. Check Late Entry / Early Exit - Show alert if NOT allowed. Use only DB shift times in notice (no hardcoded 18:30/19:00).
-                    final now = DateTime.now();
-                    String? alertMessage;
-
-                    // Check Late Entry - show alert if NOT allowed
-                    if (!isCheckedIn) {
-                      final allowLateEntry =
-                          _attendanceTemplate?['allowLateEntry'] ??
-                          _attendanceTemplate?['lateEntryAllowed'] ??
-                          true;
-
-                      final sessionTimings = _getWorkingSessionTimings();
-                      final shiftStartStr =
-                          sessionTimings?['startTime'] ??
-                          _getShiftStartTimeFromDb();
-                      if (shiftStartStr == null) {
-                        if (allowLateEntry == false) {
-                          alertMessage =
-                              'Shift start time not set. Contact HR.';
-                        }
-                      } else {
-                        try {
-                          final parts = shiftStartStr
-                              .split(':')
-                              .map(int.parse)
-                              .toList();
-                          final gracePeriod = _getGracePeriodMinutes();
-                          final shiftStartOnly = DateTime(
-                            now.year,
-                            now.month,
-                            now.day,
-                            parts[0],
-                            parts[1],
-                          );
-                          final graceEnd = shiftStartOnly.add(
-                            Duration(minutes: gracePeriod),
-                          );
-                          if (now.isAfter(graceEnd) &&
-                              allowLateEntry == false) {
-                            final lateMinutes = now
-                                .difference(graceEnd)
-                                .inMinutes;
-                            alertMessage = gracePeriod > 0
-                                ? "You are $lateMinutes minute late. Shift start: $shiftStartStr (grace: $gracePeriod min)."
-                                : "You are $lateMinutes minute late. Shift start time: $shiftStartStr";
-                          }
-                        } catch (_) {}
-                      }
-                    }
-
-                    // Check Early Exit - show alert if NOT allowed (only DB shift time in message)
-                    if (isCheckedIn && alertMessage == null) {
-                      final allowEarlyExit =
-                          _attendanceTemplate?['allowEarlyExit'] ??
-                          _attendanceTemplate?['earlyExitAllowed'] ??
-                          true;
-
-                      final sessionTimings = _getWorkingSessionTimings();
-                      final shiftEndStr =
-                          sessionTimings?['endTime'] ??
-                          _getShiftEndTimeFromDb();
-                      if (shiftEndStr == null) {
-                        if (allowEarlyExit == false) {
-                          alertMessage = 'Shift end time not set. Contact HR.';
-                        }
-                      } else {
-                        try {
-                          final parts = shiftEndStr
-                              .split(':')
-                              .map(int.parse)
-                              .toList();
-                          final shiftEnd = DateTime(
-                            now.year,
-                            now.month,
-                            now.day,
-                            parts[0],
-                            parts[1],
-                          );
-                          if (now.isBefore(shiftEnd) &&
-                              allowEarlyExit == false) {
-                            final earlyMinutes = shiftEnd
-                                .difference(now)
-                                .inMinutes;
-                            alertMessage =
-                                "You are $earlyMinutes minutes early. Shift end time: $shiftEndStr";
-                          }
-                        } catch (_) {}
-                      }
-                    }
-
-                    // Show alert if not allowed, but still proceed to check-in/out
-                    if (alertMessage != null) {
-                      await _showWarningAlert(alertMessage);
-                    }
-
-                    // Always proceed to check-in/out (alert is informational only)
-                    if (!mounted) return;
-                    final changed = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => SelfieCheckInScreen(
-                          template: _attendanceTemplate,
-                          isCheckedIn: isCheckedIn,
-                          isCompleted: isCompleted,
-                        ),
-                      ),
-                    );
-                    if (!mounted) return;
-                    if (changed == true) {
-                      // Don't show any cached data — clear caches and force fresh fetch
-                      // so Recent Activity and History show punch-in/out immediately.
-                      _attendanceService.clearCachesForRefresh();
-                      await _initData(forceRefresh: true);
-                    } else {
-                      // If user backed out, just refresh current view (no force).
-                      await _refreshData();
-                    }
-                  },
-                  icon: Icon(
-                    (_attendanceTemplate?['requireSelfie'] ?? true)
-                        ? Icons.camera_alt
-                        : Icons.touch_app,
-                  ),
-                  label: Text(
-                    isCheckedIn
-                        ? (_attendanceTemplate?['requireSelfie'] ?? true)
-                              ? 'Selfie Check Out'
-                              : 'Check Out'
-                        : (_attendanceTemplate?['requireSelfie'] ?? true)
-                        ? 'Selfie Check In'
-                        : 'Check In',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isCheckedIn
-                        ? AppColors.error
-                        : AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      ],
                     ),
                   ),
                 ),
-              )
-            // Completed State Logic or Admin-Marked Attendance
-            else if (isCompleted || isAdminMarked)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            status == 'Pending'
-                                ? Icons.hourglass_bottom_rounded
-                                : status == 'Approved' || status == 'Present'
-                                ? Icons.check_circle
-                                : Icons.info_outline,
-                            color: status == 'Pending'
-                                ? Colors.orange
-                                : status == 'Approved' || status == 'Present'
-                                ? AppColors.success
-                                : Colors.blue,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            status == 'Pending'
-                                ? 'Waiting for Approval'
-                                : status,
-                            style: TextStyle(
+              _buildAttendanceRow(
+                'Punch In',
+                _formatTime(punchIn),
+                Icons.login_rounded,
+                AppColors.success,
+                address: punchInAddress,
+                isPlaceholder: punchIn == null,
+                isLate: isLate,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                child: Divider(height: 1, color: AppColors.divider),
+              ),
+              _buildAttendanceRow(
+                'Punch Out',
+                _formatTime(punchOut),
+                Icons.logout_rounded,
+                AppColors.error,
+                address: punchOutAddress,
+                isPlaceholder: punchOut == null,
+              ),
+              const SizedBox(height: 20),
+              // Show button only if not completed and not admin-marked (tap card also opens screen)
+              if (!isCompleted && !isAdminMarked)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _openMarkAttendanceScreen,
+                    icon: Icon(
+                      (_attendanceTemplate?['requireSelfie'] ?? true)
+                          ? Icons.camera_alt
+                          : Icons.touch_app,
+                    ),
+                    label: Text(
+                      isCheckedIn
+                          ? (_attendanceTemplate?['requireSelfie'] ?? true)
+                                ? 'Selfie Check Out'
+                                : 'Check Out'
+                          : (_attendanceTemplate?['requireSelfie'] ?? true)
+                          ? 'Selfie Check In'
+                          : 'Check In',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isCheckedIn
+                          ? AppColors.error
+                          : AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                )
+              // Completed State Logic or Admin-Marked Attendance
+              else if (isCompleted || isAdminMarked)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              status == 'Pending'
+                                  ? Icons.hourglass_bottom_rounded
+                                  : status == 'Approved' || status == 'Present'
+                                  ? Icons.check_circle
+                                  : Icons.info_outline,
                               color: status == 'Pending'
                                   ? Colors.orange
                                   : status == 'Approved' || status == 'Present'
                                   ? AppColors.success
                                   : Colors.blue,
-                              fontWeight: FontWeight.bold,
                             ),
-                          ),
-                        ],
-                      ),
-                      // Show remark if admin-marked and has remarks
-                      if (isAdminMarked && _attendanceData?['remarks'] != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            _attendanceData!['remarks'],
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                              fontStyle: FontStyle.italic,
+                            const SizedBox(width: 8),
+                            Text(
+                              status == 'Pending'
+                                  ? 'Waiting for Approval'
+                                  : status,
+                              style: TextStyle(
+                                color: status == 'Pending'
+                                    ? Colors.orange
+                                    : status == 'Approved' ||
+                                          status == 'Present'
+                                    ? AppColors.success
+                                    : Colors.blue,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                    ],
+                        // Show remark if admin-marked and has remarks
+                        if (isAdminMarked &&
+                            _attendanceData?['remarks'] != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              _attendanceData!['remarks'],
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -3056,7 +3122,28 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  Widget _buildHistoryList({int? limit}) {
+  /// Recent activity: always today + last 5 days. Unaffected by History tab month change.
+  Widget _buildRecentActivityList() {
+    if (_recentActivityList.isEmpty && _isLoadingMonthData) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    return _buildHistoryList(limit: 6, forceDisplayList: _recentActivityList);
+  }
+
+  Widget _buildHistoryList({int? limit, List<dynamic>? forceDisplayList}) {
+    // When forceDisplayList is set (e.g. for Recent Activity), use it and skip filter logic.
+    if (forceDisplayList != null) {
+      final displayList = limit != null
+          ? forceDisplayList.take(limit).toList()
+          : List<dynamic>.from(forceDisplayList);
+      return _buildHistoryListBody(displayList);
+    }
+
     // Use month data for All, This Month, This Week, Late, and Low Hours
     // (if month data is available, it's more complete than paginated data)
     final bool useMonthData =
@@ -3191,6 +3278,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       displayList = displayList.take(limit).toList();
     }
 
+    return _buildHistoryListBody(displayList);
+  }
+
+  Widget _buildHistoryListBody(List<dynamic> displayList) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

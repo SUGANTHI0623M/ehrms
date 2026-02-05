@@ -9,7 +9,13 @@ class Customer {
   final String? id;
   final String customerName;
   final String? customerNumber;
+  final String? email;
+  @JsonKey(name: 'emailId')
+  final String? emailId; // Used in customers collection
   final String address;
+
+  /// Email for OTP - uses emailId when email is null (customers collection uses emailId).
+  String? get effectiveEmail => email ?? emailId;
   final String city;
   final String pincode;
   final String? createdBy;
@@ -20,6 +26,8 @@ class Customer {
     this.id,
     required this.customerName,
     this.customerNumber,
+    this.email,
+    this.emailId,
     required this.address,
     required this.city,
     required this.pincode,
@@ -36,6 +44,8 @@ class Customer {
     String? id,
     String? customerName,
     String? customerNumber,
+    String? email,
+    String? emailId,
     String? address,
     String? city,
     String? pincode,
@@ -47,6 +57,8 @@ class Customer {
       id: id ?? this.id,
       customerName: customerName ?? this.customerName,
       customerNumber: customerNumber ?? this.customerNumber,
+      email: email ?? this.email,
+      emailId: emailId ?? this.emailId,
       address: address ?? this.address,
       city: city ?? this.city,
       pincode: pincode ?? this.pincode,

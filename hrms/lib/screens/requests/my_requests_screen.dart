@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -14,7 +15,15 @@ import '../../widgets/menu_icon_button.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   final int initialTabIndex;
-  const MyRequestsScreen({super.key, this.initialTabIndex = 0});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const MyRequestsScreen({
+    super.key,
+    this.initialTabIndex = 0,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
@@ -23,6 +32,10 @@ class MyRequestsScreen extends StatefulWidget {
 class _MyRequestsScreenState extends State<MyRequestsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final GlobalKey<_LeaveRequestsTabState> _leaveTabKey = GlobalKey();
+  final GlobalKey<_LoanRequestsTabState> _loanTabKey = GlobalKey();
+  final GlobalKey<_ExpenseRequestsTabState> _expenseTabKey = GlobalKey();
+  final GlobalKey<_PayslipRequestsTabState> _payslipTabKey = GlobalKey();
 
   @override
   void initState() {
@@ -62,16 +75,16 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
             onPressed: () {
               switch (_tabController.index) {
                 case 0:
-                  leaveTabKey.currentState?.toggleFilters();
+                  _leaveTabKey.currentState?.toggleFilters();
                   break;
                 case 1:
-                  loanTabKey.currentState?.toggleFilters();
+                  _loanTabKey.currentState?.toggleFilters();
                   break;
                 case 2:
-                  expenseTabKey.currentState?.toggleFilters();
+                  _expenseTabKey.currentState?.toggleFilters();
                   break;
                 case 3:
-                  payslipTabKey.currentState?.toggleFilters();
+                  _payslipTabKey.currentState?.toggleFilters();
                   break;
               }
             },
@@ -99,14 +112,17 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           },
         ),
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 1,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          LeaveRequestsTab(key: leaveTabKey),
-          LoanRequestsTab(key: loanTabKey),
-          ExpenseRequestsTab(key: expenseTabKey),
-          PayslipRequestsTab(key: payslipTabKey),
+          LeaveRequestsTab(key: _leaveTabKey),
+          LoanRequestsTab(key: _loanTabKey),
+          ExpenseRequestsTab(key: _expenseTabKey),
+          PayslipRequestsTab(key: _payslipTabKey),
         ],
       ),
       floatingActionButton: _buildFab(),
@@ -121,7 +137,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           height: 40,
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
-            onPressed: () => leaveTabKey.currentState?.showApplyLeaveDialog(),
+            onPressed: () => _leaveTabKey.currentState?.showApplyLeaveDialog(),
             label: Text('Apply Leave', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -132,7 +148,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           height: 40,
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
-            onPressed: () => loanTabKey.currentState?.showRequestLoanDialog(),
+            onPressed: () => _loanTabKey.currentState?.showRequestLoanDialog(),
             label: Text('Request Loan', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -144,7 +160,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
             onPressed: () =>
-                expenseTabKey.currentState?.showClaimExpenseDialog(),
+                _expenseTabKey.currentState?.showClaimExpenseDialog(),
             label: Text('Claim Expense', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -156,7 +172,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
             onPressed: () =>
-                payslipTabKey.currentState?.showRequestPayslipDialog(),
+                _payslipTabKey.currentState?.showRequestPayslipDialog(),
             label: Text('Request Payslip', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -167,12 +183,6 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     }
   }
 }
-
-// Global Keys to access tab states
-final GlobalKey<_LeaveRequestsTabState> leaveTabKey = GlobalKey();
-final GlobalKey<_LoanRequestsTabState> loanTabKey = GlobalKey();
-final GlobalKey<_ExpenseRequestsTabState> expenseTabKey = GlobalKey();
-final GlobalKey<_PayslipRequestsTabState> payslipTabKey = GlobalKey();
 
 // --- LEAVE TAB ---
 
@@ -2138,7 +2148,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                   children: [
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.only(bottom: 16),
                       child: DropdownButtonFormField<String>(
                         initialValue: _loanType,
                         items: ['Personal', 'Advance', 'Emergency']
@@ -2153,6 +2163,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _amountController,
                       keyboardType: TextInputType.number,
@@ -2165,6 +2176,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                           ? 'Amount is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _tenureController,
                       keyboardType: TextInputType.number,
@@ -2182,6 +2194,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                         return null;
                       },
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _interestController,
                       keyboardType: TextInputType.number,
@@ -2191,6 +2204,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                         Icons.percent,
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _purposeController,
                       maxLines: 3,
@@ -3002,6 +3016,33 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
     }
   }
 
+  /// Compress image file to reduce payload and avoid 413 Payload Too Large.
+  static const int _maxProofImageWidth = 1200;
+  static const int _proofImageQuality = 85;
+
+  Future<List<int>> _compressImageFile(File file) async {
+    final path = file.path.toLowerCase();
+    final isImage =
+        path.endsWith('.jpg') ||
+        path.endsWith('.jpeg') ||
+        path.endsWith('.png') ||
+        path.endsWith('.webp');
+    if (!isImage) {
+      return await file.readAsBytes();
+    }
+    final result = await FlutterImageCompress.compressWithFile(
+      file.absolute.path,
+      minWidth: _maxProofImageWidth,
+      minHeight: _maxProofImageWidth,
+      quality: _proofImageQuality,
+      format: path.endsWith('.png') ? CompressFormat.png : CompressFormat.jpeg,
+    );
+    if (result == null || result.isEmpty) {
+      return await file.readAsBytes();
+    }
+    return result;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_date == null) {
@@ -3016,30 +3057,37 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
 
     setState(() => _isSubmitting = true);
 
-    // Process file if exists
+    // Process file if exists: compress images to avoid 413 Payload Too Large
     List<String> proofFiles = [];
     if (_selectedFile != null) {
-      // Simple base64 encoding (ideally upload to cloud storage and get URL,
-      // but user requested field to upload proof document.
-      // Assuming backend handles base64 or similar.
-      // For strictly correct implementation, we should use MultipartRequest in service.
-      // BUT, given the current simplistic RequestService.applyExpense uses jsonEncode,
-      // we'll try sending base64 data URI if backend supports it or just placeholder for now.
-      // However, the backend model expects String URL.
-      // Let's implement robust Base64 conversion here as a data URI to match common patterns if backend supports it.
-      // IF backend expects ONLY Cloudinary URL, we might need to modify backend or upload here first.
-      // Let's assume for this specific user request we just need the UI and simple data passing.
+      final path = _selectedFile!.path.toLowerCase();
+      final isPdf = path.endsWith('.pdf');
+      const maxProofBytes = 5 * 1024 * 1024; // 5 MB max for PDF
 
-      final bytes = await _selectedFile!.readAsBytes();
-      final base64String = base64Encode(bytes);
-      // Determine mime type roughly
-      String mime = 'image/jpeg';
-      if (_selectedFile!.path.endsWith('.pdf')) {
-        mime = 'application/pdf';
-      } else if (_selectedFile!.path.endsWith('.png'))
-        mime = 'image/png';
-
-      proofFiles.add('data:$mime;base64,$base64String');
+      if (isPdf) {
+        final length = await _selectedFile!.length();
+        if (length > maxProofBytes) {
+          if (mounted) {
+            setState(() => _isSubmitting = false);
+            SnackBarUtils.showSnackBar(
+              context,
+              'Proof file is too large. Please use a file under 5 MB.',
+              isError: true,
+            );
+          }
+          return;
+        }
+        final bytes = await _selectedFile!.readAsBytes();
+        final base64String = base64Encode(bytes);
+        proofFiles.add('data:application/pdf;base64,$base64String');
+      } else {
+        // Image: compress to reduce payload and avoid 413
+        final bytes = await _compressImageFile(_selectedFile!);
+        final base64String = base64Encode(bytes);
+        String mime = 'image/jpeg';
+        if (path.endsWith('.png')) mime = 'image/png';
+        proofFiles.add('data:$mime;base64,$base64String');
+      }
     }
 
     final result = await _requestService.applyExpense({
@@ -3148,7 +3196,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                   children: [
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.only(bottom: 16),
                       child: DropdownButtonFormField<String>(
                         initialValue: _expenseType,
                         items: ['Travel', 'Food', 'Accommodation', 'Other']
@@ -3163,6 +3211,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _amountController,
                       keyboardType: TextInputType.number,
@@ -3175,6 +3224,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           ? 'Amount is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     InkWell(
                       onTap: _pickDate,
                       child: InputDecorator(
@@ -3193,7 +3243,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _descriptionController,
                       maxLines: 3,
@@ -3206,6 +3256,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           ? 'Description is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     InkWell(
                       onTap: _pickFile,
                       child: InputDecorator(
@@ -3315,6 +3366,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   final List<String> _statusOptions = [
     'All Status',
     'Pending',
+    'Approved',
     'Generated',
     'Rejected',
   ];

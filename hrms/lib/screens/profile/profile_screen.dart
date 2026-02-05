@@ -367,7 +367,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _buildDocumentsTab(),
               ],
             ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: widget.onNavigateToIndex != null
+          ? null
+          : const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
@@ -438,7 +440,14 @@ class _ProfileScreenState extends State<ProfileScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: _changeProfilePhoto,
+                onTap: () {
+                  final url = photoUrlStr;
+                  if (showPhoto && url != null) {
+                    _showPhotoFullScreen(url);
+                  } else {
+                    _changeProfilePhoto();
+                  }
+                },
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -1526,12 +1535,29 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _showEditProfileDialog() {
     final flattenedData = {..._profile ?? {}, ..._staffData ?? {}};
 
+    final photoUrl =
+        flattenedData['avatar'] ??
+        flattenedData['photoUrl'] ??
+        flattenedData['profilePic'];
+    final photoUrlStr = photoUrl?.toString().trim();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (context) => _EditProfileSheet(
         userData: flattenedData,
+        profilePhotoUrl: photoUrlStr,
+        onEditProfilePhoto: () {
+          Navigator.of(context).pop();
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _changeProfilePhoto(),
+          );
+        },
+        onDeleteProfilePhoto: () async {
+          await _deleteProfilePhoto();
+          if (context.mounted) Navigator.of(context).pop();
+        },
         onSave: (updatedData) async {
           // Separate optional password change payload
           Map<String, dynamic>? passwordChange = updatedData['passwordChange'];
@@ -1647,6 +1673,80 @@ class _ProfileScreenState extends State<ProfileScreen>
       SnackBarUtils.showSnackBar(
         context,
         'Image uploaded failed',
+        isError: true,
+      );
+    }
+  }
+
+  void _showPhotoFullScreen(String photoUrl) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(
+              photoUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              },
+              errorBuilder: (_, __, ___) => const Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 64,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteProfilePhoto() async {
+    try {
+      final result = await _authService.updateProfile({
+        'avatar': '',
+        'photoUrl': '',
+      });
+      if (!mounted) return;
+      if (result['success'] == true) {
+        setState(() {
+          _userData ??= {};
+          _userData!['profile'] ??= {};
+          _userData!['profile']['avatar'] = null;
+          _userData!['profile']['photoUrl'] = null;
+          _cachedAvatarUrl = null;
+          _profileImageError = false;
+        });
+        SnackBarUtils.showSnackBar(
+          context,
+          'Profile photo removed',
+          backgroundColor: AppColors.success,
+        );
+        _loadProfile();
+      } else {
+        SnackBarUtils.showSnackBar(
+          context,
+          result['message'] ?? 'Failed to remove photo',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarUtils.showSnackBar(
+        context,
+        'Failed to remove photo',
         isError: true,
       );
     }
@@ -3100,8 +3200,17 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
 class _EditProfileSheet extends StatefulWidget {
   final Map<String, dynamic> userData;
   final Function(Map<String, dynamic>) onSave;
+  final String? profilePhotoUrl;
+  final VoidCallback? onEditProfilePhoto;
+  final VoidCallback? onDeleteProfilePhoto;
 
-  const _EditProfileSheet({required this.userData, required this.onSave});
+  const _EditProfileSheet({
+    required this.userData,
+    required this.onSave,
+    this.profilePhotoUrl,
+    this.onEditProfilePhoto,
+    this.onDeleteProfilePhoto,
+  });
 
   @override
   State<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -3281,6 +3390,11 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                   children: [
                     const SizedBox(height: 16),
                     _buildSectionTitle('Personal Information'),
+                    if (widget.onEditProfilePhoto != null ||
+                        widget.onDeleteProfilePhoto != null) ...[
+                      _buildProfilePhotoRow(),
+                      const SizedBox(height: 16),
+                    ],
                     _buildTextField(_nameController, 'Full Name', Icons.person),
                     _buildTextField(
                       _emailController,
@@ -3560,6 +3674,69 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildProfilePhotoRow() {
+    final photoUrl = widget.profilePhotoUrl;
+    final hasPhoto =
+        photoUrl != null &&
+        photoUrl.isNotEmpty &&
+        (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'));
+    final name = widget.userData['name']?.toString() ?? '';
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: AppColors.primary.withOpacity(0.15),
+            backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
+            child: hasPhoto
+                ? null
+                : Text(
+                    initial,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 16),
+          const Spacer(),
+          if (widget.onEditProfilePhoto != null)
+            TextButton.icon(
+              onPressed: widget.onEditProfilePhoto,
+              icon: Icon(Icons.edit, size: 18, color: AppColors.primary),
+              label: Text(
+                'Edit',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (widget.onDeleteProfilePhoto != null)
+            TextButton.icon(
+              onPressed: widget.onDeleteProfilePhoto,
+              icon: const Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Colors.red,
+              ),
+              label: const Text(
+                'Delete',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

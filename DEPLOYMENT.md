@@ -194,6 +194,7 @@ pm2 startup   # enable start on boot
 - Point a domain (e.g. `api.yourdomain.com`) to the server.
 - Install nginx and a certificate (e.g. Let’s Encrypt with certbot).
 - Proxy requests to `http://127.0.0.1:9001` (or your `PORT`). Use HTTPS on the public side.
+- **Request body size:** Expense/reimbursement submissions send proof files (images/PDFs) in the request body. To avoid **413 Payload Too Large**, set a larger body size in nginx (e.g. in your `server` or `http` block): `client_max_body_size 50m;`. The Node API already uses `express.json({ limit: '50mb' })`.
 
 ### 6.3 Firewall
 

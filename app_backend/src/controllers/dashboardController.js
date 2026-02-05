@@ -1,13 +1,12 @@
-
 //dashboard logics
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
 const Loan = require('../models/Loan');
 const Payroll = require('../models/Payroll');
-
 const Company = require('../models/Company');
 const HolidayTemplate = require('../models/HolidayTemplate');
+const { calculateAttendanceStats } = require('./payrollController');
 
 // @desc    Get Dashboard Stats for generic use (kept for compatibility)
 const getDashboardStats = async (req, res) => {
@@ -82,135 +81,13 @@ const getEmployeeDashboardStats = async (req, res) => {
             date: { $gte: startOfMonth, $lte: endOfMonth }
         });
 
-        // Calculate Present Days with specific Half Day logic
-        // Rule: Check both Attendance and Leave collections for Half Day
-        // Filter leaves by date range to avoid including leaves from other months
-        const leaveRecords = await Leave.find({
-            employeeId: staffId,
-            status: { $regex: /^approved$/i },
-            $or: [
-                { startDate: { $gte: startOfMonth, $lte: endOfMonth } },
-                { endDate: { $gte: startOfMonth, $lte: endOfMonth } },
-                { startDate: { $lte: startOfMonth }, endDate: { $gte: endOfMonth } }
-            ]
-        }).lean();
+        // Use same attendance stats as payslip and salary overview (single source of truth)
+        const attendanceStats = await calculateAttendanceStats(staffId, month, year);
+        const totalWorkingDays = attendanceStats.workingDays || 0;
+        const presentDays = attendanceStats.presentDays || 0;
+        const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - presentDays);
 
-        const dateMap = {};
-
-        // 1. Process Attendance Records
-        monthAttendance.forEach(a => {
-            if (!a.date) return;
-            const d = new Date(a.date).toISOString().split('T')[0];
-            const status = (a.status || '').trim().toLowerCase();
-            const leaveType = (a.leaveType || '').trim().toLowerCase();
-            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
-        });
-
-        // 2. Process Leave Records for Half Day
-        leaveRecords.forEach(l => {
-            const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
-            if (isHalfDayLeave) {
-                const start = new Date(Math.max(new Date(l.startDate), startOfMonth));
-                const end = new Date(Math.min(new Date(l.endDate), endOfMonth));
-                let curr = new Date(start);
-                while (curr <= end) {
-                    const d = curr.toISOString().split('T')[0];
-                    if (!dateMap[d]) dateMap[d] = {};
-                    dateMap[d].hasHalfDayLeave = true;
-                    curr.setDate(curr.getDate() + 1);
-                }
-            }
-        });
-
-        // 3. Calculate Weighted Present Days
-        // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
-        // Full day present/approved (and NOT half day) -> 1.0
-        const presentDays = Object.values(dateMap).reduce((sum, data) => {
-            const status = data.attendanceStatus || '';
-            const attLeaveType = data.attendanceLeaveType || '';
-            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
-            if (isHalfDay) return sum + 0.5;
-            if (status === 'present' || status === 'approved') return sum + 1;
-            return sum;
-        }, 0);
-
-        // --- HALF-DAY SALARY DEBUG LOGS ---
-        console.log(`[getEmployeeDashboardStats] ========== HALF-DAY SALARY DEBUG ==========`);
-        console.log(`[getEmployeeDashboardStats] staffId: ${staffId}, staff.name: ${staff?.name}`);
-        console.log(`[getEmployeeDashboardStats] month: ${month}, year: ${year}`);
-        console.log(`[getEmployeeDashboardStats] monthAttendance count: ${monthAttendance.length}`);
-        monthAttendance.forEach((a, i) => console.log(`[getEmployeeDashboardStats]   att[${i}] date: ${a.date?.toISOString?.()?.split('T')[0]}, status: "${a.status}"`));
-        console.log(`[getEmployeeDashboardStats] leaveRecords count: ${leaveRecords.length}`);
-        console.log(`[getEmployeeDashboardStats] dateMap: ${JSON.stringify(dateMap)}`);
-        console.log(`[getEmployeeDashboardStats] presentDays: ${presentDays}`);
-
-        // Fetch Business settings for week-offs
-        const company = await Company.findById(staff.businessId);
-        const businessSettings = company?.settings?.business || {};
-        const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-        const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
-
-        // Fetch holidays
-        const holidayTemplate = await HolidayTemplate.findOne({
-            businessId: staff.businessId,
-            isActive: true
-        });
-
-        let holidays = [];
-        if (holidayTemplate) {
-            holidays = (holidayTemplate.holidays || []).filter(h => {
-                const d = new Date(h.date);
-                return d.getFullYear() == year && (d.getMonth() + 1) == month;
-            });
-        }
-
-        // Calculate Working Days in Month since JoiningDate up to today
-        let totalWorkingDays = 0;
-        const joiningDate = staff.joiningDate ? new Date(staff.joiningDate) : null;
-        if (joiningDate) {
-            joiningDate.setHours(0, 0, 0, 0); // Normalize to midnight local time
-        }
-
-        const lastDayToCount = now.getDate(); // Stop at today for the current month
-
-        for (let d = 1; d <= lastDayToCount; d++) {
-            const date = new Date(year, month - 1, d);
-            date.setHours(0, 0, 0, 0); // Normalize to midnight local time
-
-            // Check if day is on or after joining date
-            if (joiningDate && date < joiningDate) {
-                continue; // Skip days before joining
-            }
-
-            const dayOfWeek = date.getDay();
-            let isWeekOff = false;
-
-            if (weeklyOffPattern === 'oddEvenSaturday') {
-                if (dayOfWeek === 0) {
-                    isWeekOff = true;
-                } else if (dayOfWeek === 6) {
-                    if (d % 2 === 0) {
-                        isWeekOff = true;
-                    }
-                }
-            } else {
-                isWeekOff = weeklyHolidays.some(h => h.day === dayOfWeek);
-            }
-
-            if (!isWeekOff) {
-                const isHoliday = holidays.some(h => {
-                    const hd = new Date(h.date);
-                    return hd.getDate() === d;
-                });
-
-                if (!isHoliday) {
-                    totalWorkingDays++;
-                }
-            }
-        }
-
-        console.log(`[getEmployeeDashboardStats] joiningDate: ${joiningDate?.toISOString?.() || 'null'}, lastDayToCount: ${lastDayToCount}`);
-        console.log(`[getEmployeeDashboardStats] totalWorkingDays: ${totalWorkingDays}`);
+        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): workingDays=${totalWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
 
         // 3. Leave Metrics
         const pendingLeavesCount = await Leave.countDocuments({
@@ -386,7 +263,7 @@ const getEmployeeDashboardStats = async (req, res) => {
                     attendanceSummary: {
                         totalDays: totalWorkingDays,
                         presentDays: presentDays,
-                        absentDays: Math.max(0, totalWorkingDays - presentDays)
+                        absentDays: absentDays
                     },
                     currentMonthSalary: currentMonthSalary,
                     payrollStatus: payrollStatus

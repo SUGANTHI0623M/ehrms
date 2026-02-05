@@ -25,14 +25,21 @@ class RetryOnRateLimitInterceptor extends Interceptor {
       if (kDebugMode) debugPrint('[DioClient] 429 after $maxRetries retries');
       return handler.next(err);
     }
-    int waitSeconds = backoffDelaysSeconds[retryCount.clamp(0, backoffDelaysSeconds.length - 1)];
+    int waitSeconds =
+        backoffDelaysSeconds[retryCount.clamp(
+          0,
+          backoffDelaysSeconds.length - 1,
+        )];
     final retryAfter = err.response?.headers.value('retry-after');
     if (retryAfter != null && retryAfter.isNotEmpty) {
       final parsed = int.tryParse(retryAfter);
-      if (parsed != null && parsed > 0) waitSeconds = parsed > 120 ? 120 : parsed;
+      if (parsed != null && parsed > 0)
+        waitSeconds = parsed > 120 ? 120 : parsed;
     }
     if (kDebugMode) {
-      debugPrint('[DioClient] 429 retry ${retryCount + 1}/$maxRetries in ${waitSeconds}s');
+      debugPrint(
+        '[DioClient] 429 retry ${retryCount + 1}/$maxRetries in ${waitSeconds}s',
+      );
     }
     await Future<void>.delayed(Duration(seconds: waitSeconds));
     final opts = err.requestOptions;
@@ -43,6 +50,18 @@ class RetryOnRateLimitInterceptor extends Interceptor {
     } catch (e) {
       return handler.next(err);
     }
+  }
+}
+
+/// Ensures multipart uploads are not sent with Content-Type: application/json.
+class FormDataContentTypeInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (options.data is FormData) {
+      options.headers.remove('Content-Type');
+      // Dio will set multipart/form-data with boundary when sending
+    }
+    handler.next(options);
   }
 }
 
@@ -57,7 +76,9 @@ class DebugLogInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (kDebugMode) {
-      debugPrint('[DioClient] Error ${err.response?.statusCode} ${err.requestOptions.uri}');
+      debugPrint(
+        '[DioClient] Error ${err.response?.statusCode} ${err.requestOptions.uri}',
+      );
     }
     handler.next(err);
   }
@@ -73,15 +94,23 @@ class DioClient {
 
   DioClient._internal() {
     final base = AppConstants.baseUrl;
-    final baseUrl = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
-      sendTimeout: const Duration(seconds: 20),
-      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-    ));
+    final baseUrl = base.endsWith('/')
+        ? base.substring(0, base.length - 1)
+        : base;
+    dio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        sendTimeout: const Duration(seconds: 20),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ),
+    );
     dio.interceptors.addAll([
+      FormDataContentTypeInterceptor(),
       RetryOnRateLimitInterceptor(dio),
       if (kDebugMode) DebugLogInterceptor(),
     ]);

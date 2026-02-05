@@ -9,11 +9,7 @@ class AppBottomNavigationBar extends StatefulWidget {
   final int currentIndex;
   final Function(int)? onTap;
 
-  const AppBottomNavigationBar({
-    super.key,
-    this.currentIndex = 0,
-    this.onTap,
-  });
+  const AppBottomNavigationBar({super.key, this.currentIndex = 0, this.onTap});
 
   // Helper method to determine current index based on route
   static int getCurrentIndex(BuildContext context) {
@@ -53,7 +49,9 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
         final userData = jsonDecode(userString);
         if (mounted) {
           setState(() {
-            _isCandidate = (userData['role'] ?? '').toString().toLowerCase() == 'candidate';
+            _isCandidate =
+                (userData['role'] ?? '').toString().toLowerCase() ==
+                'candidate';
           });
         }
       }
@@ -68,9 +66,7 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
     } else {
       // Navigate to DashboardScreen with the selected index
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => DashboardScreen(initialIndex: index),
-        ),
+        MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: index)),
         (route) => route.isFirst,
       );
     }
@@ -116,8 +112,9 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
       onTap: (index) => _handleNavigation(context, index),
       type: BottomNavigationBarType.fixed,
       selectedItemColor: AppColors.primary,
-      unselectedItemColor: Colors.black,
+      unselectedItemColor: const Color(0xFF000000),
       selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+      unselectedLabelStyle: const TextStyle(color: Color(0xFF000000)),
       items: items,
     );
   }

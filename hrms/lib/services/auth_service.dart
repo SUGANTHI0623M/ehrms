@@ -383,8 +383,9 @@ class AuthService {
       };
     } on DioException catch (e) {
       if (e.response?.statusCode == 404 && retryCount < 1) {
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('[AuthService] ForgotPassword: Got 404, retrying once...');
+        }
         await Future.delayed(const Duration(milliseconds: 500));
         return forgotPassword(email, retryCount: retryCount + 1);
       }
@@ -398,8 +399,9 @@ class AuthService {
         return 'Failed to send OTP';
       });
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[AuthService] ForgotPassword: Exception - ${e.toString()}');
+      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -432,8 +434,9 @@ class AuthService {
     } on DioException catch (e) {
       return _handleDioError(e, 'Invalid or expired OTP', null);
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[AuthService] VerifyOTP: Exception - ${e.toString()}');
+      }
       return {'success': false, 'message': _handleException(e)};
     }
   }

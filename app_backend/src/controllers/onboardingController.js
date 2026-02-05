@@ -319,6 +319,16 @@ const uploadDocument = async (req, res) => {
             });
         }
 
+        // Ensure current user can only upload to their own onboarding
+        const staffId = req.staff?._id?.toString();
+        const onboardingStaffId = onboarding.staffId?.toString();
+        if (staffId && onboardingStaffId && staffId !== onboardingStaffId) {
+            return res.status(403).json({
+                success: false,
+                error: { message: 'Not authorized to upload to this onboarding' }
+            });
+        }
+
         // Find document within onboarding
         const document = onboarding.documents.id(documentId);
         if (!document) {

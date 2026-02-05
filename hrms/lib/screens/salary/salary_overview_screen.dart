@@ -13,7 +13,18 @@ import '../../utils/app_event_bus.dart';
 import 'salary_structure_detail_screen.dart';
 
 class SalaryOverviewScreen extends StatefulWidget {
-  const SalaryOverviewScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  /// When true, this tab is visible. Used to refresh once when user opens the screen.
+  final bool? isActiveTab;
+
+  const SalaryOverviewScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+    this.isActiveTab,
+  });
 
   @override
   State<SalaryOverviewScreen> createState() => _SalaryOverviewScreenState();
@@ -76,6 +87,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       AppEventType.attendanceChanged,
     ).listen((_) => _fetchSalaryData(debounce: true));
     _fetchSalaryData();
+  }
+
+  @override
+  void didUpdateWidget(SalaryOverviewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Refresh once when user opens the salary overview tab
+    if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
+      _fetchSalaryData();
+    }
   }
 
   @override
@@ -223,14 +243,6 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         final attendanceData = attendanceResult['data'];
         final fetchedRecords = attendanceData['attendance'] ?? [];
 
-        double totalFineFromBackend = 0.0;
-        for (final r in fetchedRecords) {
-          if (r is Map) {
-            totalFineFromBackend +=
-                ((r['fineAmount'] as num?)?.toDouble() ?? 0.0);
-          }
-        }
-
         // Only update if we got valid data (non-empty array)
         // This prevents overwriting valid data with empty data
         if (fetchedRecords.isNotEmpty) {
@@ -259,11 +271,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         // we preserve what we have
       }
 
-      // 4. Calculate present days from attendance and fine information
-      // Half day: status="half day" OR leaveType="half day" (e.g. approved half-day leave marked as Present)
-      // Present=1, Approved=1, Half Day=0.5
+      // 4. Present days: prefer backend/stats (includes half-day leave from Leave collection)
+      // Fallback: compute from attendance records only (Present=1, Half day=0.5, Approved=1)
+      double computedPresentDays = 0;
       if (_attendanceRecords.isNotEmpty) {
-        _presentDays = 0;
         for (final record in _attendanceRecords) {
           final status = (record['status'] as String? ?? '')
               .trim()
@@ -273,42 +284,84 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               .toLowerCase();
           final isHalfDay = status == 'half day' || leaveType == 'half day';
           if (isHalfDay) {
-            _presentDays += 0.5;
+            computedPresentDays += 0.5;
           } else if (status == 'present' || status == 'approved') {
-            _presentDays += 1;
+            computedPresentDays += 1;
           }
         }
+      }
+      // Use backend present days when available (matches payroll calculation)
+      if (backendStats != null && backendStats['attendance'] != null) {
+        final backendAttendance =
+            backendStats['attendance'] as Map<String, dynamic>;
+        final fromBackend = (backendAttendance['presentDays'] as num?)
+            ?.toDouble();
+        _presentDays = (fromBackend != null && fromBackend >= 0)
+            ? fromBackend
+            : computedPresentDays;
+      } else if (attendanceResult['success'] == true &&
+          attendanceResult['data'] != null) {
+        final data = attendanceResult['data'] as Map<String, dynamic>;
+        final stats = data['stats'] as Map<String, dynamic>?;
+        final fromStats = (stats?['presentDays'] as num?)?.toDouble();
+        _presentDays = (fromStats != null && fromStats >= 0)
+            ? fromStats
+            : computedPresentDays;
       } else {
-        // No attendance records available
-        // Only restore previous data if we had it and this wasn't a successful update
-        if (!attendanceUpdated &&
-            (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
-          _attendanceRecords
-            ..clear()
-            ..addAll(prevAttendanceRecords);
-          _presentDays = prevPresentDays;
-          if (prevProratedSalary != null) {
-            _proratedSalary = prevProratedSalary;
-          }
-        } else {
-          // First time load or no previous data - keep as is (will show 0)
-          _presentDays = 0;
+        _presentDays = computedPresentDays;
+      }
+      // Restore previous data on failed fetch when we had data before
+      if (!attendanceUpdated &&
+          _attendanceRecords.isEmpty &&
+          (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
+        _attendanceRecords
+          ..clear()
+          ..addAll(prevAttendanceRecords);
+        _presentDays = prevPresentDays;
+        if (prevProratedSalary != null) {
+          _proratedSalary = prevProratedSalary;
         }
+      } else if (!attendanceUpdated && _attendanceRecords.isEmpty) {
+        _presentDays = 0;
       }
 
       // 4a. Working days (BEFORE fine so dailySalary can use current run)
+      // Prefer backend stats, then attendance/month stats, then local calculation
       if (backendStats != null && backendStats['attendance'] != null) {
         final backendAttendance =
             backendStats['attendance'] as Map<String, dynamic>;
         final backendWorkingDays =
-            backendAttendance['workingDays'] as int? ?? 0;
-        final backendHolidays = backendAttendance['holidays'] as int? ?? 0;
+            (backendAttendance['workingDays'] as num?)?.toInt() ?? 0;
+        final backendHolidays =
+            (backendAttendance['holidays'] as num?)?.toInt() ?? 0;
         _workingDaysInfo = WorkingDaysInfo(
           totalDays: DateTime(year, monthIndex + 1, 0).day,
           workingDays: backendWorkingDays,
           weekends: 0,
           holidayCount: backendHolidays,
         );
+      } else if (attendanceResult['success'] == true &&
+          attendanceResult['data'] != null) {
+        final data = attendanceResult['data'] as Map<String, dynamic>;
+        final stats = data['stats'] as Map<String, dynamic>?;
+        final statsWorkingDays = (stats?['workingDays'] as num?)?.toInt();
+        final statsHolidays = (stats?['holidaysCount'] as num?)?.toInt();
+        if (statsWorkingDays != null && statsWorkingDays >= 0) {
+          _workingDaysInfo = WorkingDaysInfo(
+            totalDays: DateTime(year, monthIndex + 1, 0).day,
+            workingDays: statsWorkingDays,
+            weekends: stats?['weekOffs'] as int? ?? 0,
+            holidayCount: statsHolidays ?? 0,
+          );
+        } else {
+          _workingDaysInfo = calculateWorkingDays(
+            year,
+            monthIndex,
+            _holidays,
+            _weeklyOffPattern,
+            _weeklyHolidays,
+          );
+        }
       } else {
         _workingDaysInfo = calculateWorkingDays(
           year,
@@ -359,48 +412,45 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         businessSettings,
       );
 
-      // Calculate daily salary for fine calculation
+      // Calculate daily salary for fine calculation (only when working days > 0)
       double? dailySalary;
       if (_staffSalary != null &&
           _calculatedSalary != null &&
-          _workingDaysInfo != null) {
-        // Daily Salary = Monthly Gross Salary / Working Days
+          _workingDaysInfo != null &&
+          _workingDaysInfo!.workingDays > 0) {
+        // Daily Salary = Monthly Gross Salary / Working Days (same as dashboard)
         dailySalary =
             _calculatedSalary!.monthly.grossSalary /
             _workingDaysInfo!.workingDays;
       }
 
-      // Calculate shift hours from shift timing
-      double shiftHours = 9.0; // Default 9 hours
+      // Shift hours for calculatePayrollFine (same as dashboard)
+      double shiftHours = 9.0;
       if (shiftTiming != null) {
         shiftHours = calculateShiftHours(
           shiftTiming.startTime,
           shiftTiming.endTime,
         );
       } else {
-        // Fallback: Try to get from attendance template
-        Map<String, dynamic>? attendanceTemplate;
         try {
           final todayAttendance = await _attendanceService.getTodayAttendance();
           if (todayAttendance['success'] == true &&
               todayAttendance['data'] != null) {
-            attendanceTemplate =
+            final template =
                 todayAttendance['data']['template'] as Map<String, dynamic>?;
+            if (template != null) {
+              final startTime =
+                  template['shiftStartTime'] as String? ?? '09:30';
+              final endTime = template['shiftEndTime'] as String? ?? '18:30';
+              shiftHours = calculateShiftHours(startTime, endTime);
+            }
           }
         } catch (e) {
-          // Ignore errors
-        }
-
-        if (attendanceTemplate != null) {
-          final startTime =
-              attendanceTemplate['shiftStartTime'] as String? ?? "09:30";
-          final endTime =
-              attendanceTemplate['shiftEndTime'] as String? ?? "18:30";
-          shiftHours = calculateShiftHours(startTime, endTime);
+          // Ignore
         }
       }
 
-      // Calculate fine information using the utility
+      // Calculate fine information using the utility (same logic as dashboard)
       double totalFineAmount = 0.0;
       int lateDays = 0;
       int totalLateMinutes = 0;
@@ -469,8 +519,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         }
       }
 
-      // Alternative: Use payroll fine calculation utility for aggregation
-      // Pass Present, Approved, or Half Day (late login fine applies to half day too)
+      // Same as dashboard: use calculatePayrollFine and take max so calculation matches dashboard
       if (dailySalary != null && dailySalary > 0) {
         final attendanceRecordsList = _attendanceRecords
             .where((record) {
@@ -487,33 +536,52 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             })
             .map((record) => record as Map<String, dynamic>)
             .toList();
-
         final calculatedTotalFine = calculatePayrollFine(
           attendanceRecords: attendanceRecordsList,
           dailySalary: dailySalary,
           shiftHours: shiftHours,
           fineSettings: fineSettings,
         );
-
-        // Use the calculated total if it's greater (more accurate) or if backend didn't provide fines
         if (calculatedTotalFine > totalFineAmount || totalFineAmount == 0) {
           totalFineAmount = calculatedTotalFine;
         }
       }
 
+      // Use backend Late Login Fine when available (e.g. when client couldn't compute) so it matches payslip
+      double finalTotalFineAmount = totalFineAmount;
+      if (backendStats != null) {
+        final deductionComponents =
+            backendStats['deductionComponents'] as List<dynamic>?;
+        if (deductionComponents != null) {
+          for (final c in deductionComponents) {
+            final map = c as Map<String, dynamic>?;
+            if (map != null &&
+                (map['name'] as String? ?? '').toLowerCase().contains(
+                  'late login fine',
+                )) {
+              final backendFine = (map['amount'] as num?)?.toDouble() ?? 0.0;
+              if (backendFine > 0) {
+                finalTotalFineAmount = backendFine;
+                break;
+              }
+            }
+          }
+        }
+      }
+
       _fineInfo = {
-        'totalFineAmount': totalFineAmount,
+        'totalFineAmount': finalTotalFineAmount,
         'lateDays': lateDays,
         'totalLateMinutes': totalLateMinutes,
       };
 
-      // 5. Calculate prorated salary (working days and salary structure already set above, before fine)
+      // 5. Calculate prorated salary (working days, present days, and late login fine included)
       if (_calculatedSalary != null && _workingDaysInfo != null) {
         _proratedSalary = calculateProratedSalary(
           _calculatedSalary!,
           _workingDaysInfo!.workingDays,
           _presentDays,
-          _fineInfo['totalFineAmount'] as double,
+          finalTotalFineAmount,
         );
       }
 
@@ -598,7 +666,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             ),
         ],
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 2,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error.isNotEmpty
@@ -912,7 +983,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
     final working = _workingDaysInfo!.workingDays;
     final present = _presentDays;
-    final absent = working - present;
+    final absent = (working - present).clamp(0.0, double.infinity);
+    final absentStr = absent == absent.roundToDouble()
+        ? '${absent.toInt()}'
+        : absent.toStringAsFixed(1);
     final holidays = _workingDaysInfo!.holidayCount;
     final percent = _proratedSalary!.attendancePercentage;
 
@@ -974,7 +1048,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                     '$present',
                     color: Colors.green,
                   ),
-                  _buildAttStat('Absent Days', '$absent', color: Colors.red),
+                  _buildAttStat('Absent Days', absentStr, color: Colors.red),
                   _buildAttStat('Holidays', '$holidays', color: Colors.orange),
                 ],
               );

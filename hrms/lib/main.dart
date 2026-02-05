@@ -20,19 +20,19 @@ void backgroundCallback() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  // Path accuracy: distanceFilter 30-50m, high accuracy. NO straight-line interpolation.
   await BackgroundLocationTrackerManager.initialize(
     backgroundCallback,
     config: const BackgroundLocationTrackerConfig(
       loggingEnabled: true,
       androidConfig: AndroidConfig(
-        notificationIcon:
-            'explore', // Consider updating this to a proper icon if needed
-        trackingInterval: Duration(seconds: 4),
-        distanceFilterMeters: null,
+        notificationIcon: 'explore',
+        trackingInterval: Duration(seconds: 5),
+        distanceFilterMeters: 40, // 30-50m for accurate GPS trail
       ),
       iOSConfig: IOSConfig(
         activityType: ActivityType.FITNESS,
-        distanceFilterMeters: null,
+        distanceFilterMeters: 40,
         restartAfterKill: true,
       ),
     ),

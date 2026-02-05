@@ -21,18 +21,28 @@ class RequestService {
   Future<Map<String, dynamic>> getDashboardData() async {
     try {
       await _setToken();
-      final response = await _api.dio.get<Map<String, dynamic>>('/dashboard/employee');
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/dashboard/employee',
+      );
       final body = response.data;
       if (body != null && body['success'] == true) {
         return {'success': true, 'data': body['data']};
       }
-      return {'success': false, 'message': body?['message'] ?? 'Error fetching data'};
+      return {
+        'success': false,
+        'message': body?['message'] ?? 'Error fetching data',
+      };
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return {
           'success': true,
           'data': {
-            'attendance': {'present': 0, 'absent': 0, 'late': 0, 'totalWorkingDays': 0},
+            'attendance': {
+              'present': 0,
+              'absent': 0,
+              'late': 0,
+              'totalWorkingDays': 0,
+            },
             'leaves': {'pending': 0, 'approved': 0, 'rejected': 0},
             'loans': {'active': 0, 'pending': 0, 'total': 0},
             'reimbursements': {'pending': 0, 'approved': 0},
@@ -49,9 +59,11 @@ class RequestService {
   String _dioMessage(DioException e) {
     final d = e.response?.data;
     if (d is Map) {
-      return (d['error']?['message'] ?? d['message']) as String? ?? 'Request failed';
+      return (d['error']?['message'] ?? d['message']) as String? ??
+          'Request failed';
     }
-    if (e.response?.statusCode == 429) return 'Too many requests. Please wait a moment.';
+    if (e.response?.statusCode == 429)
+      return 'Too many requests. Please wait a moment.';
     return 'Request failed';
   }
 
@@ -73,7 +85,10 @@ class RequestService {
         q['month'] = month;
         q['year'] = year;
       }
-      final response = await _api.dio.get<Map<String, dynamic>>('/requests/leave-types', queryParameters: q);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/leave-types',
+        queryParameters: q,
+      );
       final body = response.data;
       return {'success': true, 'data': body?['data'] ?? body};
     } on DioException catch (e) {
@@ -88,7 +103,9 @@ class RequestService {
   Future<Map<String, dynamic>> getLeaveTypesForApply() async {
     try {
       await _setToken();
-      final response = await _api.dio.get<Map<String, dynamic>>('/requests/leave-types/for-apply');
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/leave-types/for-apply',
+      );
       final body = response.data;
       return {'success': true, 'data': body?['data'] ?? body};
     } on DioException catch (e) {
@@ -101,9 +118,13 @@ class RequestService {
   Future<Map<String, dynamic>> applyLeave(Map<String, dynamic> data) async {
     try {
       await _setToken();
-      final response = await _api.dio.post<Map<String, dynamic>>('/requests/leave', data: data);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/requests/leave',
+        data: data,
+      );
       final body = response.data;
-      if (body == null) return {'success': false, 'message': 'Invalid response'};
+      if (body == null)
+        return {'success': false, 'message': 'Invalid response'};
       var responseData = body;
       if (body.containsKey('data') && body['data'] is Map) {
         final d = body['data'] as Map;
@@ -139,10 +160,14 @@ class RequestService {
         if (startDate != null) 'startDate': startDate.toIso8601String(),
         if (endDate != null) 'endDate': endDate.toIso8601String(),
       };
-      final response = await _api.dio.get<dynamic>('/requests/leave', queryParameters: q);
+      final response = await _api.dio.get<dynamic>(
+        '/requests/leave',
+        queryParameters: q,
+      );
       final body = response.data;
       if (body is List) return {'success': true, 'data': body};
-      if (body is Map && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      if (body is Map && body['success'] == true)
+        return {'success': true, 'data': body['data'] ?? body};
       return {'success': true, 'data': body};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
@@ -156,9 +181,14 @@ class RequestService {
   Future<Map<String, dynamic>> applyLoan(Map<String, dynamic> data) async {
     try {
       await _setToken();
-      final response = await _api.dio.post<Map<String, dynamic>>('/requests/loan', data: data);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/requests/loan',
+        data: data,
+      );
       final body = response.data;
-      final responseData = body != null && body.containsKey('data') ? body['data']! : body;
+      final responseData = body != null && body.containsKey('data')
+          ? body['data']!
+          : body;
       return {'success': true, 'data': responseData};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
@@ -185,9 +215,13 @@ class RequestService {
         if (startDate != null) 'startDate': startDate.toIso8601String(),
         if (endDate != null) 'endDate': endDate.toIso8601String(),
       };
-      final response = await _api.dio.get<Map<String, dynamic>>('/requests/loan', queryParameters: q);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/loan',
+        queryParameters: q,
+      );
       final body = response.data;
-      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      if (body != null && body['success'] == true)
+        return {'success': true, 'data': body['data'] ?? body};
       return {'success': true, 'data': body};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
@@ -201,9 +235,13 @@ class RequestService {
   Future<Map<String, dynamic>> applyExpense(Map<String, dynamic> data) async {
     try {
       await _setToken();
-      final response = await _api.dio.post<Map<String, dynamic>>('/requests/expense', data: data);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/requests/expense',
+        data: data,
+      );
       final body = response.data;
-      if (body == null) return {'success': false, 'message': 'Invalid response'};
+      if (body == null)
+        return {'success': false, 'message': 'Invalid response'};
       var responseData = body;
       if (body.containsKey('data') && body['data'] is Map) {
         final d = body['data'] as Map;
@@ -235,9 +273,13 @@ class RequestService {
         if (startDate != null) 'startDate': startDate.toIso8601String(),
         if (endDate != null) 'endDate': endDate.toIso8601String(),
       };
-      final response = await _api.dio.get<Map<String, dynamic>>('/requests/expense', queryParameters: q);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/expense',
+        queryParameters: q,
+      );
       final body = response.data;
-      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      if (body != null && body['success'] == true)
+        return {'success': true, 'data': body['data'] ?? body};
       return {'success': true, 'data': body};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
@@ -251,10 +293,18 @@ class RequestService {
   Future<Map<String, dynamic>> requestPayslip(Map<String, dynamic> data) async {
     try {
       await _setToken();
-      final response = await _api.dio.post<Map<String, dynamic>>('/requests/payslip', data: data);
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/requests/payslip',
+        data: data,
+      );
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 201)) {
-        return {'success': true, 'data': body['data'], 'message': body['message']};
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 201)) {
+        return {
+          'success': true,
+          'data': body['data'],
+          'message': body['message'],
+        };
       }
       return {'success': true, 'data': body};
     } on DioException catch (e) {
@@ -282,9 +332,13 @@ class RequestService {
         if (startDate != null) 'startDate': startDate.toIso8601String(),
         if (endDate != null) 'endDate': endDate.toIso8601String(),
       };
-      final response = await _api.dio.get<Map<String, dynamic>>('/requests/payslip', queryParameters: q);
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/payslip',
+        queryParameters: q,
+      );
       final body = response.data;
-      if (body != null && body['success'] == true) return {'success': true, 'data': body['data'] ?? body};
+      if (body != null && body['success'] == true)
+        return {'success': true, 'data': body['data'] ?? body};
       return {'success': true, 'data': body};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};

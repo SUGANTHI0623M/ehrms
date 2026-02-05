@@ -9,8 +9,10 @@ class AttendanceService {
   final String baseUrl = AppConstants.baseUrl;
   final ApiClient _api = ApiClient();
   Map<String, dynamic>? attendanceTemplate;
-  Map<String, dynamic>? _cachedTodayAttendance;
-  DateTime? _lastTodayAttendanceFetch;
+
+  // Shared across all instances so Selfie Check-in (via BLoC) can use cache from Attendance tab.
+  static Map<String, dynamic>? _cachedTodayAttendance;
+  static DateTime? _lastTodayAttendanceFetch;
 
   // Cache for month attendance: key = "year-month", value = cached data
   final Map<String, Map<String, dynamic>> _cachedMonthAttendance = {};
@@ -36,8 +38,8 @@ class AttendanceService {
   /// Call after check-in/check-out so Recent Activity and History never show
   /// cached data. Also call from the attendance screen before a forced refresh.
   void clearCachesForRefresh() {
-    _cachedTodayAttendance = null;
-    _lastTodayAttendanceFetch = null;
+    AttendanceService._cachedTodayAttendance = null;
+    AttendanceService._lastTodayAttendanceFetch = null;
     _cachedMonthAttendance.clear();
     _lastMonthAttendanceFetch.clear();
   }
@@ -212,6 +214,14 @@ class AttendanceService {
     try {
       final url = '$baseUrl/attendance/today?date=$date';
       if (_isThrottled(url)) {
+        // When opening Selfie Check-in right after Attendance tab, we often hit throttle.
+        // If we have cached data for today, return it so the user doesn't see "Too many requests".
+        final now = DateTime.now();
+        final todayStr =
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        if (date == todayStr && _cachedTodayAttendance != null) {
+          return {'success': true, 'data': _cachedTodayAttendance!};
+        }
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',
@@ -225,9 +235,24 @@ class AttendanceService {
         queryParameters: {'date': date},
       );
       final data = response.data ?? {};
+      // Share cache with getTodayAttendance so throttle/cache hits can return this data.
+      final now = DateTime.now();
+      final todayStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      if (date == todayStr) {
+        _cachedTodayAttendance = data;
+        _lastTodayAttendanceFetch = DateTime.now();
+      }
       return {'success': true, 'data': data};
     } on DioException catch (e) {
       if (e.response?.statusCode == 429) {
+        // On server 429, return cached today data if we have it so Selfie Check-in can still show status.
+        final now = DateTime.now();
+        final todayStr =
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        if (date == todayStr && _cachedTodayAttendance != null) {
+          return {'success': true, 'data': _cachedTodayAttendance!};
+        }
         return {
           'success': false,
           'message': 'Too many requests. Please wait a moment.',

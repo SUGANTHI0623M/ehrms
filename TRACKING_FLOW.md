@@ -29,10 +29,11 @@ Uber-style flow: **Start Task** (with map, distance/ETA) → **Live Tracking** (
 
 ## 3. Live Tracking – Backend Sync
 
-- **Location updates**: App sends current lat/lng to backend every **15 seconds** (configurable) to limit battery use.
+- **Location updates**: App sends GPS point every **15 seconds** (configurable) to limit battery use.
 - **Endpoint**: `POST /api/tasks/:id/location`  
   Body: `{ "lat": number, "lng": number, "timestamp": "ISO8601" }`  
-  Backend appends to task’s `locationHistory` (capped at 500 points).
+  Backend appends to task’s `locationHistory` (capped at 2000 points. NO polyline/Directions API).
+- **Socket.io**: Each new coordinate is broadcast to `task:taskId` and `admin:tracking` rooms for live view.
 - **Auth**: All tracking endpoints use `protect` middleware.
 
 ---
@@ -71,13 +72,18 @@ Uber-style flow: **Start Task** (with map, distance/ETA) → **Live Tracking** (
 | GET | `/api/tasks/staff/:staffId` | - | Tasks for staff |
 | GET | `/api/tasks/:id` | - | Task by id |
 | PATCH | `/api/tasks/:id` | - | Update task (status, startTime, startLocation) |
-| POST | `/api/tasks/:id/location` | Yes | Append live location |
+| POST | `/api/tasks/:id/location` | Yes | Append live GPS point |
+| GET | `/api/tasks/:id/tracking-path` | Yes | Full path for admin replay |
 | PATCH | `/api/tasks/:id/steps` | Yes | Update progress steps |
 | POST | `/api/tasks/:id/end` | Yes | Complete task |
 
 **MongoDB (Task)**  
 - `progressSteps`: `{ reachedLocation, photoProof, formFilled, otpVerified }`  
-- `locationHistory`: array of `{ lat, lng, timestamp }` (max 500).
+- `locationHistory`: array of `{ lat, lng, timestamp, batteryPercent? }` (max 2000). Paths built ONLY from actual GPS.
+
+**Admin / Web Dashboard**  
+- Live vi imeline replay via `GET /api/tasks/:id/tracking-path`.  
+- See `docs/TRACKING_WEB_INTEGRATION.md` for React web integration.
 
 ---
 

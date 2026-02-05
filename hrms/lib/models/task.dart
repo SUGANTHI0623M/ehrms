@@ -1,12 +1,37 @@
 import 'package:hrms/models/customer.dart';
 
+class TaskLocation {
+  final double lat;
+  final double lng;
+  final String? address;
+
+  const TaskLocation({required this.lat, required this.lng, this.address});
+
+  factory TaskLocation.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const TaskLocation(lat: 0, lng: 0);
+    return TaskLocation(
+      lat: (json['lat'] as num?)?.toDouble() ?? 0,
+      lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      address: json['address'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'lat': lat,
+    'lng': lng,
+    if (address != null) 'address': address,
+  };
+}
+
 enum TaskStatus {
   onlineReady,
   assigned,
+  approved,
   pending,
   scheduled,
   inProgress,
   completed,
+  rejected,
   cancelled,
   reopened,
 }
@@ -21,6 +46,7 @@ class Task {
   final Customer? customer;
   final DateTime expectedCompletionDate;
   final DateTime? completedDate;
+  final DateTime? assignedDate;
   final TaskStatus status;
   final bool isOtpRequired;
   final bool isGeoFenceRequired;
@@ -33,6 +59,24 @@ class Task {
   /// From customFields.otpVerifiedAt when present.
   final DateTime? otpVerifiedAt;
 
+  /// From progressSteps.photoProof when present.
+  final bool? photoProof;
+
+  /// URL of uploaded photo proof.
+  final String? photoProofUrl;
+
+  /// Company/workflow settings (read-only). Default false if not provided by API.
+  final bool requireApprovalOnComplete;
+  final bool autoApprove;
+
+  final TaskLocation? sourceLocation;
+  final TaskLocation? destinationLocation;
+
+  /// Trip completion details (stored when staff arrives).
+  final double? tripDistanceKm;
+  final int? tripDurationSeconds;
+  final DateTime? arrivalTime;
+
   Task({
     this.id,
     required this.taskId,
@@ -43,6 +87,7 @@ class Task {
     this.customer,
     required this.expectedCompletionDate,
     this.completedDate,
+    this.assignedDate,
     required this.status,
     this.isOtpRequired = false,
     this.isGeoFenceRequired = false,
@@ -50,23 +95,47 @@ class Task {
     this.isFormRequired = false,
     this.isOtpVerified,
     this.otpVerifiedAt,
+    this.photoProof,
+    this.photoProofUrl,
+    this.requireApprovalOnComplete = false,
+    this.autoApprove = false,
+    this.sourceLocation,
+    this.destinationLocation,
+    this.tripDistanceKm,
+    this.tripDurationSeconds,
+    this.arrivalTime,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
+    final customerIdVal = json['customerId'];
+    final customer = customerIdVal is Map
+        ? Customer.fromJson(Map<String, dynamic>.from(customerIdVal))
+        : (json['customer'] is Map
+              ? Customer.fromJson(
+                  Map<String, dynamic>.from(json['customer'] as Map),
+                )
+              : null);
     return Task(
       id: _stringFromId(json['_id']),
       taskId: (json['taskId'] as String?) ?? '',
       taskTitle: (json['taskTitle'] as String?) ?? '',
       description: (json['description'] as String?) ?? '',
       assignedTo: _stringFromId(json['assignedTo']) ?? '',
-      customerId: _stringFromId(json['customerId']),
+      customerId: _stringFromId(customerIdVal),
+      customer: customer,
       expectedCompletionDate:
           _dateFromJson(json['expectedCompletionDate']) ?? DateTime.now(),
       completedDate: _dateFromJson(json['completedDate']),
+      assignedDate:
+          _dateFromJson(json['assignedDate']) ??
+          _dateFromJson(json['createdAt']),
       status: statusFromJson((json['status'] as String?) ?? ''),
-      isOtpRequired: json['customFields'] != null
-          ? (json['customFields']['otpRequired'] as bool?) ?? false
-          : false,
+      isOtpRequired:
+          (json['customFields'] != null
+              ? (json['customFields']['otpRequired'] as bool?)
+              : null) ??
+          (json['isOtpRequired'] as bool?) ??
+          false,
       isGeoFenceRequired: json['customFields'] != null
           ? (json['customFields']['geoFenceRequired'] as bool?) ?? false
           : false,
@@ -78,10 +147,40 @@ class Task {
           : false,
       isOtpVerified: json['customFields'] != null
           ? (json['customFields']['otpVerified'] as bool?)
-          : null,
+          : (json['progressSteps'] != null
+                ? (json['progressSteps']['otpVerified'] as bool?)
+                : null),
       otpVerifiedAt: json['customFields'] != null
           ? _dateFromJson(json['customFields']['otpVerifiedAt'])
           : null,
+      photoProof: json['progressSteps'] != null
+          ? (json['progressSteps']['photoProof'] as bool?)
+          : null,
+      photoProofUrl: json['photoProofUrl'] as String?,
+      requireApprovalOnComplete:
+          (json['requireApprovalOnComplete'] as bool?) ??
+          (json['settings'] != null
+              ? (json['settings']['requireApprovalOnComplete'] as bool?) ??
+                    false
+              : false),
+      autoApprove:
+          (json['autoApprove'] as bool?) ??
+          (json['settings'] != null
+              ? (json['settings']['autoApprove'] as bool?) ?? false
+              : false),
+      sourceLocation: json['sourceLocation'] != null
+          ? TaskLocation.fromJson(
+              json['sourceLocation'] as Map<String, dynamic>,
+            )
+          : null,
+      destinationLocation: json['destinationLocation'] != null
+          ? TaskLocation.fromJson(
+              json['destinationLocation'] as Map<String, dynamic>,
+            )
+          : null,
+      tripDistanceKm: (json['tripDistanceKm'] as num?)?.toDouble(),
+      tripDurationSeconds: json['tripDurationSeconds'] as int?,
+      arrivalTime: _dateFromJson(json['arrivalTime']),
     );
   }
 
@@ -107,6 +206,16 @@ class Task {
     return null;
   }
 
+  /// Backend expects snake_case: in_progress, not inProgress.
+  static String statusToApiString(TaskStatus s) {
+    switch (s) {
+      case TaskStatus.inProgress:
+        return 'in_progress';
+      default:
+        return s.name;
+    }
+  }
+
   static TaskStatus statusFromJson(String status) {
     switch (status.toLowerCase()) {
       case 'assigned':
@@ -124,6 +233,10 @@ class Task {
       case 'completed':
       case 'completed tasks':
         return TaskStatus.completed;
+      case 'approved':
+        return TaskStatus.approved;
+      case 'rejected':
+        return TaskStatus.rejected;
       case 'cancelled':
       case 'cancelled tasks':
         return TaskStatus.cancelled;
@@ -160,6 +273,7 @@ class Task {
     Customer? customer,
     DateTime? expectedCompletionDate,
     DateTime? completedDate,
+    DateTime? assignedDate,
     TaskStatus? status,
     bool? isOtpRequired,
     bool? isGeoFenceRequired,
@@ -167,6 +281,13 @@ class Task {
     bool? isFormRequired,
     bool? isOtpVerified,
     DateTime? otpVerifiedAt,
+    bool? requireApprovalOnComplete,
+    bool? autoApprove,
+    TaskLocation? sourceLocation,
+    TaskLocation? destinationLocation,
+    double? tripDistanceKm,
+    int? tripDurationSeconds,
+    DateTime? arrivalTime,
   }) {
     return Task(
       id: id ?? this.id,
@@ -179,6 +300,7 @@ class Task {
       expectedCompletionDate:
           expectedCompletionDate ?? this.expectedCompletionDate,
       completedDate: completedDate ?? this.completedDate,
+      assignedDate: assignedDate ?? this.assignedDate,
       status: status ?? this.status,
       isOtpRequired: isOtpRequired ?? this.isOtpRequired,
       isGeoFenceRequired: isGeoFenceRequired ?? this.isGeoFenceRequired,
@@ -186,6 +308,16 @@ class Task {
       isFormRequired: isFormRequired ?? this.isFormRequired,
       isOtpVerified: isOtpVerified ?? this.isOtpVerified,
       otpVerifiedAt: otpVerifiedAt ?? this.otpVerifiedAt,
+      photoProof: photoProof ?? this.photoProof,
+      photoProofUrl: photoProofUrl ?? this.photoProofUrl,
+      requireApprovalOnComplete:
+          requireApprovalOnComplete ?? this.requireApprovalOnComplete,
+      autoApprove: autoApprove ?? this.autoApprove,
+      sourceLocation: sourceLocation ?? this.sourceLocation,
+      destinationLocation: destinationLocation ?? this.destinationLocation,
+      tripDistanceKm: tripDistanceKm ?? this.tripDistanceKm,
+      tripDurationSeconds: tripDurationSeconds ?? this.tripDurationSeconds,
+      arrivalTime: arrivalTime ?? this.arrivalTime,
     );
   }
 }

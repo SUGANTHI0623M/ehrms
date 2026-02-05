@@ -25,7 +25,7 @@ class CustomerService {
     final response = await _api.dio.get<dynamic>('/customers');
     final body = response.data;
     if (body is List) {
-      return List<Customer>.from((body as List).map((e) => Customer.fromJson(e as Map<String, dynamic>)));
+      return List<Customer>.from((body).map((e) => Customer.fromJson(e as Map<String, dynamic>)));
     }
     if (body is Map && body['data'] != null) {
       final list = body['data'] as List;

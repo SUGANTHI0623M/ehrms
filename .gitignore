@@ -56,6 +56,11 @@ app_backend/uploads/
 # Python venv and DeepFace (create on server; weights downloaded at runtime)
 app_backend/face_verify/venv/
 app_backend/face_verify/.deepface/
+app_backend/face_verify/__pycache__/
+**/__pycache__/
+
+# Test/sample data (may contain sensitive info)
+app_backend/customer_data.json
 
 # Temporary/Test files
 **/temp/

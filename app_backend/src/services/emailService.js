@@ -162,7 +162,53 @@ const sendOTPEmail = async (toEmail, otp) => {
     }
 };
 
+/**
+ * Send task OTP email with custom subject and HTML (uses SendPulse/SendGrid/SMTP).
+ */
+const sendTaskOtpEmail = async (toEmail, subject, html) => {
+    if (!toEmail || !subject || !html) {
+        return { success: false, error: 'Email, subject, and html are required' };
+    }
+    const fromEmail = process.env.SENDPULSE_FROM_EMAIL || process.env.EMAIL_FROM || process.env.EMAIL_USER;
+    const fromName = process.env.SENDPULSE_FROM_NAME || process.env.EMAIL_FROM_NAME || 'ASKEVA HRMS';
+    if (!fromEmail) {
+        return { success: false, error: 'SENDPULSE_FROM_EMAIL or EMAIL_FROM not set' };
+    }
+    if (useSendPulse) {
+        try {
+            const result = await sendpulseService.sendEmail(toEmail, subject, html, fromEmail, fromName);
+            if (result.success) return { success: true, messageId: result.messageId };
+            return { success: false, error: result.error };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+    if (sgMail) {
+        try {
+            await sgMail.send({ to: toEmail, from: { email: fromEmail, name: fromName }, subject, html });
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+    if (transporter?.options?.auth) {
+        try {
+            await transporter.sendMail({
+                from: `"${fromName}" <${fromEmail}>`,
+                to: toEmail,
+                subject,
+                html
+            });
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+    return { success: false, error: 'No email service configured (SENDPULSE_* or SENDGRID_API_KEY or EMAIL_*)' };
+};
+
 module.exports = {
-    sendOTPEmail
+    sendOTPEmail,
+    sendTaskOtpEmail
 };
 

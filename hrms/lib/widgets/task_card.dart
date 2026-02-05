@@ -6,8 +6,7 @@ class TaskCard extends StatelessWidget {
   final Task task;
   final VoidCallback onStartTask;
 
-  const TaskCard({Key? key, required this.task, required this.onStartTask})
-    : super(key: key);
+  const TaskCard({super.key, required this.task, required this.onStartTask});
 
   @override
   Widget build(BuildContext context) {
@@ -40,69 +39,71 @@ class TaskCard extends StatelessWidget {
         task.status == TaskStatus.assigned || task.status == TaskStatus.pending;
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0),
+        borderRadius: BorderRadius.circular(12),
         side: isTaskActionable
-            ? BorderSide(color: Theme.of(context).primaryColor, width: 2.0)
+            ? BorderSide(color: Theme.of(context).primaryColor, width: 1.5)
             : BorderSide.none,
       ),
-      elevation: 4.0,
-      shadowColor: Colors.black.withOpacity(0.1),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.08),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   'Task #${task.taskId}',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: Colors.grey[600], fontSize: 11),
                 ),
                 Chip(
                   label: Text(
                     statusText,
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(color: Colors.white, fontSize: 10),
                   ),
                   backgroundColor: statusColor,
-                  padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 0,
+                  ),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ],
             ),
-            const SizedBox(height: 4.0),
+            const SizedBox(height: 4),
             Text(
               task.taskTitle,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
                 color: Colors.black87,
               ),
             ),
             if (task.customer != null)
               Padding(
-                padding: const EdgeInsets.only(top: 4.0),
+                padding: const EdgeInsets.only(top: 2),
                 child: Text(
                   task.customer!.customerName,
-                  style: TextStyle(color: Colors.grey[800]),
+                  style: TextStyle(color: Colors.grey[800], fontSize: 12),
                 ),
               ),
             if (task.customer?.customerNumber != null &&
                 task.customer!.customerNumber!.isNotEmpty)
               Text(
                 task.customer!.customerNumber!,
-                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                style: TextStyle(color: Colors.grey[600], fontSize: 11),
               ),
-            const SizedBox(height: 16.0),
+            const SizedBox(height: 10),
 
-            // Destination Section
             Container(
-              padding: const EdgeInsets.all(12.0),
+              padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: Colors.blue.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(8.0),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -110,9 +111,9 @@ class TaskCard extends StatelessWidget {
                   Icon(
                     Icons.location_on,
                     color: Theme.of(context).primaryColor,
-                    size: 20,
+                    size: 16,
                   ),
-                  const SizedBox(width: 8.0),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,7 +122,7 @@ class TaskCard extends StatelessWidget {
                           'Destination',
                           style: TextStyle(
                             color: Colors.grey[600],
-                            fontSize: 12,
+                            fontSize: 10,
                           ),
                         ),
                         if (task.customer != null)
@@ -130,6 +131,7 @@ class TaskCard extends StatelessWidget {
                             style: TextStyle(
                               color: Colors.black87,
                               fontWeight: FontWeight.w500,
+                              fontSize: 11,
                             ),
                           ),
                       ],
@@ -138,9 +140,8 @@ class TaskCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 16.0),
+            const SizedBox(height: 10),
 
-            // Date & Distance Row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -149,45 +150,44 @@ class TaskCard extends StatelessWidget {
                     Icon(
                       Icons.calendar_today,
                       color: Colors.grey[500],
-                      size: 16,
+                      size: 12,
                     ),
-                    const SizedBox(width: 4.0),
+                    const SizedBox(width: 4),
                     Text(
                       _formatCompletionDate(
                         task.expectedCompletionDate.toIso8601String(),
                       ),
-                      style: TextStyle(color: Colors.grey[700]),
+                      style: TextStyle(color: Colors.grey[700], fontSize: 11),
                     ),
                   ],
                 ),
                 Row(
                   children: [
-                    Icon(Icons.alt_route, color: Colors.grey[500], size: 16),
-                    const SizedBox(width: 4.0),
+                    Icon(Icons.alt_route, color: Colors.grey[500], size: 12),
+                    const SizedBox(width: 4),
                     Text(
                       '-- km away',
-                      style: TextStyle(color: Colors.grey[700]),
+                      style: TextStyle(color: Colors.grey[700], fontSize: 11),
                     ),
                   ],
                 ),
               ],
             ),
-            const SizedBox(height: 16.0),
+            const SizedBox(height: 10),
 
-            // Requirement Tags (Chips)
             Wrap(
-              spacing: 8.0,
-              runSpacing: 4.0,
+              spacing: 6,
+              runSpacing: 4,
               children: [
                 if (task.isOtpRequired)
                   _buildRequirementChip(
-                    'OTP Required',
+                    'OTP',
                     Colors.blue.shade100,
                     Colors.blue.shade800,
                   ),
                 if (task.isGeoFenceRequired)
                   _buildRequirementChip(
-                    'Geo-Fence',
+                    'Geo',
                     Colors.green.shade100,
                     Colors.green.shade800,
                   ),
@@ -207,32 +207,35 @@ class TaskCard extends StatelessWidget {
             ),
             if (task.completedDate != null)
               Padding(
-                padding: const EdgeInsets.only(top: 16.0),
+                padding: const EdgeInsets.only(top: 10),
                 child: Text(
-                  'Completed on: ${task.completedDate != null ? DateFormat('dd MMM yyyy').format(task.completedDate!) : 'N/A'}',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  'Completed: ${DateFormat('dd MMM yyyy').format(task.completedDate!)}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 10),
                 ),
               ),
-            const SizedBox(height: 16.0),
+            const SizedBox(height: 12),
 
-            // Action Button
             if (isTaskActionable)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: onStartTask,
-                  icon: const Icon(Icons.rocket_launch, color: Colors.white),
+                  icon: const Icon(
+                    Icons.rocket_launch,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                   label: const Text(
                     'Start Task',
-                    style: TextStyle(fontSize: 16, color: Colors.white),
+                    style: TextStyle(fontSize: 13, color: Colors.white),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10.0),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12.0),
-                    elevation: 2.0,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    elevation: 2,
                   ),
                 ),
               ),
@@ -248,9 +251,9 @@ class TaskCard extends StatelessWidget {
     Color textColor,
   ) {
     return Chip(
-      label: Text(label, style: TextStyle(color: textColor, fontSize: 11)),
+      label: Text(label, style: TextStyle(color: textColor, fontSize: 10)),
       backgroundColor: backgroundColor,
-      padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }

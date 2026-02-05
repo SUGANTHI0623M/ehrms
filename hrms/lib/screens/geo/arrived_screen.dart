@@ -1,0 +1,681 @@
+// Arrived screen – trip summary, "You've Arrived!", Within Geo-Fence, Next Steps.
+import 'package:flutter/material.dart';
+import 'package:hrms/config/app_colors.dart';
+import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/geo/otp_verification_screen.dart';
+import 'package:hrms/screens/geo/photo_proof_screen.dart';
+import 'package:hrms/screens/geo/task_completed_screen.dart';
+import 'package:hrms/services/task_service.dart';
+import 'package:hrms/widgets/app_drawer.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
+import 'package:intl/intl.dart';
+
+class ArrivedScreen extends StatefulWidget {
+  final String? taskMongoId;
+  final String taskId;
+  final Task? task;
+  final Duration totalDuration;
+  final double totalDistanceKm;
+  final bool isWithinGeofence;
+  final DateTime arrivalTime;
+
+  /// Source (pickup) location - lat, lng, address.
+  final double? sourceLat;
+  final double? sourceLng;
+  final String? sourceAddress;
+
+  /// Destination (dropoff) location - lat, lng, address.
+  final double? destLat;
+  final double? destLng;
+  final String? destAddress;
+
+  /// Optional: driving duration/distance if available from tracking.
+  final Duration? drivingDuration;
+  final double? drivingDistanceKm;
+  final Duration? walkingDuration;
+  final double? walkingDistanceKm;
+
+  const ArrivedScreen({
+    super.key,
+    this.taskMongoId,
+    required this.taskId,
+    this.task,
+    required this.totalDuration,
+    required this.totalDistanceKm,
+    required this.isWithinGeofence,
+    required this.arrivalTime,
+    this.sourceLat,
+    this.sourceLng,
+    this.sourceAddress,
+    this.destLat,
+    this.destLng,
+    this.destAddress,
+    this.drivingDuration,
+    this.drivingDistanceKm,
+    this.walkingDuration,
+    this.walkingDistanceKm,
+  });
+
+  @override
+  State<ArrivedScreen> createState() => _ArrivedScreenState();
+}
+
+class _ArrivedScreenState extends State<ArrivedScreen> {
+  Task? _task;
+  bool _photoProofDone = false;
+
+  Task? get task => _task;
+
+  @override
+  void initState() {
+    super.initState();
+    _task = widget.task;
+    _photoProofDone = widget.task?.photoProof == true;
+    _refreshTask();
+  }
+
+  bool _canOpenOtpScreen() {
+    final mongoId = widget.taskMongoId ?? task?.id;
+    return task != null &&
+        mongoId != null &&
+        mongoId.isNotEmpty &&
+        task?.isOtpVerified != true;
+  }
+
+  Future<void> _refreshTask() async {
+    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
+    try {
+      final t = await TaskService().getTaskById(widget.taskMongoId!);
+      if (mounted) {
+        setState(() {
+          _task = t;
+          _photoProofDone = t.photoProof == true;
+        });
+      }
+    } catch (_) {}
+  }
+
+  static String _formatDuration(Duration d) {
+    if (d.inHours > 0) {
+      return '${d.inHours}h ${d.inMinutes.remainder(60)} mins';
+    }
+    if (d.inMinutes > 0) {
+      return '${d.inMinutes} mins ${d.inSeconds.remainder(60)} secs';
+    }
+    return '${d.inSeconds} secs';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final drivingDur = widget.drivingDuration ?? widget.totalDuration;
+    final drivingKm = widget.drivingDistanceKm ?? widget.totalDistanceKm;
+    final walkingDur = widget.walkingDuration ?? Duration.zero;
+    final walkingKm = widget.walkingDistanceKm ?? 0.0;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        flexibleSpace: Container(
+          decoration: BoxDecoration(color: AppColors.primary),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Arrived',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        elevation: 0,
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 12, top: 8, bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Stopped',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      drawer: AppDrawer(currentIndex: 1),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Arrival confirmation card
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        color: Colors.white,
+                        size: 40,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      "You've Arrived!",
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Great job! You reached the customer location.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (widget.isWithinGeofence) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: AppColors.primary,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Within Geo-Fence',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "You're inside the 500m radius",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Trip details card - all trip info
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Trip Details',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _row(
+                      'Total Distance',
+                      '${widget.totalDistanceKm.toStringAsFixed(2)} km',
+                    ),
+                    _row('Time Taken', _formatDuration(widget.totalDuration)),
+                    _row(
+                      'Arrival Time',
+                      DateFormat('h:mm a').format(widget.arrivalTime),
+                    ),
+                    if (drivingKm > 0 || walkingKm > 0) ...[
+                      _row(
+                        'Driving',
+                        drivingKm > 0
+                            ? '${_formatDuration(drivingDur)} (${drivingKm.toStringAsFixed(1)} km)'
+                            : '—',
+                      ),
+                      _row(
+                        'Walking',
+                        walkingKm > 0
+                            ? '${_formatDuration(walkingDur)} (${walkingKm.toStringAsFixed(1)} km)'
+                            : '—',
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    _locationSection(
+                      'Source',
+                      widget.sourceAddress ?? task?.sourceLocation?.address,
+                      widget.sourceLat ?? task?.sourceLocation?.lat,
+                      widget.sourceLng ?? task?.sourceLocation?.lng,
+                    ),
+                    const SizedBox(height: 12),
+                    _locationSection(
+                      'Destination',
+                      widget.destAddress ?? task?.destinationLocation?.address,
+                      widget.destLat ?? task?.destinationLocation?.lat,
+                      widget.destLng ?? task?.destinationLocation?.lng,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Next Steps card – all steps, then Continue to Form (→ OTP if required).
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border(
+                    left: BorderSide(color: AppColors.primary, width: 4),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Next Steps',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Complete these requirements to finish the task:',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _nextStepRow(
+                      icon: Icons.location_on_rounded,
+                      label: 'Reached location',
+                      done: true,
+                    ),
+                    _nextStepRow(
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Take photo proof',
+                      done: _photoProofDone,
+                      onTap: task != null && widget.taskMongoId != null
+                          ? () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (ctx) => PhotoProofScreen(
+                                    task: task!,
+                                    taskMongoId: widget.taskMongoId,
+                                    onPhotoUploaded: () => _refreshTask(),
+                                  ),
+                                ),
+                              );
+                              await _refreshTask();
+                            }
+                          : null,
+                    ),
+                    // OTP can be verified even when form is not filled – no dependency.
+                    _nextStepRow(
+                      icon: Icons.pin_rounded,
+                      label: 'Get OTP from customer',
+                      done: task?.isOtpVerified == true,
+                      onTap: _canOpenOtpScreen()
+                          ? () async {
+                              final mongoId =
+                                  widget.taskMongoId ?? task?.id ?? '';
+                              final t = task;
+                              if (t == null || mongoId.isEmpty) return;
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => OtpVerificationScreen(
+                                    task: t,
+                                    taskMongoId: mongoId,
+                                    arrivalTime: widget.arrivalTime,
+                                    totalDuration: widget.totalDuration,
+                                    totalDistanceKm: widget.totalDistanceKm,
+                                    autoSendOtp: true,
+                                  ),
+                                ),
+                              );
+                              if (context.mounted) await _refreshTask();
+                            }
+                          : null,
+                    ),
+                    _nextStepRow(
+                      icon: Icons.description_rounded,
+                      label: 'Fill required form (optional)',
+                      done: false,
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final t = task ?? widget.task;
+                          final startedAt = widget.arrivalTime.subtract(
+                            widget.totalDuration,
+                          );
+                          final otpRequired = t != null && t.isOtpRequired;
+                          final otpVerified = t?.isOtpVerified == true;
+
+                          if (otpRequired && !otpVerified) {
+                            // Go to OTP screen, auto-send OTP, refresh when returning
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => OtpVerificationScreen(
+                                  task: t!,
+                                  taskMongoId: widget.taskMongoId,
+                                  arrivalTime: widget.arrivalTime,
+                                  totalDuration: widget.totalDuration,
+                                  totalDistanceKm: widget.totalDistanceKm,
+                                  autoSendOtp: true,
+                                ),
+                              ),
+                            );
+                            if (context.mounted) await _refreshTask();
+                          } else {
+                            // Task Completed: end task and go to completed screen
+                            if (widget.taskMongoId != null &&
+                                widget.taskMongoId!.isNotEmpty) {
+                              try {
+                                await TaskService().endTask(
+                                  widget.taskMongoId!,
+                                );
+                              } catch (_) {}
+                            }
+                            if (context.mounted) {
+                              final refreshed = task ?? t;
+                              Navigator.of(context).pushReplacement(
+                                MaterialPageRoute(
+                                  builder: (context) => TaskCompletedScreen(
+                                    task: refreshed,
+                                    taskMongoId: widget.taskMongoId,
+                                    taskId: widget.taskId,
+                                    startedAt: startedAt,
+                                    completedAt: DateTime.now(),
+                                    totalDuration: widget.totalDuration,
+                                    totalDistanceKm: widget.totalDistanceKm,
+                                    otpVerified: otpVerified,
+                                    geoFence: widget.isWithinGeofence,
+                                    formSubmitted: false,
+                                    photoProof: _photoProofDone,
+                                    arrivalTime: widget.arrivalTime,
+                                    otpVerifiedAt: refreshed?.otpVerifiedAt,
+                                    verifiedOtp: null,
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.secondary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        icon: Icon(
+                          (task?.isOtpRequired == true &&
+                                  task?.isOtpVerified != true)
+                              ? Icons.pin_rounded
+                              : Icons.check_circle_rounded,
+                          size: 22,
+                        ),
+                        label: Text(
+                          (task?.isOtpRequired == true &&
+                                  task?.isOtpVerified != true)
+                              ? 'Verify OTP'
+                              : 'Task Completed',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _locationSection(
+    String title,
+    String? address,
+    double? lat,
+    double? lng,
+  ) {
+    final hasAddress = address != null && address.isNotEmpty;
+    final hasCoords = lat != null && lng != null && (lat != 0 || lng != 0);
+    if (!hasAddress && !hasCoords) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                title == 'Source'
+                    ? Icons.gps_fixed_rounded
+                    : Icons.location_on_rounded,
+                size: 18,
+                color: title == 'Source' ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '—',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              title == 'Source'
+                  ? Icons.gps_fixed_rounded
+                  : Icons.location_on_rounded,
+              size: 18,
+              color: title == 'Source' ? Colors.green : Colors.red,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (hasAddress)
+          Text(
+            address!,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+        if (hasCoords)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade500,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _nextStepRow({
+    required IconData icon,
+    required String label,
+    required bool done,
+    VoidCallback? onTap,
+  }) {
+    final content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: done
+            ? AppColors.primary.withOpacity(0.12)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            done ? Icons.check_circle_rounded : icon,
+            color: done ? AppColors.primary : Colors.grey.shade600,
+            size: 22,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: done ? AppColors.primary : Colors.grey.shade800,
+              ),
+            ),
+          ),
+          if (onTap != null && !done)
+            Icon(Icons.chevron_right_rounded, color: Colors.grey.shade500),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: onTap != null && !done
+          ? InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(10),
+              child: content,
+            )
+          : content,
+    );
+  }
+}

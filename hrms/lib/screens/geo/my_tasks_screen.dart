@@ -1,15 +1,23 @@
 // hrms/lib/screens/geo/my_tasks_screen.dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'package:hrms/services/customer_service.dart'; // Assuming you have a Customer service
-import 'package:intl/intl.dart';
-import 'package:hrms/screens/geo/select_source_destination_screen.dart';
+import 'package:hrms/screens/dashboard/dashboard_screen.dart';
+import 'package:hrms/screens/geo/add_task_screen.dart';
+import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
+import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:hrms/widgets/app_drawer.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
 import 'package:hrms/widgets/menu_icon_button.dart';
+import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MyTasksScreen extends StatefulWidget {
   final int? dashboardTabIndex;
@@ -25,16 +33,311 @@ class MyTasksScreen extends StatefulWidget {
   State<MyTasksScreen> createState() => _MyTasksScreenState();
 }
 
-class _MyTasksScreenState extends State<MyTasksScreen> {
+class _MyTasksScreenState extends State<MyTasksScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   String? _loggedInStaffId;
   List<Task> _tasks = [];
   bool _isLoading = true;
   String? _errorMessage;
 
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  DateTime? _filterStartDate;
+  DateTime? _filterEndDate;
+  bool _isSelectionMode = false;
+  final Set<String> _selectedTaskIds = {};
+  bool _exporting = false;
+  bool _showFilterSection = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _tabController = TabController(length: 6, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging && mounted) setState(() {});
+    });
     _loadLoggedInStaffId();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Task> get _filteredTasks {
+    List<Task> list = _tasks;
+    final tabIndex = _tabController.index;
+    switch (tabIndex) {
+      case 1: // Not yet Started
+        list = list
+            .where(
+              (t) =>
+                  t.status == TaskStatus.assigned ||
+                  t.status == TaskStatus.scheduled,
+            )
+            .toList();
+        break;
+      case 2: // In progress
+        list = list.where((t) => t.status == TaskStatus.inProgress).toList();
+        break;
+      case 3: // Pending
+        list = list.where((t) => t.status == TaskStatus.pending).toList();
+        break;
+      case 4: // Completed
+        list = list.where((t) => t.status == TaskStatus.completed).toList();
+        break;
+      case 5: // Rejected
+        list = list.where((t) => t.status == TaskStatus.rejected).toList();
+        break;
+    }
+    // Search: customer name, task name, taskId
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.trim().toLowerCase();
+      list = list.where((t) {
+        if (t.taskId.toLowerCase().contains(q)) return true;
+        if (t.taskTitle.toLowerCase().contains(q)) return true;
+        if (t.customer != null &&
+            t.customer!.customerName.toLowerCase().contains(q))
+          return true;
+        return false;
+      }).toList();
+    }
+    // Date filter (expectedCompletionDate or completedDate in range)
+    if (_filterStartDate != null || _filterEndDate != null) {
+      list = list.where((t) {
+        final DateTime checkDate = t.completedDate ?? t.expectedCompletionDate;
+        if (_filterStartDate != null &&
+            checkDate.isBefore(
+              DateTime(
+                _filterStartDate!.year,
+                _filterStartDate!.month,
+                _filterStartDate!.day,
+              ),
+            ))
+          return false;
+        if (_filterEndDate != null) {
+          final endOfDay = DateTime(
+            _filterEndDate!.year,
+            _filterEndDate!.month,
+            _filterEndDate!.day,
+            23,
+            59,
+            59,
+          );
+          if (checkDate.isAfter(endOfDay)) return false;
+        }
+        return true;
+      }).toList();
+    }
+    return list;
+  }
+
+  void _refreshFilters() {
+    setState(() {
+      _searchQuery = _searchController.text;
+    });
+  }
+
+  Widget _buildFilterSection() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Search with Refresh on the right
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Customer name, task name, task ID',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  onChanged: (_) =>
+                      setState(() => _searchQuery = _searchController.text),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Refresh',
+                onPressed: () {
+                  _refreshFilters();
+                  _fetchTasks();
+                },
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_today, size: 16),
+                  label: Text(
+                    _filterStartDate == null
+                        ? 'Start date'
+                        : DateFormat('dd/MM/yy').format(_filterStartDate!),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: _filterStartDate ?? DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (d != null) setState(() => _filterStartDate = d);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_today, size: 16),
+                  label: Text(
+                    _filterEndDate == null
+                        ? 'End date'
+                        : DateFormat('dd/MM/yy').format(_filterEndDate!),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate:
+                          _filterEndDate ?? _filterStartDate ?? DateTime.now(),
+                      firstDate: _filterStartDate ?? DateTime(2020),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (d != null) setState(() => _filterEndDate = d);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Escape a CSV field: wrap in quotes and double any internal quotes.
+  String _csvEscape(String value) {
+    final cleaned = value
+        .replaceAll('"', '""')
+        .replaceAll('\r', ' ')
+        .replaceAll('\n', ' ');
+    return '"$cleaned"';
+  }
+
+  Future<void> _exportSelectedToCsv() async {
+    final ids = _selectedTaskIds.toList();
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select at least one task to export')),
+      );
+      return;
+    }
+    final toExport = _filteredTasks
+        .where((t) => ids.contains(t.id ?? t.taskId))
+        .toList();
+    if (toExport.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No selected tasks in current filter')),
+      );
+      return;
+    }
+    setState(() => _exporting = true);
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv',
+      );
+      // CSV with S.No, Task ID, Customer Name, Address only (table format for Google Sheets)
+      const csvHeader = 'S.No,Task ID,Customer Name,Address\r\n';
+      final sb = StringBuffer(csvHeader);
+      int sno = 1;
+      for (final t in toExport) {
+        final customerName = t.customer?.customerName ?? '';
+        final address = t.customer != null
+            ? '${t.customer!.address}, ${t.customer!.city}, ${t.customer!.pincode}'
+                  .trim()
+            : '';
+        final row = [
+          sno++,
+          t.taskId,
+          _csvEscape(customerName),
+          _csvEscape(address),
+        ];
+        sb.write(row.join(','));
+        sb.write('\r\n');
+      }
+      // UTF-8 BOM so Google Sheets / Excel opens without corruption
+      final content = sb.toString();
+      final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(content)];
+      await file.writeAsBytes(bytes);
+      await OpenFilex.open(file.path);
+      if (mounted) {
+        setState(() {
+          _isSelectionMode = false;
+          _selectedTaskIds.clear();
+          _exporting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported ${toExport.length} task(s)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _exporting = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && mounted) {
+      _refreshWhenReturning();
+    }
+  }
+
+  void _refreshWhenReturning() {
+    if (_loggedInStaffId != null || _tasks.isNotEmpty) {
+      _fetchTasks();
+    }
   }
 
   Future<void> _loadLoggedInStaffId() async {
@@ -181,17 +484,17 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
 
   Widget _buildRequirementChip(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color, width: 0.5),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.w500,
         ),
         overflow: TextOverflow.ellipsis,
@@ -199,314 +502,527 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
     );
   }
 
+  Widget _buildTaskCardDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: Colors.black87),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 12, color: Colors.black87),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: const MenuIconButton(),
-        title: const Text(
-          'My Tasks',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.notifications_rounded, color: AppColors.primary),
-            onPressed: () {
-              // Handle notifications
-            },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+            (route) => false,
+          );
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          leading: _isSelectionMode
+              ? IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    _isSelectionMode = false;
+                    _selectedTaskIds.clear();
+                  }),
+                )
+              : const MenuIconButton(),
+          title: Text(
+            _isSelectionMode
+                ? 'Select tasks to export (${_selectedTaskIds.length})'
+                : 'My Tasks',
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          IconButton(
-            icon: Icon(Icons.person_rounded, color: AppColors.primary),
-            onPressed: () {
-              // Handle profile
-            },
-          ),
-        ],
-      ),
-      drawer: AppDrawer(
-        currentIndex: widget.dashboardTabIndex ?? 1,
-        onNavigateToIndex: widget.onNavigateToIndex,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-          ? Center(child: Text(_errorMessage!))
-          : _tasks.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.assignment_turned_in_rounded,
-                    size: 100,
-                    color: Colors.grey.shade300,
+          centerTitle: true,
+          elevation: 0,
+          bottom: _isSelectionMode
+              ? null
+              : TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  labelColor: AppColors.primary,
+                  unselectedLabelColor: Colors.black,
+                  indicatorColor: AppColors.primary,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  labelStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No tasks assigned yet',
-                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+                  unselectedLabelStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
+                  indicator: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  tabs: const [
+                    Tab(text: 'All Tasks'),
+                    Tab(text: 'Not yet Started'),
+                    Tab(text: 'In progress'),
+                    Tab(text: 'Pending'),
+                    Tab(text: 'Completed'),
+                    Tab(text: 'Rejected'),
+                  ],
+                ),
+          actions: [
+            if (_isSelectionMode)
+              TextButton(
+                onPressed: _exporting ? null : _exportSelectedToCsv,
+                child: _exporting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Export'),
+              )
+            else ...[
+              IconButton(
+                icon: Icon(
+                  _showFilterSection
+                      ? Icons.filter_alt
+                      : Icons.filter_alt_outlined,
+                  color: _showFilterSection ? AppColors.primary : null,
+                ),
+                tooltip: _showFilterSection ? 'Hide filter' : 'Show filter',
+                onPressed: () =>
+                    setState(() => _showFilterSection = !_showFilterSection),
               ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16.0),
-              itemCount: _tasks.length,
-              itemBuilder: (context, index) {
-                final task = _tasks[index];
-                final isCompleted = task.status == TaskStatus.completed;
-                final statusColor = _getStatusChipColor(task.status);
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(
-                      color: isCompleted
-                          ? Colors.grey.shade300
-                          : statusColor.withOpacity(0.7),
-                      width: isCompleted ? 1 : 2,
-                    ),
-                  ),
-                  elevation: 4,
-                  shadowColor: Colors.black.withOpacity(0.1),
-                  color: isCompleted ? Colors.grey.shade100 : AppColors.surface,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Opacity(
-                      opacity: isCompleted ? 0.7 : 1.0,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header Section
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Task #${task.taskId}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              _buildRequirementChip(
-                                _statusLabel(task.status),
-                                statusColor,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            task.taskTitle,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: isCompleted
-                                  ? Colors.grey.shade700
-                                  : AppColors.textPrimary,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const Divider(height: 24, thickness: 0.5),
-
-                          // Customer Info
-                          if (task.customer != null) ...[
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.person_rounded,
-                                  size: 18,
-                                  color: Colors.grey.shade600,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    task.customer!.customerNumber != null &&
-                                            task
-                                                .customer!
-                                                .customerNumber!
-                                                .isNotEmpty
-                                        ? '${task.customer!.customerName} · ${task.customer!.customerNumber}'
-                                        : task.customer!.customerName,
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-
-                          // Destination Section
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppColors.secondary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.location_on_rounded,
-                                  color: AppColors.secondary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
+              IconButton(
+                icon: Icon(
+                  Icons.download_outlined,
+                  color: Colors.grey.shade400,
+                ),
+                tooltip: 'Export disabled',
+                onPressed: null,
+              ),
+            ],
+          ],
+        ),
+        drawer: AppDrawer(
+          currentIndex: widget.dashboardTabIndex ?? 1,
+          onNavigateToIndex: widget.onNavigateToIndex,
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _errorMessage != null
+            ? Center(child: Text(_errorMessage!))
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!_isSelectionMode && _showFilterSection)
+                    _buildFilterSection(),
+                  Expanded(
+                    child: _tasks.isEmpty
+                        ? RefreshIndicator(
+                            onRefresh: _fetchTasks,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: SizedBox(
+                                height:
+                                    MediaQuery.of(context).size.height * 0.6,
+                                child: Center(
                                   child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Text(
-                                        'Destination',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.secondary,
-                                        ),
+                                      Icon(
+                                        Icons.assignment_turned_in_rounded,
+                                        size: 80,
+                                        color: Colors.grey.shade300,
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 12),
                                       Text(
-                                        '${task.customer?.address ?? ''}, ${task.customer?.city ?? ''}, ${task.customer?.pincode ?? ''}',
+                                        'No tasks assigned yet',
                                         style: TextStyle(
-                                          fontSize: 14,
-                                          color: AppColors.text.withOpacity(
-                                            0.8,
-                                          ),
+                                          fontSize: 16,
+                                          color: Colors.grey.shade600,
                                         ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Date row (single line to avoid overflow)
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.calendar_today_rounded,
-                                size: 16,
-                                color: Colors.grey.shade600,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  DateFormat(
-                                    'dd MMM yyyy',
-                                  ).format(task.expectedCompletionDate),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade700,
+                          )
+                        : _filteredTasks.isEmpty
+                        ? RefreshIndicator(
+                            onRefresh: _fetchTasks,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: SizedBox(
+                                height:
+                                    MediaQuery.of(context).size.height * 0.5,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.filter_list_off,
+                                        size: 64,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'No tasks match filters',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
+                            ),
+                          )
+                        : RefreshIndicator(
+                            onRefresh: _fetchTasks,
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: _filteredTasks.length,
+                              itemBuilder: (context, index) {
+                                final task = _filteredTasks[index];
+                                final taskKey = task.id ?? task.taskId;
+                                final isCompleted =
+                                    task.status == TaskStatus.completed;
+                                final statusColor = _getStatusChipColor(
+                                  task.status,
+                                );
+                                final isSelected = _selectedTaskIds.contains(
+                                  taskKey,
+                                );
 
-                          // Requirement Tags
-                          Wrap(
-                            spacing: 8.0,
-                            runSpacing: 8.0,
-                            children: [
-                              if (task.isOtpRequired)
-                                _buildRequirementChip(
-                                  '✅ OTP Required',
-                                  Colors.blue,
-                                ),
-                              if (task.isGeoFenceRequired)
-                                _buildRequirementChip(
-                                  '📍 Geo-Fence',
-                                  Colors.purple,
-                                ),
-                              if (task.isPhotoRequired)
-                                _buildRequirementChip(
-                                  '📷 Photo',
-                                  Colors.orange,
-                                ),
-                              if (task.isFormRequired)
-                                _buildRequirementChip('📝 Form', Colors.teal),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Action Button
-                          if (!isCompleted)
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          SelectSourceDestinationScreen(
-                                            task: task,
-                                          ),
+                                return InkWell(
+                                  onTap: _isSelectionMode
+                                      ? () => setState(() {
+                                          if (_selectedTaskIds.contains(
+                                            taskKey,
+                                          )) {
+                                            _selectedTaskIds.remove(taskKey);
+                                          } else {
+                                            _selectedTaskIds.add(taskKey);
+                                          }
+                                        })
+                                      : () {
+                                          if (isCompleted) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    CompletedTaskDetailScreen(
+                                                      task: task,
+                                                    ),
+                                              ),
+                                            );
+                                          } else {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    TaskDetailScreen(
+                                                      task: task,
+                                                    ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppColors.primary
+                                            : Colors.grey.shade200,
+                                        width: isSelected ? 2 : 1,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.05),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
                                     ),
-                                  );
-                                },
-                                icon: const Icon(
-                                  Icons.rocket_launch_rounded,
-                                  color: Colors.white,
-                                ),
-                                label: const Text(
-                                  'Start Task',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Opacity(
+                                        opacity: isCompleted ? 0.7 : 1.0,
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (_isSelectionMode)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 12,
+                                                  top: 2,
+                                                ),
+                                                child: Icon(
+                                                  isSelected
+                                                      ? Icons.check_circle
+                                                      : Icons
+                                                            .radio_button_unchecked,
+                                                  color: isSelected
+                                                      ? AppColors.primary
+                                                      : Colors.grey,
+                                                  size: 22,
+                                                ),
+                                              ),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          task.taskTitle,
+                                                          style:
+                                                              const TextStyle(
+                                                                fontSize: 15,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                color: Colors
+                                                                    .black87,
+                                                              ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        DateFormat(
+                                                          'dd MMM yy',
+                                                        ).format(
+                                                          task.expectedCompletionDate,
+                                                        ),
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.black87,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.event_rounded,
+                                                        size: 14,
+                                                        color: Colors.black87,
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        'Earliest: —',
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.black87,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 16),
+                                                      Icon(
+                                                        Icons.schedule_rounded,
+                                                        size: 14,
+                                                        color: Colors.black87,
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        'Expected: ${DateFormat('dd MMM yy').format(task.expectedCompletionDate)}',
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.black87,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (task.customer !=
+                                                      null) ...[
+                                                    const SizedBox(height: 8),
+                                                    _buildTaskCardDetailRow(
+                                                      Icons.person_rounded,
+                                                      'Customer',
+                                                      task.customer!.customerNumber !=
+                                                                  null &&
+                                                              task
+                                                                  .customer!
+                                                                  .customerNumber!
+                                                                  .isNotEmpty
+                                                          ? '${task.customer!.customerName} · ${task.customer!.customerNumber}'
+                                                          : task
+                                                                .customer!
+                                                                .customerName,
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    _buildTaskCardDetailRow(
+                                                      Icons.location_on_rounded,
+                                                      'Address',
+                                                      '${task.customer?.address ?? ''}, ${task.customer?.city ?? ''}, ${task.customer?.pincode ?? ''}'
+                                                          .trim(),
+                                                    ),
+                                                  ],
+                                                  const SizedBox(height: 8),
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 4,
+                                                        children: [
+                                                          if (task
+                                                              .isOtpRequired)
+                                                            _buildRequirementChip(
+                                                              'OTP',
+                                                              Colors.blue,
+                                                            ),
+                                                          if (task
+                                                              .isGeoFenceRequired)
+                                                            _buildRequirementChip(
+                                                              'Geo',
+                                                              Colors.purple,
+                                                            ),
+                                                          if (task
+                                                              .isPhotoRequired)
+                                                            _buildRequirementChip(
+                                                              'Photo',
+                                                              Colors.orange,
+                                                            ),
+                                                          if (task
+                                                              .isFormRequired)
+                                                            _buildRequirementChip(
+                                                              'Form',
+                                                              Colors.teal,
+                                                            ),
+                                                        ],
+                                                      ),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 4,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: statusColor
+                                                              .withOpacity(0.1),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                        ),
+                                                        child: Text(
+                                                          _statusLabel(
+                                                            task.status,
+                                                          ),
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color: statusColor,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (isCompleted) ...[
+                                                    const SizedBox(height: 12),
+                                                    Align(
+                                                      alignment:
+                                                          Alignment.centerRight,
+                                                      child: Text(
+                                                        'Completed ${task.completedDate != null ? DateFormat('dd MMM yyyy').format(task.completedDate!) : ''}',
+                                                        style: const TextStyle(
+                                                          fontSize: 10,
+                                                          fontStyle:
+                                                              FontStyle.italic,
+                                                          color: Colors.black87,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.accent,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  elevation: 3,
-                                ),
-                              ),
-                            )
-                          else
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                'Completed on ${task.completedDate != null ? DateFormat('dd MMM yyyy, h:mm a').format(task.completedDate!) : 'N/A'}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
+                                );
+                              },
                             ),
-                        ],
-                      ),
-                    ),
+                          ),
                   ),
-                );
-              },
-            ),
+                ],
+              ),
+        floatingActionButton:
+            _loggedInStaffId != null && _loggedInStaffId!.isNotEmpty
+            ? SizedBox(
+                height: 40,
+                child: FloatingActionButton.extended(
+                  foregroundColor: Colors.white,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            AddTaskScreen(staffId: _loggedInStaffId!),
+                      ),
+                    ).then((_) => _fetchTasks());
+                  },
+                  label: const Text(
+                    'Add Task',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  backgroundColor: AppColors.primary,
+                ),
+              )
+            : null,
+        bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      ),
     );
   }
 }

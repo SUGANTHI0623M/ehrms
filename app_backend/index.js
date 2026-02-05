@@ -1,5 +1,8 @@
 require('dotenv').config();
+const path = require('path');
+const http = require('http');
 const express = require('express');
+const { Server } = require('socket.io');
 const rateLimit = require('express-rate-limit');
 const { createRateLimitHandler } = require('./src/utils/rateLimitHandler');
 const connectDB = require('./src/config/db');
@@ -17,6 +20,7 @@ const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
 const assetsRoutes = require('./src/routes/assetsRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
+const trackingRoutes = require('./src/routes/trackingRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 
 const app = express();
@@ -27,13 +31,20 @@ app.use(helmet());
 // Configure CORS
 //**const allowedOrigins = ['https://ehrms.askeva.io', 'http://ehrms.askeva.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
 
-// Configure CORS
-const allowedOrigins = ['https://ehrms.askeva.net', 'http://ehrms.askeva.net', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+// Configure CORS – web at hrms.askeva.net, API at ehrms.askeva.net, local dev IPs
+const allowedOrigins = [
+    'https://hrms.askeva.net', 'http://hrms.askeva.net',
+    'https://ehrms.askeva.net', 'http://ehrms.askeva.net',
+    'http://localhost:8080', 'http://127.0.0.1:8080',
+    'http://192.168.16.114:3000', 'http://192.168.16.114:8080',
+    'http://192.168.16.104:3000', 'http://192.168.16.104:8080'
+];
 
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+        if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') ||
+            origin.startsWith('http://192.168.16.')) {
             return callback(null, true);
         }
         if (allowedOrigins.includes(origin)) {
@@ -76,7 +87,9 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/tracking', trackingRoutes);
 console.log('[Server] Task routes registered at /api/tasks');
+console.log('[Server] Tracking routes registered at /api/tracking');
 app.use('/api/customers', customerRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/onboarding/customers', customerRoutes);
@@ -104,12 +117,35 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-// Start Server
+// Start Server with Socket.io for live tracking
 const startServer = async () => {
     try {
         await connectDB();
-        app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
+        const server = http.createServer(app);
+        const io = new Server(server, {
+            cors: {
+                origin: (process.env.CORS_ORIGINS || 'https://hrms.askeva.net,http://hrms.askeva.net,https://ehrms.askeva.net,http://ehrms.askeva.net,http://localhost:8080,http://192.168.16.114:3000,http://192.168.16.104:3000').split(','),
+                credentials: true,
+            },
+        });
+        app.set('io', io);
+
+        // Socket.io: staff joins task room; admin joins admin room for live tracking
+        io.on('connection', (socket) => {
+            socket.on('tracking:join', (data) => {
+                if (data?.taskId) socket.join(`task:${data.taskId}`);
+            });
+            socket.on('admin:join', () => {
+                socket.join('admin:tracking');
+            });
+            // Admin tracks a specific staff by staffId (e.g. from 192.168.16.114)
+            socket.on('admin:track-staff', (data) => {
+                if (data?.staffId) socket.join(`admin:staff:${data.staffId}`);
+            });
+        });
+
+        server.listen(PORT, () => {
+            console.log(`Server running on port ${PORT} (Socket.io enabled)`);
         });
     } catch (error) {
         console.error('Failed to start server:', error.message);

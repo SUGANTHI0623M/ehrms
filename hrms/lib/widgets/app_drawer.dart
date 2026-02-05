@@ -8,9 +8,11 @@ import '../screens/auth/login_screen.dart';
 import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/assets/assets_listing_screen.dart';
+import '../screens/geo/my_tasks_screen.dart';
+import '../screens/profile/profile_screen.dart';
 
 class AppDrawer extends StatefulWidget {
-  /// Current tab index when used from Dashboard (0=Home, 1=Tasks, 2=Attendance, 3=Profile).
+  /// Current tab index when used from Dashboard (0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance).
   final int? currentIndex;
 
   /// Called when user selects a main tab; closes drawer and switches tab.
@@ -44,19 +46,22 @@ class _AppDrawerState extends State<AppDrawer> {
   void _navigateToTab(int index) {
     final callback = widget.onNavigateToIndex;
     Navigator.pop(context);
-    // Wait for drawer to close before switching tab so overlay doesn't leave screen black
     Future.microtask(() {
       if (callback != null) {
         callback(index);
       } else if (mounted && context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => DashboardScreen(initialIndex: index),
-          ),
-          (route) => route.isFirst,
-        );
+        _navigateAndClearStack(DashboardScreen(initialIndex: index));
       }
     });
+  }
+
+  /// Navigate to a screen and clear the stack so back does not return to ride/task screens.
+  void _navigateAndClearStack(Widget screen) {
+    if (!mounted || !context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => screen),
+      (route) => route.isFirst,
+    );
   }
 
   Future<void> _logout(BuildContext context) async {
@@ -81,35 +86,41 @@ class _AppDrawerState extends State<AppDrawer> {
               padding: EdgeInsets.zero,
               children: [
                 _buildDrawerItem(
-                  icon: Icons.home_rounded,
-                  title: 'Home',
-                  onTap: () => _navigateToTab(0),
-                ),
-                _buildDrawerItem(
                   icon: Icons.assignment_rounded,
                   title: 'Tasks',
-                  onTap: () => _navigateToTab(1),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(
+                        const MyTasksScreen(dashboardTabIndex: 1),
+                      ),
+                    );
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.access_time_rounded,
                   title: 'Attendance',
-                  onTap: () => _navigateToTab(2),
+                  onTap: () => _navigateToTab(4),
                 ),
                 _buildDrawerItem(
                   icon: Icons.person_rounded,
                   title: 'Profile',
-                  onTap: () => _navigateToTab(3),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(
+                        const ProfileScreen(dashboardTabIndex: 3),
+                      ),
+                    );
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.settings_rounded,
                   title: 'Settings',
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const SettingsScreen(),
-                      ),
+                    Future.microtask(
+                      () => _navigateAndClearStack(const SettingsScreen()),
                     );
                   },
                 ),
@@ -118,11 +129,8 @@ class _AppDrawerState extends State<AppDrawer> {
                   title: 'My Assets',
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const AssetsListingScreen(),
-                      ),
+                    Future.microtask(
+                      () => _navigateAndClearStack(const AssetsListingScreen()),
                     );
                   },
                 ),

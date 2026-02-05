@@ -9,7 +9,14 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
 class HolidaysScreen extends StatefulWidget {
-  const HolidaysScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const HolidaysScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<HolidaysScreen> createState() => _HolidaysScreenState();
@@ -51,7 +58,6 @@ class _HolidaysScreenState extends State<HolidaysScreen>
   }
 
   Future<void> _fetchHolidays() async {
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -132,7 +138,10 @@ class _HolidaysScreenState extends State<HolidaysScreen>
           ],
         ),
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 3,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [_buildYearWiseTab(), _buildMonthWiseTab()],
@@ -378,7 +387,9 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                         child: Center(
                           child: Text(
                             'No holidays in ${DateFormat('MMMM').format(_focusedDay)}',
-                            style: const TextStyle(color: AppColors.textSecondary),
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
                           ),
                         ),
                       ),

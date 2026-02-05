@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../config/app_colors.dart';
+import '../../widgets/bottom_navigation_bar.dart';
 import 'home_dashboard_screen.dart';
 import '../attendance/attendance_screen.dart';
-import '../geo/my_tasks_screen.dart';
-import '../profile/profile_screen.dart';
+import '../holidays/holidays_screen.dart';
+import '../requests/my_requests_screen.dart';
+import '../salary/salary_overview_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
+  /// 0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance (4 only for non-candidate).
   final int? initialIndex;
   const DashboardScreen({super.key, this.initialIndex});
 
@@ -19,12 +21,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex ?? 0;
+    _currentIndex = (widget.initialIndex ?? 0).clamp(0, 4);
   }
 
   void _onDrawerNavigateToIndex(int index) {
-    Navigator.pop(context);
-    if (index >= 0 && index <= 3) {
+    if (index >= 0 && index <= 4) {
       setState(() => _currentIndex = index);
     }
   }
@@ -37,8 +38,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         embeddedInDashboard: true,
         onNavigateToIndex: _onDrawerNavigateToIndex,
         dashboardTabIndex: _currentIndex,
+        isActiveTab: _currentIndex == 0,
       ),
-      MyTasksScreen(
+      MyRequestsScreen(
+        initialTabIndex: 0,
+        dashboardTabIndex: _currentIndex,
+        onNavigateToIndex: _onDrawerNavigateToIndex,
+      ),
+      SalaryOverviewScreen(
+        dashboardTabIndex: _currentIndex,
+        onNavigateToIndex: _onDrawerNavigateToIndex,
+        isActiveTab: _currentIndex == 2,
+      ),
+      HolidaysScreen(
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
       ),
@@ -47,10 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         initialTabIndex: 0,
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
-      ),
-      ProfileScreen(
-        dashboardTabIndex: _currentIndex,
-        onNavigateToIndex: _onDrawerNavigateToIndex,
+        isActiveTab: _currentIndex == 4,
       ),
     ];
 
@@ -69,35 +78,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           index: _currentIndex.clamp(0, screens.length - 1),
           children: screens,
         ),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex.clamp(0, 3),
+        bottomNavigationBar: AppBottomNavigationBar(
+          currentIndex: _currentIndex.clamp(0, 4),
           onTap: (index) => setState(() => _currentIndex = index),
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: AppColors.primary,
-          unselectedItemColor: Colors.grey,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_outlined),
-              activeIcon: Icon(Icons.assignment),
-              label: 'Tasks',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.access_time_outlined),
-              activeIcon: Icon(Icons.access_time),
-              label: 'Attendance',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline_rounded),
-              activeIcon: Icon(Icons.person_rounded),
-              label: 'Profile',
-            ),
-          ],
         ),
       ),
     );

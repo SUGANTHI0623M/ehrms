@@ -1,13 +1,21 @@
 import 'dart:async';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/location_data.dart';
 import 'package:hrms/models/tracking_event.dart';
+import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/services/geo/location_service.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:hrms/screens/geo/end_task_screen.dart';
+import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/geo/arrived_screen.dart';
+import 'package:hrms/screens/geo/task_detail_screen.dart';
+import 'package:hrms/widgets/app_drawer.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
+import 'package:hrms/widgets/menu_icon_button.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
@@ -18,12 +26,16 @@ class LiveTrackingScreen extends StatefulWidget {
   final LatLng pickupLocation;
   final LatLng dropoffLocation;
 
+  /// Optional task (with customer) for Arrived → OTP → Task Completed flow.
+  final Task? task;
+
   const LiveTrackingScreen({
     super.key,
     required this.taskId,
     this.taskMongoId,
     required this.pickupLocation,
     required this.dropoffLocation,
+    this.task,
   });
 
   @override
@@ -39,7 +51,17 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   Marker? _dropoffMarker;
 
+  /// Path built ONLY from actual GPS coordinates (List<LatLng> from location stream).
   Polyline? _routePolyline;
+
+  /// Road route from current/last position to destination (fetched from Directions API).
+  Polyline? _shortestRoutePolyline;
+  double _remainingDistanceKm = 0.0;
+  DateTime? _lastRouteFetchTime;
+  static const _routeRefreshInterval = Duration(seconds: 60);
+  String? _etaText;
+  int _etaMinutes = 0;
+  Timer? _etaUpdateTimer;
 
   StreamSubscription? _locationSubscription;
 
@@ -63,9 +85,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   // Step-based progress (Next Steps card).
   bool _reachedLocation = false;
-  bool _photoProof = false;
-  bool _formFilled = false;
-  bool _otpVerified = false;
+  final bool _photoProof = false;
+  final bool _formFilled = false;
+  final bool _otpVerified = false;
   bool _updatingSteps = false;
   Timer? _locationUploadTimer;
 
@@ -93,21 +115,37 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
     _startTimer();
 
-    // Send location to backend every 15 sec (battery-friendly).
+    _updateRemainingEta();
+
+    // Initial straight line; fetch road route from pickup to dropoff (replaces when ready)
+    _shortestRoutePolyline = Polyline(
+      polylineId: const PolylineId('roadRoute'),
+      points: [widget.pickupLocation, widget.dropoffLocation],
+      color: Colors.green.withOpacity(0.8),
+      width: 4,
+      patterns: [PatternItem.dash(20), PatternItem.gap(12)],
+      geodesic: true,
+    );
+    _fetchRoadRoute(
+      widget.pickupLocation.latitude,
+      widget.pickupLocation.longitude,
+    );
+
+    // Send GPS point every 15 sec: updateLocation (task path) + storeTracking (Tracking collection).
     if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
+      debugPrint(
+        '[LiveTracking] Timer started: taskMongoId=${widget.taskMongoId}',
+      );
+      // Send first point after 2 sec, then every 15 sec.
+      Future.delayed(const Duration(seconds: 2), () => _sendLocationToDb());
       _locationUploadTimer = Timer.periodic(const Duration(seconds: 15), (_) {
         if (!mounted) return;
-        final loc = _lastLocation;
-        if (loc != null && loc.latitude != null && loc.longitude != null) {
-          TaskService()
-              .updateLocation(
-                widget.taskMongoId!,
-                loc.latitude!,
-                loc.longitude!,
-              )
-              .catchError((_) {});
-        }
+        _sendLocationToDb();
       });
+    } else {
+      debugPrint(
+        '[LiveTracking] Timer NOT started: taskMongoId is null or empty',
+      );
     }
   }
 
@@ -182,19 +220,76 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
           }
 
           _lastLocation = location;
+          _updateRemainingEta();
         });
       }
     });
   }
 
-  TrackingEventType _getTrackingEventType(double speed) {
-    if (speed > 10 / 3.6) {
-      return TrackingEventType.drive;
-    } else if (speed > 1 / 3.6) {
-      return TrackingEventType.walk;
+  Future<void> _sendLocationToDb() async {
+    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
+    // Use live GPS if available, else fallback to pickup (start location).
+    final loc = _lastLocation;
+    double lat;
+    double lng;
+    if (loc != null && loc.latitude != null && loc.longitude != null) {
+      lat = loc.latitude!;
+      lng = loc.longitude!;
+    } else {
+      lat = widget.pickupLocation.latitude;
+      lng = widget.pickupLocation.longitude;
+      debugPrint('[LiveTracking] No GPS yet, using pickup: lat=$lat lng=$lng');
     }
+    int? battery;
+    try {
+      battery = await Battery().batteryLevel;
+    } catch (_) {}
+    final movementType = _currentActivity;
+    debugPrint(
+      '[LiveTracking] Sending to DB: lat=$lat lng=$lng movement=$movementType',
+    );
+    final taskSvc = TaskService();
+    taskSvc
+        .updateLocation(
+          widget.taskMongoId!,
+          lat,
+          lng,
+          batteryPercent: battery,
+          movementType: movementType,
+        )
+        .catchError(
+          (e) => debugPrint('[LiveTracking] updateLocation failed: $e'),
+        );
+    taskSvc
+        .storeTracking(
+          widget.taskMongoId!,
+          lat,
+          lng,
+          batteryPercent: battery,
+          movementType: movementType,
+        )
+        .catchError(
+          (e) => debugPrint('[LiveTracking] storeTracking failed: $e'),
+        );
+  }
 
+  TrackingEventType _getTrackingEventType(double speed) {
+    if (speed > 10 / 3.6) return TrackingEventType.drive;
+    if (speed > 1 / 3.6) return TrackingEventType.walk;
     return TrackingEventType.stop;
+  }
+
+  String _getMovementDisplay() {
+    switch (_currentActivity.toLowerCase()) {
+      case 'drive':
+        return 'Driving';
+      case 'walk':
+        return 'Walking';
+      case 'stop':
+      case 'standing':
+      default:
+        return 'Stopped';
+    }
   }
 
   void _addTrackingEvent(
@@ -223,29 +318,111 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     );
   }
 
+  /// Total trip distance (pickup to dropoff) in km, for progress bar denominator.
+  double get _totalTripDistanceKm {
+    final m = gl.Geolocator.distanceBetween(
+      widget.pickupLocation.latitude,
+      widget.pickupLocation.longitude,
+      widget.dropoffLocation.latitude,
+      widget.dropoffLocation.longitude,
+    );
+    return m / 1000;
+  }
+
+  Future<void> _fetchRoadRoute(double fromLat, double fromLng) async {
+    final now = DateTime.now();
+    if (_lastRouteFetchTime != null &&
+        now.difference(_lastRouteFetchTime!) < _routeRefreshInterval) {
+      return;
+    }
+    _lastRouteFetchTime = now;
+    try {
+      final result = await DirectionsService.getRouteBetweenCoordinates(
+        originLat: fromLat,
+        originLng: fromLng,
+        destLat: widget.dropoffLocation.latitude,
+        destLng: widget.dropoffLocation.longitude,
+      );
+      if (mounted && result.points.isNotEmpty) {
+        setState(() {
+          _shortestRoutePolyline = Polyline(
+            polylineId: const PolylineId('roadRoute'),
+            points: result.points,
+            color: Colors.green.withOpacity(0.8),
+            width: 4,
+            patterns: [PatternItem.dash(20), PatternItem.gap(12)],
+          );
+          _remainingDistanceKm = result.distanceKm;
+          if (result.durationText != null) {
+            final match = RegExp(
+              r'~?(\d+)\s*min',
+            ).firstMatch(result.durationText!);
+            if (match != null) {
+              _etaMinutes = int.tryParse(match.group(1) ?? '0') ?? 0;
+              _etaText = result.durationText;
+            }
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _shortestRoutePolyline = Polyline(
+            polylineId: const PolylineId('roadRoute'),
+            points: [LatLng(fromLat, fromLng), widget.dropoffLocation],
+            color: Colors.green.withOpacity(0.8),
+            width: 4,
+            patterns: [PatternItem.dash(20), PatternItem.gap(12)],
+            geodesic: true,
+          );
+        });
+      }
+    }
+  }
+
   void _updateRoutePolyline(LatLng newLatLng) {
     if (_routePolyline == null) {
       _routePolyline = Polyline(
-        polylineId: const PolylineId('route'),
-
-        points: [
-          widget.pickupLocation,
-
-          newLatLng,
-        ], // Start from pickup, go to staff
-
-        color: Colors.blueAccent,
-
-        width: 5,
+        polylineId: const PolylineId('traveled'),
+        points: [widget.pickupLocation, newLatLng],
+        color: Colors.blueAccent.withOpacity(0.6),
+        width: 4,
       );
     } else {
       final currentPoints = List<LatLng>.from(_routePolyline!.points);
-
-      if (currentPoints.length < 2 || currentPoints.last != newLatLng) {
+      final last = currentPoints.isNotEmpty ? currentPoints.last : null;
+      if (last == null ||
+          (last.latitude != newLatLng.latitude ||
+              last.longitude != newLatLng.longitude)) {
         currentPoints.add(newLatLng);
-
         _routePolyline = _routePolyline?.copyWith(pointsParam: currentPoints);
       }
+    }
+    _updateRemainingEta();
+    // Refresh road route periodically from current position
+    _fetchRoadRoute(newLatLng.latitude, newLatLng.longitude);
+  }
+
+  void _updateRemainingEta() {
+    // Use last known location, or pickup if no location yet
+    final fromLat = _lastLocation?.latitude ?? widget.pickupLocation.latitude;
+    final fromLng = _lastLocation?.longitude ?? widget.pickupLocation.longitude;
+    final toDrop = gl.Geolocator.distanceBetween(
+      fromLat,
+      fromLng,
+      widget.dropoffLocation.latitude,
+      widget.dropoffLocation.longitude,
+    );
+    final km = toDrop / 1000;
+    if (mounted) {
+      setState(() {
+        _remainingDistanceKm = km;
+        // Shortest distance from live location to destination; ETA based on speed
+        final speedKmh = _currentActivity.toLowerCase() == 'walk' ? 5.0 : 30.0;
+        final min = (km / speedKmh * 60).round().clamp(0, 999);
+        _etaMinutes = min;
+        _etaText = min > 60 ? '~${min ~/ 60} h' : '~$min min';
+      });
     }
   }
 
@@ -282,44 +459,134 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     _locationSubscription?.cancel();
     _geofenceSubscription?.cancel();
     _timer?.cancel();
+    _etaUpdateTimer?.cancel();
     _locationUploadTimer?.cancel();
     LocationService().dispose();
     super.dispose();
   }
 
+  /// Exit Ride: reset task status to assigned. Do NOT mark completed, do NOT
+  /// delete source/destination or task data. Clear temp UI state and pop.
+  Future<void> _onExitRide() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit Ride?'),
+        content: const Text(
+          'Tracking will stop. Task status will be reset to Assigned. '
+          'You can start the ride again from Task Details.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Exit Ride'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
+      try {
+        await TaskService().updateTask(widget.taskMongoId!, status: 'assigned');
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to update task status. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   Future<void> _markReachedLocation() async {
-    if (_reachedLocation || _updatingSteps || widget.taskMongoId == null)
+    if (_reachedLocation || _updatingSteps || widget.taskMongoId == null) {
       return;
+    }
     setState(() => _updatingSteps = true);
     try {
       await TaskService().updateSteps(
         widget.taskMongoId!,
         reachedLocation: true,
       );
-      if (mounted)
+      if (mounted) {
         setState(() {
           _reachedLocation = true;
           _updatingSteps = false;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => _updatingSteps = false);
     }
   }
 
-  Future<void> _endTask() async {
-    if (widget.taskMongoId == null) {
-      _navigateToEndTask();
-      return;
-    }
-    try {
-      await TaskService().endTask(widget.taskMongoId!);
-    } catch (_) {}
-    if (mounted) _navigateToEndTask();
-  }
+  Future<void> _onArrived() async {
+    final totalKm = _totalDistanceCovered / 1000;
+    final arrival = DateTime.now();
+    final durationSeconds = _totalTimeElapsed.inSeconds;
 
-  void _navigateToEndTask() {
+    if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
+      setState(() => _updatingSteps = true);
+      try {
+        await TaskService().updateSteps(
+          widget.taskMongoId!,
+          reachedLocation: true,
+        );
+        if (mounted) setState(() => _reachedLocation = true);
+        // Store trip details in task: distance, source, destination, time taken
+        await TaskService().updateTask(
+          widget.taskMongoId!,
+          tripDistanceKm: totalKm,
+          tripDurationSeconds: durationSeconds,
+          arrivalTime: arrival,
+          sourceLocation: {
+            'lat': widget.pickupLocation.latitude,
+            'lng': widget.pickupLocation.longitude,
+            'address': widget.task?.sourceLocation?.address,
+          },
+          destinationLocation: {
+            'lat': widget.dropoffLocation.latitude,
+            'lng': widget.dropoffLocation.longitude,
+            'address':
+                widget.task?.destinationLocation?.address ??
+                widget.task?.customer?.address,
+          },
+        );
+      } catch (_) {}
+      if (mounted) setState(() => _updatingSteps = false);
+    }
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const EndTaskScreen()),
+      MaterialPageRoute(
+        builder: (context) => ArrivedScreen(
+          taskMongoId: widget.taskMongoId,
+          taskId: widget.taskId,
+          task: widget.task,
+          totalDuration: _totalTimeElapsed,
+          totalDistanceKm: totalKm,
+          isWithinGeofence: _isInsideGeofence,
+          arrivalTime: arrival,
+          sourceLat: widget.pickupLocation.latitude,
+          sourceLng: widget.pickupLocation.longitude,
+          sourceAddress: widget.task?.sourceLocation?.address,
+          destLat: widget.dropoffLocation.latitude,
+          destLng: widget.dropoffLocation.longitude,
+          destAddress:
+              widget.task?.destinationLocation?.address ??
+              (widget.task?.customer != null
+                  ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+                  : null),
+        ),
+      ),
     );
   }
 
@@ -333,302 +600,440 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     return "${twoDigits(duration.inHours)}h ${twoDigitMinutes}m ${twoDigitSeconds}s";
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildBottomPanelContent() {
     final totalDistanceKm = _totalDistanceCovered / 1000;
-    final etaTime = _taskStartTime.add(const Duration(minutes: 12));
-
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        Navigator.of(context).pop();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary,
-                  AppColors.primary.withOpacity(0.85),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
+    final etaArrivalTime = DateTime.now().add(Duration(minutes: _etaMinutes));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Trip Progress',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade800,
           ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: _totalTripDistanceKm > 0
+                ? (totalDistanceKm / _totalTripDistanceKm).clamp(0.0, 1.0)
+                : 0.0,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+            minHeight: 4,
           ),
-          title: Row(
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
             children: [
-              Icon(
-                _currentActivity == "Driving"
-                    ? Icons.drive_eta_rounded
-                    : Icons.directions_walk_rounded,
-                color: Colors.white,
-                size: 22,
+              _buildTravelRow(
+                Icons.route_rounded,
+                'Total distance',
+                '${totalDistanceKm.toStringAsFixed(2)} km',
               ),
-              const SizedBox(width: 8),
-              Text(
-                _currentActivity == "Driving" ? 'Driving' : 'Walking',
-                style: const TextStyle(color: Colors.white, fontSize: 16),
+              const SizedBox(height: 4),
+              _buildTravelRow(
+                Icons.near_me_rounded,
+                'Shortest remaining',
+                '${_remainingDistanceKm.toStringAsFixed(2)} km',
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.25),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Live',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              const SizedBox(height: 4),
+              _buildTravelRow(
+                Icons.straighten_rounded,
+                'Trip distance',
+                '${_totalTripDistanceKm.toStringAsFixed(2)} km',
+              ),
+              const SizedBox(height: 4),
+              _buildTravelRow(
+                Icons.timer_outlined,
+                'Elapsed',
+                _formatDuration(_totalTimeElapsed),
+              ),
+              const SizedBox(height: 4),
+              _buildTravelRow(
+                Icons.schedule_rounded,
+                'ETA',
+                DateFormat('h:mm a').format(etaArrivalTime),
               ),
             ],
           ),
-          elevation: 0,
         ),
-        body: Column(
+        const SizedBox(height: 12),
+        // Walking / Driving details (below arrival time, above Arrived button).
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _getMovementDisplay(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.schedule_rounded,
+                size: 14,
+                color: Colors.grey.shade700,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _etaText ?? '—',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.straighten_rounded,
+                size: 14,
+                color: Colors.grey.shade700,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '${_remainingDistanceKm.toStringAsFixed(1)} km left',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              if (_currentActivity.toLowerCase() == 'stop' ||
+                  _currentActivity.toLowerCase() == 'standing') ...[
+                const SizedBox(width: 12),
+                if (widget.task?.customer?.customerNumber != null &&
+                    widget.task!.customer!.customerNumber!.trim().isNotEmpty)
+                  IconButton(
+                    onPressed: () async {
+                      final number = widget.task!.customer!.customerNumber!
+                          .trim();
+                      final uri = Uri.parse('tel:$number');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri);
+                      } else if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Cannot make call')),
+                        );
+                      }
+                    },
+                    icon: Icon(
+                      Icons.call_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    tooltip: 'Call customer',
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppColors.primary.withOpacity(0.12),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
           children: [
-            // Full map (Uber-like).
             Expanded(
-              child: GoogleMap(
-                onMapCreated: (controller) {
-                  mapController = controller;
-                  if (_staffMarker != null) {
-                    mapController?.animateCamera(
-                      CameraUpdate.newLatLng(_staffMarker!.position),
+              child: OutlinedButton.icon(
+                onPressed: _onExitRide,
+                icon: const Icon(Icons.exit_to_app_rounded, size: 18),
+                label: const Text(
+                  'Exit Ride',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.grey.shade700,
+                  side: BorderSide(color: Colors.grey.shade400),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: _onArrived,
+                icon: const Icon(
+                  Icons.location_on_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                label: const Text(
+                  'Arrived',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allPolylines = <Polyline>{
+      if (_routePolyline != null) _routePolyline!,
+      if (_shortestRoutePolyline != null) _shortestRoutePolyline!,
+    };
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _onExitRide();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          leading: const MenuIconButton(),
+          title: const Text(
+            'Live Tracking',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          centerTitle: true,
+          elevation: 0,
+          actions: [
+            if (widget.task != null)
+              IconButton(
+                icon: Icon(Icons.assignment_rounded, color: AppColors.primary),
+                tooltip: 'Task details',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TaskDetailScreen(
+                        task: widget.task!,
+                        fromRideScreen: true,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            if (widget.task?.customer?.customerNumber != null &&
+                widget.task!.customer!.customerNumber!.trim().isNotEmpty)
+              IconButton(
+                icon: Icon(Icons.call_rounded, color: AppColors.primary),
+                tooltip: 'Call customer',
+                onPressed: () async {
+                  final number = widget.task!.customer!.customerNumber!.trim();
+                  final uri = Uri.parse('tel:$number');
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  } else if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Cannot make call')),
                     );
                   }
                 },
-                initialCameraPosition: CameraPosition(
-                  target: widget.pickupLocation,
-                  zoom: 14.0,
-                ),
-                markers: {
-                  if (_staffMarker != null) _staffMarker!,
-                  if (_pickupMarker != null) _pickupMarker!,
-                  if (_dropoffMarker != null) _dropoffMarker!,
-                },
-                polylines: _routePolyline != null ? {_routePolyline!} : {},
-                myLocationEnabled: true,
-                myLocationButtonEnabled: true,
               ),
+          ],
+        ),
+        drawer: AppDrawer(currentIndex: 1),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Map fills the screen
+            GoogleMap(
+              onMapCreated: (controller) {
+                mapController = controller;
+                if (_staffMarker != null) {
+                  mapController?.animateCamera(
+                    CameraUpdate.newLatLng(_staffMarker!.position),
+                  );
+                }
+              },
+              initialCameraPosition: CameraPosition(
+                target: widget.pickupLocation,
+                zoom: 14.0,
+              ),
+              markers: {
+                if (_staffMarker != null) _staffMarker!,
+                if (_pickupMarker != null) _pickupMarker!,
+                if (_dropoffMarker != null) _dropoffMarker!,
+              },
+              polylines: allPolylines,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: true,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
             ),
-            // Bottom sheet: travel info + Next Steps + actions.
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, -4),
+            // Map overlays: back button + live distance card
+            SafeArea(
+              child: Column(
+                children: [
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4, top: 4),
+                      child: IconButton(
+                        icon: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.arrow_back_rounded, size: 22),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                        ),
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Trip progress.
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          Icon(
+                            Icons.near_me_rounded,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
                           Text(
-                            'Trip progress',
+                            'Shortest to destination: ',
                             style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade800,
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
                             ),
                           ),
                           Text(
-                            '${(_totalDistanceCovered / 1000).toStringAsFixed(1)} km',
+                            '${_remainingDistanceKm.toStringAsFixed(2)} km',
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.bold,
                               color: AppColors.primary,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: totalDistanceKm > 0
-                              ? (totalDistanceKm / 5.0).clamp(0.0, 1.0)
-                              : 0.0,
-                          backgroundColor: Colors.grey.shade200,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.primary,
-                          ),
-                          minHeight: 6,
-                        ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Draggable bottom sheet - scrollable for clear map view
+            DraggableScrollableSheet(
+              initialChildSize: 0.35,
+              minChildSize: 0.15,
+              maxChildSize: 0.75,
+              snap: true,
+              snapSizes: const [0.2, 0.35, 0.55, 0.75],
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 12,
+                        offset: const Offset(0, -4),
                       ),
-                      const SizedBox(height: 16),
-                      // Travel info: Total distance, Driving time, Arrival.
-                      _buildTravelRow(
-                        Icons.straighten_rounded,
-                        'Total Distance',
-                        '${totalDistanceKm.toStringAsFixed(1)} KM',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildTravelRow(
-                        Icons.directions_car_rounded,
-                        'Driving Time',
-                        '${_formatDuration(_totalTimeElapsed)} (${totalDistanceKm.toStringAsFixed(1)} km)',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildTravelRow(
-                        Icons.schedule_rounded,
-                        'Arrival Time',
-                        DateFormat('h:mm a').format(etaTime),
-                      ),
-                      const SizedBox(height: 20),
-                      // Next Steps card (green left border).
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border(
-                            left: BorderSide(
-                              color: AppColors.primary,
-                              width: 4,
-                            ),
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Next Steps',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Complete these requirements to finish the task:',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _buildStepRow(
-                              done: _reachedLocation,
-                              label: 'Reached location',
-                              icon: Icons.location_on_rounded,
-                              onTap: _reachedLocation
-                                  ? null
-                                  : _markReachedLocation,
-                              loading: _updatingSteps,
-                            ),
-                            _buildStepRow(
-                              done: _photoProof,
-                              label: 'Take photo proof',
-                              icon: Icons.camera_alt_rounded,
-                            ),
-                            _buildStepRow(
-                              done: _formFilled,
-                              label: 'Fill required form',
-                              icon: Icons.description_rounded,
-                            ),
-                            _buildStepRow(
-                              done: _otpVerified,
-                              label: 'Get OTP from customer',
-                              icon: Icons.pin_rounded,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      // Continue to Form (enabled when Reached location is done).
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _reachedLocation
-                              ? () {
-                                  // TODO: navigate to form screen or next step.
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Form step – coming soon'),
-                                    ),
-                                  );
-                                }
-                              : null,
-                          icon: const Icon(
-                            Icons.description_rounded,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          label: const Text(
-                            'Continue to Form',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.secondary,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 2,
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      // Drag handle
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      // End Task.
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: _endTask,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.error,
-                            side: const BorderSide(color: AppColors.error),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'End Task',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                          child: _buildBottomPanelContent(),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ],
         ),
@@ -636,20 +1041,26 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     );
   }
 
-  Widget _buildTravelRow(IconData icon, String label, String value) {
+  Widget _buildTravelRow(
+    IconData icon,
+    String label,
+    String value, {
+    String? subtitle,
+  }) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade600),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+        Icon(icon, size: 14, color: AppColors.primary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
         ),
-        const Spacer(),
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 13,
+          style: TextStyle(
+            fontSize: 12,
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary,
           ),

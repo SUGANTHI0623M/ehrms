@@ -1,129 +1,108 @@
-// Google Directions API: road route, distance, duration, and polyline.
-// Uses API for all values; fallback to straight-line only if API fails.
-// Requires: Directions API enabled, billing enabled, API key allows this API.
+// Directions service – fetches road route from Google Directions API.
+import 'dart:math' show cos, sqrt, asin;
 
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/constants.dart';
-import 'package:hrms/services/api_client.dart';
-import 'package:hrms/utils/polyline_utils.dart';
 
+/// Result of fetching directions between two points.
 class DirectionsResult {
+  final List<LatLng> points;
   final double distanceKm;
   final String? durationText;
-  final List<LatLng> polylinePoints;
 
   const DirectionsResult({
+    required this.points,
     required this.distanceKm,
     this.durationText,
-    this.polylinePoints = const [],
   });
 }
 
 class DirectionsService {
-  /// Fetches driving route from Google Directions API.
-  /// Returns distance (km), duration text, and decoded polyline points.
-  /// On API failure, returns straight-line distance only (no duration, two-point line).
-  static Future<DirectionsResult> getDistanceAndDuration({
+  static final PolylinePoints _polylinePoints = PolylinePoints(
+    apiKey: AppConstants.googleMapsApiKey,
+  );
+
+  /// Fetch road route between origin and destination. Returns polyline points,
+  /// distance in km, and duration text (e.g. "15 mins").
+  static Future<DirectionsResult> getRouteBetweenCoordinates({
     required double originLat,
     required double originLng,
     required double destLat,
     required double destLng,
   }) async {
-    final apiKey = AppConstants.googleMapsApiKey;
-    if (apiKey != null && apiKey.isNotEmpty) {
-      try {
-        final url =
-            'https://maps.googleapis.com/maps/api/directions/json'
-            '?origin=$originLat,$originLng'
-            '&destination=$destLat,$destLng'
-            '&mode=driving'
-            '&key=$apiKey';
-        final response = await ApiClient().dio.get<Map<String, dynamic>>(
-          url,
-          options: Options(receiveTimeout: const Duration(seconds: 10)),
-        );
-        final data = response.data;
-        if (data != null) {
-          final status = data['status'] as String?;
-          final errorMessage = data['error_message'] as String?;
-          if (status == 'OK') {
-            final routes = data['routes'] as List<dynamic>?;
-            if (routes != null && routes.isNotEmpty) {
-              final route = routes.first as Map<String, dynamic>;
-              final legs = route['legs'] as List<dynamic>?;
-              List<LatLng> polylinePoints = [];
-              final overview =
-                  route['overview_polyline'] as Map<String, dynamic>?;
-              if (overview != null) {
-                final encoded = overview['points'] as String?;
-                if (encoded != null && encoded.isNotEmpty) {
-                  polylinePoints = PolylineUtils.decode(encoded);
-                }
-              }
-              if (polylinePoints.isEmpty) {
-                if (kDebugMode) {
-                  debugPrint(
-                    '[DirectionsService] No overview_polyline in response, '
-                    'using A-B line',
-                  );
-                }
-                polylinePoints = [
-                  LatLng(originLat, originLng),
-                  LatLng(destLat, destLng),
-                ];
-              }
-              double km = 0;
-              String? durationText;
-              if (legs != null && legs.isNotEmpty) {
-                final leg = legs.first as Map<String, dynamic>;
-                final distance = leg['distance'] as Map<String, dynamic>?;
-                final duration = leg['duration'] as Map<String, dynamic>?;
-                if (distance != null && distance['value'] != null) {
-                  km = (distance['value'] as num).toDouble() / 1000;
-                }
-                if (duration != null && duration['text'] != null) {
-                  durationText = '~${duration['text'] as String}';
-                }
-              }
-              return DirectionsResult(
-                distanceKm: km,
-                durationText: durationText,
-                polylinePoints: polylinePoints,
-              );
-            }
-          }
-          if (kDebugMode && status != null && status != 'OK') {
-            debugPrint(
-              '[DirectionsService] status=$status error_message=$errorMessage',
-            );
-          }
-        }
-      } on DioException catch (e) {
-        if (kDebugMode) {
-          debugPrint(
-            '[DirectionsService] DioException: ${e.type} '
-            '${e.response?.statusCode} ${e.response?.data}',
-          );
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('[DirectionsService] error: $e');
+    try {
+      final result = await _polylinePoints.getRouteBetweenCoordinates(
+        request: PolylineRequest(
+          origin: PointLatLng(originLat, originLng),
+          destination: PointLatLng(destLat, destLng),
+          mode: TravelMode.driving,
+        ),
+      );
+
+      if (result.points.isEmpty) {
+        return _fallbackStraightLine(originLat, originLng, destLat, destLng);
       }
+
+      final points = result.points
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
+
+      double distanceKm = 0;
+      String? durationText;
+
+      if (result.totalDistanceValue != null && result.totalDistanceValue! > 0) {
+        distanceKm = result.totalDistanceValue! / 1000;
+      } else {
+        distanceKm = _haversineKm(originLat, originLng, destLat, destLng);
+      }
+
+      if (result.totalDurationValue != null && result.totalDurationValue! > 0) {
+        final secs = result.totalDurationValue!.round();
+        if (secs >= 3600) {
+          durationText = '~${secs ~/ 3600} h ${(secs % 3600) ~/ 60} min';
+        } else if (secs >= 60) {
+          durationText = '~${secs ~/ 60} min';
+        } else {
+          durationText = '~$secs sec';
+        }
+      }
+
+      return DirectionsResult(
+        points: points,
+        distanceKm: distanceKm,
+        durationText: durationText,
+      );
+    } catch (e) {
+      return _fallbackStraightLine(originLat, originLng, destLat, destLng);
     }
-    // Fallback: straight-line distance only (no ETA)
-    final meters = Geolocator.distanceBetween(
-      originLat,
-      originLng,
-      destLat,
-      destLng,
-    );
-    final km = meters / 1000;
+  }
+
+  static DirectionsResult _fallbackStraightLine(
+    double originLat,
+    double originLng,
+    double destLat,
+    double destLng,
+  ) {
+    final points = [
+      LatLng(originLat, originLng),
+      LatLng(destLat, destLng),
+    ];
+    final km = _haversineKm(originLat, originLng, destLat, destLng);
+    final min = (km / 30 * 60).round().clamp(0, 999);
+    final durationText = min > 60 ? '~${min ~/ 60} h' : '~$min min';
     return DirectionsResult(
+      points: points,
       distanceKm: km,
-      durationText: null,
-      polylinePoints: [LatLng(originLat, originLng), LatLng(destLat, destLng)],
+      durationText: durationText,
     );
+  }
+
+  static double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const p = 0.017453292519943295;
+    final a = 0.5 -
+        cos((lat2 - lat1) * p) / 2 +
+        cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lng2 - lng1) * p)) / 2;
+    return 12742 * asin(sqrt(a));
   }
 }

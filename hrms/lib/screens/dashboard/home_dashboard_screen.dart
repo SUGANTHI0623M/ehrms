@@ -23,12 +23,16 @@ class HomeDashboardScreen extends StatefulWidget {
   final int? dashboardTabIndex;
   final void Function(int index)? onNavigateToIndex;
 
+  /// When true, this screen is the active tab. Used to refresh once when opening.
+  final bool? isActiveTab;
+
   const HomeDashboardScreen({
     super.key,
     this.onNavigate,
     this.embeddedInDashboard = false,
     this.dashboardTabIndex,
     this.onNavigateToIndex,
+    this.isActiveTab,
   });
 
   @override
@@ -69,10 +73,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    // Prevent duplicate refresh calls
-    if (_isLoadingDashboard) return;
+  @override
+  void didUpdateWidget(HomeDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When user opens/switches to Dashboard tab, refresh once
+    if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
+      _loadData();
+    }
+  }
 
+  Future<void> _loadData() async {
     setState(() => _isLoadingDashboard = true);
 
     try {
@@ -109,8 +119,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // Fetch month attendance first (needed for salary calculation)
-      await _fetchMonthAttendance();
+      // Fetch month attendance (force refresh so calendar and days stay in sync with server)
+      await _fetchMonthAttendance(forceRefresh: true);
 
       // Fetch active loans from loan request module
       await _fetchActiveLoans();
@@ -124,16 +134,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
   }
 
-  Future<void> _fetchMonthAttendance() async {
-    // Prevent concurrent calls
-    if (_isFetchingMonthAttendance) return;
+  Future<void> _fetchMonthAttendance({bool forceRefresh = false}) async {
+    // Prevent concurrent calls for same operation
+    if (_isFetchingMonthAttendance && !forceRefresh) return;
 
     _isFetchingMonthAttendance = true;
     try {
-      // We don't want to show a big loader for just the calendar update
       final result = await _attendanceService.getMonthAttendance(
         _selectedMonth.year,
         _selectedMonth.month,
+        forceRefresh: forceRefresh,
       );
       if (mounted) {
         if (result['success']) {
@@ -276,10 +286,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // 4. Present days – Present=1, Approved=1, Half Day=0.5 (weighted sum for salary)
-      // Half day: status="half day" OR leaveType="half day" (e.g. approved half-day leave marked as Present)
+      // 4. Present days – prefer backend (same as payslip/salary overview); else compute from records
       double presentDays = 0;
-      if (attendanceRecords.isNotEmpty) {
+      if (backendStats != null &&
+          backendStats['attendance'] != null &&
+          (backendStats['attendance'] as Map)['presentDays'] != null) {
+        presentDays =
+            ((backendStats['attendance'] as Map)['presentDays'] as num)
+                .toDouble();
+      }
+      if (presentDays == 0 && attendanceRecords.isNotEmpty) {
         for (final record in attendanceRecords) {
           final status = (record['status'] as String? ?? '')
               .trim()
@@ -295,7 +311,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           }
         }
       }
-      // 5. Working days - use full-month working days (same as Salary Overview)
+      // 5. Working days - use full-month working days (same as Salary Overview / payslip)
       // Prefer payroll/stats API (full month); if missing or suspiciously low (e.g. "days so far"),
       // use frontend calculateWorkingDays for full month so "This Month Net" matches Salary Overview.
       WorkingDaysInfo? workingDaysInfo;
@@ -504,11 +520,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     final salaryStatus = _stats?['payrollStatus'] ?? 'Pending';
 
     // Present days from dashboard stats (only 'Present' status); working days from salary calc (full month, same as Salary Overview)
+    // Use same working/present days as payslip and salary overview (from backend)
     final presentDays =
         _stats?['attendanceSummary']?['presentDays']?.toString() ?? '0';
-    final totalDaysForCard = _workingDaysForSalary > 0
-        ? _workingDaysForSalary.toString()
-        : (_stats?['attendanceSummary']?['totalDays']?.toString() ?? '0');
+    final totalDaysForCard =
+        _stats?['attendanceSummary']?['totalDays']?.toString() ??
+        (_workingDaysForSalary > 0 ? _workingDaysForSalary.toString() : '0');
 
     final content = RefreshIndicator(
       onRefresh: _loadData,
@@ -1077,7 +1094,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   Widget _buildMonthAttendanceCard() {
     final monthName = DateFormat('MMMM yyyy').format(_selectedMonth);
-    final stats = _monthData?['stats'];
+    // Prefer dashboard attendanceSummary (same source as payslip and salary overview)
+    final summary = _stats?['attendanceSummary'] as Map<String, dynamic>?;
+    final stats = summary != null
+        ? {
+            'workingDays': summary['totalDays'],
+            'presentDays': summary['presentDays'],
+            'absentDays': summary['absentDays'],
+            'holidaysCount': _monthData?['stats']?['holidaysCount'],
+            'weekOffs': _monthData?['stats']?['weekOffs'],
+          }
+        : _monthData?['stats'];
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -1545,7 +1572,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 });
                 // Call async function after setState completes
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _fetchMonthAttendance();
+                  _fetchMonthAttendance(forceRefresh: true);
                 });
               },
             ),
@@ -1562,9 +1589,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     _selectedMonth.month + 1,
                   );
                 });
-                // Call async function after setState completes
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _fetchMonthAttendance();
+                  _fetchMonthAttendance(forceRefresh: true);
                 });
               },
             ),
@@ -1654,10 +1680,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // IMPORTANT: Week offs (especially Sundays) should NEVER be marked as absent
               final status = dayStatusByDate[dateStr];
               final hasLeaveType = dayLeaveTypeByDate.containsKey(dateStr);
+              // Never treat as present when record is Pending/Absent/Rejected (trust attendance list over presentDates)
               final isPresentStatus =
-                  status == 'Present' ||
-                  status == 'Approved' ||
-                  isPresentFromBackend;
+                  (status == 'Present' ||
+                      status == 'Approved' ||
+                      isPresentFromBackend) &&
+                  status != 'Pending' &&
+                  status != 'Absent' &&
+                  status != 'Rejected';
               final isHalfDayStatus =
                   status == 'Half Day' || (status?.toLowerCase() == 'half day');
 
@@ -1685,20 +1715,23 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               else if (isPresentStatus) {
                 bgColor = const Color(0xFFDCFCE7); // Present - Light Green
               }
-              // 7. Other attendance statuses
+              // 7. Other attendance statuses (Pending treated as Absent)
               else if (dayStatusByDate.containsKey(dateStr)) {
-                if (status == 'Pending') {
-                  bgColor = const Color(0xFFFFEDD5); // Pending - Light orange
-                } else if (status == 'Absent' || status == 'Rejected') {
+                if (status == 'Pending' ||
+                    status == 'Absent' ||
+                    status == 'Rejected') {
                   bgColor = const Color(0xFFFEE2E2); // Absent - Light red
                 } else if (status == 'On Leave') {
                   bgColor = const Color(0xFFBFDBFE); // On Leave - light blue
                 }
               }
-              // 8. Absent from backend
+              // 8. Absent from backend (never show today as absent - day may be in progress or data stale)
               else if (absentDateSet.contains(dateStr)) {
-                if (!isWeekOff) {
+                if (!isWeekOff && !isToday) {
                   bgColor = const Color(0xFFFEE2E2); // Absent - Light red
+                } else if (isToday) {
+                  // Today: show as not marked so user isn't shown absent incorrectly
+                  bgColor = const Color(0xFFE2E8F0); // Not Marked - Light grey
                 }
               }
               // 9. Future dates
@@ -1714,15 +1747,27 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 }
               }
 
+              // For today: prefer live _todayAttendance so we show Present if user has punched in
+              if (isToday && _todayAttendance != null) {
+                final st =
+                    _todayAttendance!['status']?.toString().toLowerCase() ?? '';
+                if (st == 'present' || st == 'approved') {
+                  bgColor = const Color(0xFFDCFCE7); // Present - Light Green
+                }
+              }
+
               // Leave type abbreviation logic (inside isCurrentMonth block where variables are available):
               // - If Present with leaveType → Show CL/SL/HA (green background)
               // - If Half Day → Show "HA" (blue background)
               // - If Leave date without attendance → Show "L" (purple background)
               final statusForDay = dayStatusByDate[dateStr] ?? '';
               final isPresentStatusForAbbr =
-                  statusForDay == 'Present' ||
-                  statusForDay == 'Approved' ||
-                  isPresentFromBackend;
+                  (statusForDay == 'Present' ||
+                      statusForDay == 'Approved' ||
+                      isPresentFromBackend) &&
+                  statusForDay != 'Pending' &&
+                  statusForDay != 'Absent' &&
+                  statusForDay != 'Rejected';
               final isHalfDayStatusForAbbr =
                   statusForDay == 'Half Day' ||
                   statusForDay.toLowerCase() == 'half day';

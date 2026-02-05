@@ -73,42 +73,49 @@ const getReimbursements = async (req, res) => {
     }
 };
 
+// Cloudinary folder for expense request proof files
+const EXPENSE_PROOF_FOLDER = 'hrms/expense-proofs';
+
 const createReimbursement = async (req, res) => {
     try {
         const { type, amount, date, description, proofFiles } = req.body;
         const currentStaff = req.staff;
 
-        // console.log('Create Reimbursement Request:', { type, amount, proofFilesCount: proofFiles ? proofFiles.length : 0 });
-
         if (!currentStaff) {
             return res.status(400).json({ success: false, error: { message: 'Staff profile not found' } });
         }
 
+        const needsCloudinary = proofFiles && Array.isArray(proofFiles) && proofFiles.length > 0 &&
+            proofFiles.some(f => typeof f === 'string' && !f.startsWith('http://') && !f.startsWith('https://'));
+        if (needsCloudinary && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET)) {
+            return res.status(503).json({
+                success: false,
+                error: { message: 'Proof upload is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in .env.' }
+            });
+        }
+
         let uploadedProofUrls = [];
         if (proofFiles && Array.isArray(proofFiles) && proofFiles.length > 0) {
-            for (const fileStr of proofFiles) {
-                // If it's already a URL (e.g. editing or resending), keep it.
-                // Check for http/https prefix.
-                if (typeof fileStr === 'string' && (fileStr.startsWith('http://') || fileStr.startsWith('https://'))) {
+            for (let i = 0; i < proofFiles.length; i++) {
+                const fileStr = proofFiles[i];
+                if (typeof fileStr !== 'string') continue;
+                if (fileStr.startsWith('http://') || fileStr.startsWith('https://')) {
                     uploadedProofUrls.push(fileStr);
-                } else {
-                    // Assume it's a base64 string and upload to Cloudinary
-                    try {
-                        // console.log('Uploading file to Cloudinary...');
-                        const result = await cloudinary.uploader.upload(fileStr, {
-                            folder: 'hrms/reimbursements', // Organized folder
-                            resource_type: 'auto'
-                        });
-                        // console.log('Upload success:', result.secure_url);
-                        uploadedProofUrls.push(result.secure_url);
-                    } catch (uploadError) {
-                        console.error('Cloudinary upload failed for expense proof:', uploadError.message);
-                        // Make it visible to the user if upload fails
-                        return res.status(500).json({
-                            success: false,
-                            error: { message: 'Failed to upload proof file: ' + uploadError.message }
-                        });
-                    }
+                    continue;
+                }
+                try {
+                    const result = await cloudinary.uploader.upload(fileStr, {
+                        folder: EXPENSE_PROOF_FOLDER,
+                        resource_type: 'auto',
+                        public_id: `expense_${currentStaff._id}_${Date.now()}_${i}`
+                    });
+                    uploadedProofUrls.push(result.secure_url);
+                } catch (uploadError) {
+                    console.error('Cloudinary upload failed for expense proof:', uploadError.message);
+                    return res.status(500).json({
+                        success: false,
+                        error: { message: 'Failed to upload proof file to Cloudinary: ' + uploadError.message }
+                    });
                 }
             }
         }

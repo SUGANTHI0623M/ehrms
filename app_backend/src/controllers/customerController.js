@@ -39,3 +39,20 @@ exports.getCustomerById = async (req, res) => {
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };
+
+exports.updateCustomer = async (req, res) => {
+  try {
+    const customerId = req.params.id;
+    const customer = await Customer.findByIdAndUpdate(customerId, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!customer) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+    res.status(200).json(customer);
+  } catch (error) {
+    console.error('[Customers] Error updating customer:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
