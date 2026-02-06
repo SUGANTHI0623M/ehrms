@@ -64,6 +64,7 @@ class TaskExitRecord {
   final double lat;
   final double lng;
   final String? address;
+  final String? fullAddress;
   final String? pincode;
   final String exitReason;
   final DateTime? exitedAt;
@@ -72,6 +73,7 @@ class TaskExitRecord {
     required this.lat,
     required this.lng,
     this.address,
+    this.fullAddress,
     this.pincode,
     required this.exitReason,
     this.exitedAt,
@@ -83,7 +85,8 @@ class TaskExitRecord {
     return TaskExitRecord(
       lat: (json['lat'] as num?)?.toDouble() ?? 0,
       lng: (json['lng'] as num?)?.toDouble() ?? 0,
-      address: json['address'] as String?,
+      address: (json['address'] ?? json['fullAddress']) as String?,
+      fullAddress: json['fullAddress'] as String?,
       pincode: json['pincode'] as String?,
       exitReason: (json['exitReason'] as String?) ?? '',
       exitedAt: Task._dateFromJson(json['exitedAt']),
@@ -95,6 +98,7 @@ class TaskRestartRecord {
   final double lat;
   final double lng;
   final String? address;
+  final String? fullAddress;
   final String? pincode;
   final DateTime? resumedAt;
 
@@ -102,6 +106,7 @@ class TaskRestartRecord {
     required this.lat,
     required this.lng,
     this.address,
+    this.fullAddress,
     this.pincode,
     this.resumedAt,
   });
@@ -111,7 +116,8 @@ class TaskRestartRecord {
     return TaskRestartRecord(
       lat: (json['lat'] as num?)?.toDouble() ?? 0,
       lng: (json['lng'] as num?)?.toDouble() ?? 0,
-      address: json['address'] as String?,
+      address: (json['address'] ?? json['fullAddress']) as String?,
+      fullAddress: json['fullAddress'] as String?,
       pincode: json['pincode'] as String?,
       resumedAt: _parseDate(json['resumedAt']),
     );
@@ -186,6 +192,9 @@ class Task {
   /// URL of uploaded photo proof.
   final String? photoProofUrl;
 
+  /// When photo proof was uploaded.
+  final DateTime? photoProofUploadedAt;
+
   /// Company/workflow settings (read-only). Default false if not provided by API.
   final bool requireApprovalOnComplete;
   final bool autoApprove;
@@ -236,6 +245,7 @@ class Task {
     this.otpVerifiedAt,
     this.photoProof,
     this.photoProofUrl,
+    this.photoProofUploadedAt,
     this.requireApprovalOnComplete = false,
     this.autoApprove = false,
     this.sourceLocation,
@@ -300,6 +310,7 @@ class Task {
           ? (json['progressSteps']['photoProof'] as bool?)
           : null,
       photoProofUrl: json['photoProofUrl'] as String?,
+      photoProofUploadedAt: _dateFromJson(json['photoProofUploadedAt']),
       requireApprovalOnComplete:
           (json['requireApprovalOnComplete'] as bool?) ??
           (json['settings'] != null
@@ -440,6 +451,9 @@ class Task {
     bool? isFormRequired,
     bool? isOtpVerified,
     DateTime? otpVerifiedAt,
+    bool? photoProof,
+    String? photoProofUrl,
+    DateTime? photoProofUploadedAt,
     bool? requireApprovalOnComplete,
     bool? autoApprove,
     TaskLocation? sourceLocation,
@@ -475,6 +489,7 @@ class Task {
       otpVerifiedAt: otpVerifiedAt ?? this.otpVerifiedAt,
       photoProof: photoProof ?? this.photoProof,
       photoProofUrl: photoProofUrl ?? this.photoProofUrl,
+      photoProofUploadedAt: photoProofUploadedAt ?? this.photoProofUploadedAt,
       requireApprovalOnComplete:
           requireApprovalOnComplete ?? this.requireApprovalOnComplete,
       autoApprove: autoApprove ?? this.autoApprove,

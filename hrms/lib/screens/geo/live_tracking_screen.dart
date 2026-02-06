@@ -8,11 +8,12 @@ import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/location_data.dart';
 import 'package:hrms/models/tracking_event.dart';
 import 'package:hrms/services/geo/directions_service.dart';
-import 'package:hrms/services/geo/location_service.dart';
+import 'package:hrms/services/geo/location_service.dart' show LocationService, GeofenceEvent;
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/arrived_screen.dart';
+import 'package:hrms/screens/geo/exit_ride_bottom_sheet.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -87,6 +88,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   Timer? _timer;
 
   bool _isInsideGeofence = false;
+
+  /// Geofence status for UX: null = inside/no message, else soft or warning message.
+  String? _geofenceStatusMessage;
 
   final DateTime _taskStartTime = DateTime.now();
 
@@ -257,18 +261,24 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     // Get FRESH position from GPS before sending – ensures correct lat/lng as you move.
     double lat;
     double lng;
+    double? deviceSpeedMps; // m/s from fresh Position when available
     try {
       final pos = await gl.Geolocator.getCurrentPosition(
         desiredAccuracy: gl.LocationAccuracy.high,
       );
       lat = pos.latitude;
       lng = pos.longitude;
-      debugPrint('[LiveTracking] GPS fresh: lat=$lat lng=$lng');
+      // Use fresh position's speed for accurate movement classification
+      if (pos.speed >= 0) deviceSpeedMps = pos.speed;
+      debugPrint(
+        '[LiveTracking] GPS fresh: lat=$lat lng=$lng speed=${pos.speed}',
+      );
     } catch (e) {
       final loc = _lastLocation;
       if (loc != null && loc.latitude != null && loc.longitude != null) {
         lat = loc.latitude!;
         lng = loc.longitude!;
+        if (loc.speed != null && loc.speed! >= 0) deviceSpeedMps = loc.speed;
         debugPrint(
           '[LiveTracking] GPS failed, using _lastLocation: lat=$lat lng=$lng',
         );
@@ -282,7 +292,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     try {
       battery = await Battery().batteryLevel;
     } catch (_) {}
-    final movementType = _computeMovementType(lat, lng);
+    final movementType = _computeMovementType(
+      lat,
+      lng,
+      deviceSpeedMps: deviceSpeedMps,
+    );
     debugPrint(
       '[LiveTracking] Sending to DB: lat=$lat lng=$lng movement=$movementType',
     );
@@ -317,11 +331,30 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     _lastSentTime = DateTime.now();
   }
 
-  /// Compute movementType: prefer device speed; if 0 or missing, infer from distance covered.
-  String _computeMovementType(double lat, double lng) {
-    if (_lastLocation?.speed != null && _lastLocation!.speed! > 0) {
+  /// Compute movementType: prefer device speed (m/s); if missing, infer from distance covered.
+  /// Uses noise floor so standing (GPS drift/speed noise) is correctly classified as stop.
+  static const double _speedNoiseFloorMps = 0.5; // m/s, below this = standing
+  static const double _walkThresholdMps =
+      0.5; // m/s, above noise floor = walking
+  static const double _driveThresholdMps =
+      10 / 3.6; // ~2.78 m/s = 10 km/h (cycling/vehicle)
+  static const double _distanceNoiseFloorM =
+      15; // meters, below this = standing (GPS drift)
+
+  String _computeMovementType(
+    double lat,
+    double lng, {
+    double? deviceSpeedMps,
+  }) {
+    // 1. Prefer fresh device speed from the position we're sending
+    if (deviceSpeedMps != null && deviceSpeedMps >= 0) {
+      return _getTrackingEventType(deviceSpeedMps).name;
+    }
+    // 2. Fallback to stream's last known speed
+    if (_lastLocation?.speed != null && _lastLocation!.speed! >= 0) {
       return _getTrackingEventType(_lastLocation!.speed!).name;
     }
+    // 3. Distance-based inference when device speed unavailable
     if (_lastSentLat != null && _lastSentLng != null && _lastSentTime != null) {
       final distM = gl.Geolocator.distanceBetween(
         _lastSentLat!,
@@ -329,6 +362,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         lat,
         lng,
       );
+      if (distM < _distanceNoiseFloorM) return 'stop';
       final secs = DateTime.now().difference(_lastSentTime!).inSeconds;
       if (secs > 0) {
         final speedMs = distM / secs;
@@ -341,9 +375,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         : 'stop';
   }
 
+  /// Speed in m/s (Geolocator/Android use m/s). Thresholds tuned for accurate walk/stop/drive.
   TrackingEventType _getTrackingEventType(double speed) {
-    if (speed > 10 / 3.6) return TrackingEventType.drive;
-    if (speed > 1 / 3.6) return TrackingEventType.walk;
+    if (speed < _speedNoiseFloorMps) return TrackingEventType.stop;
+    if (speed >= _driveThresholdMps) return TrackingEventType.drive; // 10 km/h+
+    if (speed >= _walkThresholdMps) return TrackingEventType.walk;
     return TrackingEventType.stop;
   }
 
@@ -403,6 +439,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       _dropoffAddress = 'Dropped pin';
       _updatingDestination = true;
     });
+    LocationService().updateGeofenceCenter(newPosition);
     _reverseGeocodeDropoff(newPosition.latitude, newPosition.longitude);
     _updateDestinationOnBackend();
     _lastRouteFetchTime = null;
@@ -549,11 +586,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       ),
     );
     if (result != null && mounted) {
+      final newDest = LatLng(result.lat, result.lng);
       setState(() {
-        _dropoffLatLngState = LatLng(result.lat, result.lng);
+        _dropoffLatLngState = newDest;
         _dropoffAddress = result.address;
         _updatingDestination = true;
       });
+      LocationService().updateGeofenceCenter(newDest);
       _updateDropoffMarker();
       _updateDestinationOnBackend();
       _lastRouteFetchTime = null;
@@ -675,14 +714,19 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     _geofenceSubscription = LocationService().geofenceStream.listen((event) {
       if (mounted) {
         setState(() {
-          _isInsideGeofence = event == "ENTER";
-
-          if (!_isInsideGeofence) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Warning: You are outside the geofence!'),
-              ),
-            );
+          _isInsideGeofence = event == GeofenceEvent.enter;
+          switch (event) {
+            case GeofenceEvent.enter:
+              _geofenceStatusMessage = null;
+              break;
+            case GeofenceEvent.exit:
+              _geofenceStatusMessage = '⚠️ You are outside the destination area';
+              break;
+            case GeofenceEvent.lowAccuracy:
+              _geofenceStatusMessage = '📡 Waiting for accurate GPS signal…';
+              break;
+            default:
+              _geofenceStatusMessage = null;
           }
         });
       }
@@ -719,7 +763,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const _ExitRideBottomSheet(),
+      builder: (ctx) => const ExitRideBottomSheet(),
     );
     if (result == null || !mounted) return;
     final reason = result['reason']?.trim();
@@ -941,6 +985,50 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             ],
           ),
         ),
+        if (_geofenceStatusMessage != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: _geofenceStatusMessage!.startsWith('📡')
+                  ? Colors.blue.shade50
+                  : Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _geofenceStatusMessage!.startsWith('📡')
+                    ? Colors.blue.shade200
+                    : Colors.orange.shade200,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _geofenceStatusMessage!.startsWith('📡')
+                      ? Icons.gps_fixed_rounded
+                      : Icons.warning_amber_rounded,
+                  size: 20,
+                  color: _geofenceStatusMessage!.startsWith('📡')
+                      ? Colors.blue.shade700
+                      : Colors.orange.shade800,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _geofenceStatusMessage!,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: _geofenceStatusMessage!.startsWith('📡')
+                          ? Colors.blue.shade800
+                          : Colors.orange.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         // Walking / Driving details (below arrival time, above Arrived button).
         Container(
@@ -1411,164 +1499,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Exit Ride bottom sheet – reason form, submit mandatory.
-class _ExitRideBottomSheet extends StatefulWidget {
-  const _ExitRideBottomSheet();
-
-  @override
-  State<_ExitRideBottomSheet> createState() => _ExitRideBottomSheetState();
-}
-
-class _ExitRideBottomSheetState extends State<_ExitRideBottomSheet> {
-  final _reasonController = TextEditingController();
-  String? _selectedReason;
-  static const _presetReasons = [
-    'Customer not available',
-    'Wrong address',
-    'Traffic / Delayed',
-    'Vehicle issue',
-    'Personal emergency',
-    'Other',
-  ];
-
-  @override
-  void dispose() {
-    _reasonController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    String reason;
-    if (_selectedReason == 'Other') {
-      reason = _reasonController.text.trim();
-      if (reason.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Please enter a reason')));
-        return;
-      }
-    } else if (_selectedReason != null && _selectedReason!.isNotEmpty) {
-      reason = _selectedReason!;
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select or enter a reason')),
-      );
-      return;
-    }
-    Navigator.of(context).pop({'reason': reason});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Exit Ride',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tracking will stop. Task status will be reset to Assigned.',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Reason (required)',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: _selectedReason,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-              ),
-              hint: const Text('Select or type below'),
-              items: _presetReasons
-                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedReason = v),
-            ),
-            if (_selectedReason == 'Other') ...[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _reasonController,
-                decoration: InputDecoration(
-                  hintText: 'Enter reason',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-                maxLines: 2,
-              ),
-            ],
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                    ),
-                    child: const Text('Submit'),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );

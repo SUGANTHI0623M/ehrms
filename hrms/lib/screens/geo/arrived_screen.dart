@@ -1,12 +1,14 @@
 // Arrived screen – trip summary, "You've Arrived!", Within Geo-Fence, Next Steps.
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/geo/exit_ride_bottom_sheet.dart';
 import 'package:hrms/screens/geo/otp_verification_screen.dart';
 import 'package:hrms/screens/geo/photo_proof_screen.dart';
 import 'package:hrms/screens/geo/task_completed_screen.dart';
-import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/geo/task_history_screen.dart';
+import 'package:hrms/services/task_service.dart';
 import 'package:intl/intl.dart';
 
 class ArrivedScreen extends StatefulWidget {
@@ -115,7 +117,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _showExitConfirmation();
+        await _onExitRide();
       },
       child: Scaffold(
         backgroundColor: Colors.white,
@@ -125,7 +127,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
           ),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-            onPressed: _showExitConfirmation,
+            onPressed: _onExitRide,
           ),
           title: const Text(
             'Arrived',
@@ -550,29 +552,49 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
     );
   }
 
-  Future<void> _showExitConfirmation() async {
-    final confirm = await showDialog<bool>(
+  /// Exit Ride: open bottom sheet with reason form (same as live tracking).
+  /// Calls exitRide API with current GPS, then pops.
+  Future<void> _onExitRide() async {
+    final result = await showModalBottomSheet<Map<String, String>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Exit Task?'),
-        content: const Text(
-          'Are you sure you want to exit? You can resume this task later from My Tasks.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Exit'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => const ExitRideBottomSheet(),
     );
-    if (confirm == true && mounted) {
-      Navigator.of(context).pop();
+    if (result == null || !mounted) return;
+    final reason = result['reason']?.trim();
+    if (reason == null || reason.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please provide a reason')));
+      return;
     }
+    final mongoId = widget.taskMongoId ?? task?.id;
+    if (mongoId != null && mongoId.isNotEmpty) {
+      try {
+        double? lat;
+        double? lng;
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          lat = pos.latitude;
+          lng = pos.longitude;
+        } catch (_) {
+          lat = widget.destLat ?? task?.destinationLocation?.lat;
+          lng = widget.destLng ?? task?.destinationLocation?.lng;
+        }
+        await TaskService().exitRide(mongoId, reason, lat: lat, lng: lng);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to exit ride: $e')));
+        }
+        return;
+      }
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   Widget _row(String label, String value) {

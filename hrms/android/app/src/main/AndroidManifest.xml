@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Activity recognition: for walk/drive/stop detection (Google Play approved, free) -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
     <!-- Camera: selfie for attendance and profile photo. No gallery read. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -44,6 +47,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Activity recognition plugin (activity_recognition_flutter) -->
+        <receiver android:name="dk.cachet.activity_recognition_flutter.ActivityRecognizedBroadcastReceiver" />
+        <service
+            android:name="dk.cachet.activity_recognition_flutter.ActivityRecognizedService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
+        <service android:name="dk.cachet.activity_recognition_flutter.ForegroundService" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

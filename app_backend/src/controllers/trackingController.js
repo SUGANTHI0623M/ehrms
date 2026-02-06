@@ -1,7 +1,24 @@
 const Staff = require('../models/Staff');
 const Tracking = require('../models/Tracking');
 const Task = require('../models/Task');
+const TaskDetails = require('../models/TaskDetails');
+const { upsertTaskDetails, buildUnsetExtended } = require('./taskController');
 const { reverseGeocode } = require('../services/geocodingService');
+
+/** Haversine distance in meters between two lat/lng points. */
+function haversineDistanceM(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // Earth radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 /**
  * POST /api/tracking/store
@@ -42,6 +59,7 @@ exports.storeTracking = async (req, res) => {
       destinationLat: destinationLat != null ? Number(destinationLat) : undefined,
       destinationLng: destinationLng != null ? Number(destinationLng) : undefined,
       address: geo?.address || undefined,
+      fullAddress: geo?.address || geo?.fullAddress || undefined,
       city: geo?.city || undefined,
       area: geo?.area || undefined,
       pincode: geo?.pincode || undefined,
@@ -97,7 +115,7 @@ exports.exitTracking = async (req, res) => {
     if (!taskId || !exitReason || String(exitReason).trim() === '') {
       return res.status(400).json({ success: false, message: 'taskId and exitReason required' });
     }
-    const task = await Task.findById(taskId).select('assignedTo').populate('assignedTo', 'name');
+    const task = await Task.findById(taskId).select('assignedTo taskId').populate('assignedTo', 'name');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
@@ -115,19 +133,32 @@ exports.exitTracking = async (req, res) => {
       }
     }
 
+    const exitAddress = geo?.address || undefined;
+    const exitNow = new Date();
     const exitRecord = {
       lat: exitLat,
       lng: exitLng,
-      address: geo?.address || undefined,
+      address: exitAddress,
+      fullAddress: exitAddress,
       pincode: geo?.pincode || undefined,
       exitReason: String(exitReason).trim(),
-      exitedAt: new Date(),
+      exitedAt: exitNow,
+      time: exitNow,
     };
 
     await Task.findByIdAndUpdate(taskId, {
-      $push: { tasks_exit: exitRecord },
       $set: { status: 'exited' },
+      $unset: buildUnsetExtended(),
     });
+    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const tasksExit = [...(details?.tasks_exit || []), exitRecord];
+    const fullDoc = {
+      ...(details || {}),
+      taskId: task.taskId,
+      status: 'exited',
+      tasks_exit: tasksExit,
+    };
+    await upsertTaskDetails(fullDoc);
 
     const trackingDoc = {
       taskId,
@@ -138,7 +169,9 @@ exports.exitTracking = async (req, res) => {
       exitStatus: 'exited',
       exitReason: exitRecord.exitReason,
       exitedAt: exitRecord.exitedAt,
-      address: geo?.address || undefined,
+      time: exitRecord.exitedAt,
+      address: exitAddress,
+      fullAddress: exitAddress,
       pincode: geo?.pincode || undefined,
     };
     await Tracking.create(trackingDoc);
@@ -160,7 +193,7 @@ exports.restartTracking = async (req, res) => {
     if (!taskId) {
       return res.status(400).json({ success: false, message: 'taskId required' });
     }
-    const task = await Task.findById(taskId);
+    const task = await Task.findById(taskId).select('taskId');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
@@ -174,29 +207,43 @@ exports.restartTracking = async (req, res) => {
         console.log('[Tracking] Restart geocode failed:', e.message);
       }
     }
+    const restartAddress = fullAddress || geo?.address || undefined;
+    const resumeNow = new Date();
     const restartRecord = {
       lat: resumeLat,
       lng: resumeLng,
-      address: geo?.address || undefined,
-      pincode: geo?.pincode || undefined,
-      resumedAt: new Date(),
+      address: restartAddress,
+      fullAddress: restartAddress,
+      pincode: pincode || geo?.pincode || undefined,
+      resumedAt: resumeNow,
+      time: resumeNow,
     };
     const updateData = {
-      $push: { tasks_restarted: restartRecord },
-      $set: {
-        status: 'in_progress',
-        startTime: new Date(),
-        startLocation: { lat: resumeLat, lng: resumeLng },
-        sourceLocation: {
-          lat: resumeLat,
-          lng: resumeLng,
-          address: fullAddress || geo?.address || undefined,
-          fullAddress: fullAddress || geo?.address || undefined,
-          pincode: pincode || geo?.pincode || undefined,
-        },
+      status: 'in_progress',
+      startTime: new Date(),
+      started: new Date(),
+      startLocation: { lat: resumeLat, lng: resumeLng },
+      sourceLocation: {
+        lat: resumeLat,
+        lng: resumeLng,
+        address: fullAddress || geo?.address || undefined,
+        fullAddress: fullAddress || geo?.address || undefined,
+        pincode: pincode || geo?.pincode || undefined,
       },
     };
-    await Task.findByIdAndUpdate(taskId, updateData);
+    await Task.findByIdAndUpdate(taskId, {
+      $set: { status: 'in_progress' },
+      $unset: buildUnsetExtended(),
+    });
+    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const tasksRestarted = [...(details?.tasks_restarted || []), restartRecord];
+    const fullDoc = {
+      ...(details || {}),
+      taskId: task.taskId,
+      ...updateData,
+      tasks_restarted: tasksRestarted,
+    };
+    await upsertTaskDetails(fullDoc);
     res.status(200).json({ success: true, message: 'Restart recorded' });
   } catch (error) {
     console.error('[Tracking] Error recording restart:', error.message);
@@ -217,10 +264,11 @@ exports.arrivedTracking = async (req, res) => {
     if (!taskId || lat == null || lng == null) {
       return res.status(400).json({ success: false, message: 'taskId, lat, lng required' });
     }
-    const task = await Task.findById(taskId).select('assignedTo sourceLocation').populate('assignedTo', 'name');
+    const task = await Task.findById(taskId).select('assignedTo taskId').populate('assignedTo', 'name');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
+    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
     const staffIdObj = task.assignedTo?._id || staffId;
     const resolvedStaffName = task.assignedTo?.name || staffName;
 
@@ -234,13 +282,15 @@ exports.arrivedTracking = async (req, res) => {
     }
     const resolvedFullAddress = fullAddress || geo?.address;
     const resolvedPincode = pincode || geo?.pincode;
-    const resolvedSourceFullAddress = sourceFullAddress || task.sourceLocation?.address || task.sourceLocation?.fullAddress;
+    const srcLoc = details?.sourceLocation || req.body?.sourceLocation || {};
+    const resolvedSourceFullAddress = sourceFullAddress || srcLoc.address || srcLoc.fullAddress;
 
     const now = new Date();
     const updateData = {
       status: 'arrived',
-      'progressSteps.reachedLocation': true,
+      progressSteps: { ...(details?.progressSteps || {}), reachedLocation: true },
       arrivalTime: now,
+      arrived: now,
       arrivedLatitude: arrivalLat,
       arrivedLongitude: arrivalLng,
       arrivedFullAddress: resolvedFullAddress,
@@ -249,13 +299,28 @@ exports.arrivedTracking = async (req, res) => {
       arrivedTime: now.toTimeString().slice(0, 8),
       sourceFullAddress: resolvedSourceFullAddress,
     };
-    if (req.body.tripDistanceKm != null) updateData.tripDistanceKm = Number(req.body.tripDistanceKm);
     if (req.body.tripDurationSeconds != null) updateData.tripDurationSeconds = Number(req.body.tripDurationSeconds);
     if (req.body.sourceLocation) {
-      const src = task.sourceLocation?.toObject?.() || {};
-      updateData.sourceLocation = { ...src, ...req.body.sourceLocation };
+      updateData.sourceLocation = { ...srcLoc, ...req.body.sourceLocation };
     }
-    await Task.findByIdAndUpdate(taskId, { $set: updateData });
+    const srcLat = srcLoc.lat ?? srcLoc.latitude;
+    const srcLng = srcLoc.lng ?? srcLoc.longitude;
+    if (srcLat != null && srcLng != null) {
+      const distM = haversineDistanceM(srcLat, srcLng, arrivalLat, arrivalLng);
+      updateData.tripDistanceKm = distM / 1000;
+    } else if (req.body.tripDistanceKm != null) {
+      updateData.tripDistanceKm = Number(req.body.tripDistanceKm);
+    }
+    await Task.findByIdAndUpdate(taskId, {
+      $set: { status: 'arrived' },
+      $unset: buildUnsetExtended(),
+    });
+    const fullDoc = {
+      ...(details || {}),
+      taskId: task.taskId,
+      ...updateData,
+    };
+    await upsertTaskDetails(fullDoc);
 
     const trackingDoc = {
       taskId,

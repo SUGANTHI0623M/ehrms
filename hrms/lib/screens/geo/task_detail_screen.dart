@@ -1196,14 +1196,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (exits.isEmpty && restarts.isEmpty) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.06),
-            blurRadius: 12,
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
@@ -1213,15 +1213,42 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         children: [
           Row(
             children: [
-              const Text(
-                'Exit & Restart History',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.history_rounded,
+                  size: 20,
+                  color: Colors.orange.shade700,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Exit & Restart History',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    Text(
+                      'Past exits and restarts for this task',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               TextButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -1231,39 +1258,69 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ),
                   );
                 },
-                icon: const Icon(Icons.history_rounded, size: 18),
-                label: const Text('Full history'),
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text('View all'),
               ),
             ],
           ),
           if (exits.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            ...exits.map(
+            const SizedBox(height: 16),
+            ...exits.asMap().entries.map(
               (e) => _historyTile(
-                'Exit',
-                e.exitReason,
-                e.exitedAt,
-                e.address,
-                e.pincode,
+                'Exit #${e.key + 1}',
+                e.value.exitReason,
+                e.value.exitedAt,
+                e.value.address,
+                e.value.pincode,
                 Icons.exit_to_app_rounded,
                 Colors.orange,
               ),
             ),
           ],
           if (restarts.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            ...restarts.map(
-              (r) => _historyTile(
-                'Restart',
+            const SizedBox(height: 6),
+            ...restarts.asMap().entries.map(
+              (e) => _historyTile(
+                'Resumed #${e.key + 1}',
                 null,
-                r.resumedAt,
-                r.address,
-                r.pincode,
-                Icons.play_arrow_rounded,
+                e.value.resumedAt,
+                e.value.address,
+                e.value.pincode,
+                Icons.replay_rounded,
                 Colors.green,
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _historyDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 68,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 11, color: Colors.black),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -1280,44 +1337,54 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$type${date != null ? ' • ${DateFormat('MMM d, h:mm a').format(date)}' : ''}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                if (reason != null && reason.isNotEmpty)
-                  Text(
-                    reason,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
-                if (address != null && address.isNotEmpty)
-                  Text(
-                    address,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                if (pincode != null && pincode.isNotEmpty)
-                  Text(
-                    'Pincode: $pincode',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                  ),
-              ],
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: color),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    type,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  if (date != null)
+                    _historyDetailRow(
+                      'Date & Time',
+                      DateFormat('dd MMM yyyy, h:mm a').format(date),
+                    ),
+                  if (reason != null && reason.isNotEmpty)
+                    _historyDetailRow('Reason', reason),
+                  if (address != null && address.isNotEmpty)
+                    _historyDetailRow('Location', address),
+                  if (pincode != null && pincode.isNotEmpty)
+                    _historyDetailRow('Pincode', pincode),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

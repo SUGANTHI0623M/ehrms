@@ -1,8 +1,16 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:hrms/models/location_data.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+/// Geofence stream events: ENTER=inside, EXIT=outside (accuracy OK), LOW_ACCURACY=can't validate
+class GeofenceEvent {
+  static const String enter = 'ENTER';
+  static const String exit = 'EXIT';
+  static const String lowAccuracy = 'LOW_ACCURACY';
+}
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -22,9 +30,20 @@ class LocationService {
   Stream<String> get geofenceStream => _geofenceController.stream;
 
   LatLng? _geofenceCenter;
-  final double _geofenceRadius = 150; // 100-200 meters, defaulting to 150
+
+  /// Base geofence radius in meters (>= 100m per requirements).
+  static const double baseRadius = 300;
+
+  /// Accuracy threshold: above this, do NOT show "outside geofence" warning.
+  static const double accuracyThresholdMeters = 40;
 
   StreamSubscription<gl.Position>? _geolocatorSubscription;
+
+  /// Update geofence center when destination changes (single source of truth).
+  void updateGeofenceCenter(LatLng center) {
+    _geofenceCenter = center;
+    debugPrint('[Geofence] Center updated: ${center.latitude}, ${center.longitude}');
+  }
 
   Future<void> initLocationService({required LatLng customerLocation}) async {
     _geofenceCenter = customerLocation;
@@ -74,18 +93,47 @@ class LocationService {
   void _checkGeofence(Location currentLocation) {
     if (_geofenceCenter == null) return;
 
-    double distanceInMeters = gl.Geolocator.distanceBetween(
-      _geofenceCenter!.latitude,
-      _geofenceCenter!.longitude,
-      currentLocation.latitude ?? 0.0,
-      currentLocation.longitude ?? 0.0,
+    final currentLat = currentLocation.latitude ?? 0.0;
+    final currentLng = currentLocation.longitude ?? 0.0;
+    final destLat = _geofenceCenter!.latitude;
+    final destLng = _geofenceCenter!.longitude;
+
+    final distanceInMeters = gl.Geolocator.distanceBetween(
+      currentLat,
+      currentLng,
+      destLat,
+      destLng,
     );
 
-    if (distanceInMeters <= _geofenceRadius) {
-      _geofenceController.add("ENTER");
-    } else {
-      _geofenceController.add("EXIT");
+    // Treat null/negative accuracy as poor (avoid false "outside" warnings).
+    final accuracy = (currentLocation.accuracy != null &&
+            currentLocation.accuracy! >= 0)
+        ? currentLocation.accuracy!
+        : 999.0;
+
+    // Adaptive radius: base + accuracy to absorb GPS drift.
+    final effectiveRadius = baseRadius + accuracy;
+
+    // Accuracy-aware validation: do NOT show "outside geofence" when accuracy > 40m.
+    if (accuracy > accuracyThresholdMeters) {
+      _geofenceController.add(GeofenceEvent.lowAccuracy);
+      debugPrint(
+        '[Geofence] LOW_ACCURACY: lat=$currentLat lng=$currentLng '
+        'dest=$destLat,$destLng accuracy=${accuracy.toStringAsFixed(1)}m '
+        'distance=${distanceInMeters.toStringAsFixed(1)}m effectiveRadius=${effectiveRadius.toStringAsFixed(1)}m',
+      );
+      return;
     }
+
+    final isInside = distanceInMeters <= effectiveRadius;
+    final status = isInside ? GeofenceEvent.enter : GeofenceEvent.exit;
+    _geofenceController.add(status);
+
+    debugPrint(
+      '[Geofence] $status: lat=$currentLat lng=$currentLng '
+      'dest=$destLat,$destLng accuracy=${accuracy.toStringAsFixed(1)}m '
+      'distance=${distanceInMeters.toStringAsFixed(1)}m effectiveRadius=${effectiveRadius.toStringAsFixed(1)}m',
+    );
   }
 
   Future<void> _checkAndRequestPermissions() async {

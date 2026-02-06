@@ -49,5 +49,7 @@
 	<string>Camera access is needed to take your selfie for attendance check-in.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location is used to verify your check-in and check-out for attendance.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Motion and fitness data is used to accurately detect walking, driving, or standing for task tracking.</string>
 </dict>
 </plist>

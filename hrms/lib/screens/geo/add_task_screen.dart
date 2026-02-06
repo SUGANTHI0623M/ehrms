@@ -185,21 +185,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     );
   }
 
-  /// Description format: "Source: X\nDestination: Y\n\n{user description}"
+  /// Description: only user-entered text. Source/destination are stored in sourceLocation/destinationLocation.
   String _buildDescription() {
-    final src = _sourceAddress.isNotEmpty
-        ? _sourceAddress
-        : _sourceController.text.trim();
-    final dest = _destinationAddress.isNotEmpty
-        ? _destinationAddress
-        : _destinationController.text.trim();
-    final body = _descriptionController.text.trim();
-    if (src.isEmpty && dest.isEmpty) return body;
-    final parts = <String>[];
-    if (src.isNotEmpty) parts.add('Source: $src');
-    if (dest.isNotEmpty) parts.add('Destination: $dest');
-    if (body.isNotEmpty) parts.add(body);
-    return parts.join('\n\n');
+    return _descriptionController.text.trim();
   }
 
   Future<void> _searchDestination(String query) async {
@@ -534,6 +522,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         startTime: DateTime.now(),
         startLat: pickup.latitude,
         startLng: pickup.longitude,
+        sourceLocation: {
+          'lat': pickup.latitude,
+          'lng': pickup.longitude,
+          'address': _currentLocationAddress,
+          'fullAddress': _currentLocationAddress,
+        },
       );
 
       if (!mounted) return;
