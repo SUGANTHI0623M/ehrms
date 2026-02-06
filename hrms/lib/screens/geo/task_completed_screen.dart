@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
 import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/utils/date_display_util.dart';
 import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:intl/intl.dart';
 
 /// One event in the task track timeline.
 class _TimelineEvent {
@@ -121,11 +122,9 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
     return widget.totalDuration;
   }
 
-  bool get _displayOtpVerified =>
-      _task?.isOtpVerified ?? widget.otpVerified;
+  bool get _displayOtpVerified => _task?.isOtpVerified ?? widget.otpVerified;
 
-  bool get _displayPhotoProof =>
-      _task?.photoProof ?? widget.photoProof;
+  bool get _displayPhotoProof => _task?.photoProof ?? widget.photoProof;
 
   static String _formatDuration(Duration d) {
     if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
@@ -134,7 +133,8 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
 
   List<_TimelineEvent> _buildTimelineEvents() {
     final events = <_TimelineEvent>[];
-    final arrival = widget.arrivalTime ?? widget.startedAt.add(widget.totalDuration);
+    final arrival =
+        widget.arrivalTime ?? widget.startedAt.add(widget.totalDuration);
 
     events.add(
       _TimelineEvent(
@@ -153,7 +153,8 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
         _TimelineEvent(
           time: widget.startedAt,
           title: 'Driving (${_formatDuration(widget.drivingDuration!)})',
-          subtitle: '${widget.drivingDistanceKm!.toStringAsFixed(1)} km covered',
+          subtitle:
+              '${widget.drivingDistanceKm!.toStringAsFixed(1)} km covered',
           icon: Icons.directions_car_rounded,
           iconColor: Colors.red.shade400,
         ),
@@ -166,14 +167,17 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
         _TimelineEvent(
           time: arrival.subtract(widget.walkingDuration!),
           title: 'Walking (${_formatDuration(widget.walkingDuration!)})',
-          subtitle: '${widget.walkingDistanceKm!.toStringAsFixed(1)} km covered',
+          subtitle:
+              '${widget.walkingDistanceKm!.toStringAsFixed(1)} km covered',
           icon: Icons.directions_walk_rounded,
           iconColor: Colors.amber.shade700,
         ),
       );
     }
-    if ((widget.drivingDuration == null || widget.drivingDuration!.inSeconds == 0) &&
-        (widget.walkingDuration == null || widget.walkingDuration!.inSeconds == 0)) {
+    if ((widget.drivingDuration == null ||
+            widget.drivingDuration!.inSeconds == 0) &&
+        (widget.walkingDuration == null ||
+            widget.walkingDuration!.inSeconds == 0)) {
       events.add(
         _TimelineEvent(
           time: widget.startedAt,
@@ -195,7 +199,8 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       ),
     );
 
-    if (widget.formSubmitted && (widget.formSubmittedAt != null || widget.otpVerifiedAt != null)) {
+    if (widget.formSubmitted &&
+        (widget.formSubmittedAt != null || widget.otpVerifiedAt != null)) {
       events.add(
         _TimelineEvent(
           time: widget.formSubmittedAt ?? widget.otpVerifiedAt ?? arrival,
@@ -271,7 +276,6 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.white,
-        bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
         appBar: AppBar(
           flexibleSpace: Container(
             decoration: BoxDecoration(color: AppColors.primary),
@@ -378,12 +382,12 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                       const SizedBox(height: 16),
                       _detailRow(
                         'Started At',
-                        DateFormat('h:mm a').format(widget.startedAt),
+                        DateDisplayUtil.formatTime(widget.startedAt),
                       ),
                       _divider(),
                       _detailRow(
                         'Completed At',
-                        DateFormat('h:mm a').format(widget.completedAt),
+                        DateDisplayUtil.formatTime(widget.completedAt),
                       ),
                       _divider(),
                       _detailRow(
@@ -416,8 +420,8 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                         _displayPhotoProof,
                         value: _displayPhotoProof
                             ? (_task?.photoProofUrl != null
-                                ? 'Uploaded'
-                                : 'Yes')
+                                  ? 'Uploaded'
+                                  : 'Yes')
                             : '—',
                       ),
                     ],
@@ -496,7 +500,32 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
+                if (_task != null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                CompletedTaskDetailScreen(task: _task!),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.timeline_rounded, size: 22),
+                      label: const Text('View Full Report & Timeline'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -641,7 +670,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              DateFormat('h:mm a').format(events[i].time),
+                              DateDisplayUtil.formatTime(events[i].time),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,

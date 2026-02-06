@@ -11,6 +11,7 @@ Customer _$CustomerFromJson(Map<String, dynamic> json) => Customer(
   customerName: json['customerName'] as String,
   customerNumber: json['customerNumber'] as String?,
   email: json['email'] as String?,
+  emailId: json['emailId'] as String?,
   address: json['address'] as String,
   city: json['city'] as String,
   pincode: json['pincode'] as String,

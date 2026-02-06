@@ -113,6 +113,23 @@ class TaskService {
     }
   }
 
+  /// Fetch full task completion report: task, timeline, route points from DB.
+  Future<TaskCompletionReport> getTaskCompletionReport(String taskId) async {
+    try {
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/tasks/$taskId/completion-report',
+      );
+      final data = response.data;
+      if (data == null) throw Exception('Failed to load completion report');
+      return TaskCompletionReport.fromJson(data);
+    } on DioException catch (e) {
+      throw Exception(
+        'Failed to load report: ${e.response?.statusCode ?? e.message}',
+      );
+    }
+  }
+
   Future<Task> updateTask(
     String id, {
     String? status,
@@ -121,6 +138,7 @@ class TaskService {
     double? startLng,
     Map<String, dynamic>? sourceLocation,
     Map<String, dynamic>? destinationLocation,
+    bool? destinationChanged,
     double? tripDistanceKm,
     int? tripDurationSeconds,
     DateTime? arrivalTime,
@@ -136,6 +154,8 @@ class TaskService {
       if (sourceLocation != null) body['sourceLocation'] = sourceLocation;
       if (destinationLocation != null)
         body['destinationLocation'] = destinationLocation;
+      if (destinationChanged != null)
+        body['destinationChanged'] = destinationChanged;
       if (tripDistanceKm != null) body['tripDistanceKm'] = tripDistanceKm;
       if (tripDurationSeconds != null)
         body['tripDurationSeconds'] = tripDurationSeconds;
@@ -176,12 +196,15 @@ class TaskService {
 
   /// Store tracking point in Tracking collection (separate route, not socket.io).
   /// Call on Start Ride and every 15 sec during Live Tracking.
+  /// Payload includes currentLat, currentLng, destinationLat, destinationLng.
   Future<void> storeTracking(
     String taskMongoId,
     double lat,
     double lng, {
     int? batteryPercent,
     String? movementType,
+    double? destinationLat,
+    double? destinationLng,
   }) async {
     await _setToken();
     final body = <String, dynamic>{
@@ -192,6 +215,8 @@ class TaskService {
     };
     if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
     if (movementType != null) body['movementType'] = movementType;
+    if (destinationLat != null) body['destinationLat'] = destinationLat;
+    if (destinationLng != null) body['destinationLng'] = destinationLng;
     debugPrint(
       '[Tracking] Sending to DB: taskId=$taskMongoId lat=$lat lng=$lng battery=$batteryPercent movement=$movementType',
     );
@@ -227,12 +252,19 @@ class TaskService {
     String taskMongoId,
     String filePath, {
     String? description,
+    double? lat,
+    double? lng,
+    String? fullAddress,
   }) async {
     await _setToken();
     final formData = FormData.fromMap({
       'photo': await MultipartFile.fromFile(filePath, filename: 'photo.jpg'),
       if (description != null && description.isNotEmpty)
         'description': description,
+      if (lat != null) 'lat': lat.toString(),
+      if (lng != null) 'lng': lng.toString(),
+      if (fullAddress != null && fullAddress.isNotEmpty)
+        'fullAddress': fullAddress,
     });
     final response = await _api.dio.post<Map<String, dynamic>>(
       '/tasks/$taskMongoId/photo',
@@ -254,15 +286,91 @@ class TaskService {
   }
 
   /// Verify OTP. Returns updated task.
-  Future<Task> verifyOtp(String taskMongoId, String otp) async {
+  Future<Task> verifyOtp(
+    String taskMongoId,
+    String otp, {
+    double? lat,
+    double? lng,
+    String? fullAddress,
+  }) async {
     await _setToken();
+    final payload = <String, dynamic>{'otp': otp};
+    if (lat != null) payload['lat'] = lat;
+    if (lng != null) payload['lng'] = lng;
+    if (fullAddress != null && fullAddress.isNotEmpty)
+      payload['fullAddress'] = fullAddress;
     final response = await _api.dio.post<Map<String, dynamic>>(
       '/tasks/$taskMongoId/verify-otp',
-      data: {'otp': otp},
+      data: payload,
     );
-    final data = response.data;
-    if (data == null) throw Exception('Verification failed');
-    return Task.fromJson(data);
+    final result = response.data;
+    if (result == null) throw Exception('Verification failed');
+    return Task.fromJson(result);
+  }
+
+  /// Exit ride: record reason, GPS, save to tasks_exit + trackings.
+  Future<void> exitRide(
+    String taskMongoId,
+    String exitReason, {
+    double? lat,
+    double? lng,
+  }) async {
+    await _setToken();
+    final data = <String, dynamic>{
+      'taskId': taskMongoId,
+      'exitReason': exitReason,
+    };
+    if (lat != null) data['lat'] = lat;
+    if (lng != null) data['lng'] = lng;
+    await _api.dio.post<dynamic>('/tracking/exit', data: data);
+  }
+
+  /// Arrived at destination: record in tasks + trackings, set status arrived.
+  Future<void> arrivedRide(
+    String taskMongoId, {
+    required double lat,
+    required double lng,
+    String? fullAddress,
+    String? pincode,
+    String? sourceFullAddress,
+    double? tripDistanceKm,
+    int? tripDurationSeconds,
+    Map<String, dynamic>? sourceLocation,
+  }) async {
+    await _setToken();
+    final data = <String, dynamic>{
+      'taskId': taskMongoId,
+      'lat': lat,
+      'lng': lng,
+    };
+    if (fullAddress != null && fullAddress.isNotEmpty)
+      data['fullAddress'] = fullAddress;
+    if (pincode != null && pincode.isNotEmpty) data['pincode'] = pincode;
+    if (sourceFullAddress != null && sourceFullAddress.isNotEmpty)
+      data['sourceFullAddress'] = sourceFullAddress;
+    if (tripDistanceKm != null) data['tripDistanceKm'] = tripDistanceKm;
+    if (tripDurationSeconds != null)
+      data['tripDurationSeconds'] = tripDurationSeconds;
+    if (sourceLocation != null) data['sourceLocation'] = sourceLocation;
+    await _api.dio.post<dynamic>('/tracking/arrived', data: data);
+  }
+
+  /// Restart task after exit: record in tasks_restarted, set status in_progress.
+  Future<void> restartTask(
+    String taskMongoId, {
+    double? lat,
+    double? lng,
+    String? fullAddress,
+    String? pincode,
+  }) async {
+    await _setToken();
+    final data = <String, dynamic>{'taskId': taskMongoId};
+    if (lat != null) data['lat'] = lat;
+    if (lng != null) data['lng'] = lng;
+    if (fullAddress != null && fullAddress.isNotEmpty)
+      data['fullAddress'] = fullAddress;
+    if (pincode != null && pincode.isNotEmpty) data['pincode'] = pincode;
+    await _api.dio.post<dynamic>('/tracking/restart', data: data);
   }
 
   /// Mark task as completed (sets status and completedDate).

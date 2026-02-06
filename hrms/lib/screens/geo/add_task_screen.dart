@@ -1,20 +1,18 @@
 // Add Task – full-screen form, Request module UI patterns.
 // Fields: Task Title, Customer (searchable), Description, Source, Destination.
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/customer.dart';
-import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
-import 'package:hrms/widgets/app_drawer.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:hrms/widgets/menu_icon_button.dart';
+import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 
 class AddTaskScreen extends StatefulWidget {
   final String staffId;
@@ -31,6 +29,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _descriptionController = TextEditingController();
   final _sourceController = TextEditingController();
   final _destinationController = TextEditingController();
+  LatLng? _destinationLatLng;
+  String? _destinationPincode;
   final _customerSearchController = TextEditingController();
 
   Customer? _selectedCustomer;
@@ -39,10 +39,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   bool _loadingCustomers = true;
   bool _submitting = false;
   bool _showCustomerDropdown = false;
-  bool _showSourceSuggestions = false;
   bool _showDestinationSuggestions = false;
   final FocusNode _customerFocusNode = FocusNode();
-  List<PlacePrediction> _sourcePredictions = [];
   List<PlacePrediction> _destinationPredictions = [];
   String _sourceAddress = '';
   String _destinationAddress = '';
@@ -169,21 +167,21 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
-      labelStyle: const TextStyle(color: Colors.black),
+      prefixIcon: Icon(icon, size: 20, color: AppColors.primary),
+      labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: Colors.grey.shade300),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: Colors.grey.shade300),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: AppColors.primary, width: 2),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
   }
 
@@ -204,23 +202,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     return parts.join('\n\n');
   }
 
-  Future<void> _searchSource(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() {
-        _showSourceSuggestions = false;
-        _sourcePredictions = [];
-      });
-      return;
-    }
-    final list = await PlacesService.autocomplete(query);
-    if (mounted) {
-      setState(() {
-        _sourcePredictions = list;
-        _showSourceSuggestions = true;
-      });
-    }
-  }
-
   Future<void> _searchDestination(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
@@ -238,21 +219,13 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     }
   }
 
-  Future<void> _onSourceSelected(PlaceDetails details) async {
-    setState(() {
-      _sourceAddress =
-          details.formattedAddress ?? '${details.lat}, ${details.lng}';
-      _sourceController.text = _sourceAddress;
-      _showSourceSuggestions = false;
-      _sourcePredictions = [];
-    });
-  }
-
   Future<void> _onDestinationSelected(PlaceDetails details) async {
     setState(() {
       _destinationAddress =
           details.formattedAddress ?? '${details.lat}, ${details.lng}';
       _destinationController.text = _destinationAddress;
+      _destinationLatLng = LatLng(details.lat, details.lng);
+      _destinationPincode = details.pincode;
       _destinationChangedByUser = true;
       _showDestinationSuggestions = false;
       _destinationPredictions = [];
@@ -268,8 +241,189 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       if (!_destinationChangedByUser) {
         _destinationController.text = addr;
         _destinationAddress = addr;
+        _destinationPincode = c.pincode.isNotEmpty ? c.pincode : null;
       }
     });
+  }
+
+  Widget _buildDestinationField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Destination',
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        // Search location
+        TextFormField(
+          controller: _destinationController,
+          style: const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            prefixIcon: Icon(
+              Icons.pin_drop_rounded,
+              size: 20,
+              color: AppColors.primary,
+            ),
+            hintText: 'Search address or place...',
+            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            suffixIcon: _destinationAddress.isNotEmpty
+                ? IconButton(
+                    icon: Icon(
+                      Icons.clear,
+                      size: 20,
+                      color: Colors.grey.shade600,
+                    ),
+                    onPressed: () => setState(() {
+                      _destinationController.clear();
+                      _destinationAddress = '';
+                      _destinationLatLng = null;
+                      _destinationPincode = null;
+                      _destinationChangedByUser = false;
+                    }),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+          ),
+          onChanged: (v) {
+            if (v.length >= 3) {
+              _searchDestination(v);
+            } else {
+              setState(() {
+                _showDestinationSuggestions = false;
+                _destinationPredictions = [];
+              });
+            }
+          },
+        ),
+        if (_showDestinationSuggestions &&
+            _destinationPredictions.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 180),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _destinationPredictions.length,
+              itemBuilder: (context, i) {
+                final p = _destinationPredictions[i];
+                return ListTile(
+                  dense: true,
+                  leading: Icon(
+                    Icons.pin_drop_rounded,
+                    size: 20,
+                    color: AppColors.primary,
+                  ),
+                  title: Text(
+                    p.mainText,
+                    style: const TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
+                  subtitle: p.secondaryText.isNotEmpty
+                      ? Text(
+                          p.secondaryText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : null,
+                  onTap: () async {
+                    final details = await PlacesService.getPlaceDetails(
+                      p.placeId,
+                    );
+                    if (details != null && mounted)
+                      await _onDestinationSelected(details);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        // Select on Map - styled like Live Tracking "Change / Pin destination"
+        TextButton.icon(
+          onPressed: () async {
+            Position? pos;
+            try {
+              pos = await Geolocator.getCurrentPosition(
+                desiredAccuracy: LocationAccuracy.high,
+              );
+            } catch (_) {}
+            final result = await Navigator.of(context)
+                .push<PinDestinationResult>(
+                  MaterialPageRoute(
+                    builder: (context) => PinDestinationMapScreen(
+                      initialCenter: pos != null
+                          ? LatLng(pos.latitude, pos.longitude)
+                          : null,
+                      initialPin: _destinationLatLng,
+                    ),
+                  ),
+                );
+            if (result != null && mounted) {
+              setState(() {
+                _destinationLatLng = LatLng(result.lat, result.lng);
+                _destinationAddress = result.address;
+                _destinationController.text = result.address;
+                _destinationPincode = result.pincode;
+                _destinationChangedByUser = true;
+              });
+            }
+          },
+          icon: Icon(
+            Icons.pin_drop_rounded,
+            size: 18,
+            color: AppColors.primary,
+          ),
+          label: Text(
+            'Select on Map',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+            alignment: Alignment.centerLeft,
+          ),
+        ),
+        if (_destinationAddress.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Selected: $_destinationAddress${_destinationPincode != null ? ' (${_destinationPincode})' : ''}',
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ],
+    );
   }
 
   Future<void> _submit() async {
@@ -283,15 +437,79 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final destAddr = _destinationAddress.isNotEmpty
         ? _destinationAddress
         : _destinationController.text.trim();
-    if (destAddr.isEmpty) {
+    if (destAddr.isEmpty && _destinationLatLng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please set destination address')),
+        const SnackBar(content: Text('Please search or pin destination')),
       );
       return;
     }
     setState(() => _submitting = true);
     try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() => _submitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied')),
+          );
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final pickup = LatLng(position.latitude, position.longitude);
+
+      LatLng dropoff;
+      String? destPincode = _destinationPincode;
+      if (_destinationLatLng != null) {
+        dropoff = _destinationLatLng!;
+      } else {
+        List<Location> destLocs = [];
+        try {
+          destLocs = await locationFromAddress(destAddr);
+        } catch (_) {}
+        if (destLocs.isEmpty) {
+          if (mounted) {
+            setState(() => _submitting = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please search or pin destination on map'),
+              ),
+            );
+          }
+          return;
+        }
+        dropoff = LatLng(destLocs.first.latitude, destLocs.first.longitude);
+        if (destPincode == null) {
+          try {
+            final placemarks = await placemarkFromCoordinates(
+              dropoff.latitude,
+              dropoff.longitude,
+            );
+            if (placemarks.isNotEmpty &&
+                placemarks.first.postalCode?.isNotEmpty == true) {
+              destPincode = placemarks.first.postalCode;
+            }
+          } catch (_) {}
+        }
+      }
+
       final taskId = 'TASK-${DateTime.now().millisecondsSinceEpoch}';
+      final destLocation = <String, dynamic>{
+        'lat': dropoff.latitude,
+        'lng': dropoff.longitude,
+        'address': destAddr,
+        'fullAddress': destAddr,
+      };
+      if (destPincode != null && destPincode.isNotEmpty) {
+        destLocation['pincode'] = destPincode;
+      }
+
       final task = await TaskService().createTask(
         taskId: taskId,
         taskTitle: _taskTitleController.text.trim(),
@@ -300,70 +518,15 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         customerId: _selectedCustomer!.id!,
         expectedCompletionDate: DateTime.now().add(const Duration(days: 1)),
         status: 'assigned',
+        sourceLocation: {
+          'lat': pickup.latitude,
+          'lng': pickup.longitude,
+          'address': _currentLocationAddress,
+        },
+        destinationLocation: destLocation,
       );
       if (!mounted) return;
       final taskWithCustomer = task.copyWith(customer: _selectedCustomer);
-
-      LatLng pickup;
-      if (_useCurrentLocationForSource) {
-        LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-        }
-        if (permission == LocationPermission.denied ||
-            permission == LocationPermission.deniedForever) {
-          if (mounted) {
-            setState(() => _submitting = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Location permission denied')),
-            );
-          }
-          return;
-        }
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-        pickup = LatLng(position.latitude, position.longitude);
-      } else {
-        final srcAddr = _sourceAddress.isNotEmpty
-            ? _sourceAddress
-            : _sourceController.text.trim();
-        if (srcAddr.isEmpty) {
-          if (mounted) {
-            setState(() => _submitting = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Please set source address')),
-            );
-          }
-          return;
-        }
-        final locs = await locationFromAddress(srcAddr);
-        if (locs.isEmpty) {
-          if (mounted) {
-            setState(() => _submitting = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Could not find source address')),
-            );
-          }
-          return;
-        }
-        pickup = LatLng(locs.first.latitude, locs.first.longitude);
-      }
-
-      List<Location> destLocs = [];
-      try {
-        destLocs = await locationFromAddress(destAddr);
-      } catch (_) {}
-      if (destLocs.isEmpty) {
-        if (mounted) {
-          setState(() => _submitting = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not find destination address')),
-          );
-        }
-        return;
-      }
-      final dropoff = LatLng(destLocs.first.latitude, destLocs.first.longitude);
 
       await TaskService().updateTask(
         taskWithCustomer.id!,
@@ -385,6 +548,19 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ),
         ),
       );
+    } on DioException catch (e) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        final msg = e.response?.data is Map
+            ? (e.response!.data as Map)['message'] as String?
+            : null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg ?? 'Failed to create task: ${e.message}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
@@ -401,7 +577,10 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       resizeToAvoidBottomInset: true,
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: const MenuIconButton(),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text(
           'Add Task',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -409,7 +588,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         centerTitle: true,
         elevation: 0,
       ),
-      drawer: AppDrawer(currentIndex: 1),
       body: Form(
         key: _formKey,
         child: Column(
@@ -450,19 +628,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                     const SizedBox(height: 16),
                     _buildSourceField(),
                     const SizedBox(height: 16),
-                    _buildAddressField(
-                      label: 'Destination Address',
-                      controller: _destinationController,
-                      icon: Icons.location_on_rounded,
-                      showSuggestions: _showDestinationSuggestions,
-                      predictions: _destinationPredictions,
-                      onSearch: _searchDestination,
-                      onSelect: _onDestinationSelected,
-                      onClear: () => setState(() {
-                        _showDestinationSuggestions = false;
-                        _destinationPredictions = [];
-                      }),
-                    ),
+                    _buildDestinationField(),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -502,7 +668,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                     label: Text(
                       _submitting ? 'Creating...' : 'Create Task',
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -522,7 +688,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
@@ -531,88 +696,63 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Source Address',
+          'Source (always current GPS)',
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: Colors.grey.shade700,
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Checkbox(
-              value: _useCurrentLocationForSource,
-              onChanged: (v) => setState(() {
-                _useCurrentLocationForSource = v ?? true;
-                if (_useCurrentLocationForSource) {
-                  _sourceController.clear();
-                  _sourceAddress = '';
-                  _fetchCurrentLocationAddress();
-                }
-              }),
-              activeColor: AppColors.primary,
-            ),
-            const Text('Use current location', style: TextStyle(fontSize: 14)),
-          ],
-        ),
-        if (_useCurrentLocationForSource) ...[
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.gps_fixed_rounded,
-                  size: 20,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _loadingCurrentLocation
-                      ? Text(
-                          'Getting your location...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        )
-                      : Text(
-                          _currentLocationAddress,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textPrimary,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.gps_fixed_rounded, size: 20, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _loadingCurrentLocation
+                    ? Text(
+                        'Getting your location...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
                         ),
+                      )
+                    : Text(
+                        _currentLocationAddress,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textPrimary,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ],
-            ),
+                child: Text(
+                  'Auto',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-        if (!_useCurrentLocationForSource) ...[
-          const SizedBox(height: 8),
-          _buildAddressField(
-            label: 'Search source address',
-            controller: _sourceController,
-            icon: Icons.gps_fixed_rounded,
-            showSuggestions: _showSourceSuggestions,
-            predictions: _sourcePredictions,
-            onSearch: _searchSource,
-            onSelect: _onSourceSelected,
-            onClear: () => setState(() {
-              _showSourceSuggestions = false;
-              _sourcePredictions = [];
-            }),
-          ),
-        ],
+        ),
       ],
     );
   }
@@ -624,7 +764,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         Text(
           'Customer',
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: Colors.grey.shade700,
             fontWeight: FontWeight.w600,
           ),
@@ -708,102 +848,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                       );
                     },
                   ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildAddressField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    required bool showSuggestions,
-    required List<PlacePrediction> predictions,
-    required Future<void> Function(String) onSearch,
-    required Future<void> Function(PlaceDetails) onSelect,
-    required VoidCallback onClear,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade700,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
-            hintText: 'Search address...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 16,
-            ),
-          ),
-          onChanged: (v) {
-            if (v.length >= 3) {
-              onSearch(v);
-            } else {
-              onClear();
-            }
-          },
-        ),
-        if (showSuggestions && predictions.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Container(
-            constraints: const BoxConstraints(maxHeight: 200),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: predictions.length,
-              itemBuilder: (context, i) {
-                final p = predictions[i];
-                return ListTile(
-                  dense: true,
-                  title: Text(p.mainText, style: const TextStyle(fontSize: 12)),
-                  subtitle: p.secondaryText.isNotEmpty
-                      ? Text(
-                          p.secondaryText,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      : null,
-                  onTap: () async {
-                    final details = await PlacesService.getPlaceDetails(
-                      p.placeId,
-                    );
-                    if (details != null && mounted) {
-                      await onSelect(details);
-                    }
-                  },
-                );
-              },
-            ),
           ),
         ],
       ],

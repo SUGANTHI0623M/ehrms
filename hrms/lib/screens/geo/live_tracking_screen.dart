@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart' hide Location;
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
@@ -8,15 +9,14 @@ import 'package:hrms/models/location_data.dart';
 import 'package:hrms/models/tracking_event.dart';
 import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/services/geo/location_service.dart';
+import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
-import 'package:hrms/widgets/app_drawer.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:hrms/widgets/menu_icon_button.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   final String taskId;
@@ -42,7 +42,8 @@ class LiveTrackingScreen extends StatefulWidget {
   State<LiveTrackingScreen> createState() => _LiveTrackingScreenState();
 }
 
-class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
+class _LiveTrackingScreenState extends State<LiveTrackingScreen>
+    with WidgetsBindingObserver {
   GoogleMapController? mapController;
 
   Marker? _staffMarker;
@@ -50,6 +51,12 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   Marker? _pickupMarker;
 
   Marker? _dropoffMarker;
+
+  /// Mutable destination – can change during task via search or pin drop.
+  LatLng get _dropoffLatLng => _dropoffLatLngState ?? widget.dropoffLocation;
+  LatLng? _dropoffLatLngState;
+  String _dropoffAddress = '';
+  bool _updatingDestination = false;
 
   /// Path built ONLY from actual GPS coordinates (List<LatLng> from location stream).
   Polyline? _routePolyline;
@@ -91,10 +98,20 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   bool _updatingSteps = false;
   Timer? _locationUploadTimer;
 
+  /// Last position we sent to DB – used to compute speed from distance when device speed is 0.
+  double? _lastSentLat;
+  double? _lastSentLng;
+  DateTime? _lastSentTime;
+
   @override
   void initState() {
     super.initState();
-
+    WidgetsBinding.instance.addObserver(this);
+    _dropoffAddress =
+        widget.task?.destinationLocation?.address ??
+        (widget.task?.customer != null
+            ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+            : 'Drop-off location');
     _initializeMarkers();
 
     LocationService().initLocationService(
@@ -120,7 +137,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     // Initial straight line; fetch road route from pickup to dropoff (replaces when ready)
     _shortestRoutePolyline = Polyline(
       polylineId: const PolylineId('roadRoute'),
-      points: [widget.pickupLocation, widget.dropoffLocation],
+      points: [widget.pickupLocation, _dropoffLatLng],
       color: Colors.green.withOpacity(0.8),
       width: 4,
       patterns: [PatternItem.dash(20), PatternItem.gap(12)],
@@ -137,7 +154,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         '[LiveTracking] Timer started: taskMongoId=${widget.taskMongoId}',
       );
       // Send first point after 2 sec, then every 15 sec.
-      Future.delayed(const Duration(seconds: 2), () => _sendLocationToDb());
+      Future.delayed(const Duration(seconds: 2), () {
+        _sendLocationToDb();
+        _syncPendingDestinationIfAny();
+      });
       _locationUploadTimer = Timer.periodic(const Duration(seconds: 15), (_) {
         if (!mounted) return;
         _sendLocationToDb();
@@ -162,12 +182,15 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
     _dropoffMarker = Marker(
       markerId: const MarkerId('dropoffLocation'),
-
-      position: widget.dropoffLocation,
-
-      infoWindow: const InfoWindow(title: 'Drop-off Location'),
-
+      position: _dropoffLatLng,
+      infoWindow: InfoWindow(
+        title: _dropoffAddress.isNotEmpty
+            ? _dropoffAddress
+            : 'Drop-off Location',
+      ),
       icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      draggable: true,
+      onDragEnd: _onDropoffMarkerDragEnd,
     );
 
     _staffMarker = Marker(
@@ -188,6 +211,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
       if (mounted) {
         setState(() {
           final newLatLng = LatLng(location.latitude!, location.longitude!);
+          debugPrint(
+            '[LiveTracking] Location update: lat=${location.latitude} lng=${location.longitude}',
+          );
 
           _staffMarker = _staffMarker?.copyWith(positionParam: newLatLng);
 
@@ -228,23 +254,35 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   Future<void> _sendLocationToDb() async {
     if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
-    // Use live GPS if available, else fallback to pickup (start location).
-    final loc = _lastLocation;
+    // Get FRESH position from GPS before sending – ensures correct lat/lng as you move.
     double lat;
     double lng;
-    if (loc != null && loc.latitude != null && loc.longitude != null) {
-      lat = loc.latitude!;
-      lng = loc.longitude!;
-    } else {
-      lat = widget.pickupLocation.latitude;
-      lng = widget.pickupLocation.longitude;
-      debugPrint('[LiveTracking] No GPS yet, using pickup: lat=$lat lng=$lng');
+    try {
+      final pos = await gl.Geolocator.getCurrentPosition(
+        desiredAccuracy: gl.LocationAccuracy.high,
+      );
+      lat = pos.latitude;
+      lng = pos.longitude;
+      debugPrint('[LiveTracking] GPS fresh: lat=$lat lng=$lng');
+    } catch (e) {
+      final loc = _lastLocation;
+      if (loc != null && loc.latitude != null && loc.longitude != null) {
+        lat = loc.latitude!;
+        lng = loc.longitude!;
+        debugPrint(
+          '[LiveTracking] GPS failed, using _lastLocation: lat=$lat lng=$lng',
+        );
+      } else {
+        lat = widget.pickupLocation.latitude;
+        lng = widget.pickupLocation.longitude;
+        debugPrint('[LiveTracking] No GPS, using pickup: lat=$lat lng=$lng');
+      }
     }
     int? battery;
     try {
       battery = await Battery().batteryLevel;
     } catch (_) {}
-    final movementType = _currentActivity;
+    final movementType = _computeMovementType(lat, lng);
     debugPrint(
       '[LiveTracking] Sending to DB: lat=$lat lng=$lng movement=$movementType',
     );
@@ -267,10 +305,40 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
           lng,
           batteryPercent: battery,
           movementType: movementType,
+          destinationLat: _dropoffLatLng.latitude,
+          destinationLng: _dropoffLatLng.longitude,
         )
+        .then((_) => _syncPendingDestinationIfAny())
         .catchError(
           (e) => debugPrint('[LiveTracking] storeTracking failed: $e'),
         );
+    _lastSentLat = lat;
+    _lastSentLng = lng;
+    _lastSentTime = DateTime.now();
+  }
+
+  /// Compute movementType: prefer device speed; if 0 or missing, infer from distance covered.
+  String _computeMovementType(double lat, double lng) {
+    if (_lastLocation?.speed != null && _lastLocation!.speed! > 0) {
+      return _getTrackingEventType(_lastLocation!.speed!).name;
+    }
+    if (_lastSentLat != null && _lastSentLng != null && _lastSentTime != null) {
+      final distM = gl.Geolocator.distanceBetween(
+        _lastSentLat!,
+        _lastSentLng!,
+        lat,
+        lng,
+      );
+      final secs = DateTime.now().difference(_lastSentTime!).inSeconds;
+      if (secs > 0) {
+        final speedMs = distM / secs;
+        return _getTrackingEventType(speedMs).name;
+      }
+    }
+    return _currentActivity.toLowerCase() == 'drive' ||
+            _currentActivity.toLowerCase() == 'walk'
+        ? _currentActivity.toLowerCase()
+        : 'stop';
   }
 
   TrackingEventType _getTrackingEventType(double speed) {
@@ -323,10 +391,177 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     final m = gl.Geolocator.distanceBetween(
       widget.pickupLocation.latitude,
       widget.pickupLocation.longitude,
-      widget.dropoffLocation.latitude,
-      widget.dropoffLocation.longitude,
+      _dropoffLatLng.latitude,
+      _dropoffLatLng.longitude,
     );
     return m / 1000;
+  }
+
+  void _onDropoffMarkerDragEnd(LatLng newPosition) {
+    setState(() {
+      _dropoffLatLngState = newPosition;
+      _dropoffAddress = 'Dropped pin';
+      _updatingDestination = true;
+    });
+    _reverseGeocodeDropoff(newPosition.latitude, newPosition.longitude);
+    _updateDestinationOnBackend();
+    _lastRouteFetchTime = null;
+    _fetchRoadRoute(
+      _lastLocation?.latitude ?? widget.pickupLocation.latitude,
+      _lastLocation?.longitude ?? widget.pickupLocation.longitude,
+    );
+    _updateDropoffMarker();
+  }
+
+  Future<void> _reverseGeocodeDropoff(double lat, double lng) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (mounted && placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        setState(() {
+          _dropoffAddress = [
+            p.street,
+            p.subAdministrativeArea,
+            p.locality,
+            p.administrativeArea,
+            p.postalCode,
+            p.country,
+          ].where((e) => e != null && e.isNotEmpty).join(', ');
+        });
+      } else if (mounted) {
+        setState(
+          () => _dropoffAddress =
+              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _dropoffAddress =
+              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+        );
+      }
+    }
+  }
+
+  void _updateDropoffMarker() {
+    setState(() {
+      _dropoffMarker = Marker(
+        markerId: const MarkerId('dropoffLocation'),
+        position: _dropoffLatLng,
+        infoWindow: InfoWindow(
+          title: _dropoffAddress.isNotEmpty
+              ? _dropoffAddress
+              : 'Drop-off Location',
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        draggable: true,
+        onDragEnd: _onDropoffMarkerDragEnd,
+      );
+    });
+  }
+
+  Future<void> _updateDestinationOnBackend() async {
+    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
+    final payload = {
+      'lat': _dropoffLatLng.latitude,
+      'lng': _dropoffLatLng.longitude,
+      'address': _dropoffAddress,
+    };
+    try {
+      await TaskService().updateTask(
+        widget.taskMongoId!,
+        destinationLocation: payload,
+        destinationChanged: true,
+      );
+      await _clearPendingDestinationCache();
+      if (mounted) setState(() => _updatingDestination = false);
+    } catch (e) {
+      debugPrint('[LiveTracking] Update destination failed: $e');
+      await _cachePendingDestination(payload);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Destination updated locally. Will sync when online.',
+            ),
+          ),
+        );
+        setState(() => _updatingDestination = false);
+      }
+    }
+  }
+
+  String get _pendingDestKey =>
+      'pending_destination_${widget.taskMongoId ?? ""}';
+
+  Future<void> _cachePendingDestination(Map<String, dynamic> payload) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _pendingDestKey,
+        '${payload['lat']}|${payload['lng']}|${payload['address'] ?? ''}',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _clearPendingDestinationCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_pendingDestKey);
+    } catch (_) {}
+  }
+
+  Future<void> _syncPendingDestinationIfAny() async {
+    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pendingDestKey);
+      if (raw == null || raw.isEmpty) return;
+      final parts = raw.split('|');
+      if (parts.length < 2) return;
+      final lat = double.tryParse(parts[0]);
+      final lng = double.tryParse(parts[1]);
+      final address = parts.length > 2 ? parts[2] : '';
+      if (lat == null || lng == null) return;
+      await TaskService().updateTask(
+        widget.taskMongoId!,
+        destinationLocation: {'lat': lat, 'lng': lng, 'address': address},
+        destinationChanged: true,
+      );
+      await _clearPendingDestinationCache();
+      debugPrint('[LiveTracking] Synced pending destination');
+    } catch (_) {}
+  }
+
+  void _onChangeDestinationTap() async {
+    final result = await Navigator.of(context).push<PinDestinationResult>(
+      MaterialPageRoute(
+        builder: (context) => PinDestinationMapScreen(
+          initialCenter: _lastLocation != null
+              ? LatLng(_lastLocation!.latitude!, _lastLocation!.longitude!)
+              : LatLng(
+                  widget.pickupLocation.latitude,
+                  widget.pickupLocation.longitude,
+                ),
+          initialPin: _dropoffLatLngState ?? widget.dropoffLocation,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _dropoffLatLngState = LatLng(result.lat, result.lng);
+        _dropoffAddress = result.address;
+        _updatingDestination = true;
+      });
+      _updateDropoffMarker();
+      _updateDestinationOnBackend();
+      _lastRouteFetchTime = null;
+      _fetchRoadRoute(
+        _lastLocation?.latitude ?? widget.pickupLocation.latitude,
+        _lastLocation?.longitude ?? widget.pickupLocation.longitude,
+      );
+    }
   }
 
   Future<void> _fetchRoadRoute(double fromLat, double fromLng) async {
@@ -340,8 +575,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
       final result = await DirectionsService.getRouteBetweenCoordinates(
         originLat: fromLat,
         originLng: fromLng,
-        destLat: widget.dropoffLocation.latitude,
-        destLng: widget.dropoffLocation.longitude,
+        destLat: _dropoffLatLng.latitude,
+        destLng: _dropoffLatLng.longitude,
       );
       if (mounted && result.points.isNotEmpty) {
         setState(() {
@@ -369,7 +604,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         setState(() {
           _shortestRoutePolyline = Polyline(
             polylineId: const PolylineId('roadRoute'),
-            points: [LatLng(fromLat, fromLng), widget.dropoffLocation],
+            points: [LatLng(fromLat, fromLng), _dropoffLatLng],
             color: Colors.green.withOpacity(0.8),
             width: 4,
             patterns: [PatternItem.dash(20), PatternItem.gap(12)],
@@ -410,8 +645,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     final toDrop = gl.Geolocator.distanceBetween(
       fromLat,
       fromLng,
-      widget.dropoffLocation.latitude,
-      widget.dropoffLocation.longitude,
+      _dropoffLatLng.latitude,
+      _dropoffLatLng.longitude,
     );
     final km = toDrop / 1000;
     if (mounted) {
@@ -455,7 +690,19 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _lastRouteFetchTime = null;
+      final fromLat = _lastLocation?.latitude ?? widget.pickupLocation.latitude;
+      final fromLng =
+          _lastLocation?.longitude ?? widget.pickupLocation.longitude;
+      _fetchRoadRoute(fromLat, fromLng);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _locationSubscription?.cancel();
     _geofenceSubscription?.cancel();
     _timer?.cancel();
@@ -465,47 +712,55 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     super.dispose();
   }
 
-  /// Exit Ride: reset task status to assigned. Do NOT mark completed, do NOT
-  /// delete source/destination or task data. Clear temp UI state and pop.
+  /// Exit Ride: open bottom sheet with reason form. Submit mandatory.
+  /// Sends current GPS for address resolution. Stops tracking immediately.
   Future<void> _onExitRide() async {
-    final confirm = await showDialog<bool>(
+    final result = await showModalBottomSheet<Map<String, String>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Exit Ride?'),
-        content: const Text(
-          'Tracking will stop. Task status will be reset to Assigned. '
-          'You can start the ride again from Task Details.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Exit Ride'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => const _ExitRideBottomSheet(),
     );
-    if (confirm != true || !mounted) return;
+    if (result == null || !mounted) return;
+    final reason = result['reason']?.trim();
+    if (reason == null || reason.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please provide a reason')));
+      return;
+    }
     if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
       try {
-        await TaskService().updateTask(widget.taskMongoId!, status: 'assigned');
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to update task status. Please try again.'),
-            ),
+        double? lat;
+        double? lng;
+        try {
+          final pos = await gl.Geolocator.getCurrentPosition(
+            desiredAccuracy: gl.LocationAccuracy.high,
           );
+          lat = pos.latitude;
+          lng = pos.longitude;
+        } catch (_) {
+          if (_lastLocation != null) {
+            lat = _lastLocation!.latitude;
+            lng = _lastLocation!.longitude;
+          }
+        }
+        await TaskService().exitRide(
+          widget.taskMongoId!,
+          reason,
+          lat: lat,
+          lng: lng,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to exit ride: $e')));
         }
         return;
       }
     }
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _markReachedLocation() async {
@@ -534,33 +789,50 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
     final arrival = DateTime.now();
     final durationSeconds = _totalTimeElapsed.inSeconds;
 
-    if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
+    double? lat = _lastLocation?.latitude ?? widget.pickupLocation.latitude;
+    double? lng = _lastLocation?.longitude ?? widget.pickupLocation.longitude;
+    try {
+      final pos = await gl.Geolocator.getCurrentPosition(
+        desiredAccuracy: gl.LocationAccuracy.high,
+      );
+      lat = pos.latitude;
+      lng = pos.longitude;
+    } catch (_) {}
+
+    if (widget.taskMongoId != null &&
+        widget.taskMongoId!.isNotEmpty &&
+        lat != null &&
+        lng != null) {
       setState(() => _updatingSteps = true);
       try {
-        await TaskService().updateSteps(
+        final destAddress = _dropoffAddress.isNotEmpty
+            ? _dropoffAddress
+            : (widget.task?.destinationLocation?.address ??
+                  (widget.task?.customer != null
+                      ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+                      : null));
+        final sourceAddress =
+            widget.task?.sourceLocation?.address ??
+            (widget.task?.customer != null
+                ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city}'
+                : null);
+        await TaskService().arrivedRide(
           widget.taskMongoId!,
-          reachedLocation: true,
-        );
-        if (mounted) setState(() => _reachedLocation = true);
-        // Store trip details in task: distance, source, destination, time taken
-        await TaskService().updateTask(
-          widget.taskMongoId!,
+          lat: lat,
+          lng: lng,
+          fullAddress: destAddress,
+          pincode: widget.task?.customer?.pincode,
+          sourceFullAddress: sourceAddress,
           tripDistanceKm: totalKm,
           tripDurationSeconds: durationSeconds,
-          arrivalTime: arrival,
           sourceLocation: {
             'lat': widget.pickupLocation.latitude,
             'lng': widget.pickupLocation.longitude,
-            'address': widget.task?.sourceLocation?.address,
-          },
-          destinationLocation: {
-            'lat': widget.dropoffLocation.latitude,
-            'lng': widget.dropoffLocation.longitude,
-            'address':
-                widget.task?.destinationLocation?.address ??
-                widget.task?.customer?.address,
+            'address': sourceAddress,
+            'fullAddress': sourceAddress,
           },
         );
+        if (mounted) setState(() => _reachedLocation = true);
       } catch (_) {}
       if (mounted) setState(() => _updatingSteps = false);
     }
@@ -578,13 +850,14 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
           sourceLat: widget.pickupLocation.latitude,
           sourceLng: widget.pickupLocation.longitude,
           sourceAddress: widget.task?.sourceLocation?.address,
-          destLat: widget.dropoffLocation.latitude,
-          destLng: widget.dropoffLocation.longitude,
-          destAddress:
-              widget.task?.destinationLocation?.address ??
-              (widget.task?.customer != null
-                  ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
-                  : null),
+          destLat: _dropoffLatLng.latitude,
+          destLng: _dropoffLatLng.longitude,
+          destAddress: _dropoffAddress.isNotEmpty
+              ? _dropoffAddress
+              : (widget.task?.destinationLocation?.address ??
+                    (widget.task?.customer != null
+                        ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+                        : null)),
         ),
       ),
     );
@@ -663,7 +936,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
               _buildTravelRow(
                 Icons.schedule_rounded,
                 'ETA',
-                DateFormat('h:mm a').format(etaArrivalTime),
+                DateDisplayUtil.formatTime(etaArrivalTime),
               ),
             ],
           ),
@@ -761,6 +1034,23 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: _updatingDestination ? null : _onChangeDestinationTap,
+          icon: Icon(
+            Icons.pin_drop_rounded,
+            size: 18,
+            color: _updatingDestination ? Colors.grey : AppColors.primary,
+          ),
+          label: Text(
+            _updatingDestination ? 'Updating...' : 'Change / Pin destination',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: _updatingDestination ? Colors.grey : AppColors.primary,
+            ),
+          ),
+        ),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -832,7 +1122,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          leading: const MenuIconButton(),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: _onExitRide,
+          ),
           title: const Text(
             'Live Tracking',
             style: TextStyle(fontWeight: FontWeight.bold),
@@ -875,7 +1168,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
               ),
           ],
         ),
-        drawer: AppDrawer(currentIndex: 1),
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -928,7 +1220,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                           ),
                           child: const Icon(Icons.arrow_back_rounded, size: 22),
                         ),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: _onExitRide,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(
                           minWidth: 44,
@@ -1119,6 +1411,164 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Exit Ride bottom sheet – reason form, submit mandatory.
+class _ExitRideBottomSheet extends StatefulWidget {
+  const _ExitRideBottomSheet();
+
+  @override
+  State<_ExitRideBottomSheet> createState() => _ExitRideBottomSheetState();
+}
+
+class _ExitRideBottomSheetState extends State<_ExitRideBottomSheet> {
+  final _reasonController = TextEditingController();
+  String? _selectedReason;
+  static const _presetReasons = [
+    'Customer not available',
+    'Wrong address',
+    'Traffic / Delayed',
+    'Vehicle issue',
+    'Personal emergency',
+    'Other',
+  ];
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    String reason;
+    if (_selectedReason == 'Other') {
+      reason = _reasonController.text.trim();
+      if (reason.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Please enter a reason')));
+        return;
+      }
+    } else if (_selectedReason != null && _selectedReason!.isNotEmpty) {
+      reason = _selectedReason!;
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select or enter a reason')),
+      );
+      return;
+    }
+    Navigator.of(context).pop({'reason': reason});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Exit Ride',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tracking will stop. Task status will be reset to Assigned.',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Reason (required)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedReason,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              hint: const Text('Select or type below'),
+              items: _presetReasons
+                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedReason = v),
+            ),
+            if (_selectedReason == 'Other') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _reasonController,
+                decoration: InputDecoration(
+                  hintText: 'Enter reason',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+                maxLines: 2,
+              ),
+            ],
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                    ),
+                    child: const Text('Submit'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

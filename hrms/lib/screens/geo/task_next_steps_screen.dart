@@ -48,7 +48,6 @@ class TaskNextStepsScreen extends StatelessWidget {
           ),
         ],
       ),
-      drawer: AppDrawer(currentIndex: 1),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -103,7 +102,6 @@ class TaskNextStepsScreen extends StatelessWidget {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 

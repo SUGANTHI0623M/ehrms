@@ -1,11 +1,11 @@
 // Photo proof screen – tap to take photo, add description, upload to Cloudinary.
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:hrms/widgets/app_drawer.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
 import 'package:image_picker/image_picker.dart';
 
 class PhotoProofScreen extends StatefulWidget {
@@ -71,12 +71,35 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
       _error = null;
     });
     try {
+      double? lat;
+      double? lng;
+      String? fullAddress;
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+        final placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          fullAddress = [
+            p.street,
+            p.locality,
+            p.administrativeArea,
+            p.country,
+          ].where((e) => e != null && e.isNotEmpty).join(', ');
+        }
+      } catch (_) {}
       await TaskService().uploadPhotoProof(
         widget.taskMongoId!,
         _photo!.path,
         description: _descriptionController.text.trim().isNotEmpty
             ? _descriptionController.text.trim()
             : null,
+        lat: lat,
+        lng: lng,
+        fullAddress: fullAddress,
       );
       if (mounted) {
         setState(() {
@@ -114,7 +137,6 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
         centerTitle: true,
         elevation: 0,
       ),
-      drawer: AppDrawer(currentIndex: 1),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -337,7 +359,6 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 }

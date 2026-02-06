@@ -13,10 +13,20 @@ const trackingSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
   batteryPercent: { type: Number },
   movementType: { type: String }, // drive | walk | stop
+  destinationLat: { type: Number },
+  destinationLng: { type: Number },
   address: { type: String }, // Reverse-geocoded from lat/lng
+  fullAddress: { type: String },
   city: { type: String },
   area: { type: String },
   pincode: { type: String },
+  // Exit ride
+  exitStatus: { type: String }, // "exited"
+  // Arrived
+  status: { type: String }, // "arrived"
+  time: { type: Date },
+  exitReason: { type: String },
+  exitedAt: { type: Date },
 }, { timestamps: true });
 
 trackingSchema.index({ staffId: 1, timestamp: -1 });

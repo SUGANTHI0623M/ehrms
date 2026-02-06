@@ -11,14 +11,11 @@ import 'package:hrms/models/customer.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/directions_service.dart';
-import 'package:hrms/services/geo/places_service.dart';
+import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
-import 'package:hrms/widgets/app_drawer.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:hrms/widgets/menu_icon_button.dart';
 
 /// Optional initial destination from Select Source & Destination screen.
 /// When set, use this and do NOT fall back to client address.
@@ -48,6 +45,7 @@ class _StartRideScreenState extends State<StartRideScreen> {
 
   Position? _currentPosition;
   String _sourceAddress = 'Getting your location...';
+  String? _sourcePincode;
 
   LatLng? _destinationLatLng;
   String _destinationAddress = '';
@@ -180,6 +178,9 @@ class _StartRideScreenState extends State<StartRideScreen> {
             p.country,
           ].where((e) => e != null && e.isNotEmpty).join(', ');
           if (_sourceAddress.isEmpty) _sourceAddress = 'Your current location';
+          _sourcePincode = p.postalCode?.isNotEmpty == true
+              ? p.postalCode
+              : null;
         });
       }
     } catch (_) {
@@ -334,31 +335,26 @@ class _StartRideScreenState extends State<StartRideScreen> {
     }
   }
 
-  void _onChangeDestinationTap() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _DestinationSearchSheet(
-        currentLat: _currentPosition?.latitude,
-        currentLng: _currentPosition?.longitude,
-        onSelect: (PlaceDetails details) {
-          Navigator.pop(context);
-          final newLatLng = LatLng(details.lat, details.lng);
-          final newAddress =
-              details.formattedAddress ??
-              '${details.lat.toStringAsFixed(5)}, ${details.lng.toStringAsFixed(5)}';
-          setState(() {
-            _destinationLatLng = newLatLng;
-            _destinationAddress = newAddress;
-          });
-          // Recalculate route and fit bounds after marker update
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _fetchRouteAndFitBounds();
-          });
-        },
+  void _onChangeDestinationTap() async {
+    final result = await Navigator.of(context).push<PinDestinationResult>(
+      MaterialPageRoute(
+        builder: (context) => PinDestinationMapScreen(
+          initialCenter: _currentPosition != null
+              ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
+              : null,
+          initialPin: _destinationLatLng,
+        ),
       ),
     );
+    if (result != null && mounted) {
+      setState(() {
+        _destinationLatLng = LatLng(result.lat, result.lng);
+        _destinationAddress = result.address;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchRouteAndFitBounds();
+      });
+    }
   }
 
   bool get _canStartRide {
@@ -373,13 +369,32 @@ class _StartRideScreenState extends State<StartRideScreen> {
     if (!_canStartRide) return;
     setState(() => _startingRide = true);
     try {
-      await TaskService().updateTask(
-        _task.id!,
-        status: 'in_progress',
-        startTime: DateTime.now(),
-        startLat: _currentPosition!.latitude,
-        startLng: _currentPosition!.longitude,
-      );
+      final sourceLoc = {
+        'lat': _currentPosition!.latitude,
+        'lng': _currentPosition!.longitude,
+        'address': _sourceAddress,
+        'fullAddress': _sourceAddress,
+        if (_sourcePincode != null && _sourcePincode!.isNotEmpty)
+          'pincode': _sourcePincode,
+      };
+      if (_task.status == TaskStatus.exited) {
+        await TaskService().restartTask(
+          _task.id!,
+          lat: _currentPosition!.latitude,
+          lng: _currentPosition!.longitude,
+          fullAddress: _sourceAddress,
+          pincode: _sourcePincode,
+        );
+      } else {
+        await TaskService().updateTask(
+          _task.id!,
+          status: 'in_progress',
+          startTime: DateTime.now(),
+          startLat: _currentPosition!.latitude,
+          startLng: _currentPosition!.longitude,
+          sourceLocation: sourceLoc,
+        );
+      }
       // Store initial point in Tracking collection (separate route).
       debugPrint(
         '[StartRide] Sending to DB: lat=${_currentPosition!.latitude} lng=${_currentPosition!.longitude}',
@@ -390,6 +405,8 @@ class _StartRideScreenState extends State<StartRideScreen> {
             _currentPosition!.latitude,
             _currentPosition!.longitude,
             movementType: 'stop',
+            destinationLat: _destinationLatLng!.latitude,
+            destinationLng: _destinationLatLng!.longitude,
           )
           .catchError(
             (e) => debugPrint('[StartRide] storeTracking failed: $e'),
@@ -434,7 +451,10 @@ class _StartRideScreenState extends State<StartRideScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          leading: const MenuIconButton(),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
           title: const Text(
             'Start Ride',
             style: TextStyle(fontWeight: FontWeight.bold),
@@ -482,7 +502,6 @@ class _StartRideScreenState extends State<StartRideScreen> {
             ),
           ],
         ),
-        drawer: AppDrawer(currentIndex: 1),
         body: Column(
           children: [
             Expanded(
@@ -515,7 +534,6 @@ class _StartRideScreenState extends State<StartRideScreen> {
             _buildBottomSheet(),
           ],
         ),
-        bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       ),
     );
   }
@@ -740,224 +758,6 @@ class _StartRideScreenState extends State<StartRideScreen> {
           ),
           if (trailing != null) trailing,
         ],
-      ),
-    );
-  }
-}
-
-// Bottom sheet for searching and selecting a new destination (Places autocomplete).
-class _DestinationSearchSheet extends StatefulWidget {
-  final double? currentLat;
-  final double? currentLng;
-  final void Function(PlaceDetails) onSelect;
-
-  const _DestinationSearchSheet({
-    this.currentLat,
-    this.currentLng,
-    required this.onSelect,
-  });
-
-  @override
-  State<_DestinationSearchSheet> createState() =>
-      _DestinationSearchSheetState();
-}
-
-class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
-  final TextEditingController _searchController = TextEditingController();
-  List<PlacePrediction> _predictions = [];
-  bool _searching = false;
-  bool _fetchingPlace = false;
-  final _debounce = ValueNotifier<int>(0);
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController.addListener(_onSearchChanged);
-  }
-
-  void _onSearchChanged() {
-    _debounce.value++;
-    final current = _debounce.value;
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (!mounted || _debounce.value != current) return;
-      _performSearch();
-    });
-  }
-
-  Future<void> _performSearch() async {
-    final query = _searchController.text.trim();
-    if (query.isEmpty) {
-      setState(() => _predictions = []);
-      return;
-    }
-    setState(() => _searching = true);
-    final list = await PlacesService.autocomplete(
-      query,
-      lat: widget.currentLat,
-      lng: widget.currentLng,
-    );
-    if (mounted) {
-      setState(() {
-        _predictions = list;
-        _searching = false;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _debounce.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-    final screenHeight = MediaQuery.of(context).size.height;
-    return Padding(
-      padding: EdgeInsets.only(bottom: viewInsets),
-      child: Container(
-        height: screenHeight * 0.85,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.location_on_rounded,
-                    color: AppColors.primary,
-                    size: 28,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Select Destination',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search location...',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-                autofocus: true,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Expanded(
-              child: _searching || _fetchingPlace
-                  ? const Center(child: CircularProgressIndicator())
-                  : _predictions.isEmpty
-                  ? Center(
-                      child: Text(
-                        _searchController.text.trim().isEmpty
-                            ? 'Type to search address'
-                            : 'No results',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      itemCount: _predictions.length,
-                      itemBuilder: (context, index) {
-                        final p = _predictions[index];
-                        return ListTile(
-                          dense: true,
-                          leading: Icon(
-                            Icons.place_rounded,
-                            size: 20,
-                            color: Colors.grey.shade600,
-                          ),
-                          title: Text(
-                            p.mainText,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          subtitle: p.secondaryText.isNotEmpty
-                              ? Padding(
-                                  padding: const EdgeInsets.only(top: 2),
-                                  child: Text(
-                                    p.secondaryText,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                )
-                              : null,
-                          onTap: () async {
-                            setState(() => _fetchingPlace = true);
-                            PlaceDetails? details;
-                            try {
-                              details = await PlacesService.getPlaceDetails(
-                                p.placeId,
-                              );
-                            } catch (_) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Could not get place coordinates',
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-                            if (mounted) setState(() => _fetchingPlace = false);
-                            if (details != null && mounted) {
-                              widget.onSelect(details);
-                            }
-                          },
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
       ),
     );
   }

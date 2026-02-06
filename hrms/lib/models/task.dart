@@ -1,11 +1,44 @@
 import 'package:hrms/models/customer.dart';
 
+DateTime? _parseDate(dynamic value) {
+  if (value == null) return null;
+  if (value is String) return DateTime.tryParse(value);
+  if (value is Map<dynamic, dynamic>) {
+    final dateStr = value[r'$date'];
+    if (dateStr != null) return DateTime.tryParse(dateStr.toString());
+  }
+  return null;
+}
+
+List<T> _parseList<T>(dynamic json, T Function(Map<String, dynamic>) fromJson) {
+  if (json == null || json is! List) return [];
+  final list = <T>[];
+  for (final item in json) {
+    if (item is Map<String, dynamic>) {
+      try {
+        list.add(fromJson(item));
+      } catch (_) {}
+    }
+  }
+  return list;
+}
+
 class TaskLocation {
   final double lat;
   final double lng;
   final String? address;
+  final String? fullAddress;
+  final String? pincode;
 
-  const TaskLocation({required this.lat, required this.lng, this.address});
+  const TaskLocation({
+    required this.lat,
+    required this.lng,
+    this.address,
+    this.fullAddress,
+    this.pincode,
+  });
+
+  String? get displayAddress => address ?? fullAddress;
 
   factory TaskLocation.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const TaskLocation(lat: 0, lng: 0);
@@ -13,6 +46,8 @@ class TaskLocation {
       lat: (json['lat'] as num?)?.toDouble() ?? 0,
       lng: (json['lng'] as num?)?.toDouble() ?? 0,
       address: json['address'] as String?,
+      fullAddress: json['fullAddress'] as String?,
+      pincode: json['pincode'] as String?,
     );
   }
 
@@ -20,7 +55,91 @@ class TaskLocation {
     'lat': lat,
     'lng': lng,
     if (address != null) 'address': address,
+    if (fullAddress != null) 'fullAddress': fullAddress,
+    if (pincode != null) 'pincode': pincode,
   };
+}
+
+class TaskExitRecord {
+  final double lat;
+  final double lng;
+  final String? address;
+  final String? pincode;
+  final String exitReason;
+  final DateTime? exitedAt;
+
+  const TaskExitRecord({
+    required this.lat,
+    required this.lng,
+    this.address,
+    this.pincode,
+    required this.exitReason,
+    this.exitedAt,
+  });
+
+  factory TaskExitRecord.fromJson(Map<String, dynamic>? json) {
+    if (json == null)
+      return const TaskExitRecord(lat: 0, lng: 0, exitReason: '');
+    return TaskExitRecord(
+      lat: (json['lat'] as num?)?.toDouble() ?? 0,
+      lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      address: json['address'] as String?,
+      pincode: json['pincode'] as String?,
+      exitReason: (json['exitReason'] as String?) ?? '',
+      exitedAt: Task._dateFromJson(json['exitedAt']),
+    );
+  }
+}
+
+class TaskRestartRecord {
+  final double lat;
+  final double lng;
+  final String? address;
+  final String? pincode;
+  final DateTime? resumedAt;
+
+  const TaskRestartRecord({
+    required this.lat,
+    required this.lng,
+    this.address,
+    this.pincode,
+    this.resumedAt,
+  });
+
+  factory TaskRestartRecord.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const TaskRestartRecord(lat: 0, lng: 0);
+    return TaskRestartRecord(
+      lat: (json['lat'] as num?)?.toDouble() ?? 0,
+      lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      address: json['address'] as String?,
+      pincode: json['pincode'] as String?,
+      resumedAt: _parseDate(json['resumedAt']),
+    );
+  }
+}
+
+class TaskDestinationRecord {
+  final double lat;
+  final double lng;
+  final String? address;
+  final DateTime? changedAt;
+
+  const TaskDestinationRecord({
+    required this.lat,
+    required this.lng,
+    this.address,
+    this.changedAt,
+  });
+
+  factory TaskDestinationRecord.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const TaskDestinationRecord(lat: 0, lng: 0);
+    return TaskDestinationRecord(
+      lat: (json['lat'] as num?)?.toDouble() ?? 0,
+      lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      address: json['address'] as String?,
+      changedAt: _parseDate(json['changedAt']),
+    );
+  }
 }
 
 enum TaskStatus {
@@ -30,6 +149,8 @@ enum TaskStatus {
   pending,
   scheduled,
   inProgress,
+  arrived,
+  exited,
   completed,
   rejected,
   cancelled,
@@ -72,10 +193,28 @@ class Task {
   final TaskLocation? sourceLocation;
   final TaskLocation? destinationLocation;
 
+  /// Exit history – each exit is a separate record.
+  final List<TaskExitRecord> tasksExit;
+
+  /// Restart history – when task resumed after exit.
+  final List<TaskRestartRecord> tasksRestarted;
+
+  /// Destination change history.
+  final List<TaskDestinationRecord> destinations;
+
   /// Trip completion details (stored when staff arrives).
   final double? tripDistanceKm;
   final int? tripDurationSeconds;
   final DateTime? arrivalTime;
+
+  /// Start time (when task was started).
+  final DateTime? startTime;
+
+  /// Photo proof address (where photo was taken).
+  final String? photoProofAddress;
+
+  /// OTP verified address.
+  final String? otpVerifiedAddress;
 
   Task({
     this.id,
@@ -101,9 +240,15 @@ class Task {
     this.autoApprove = false,
     this.sourceLocation,
     this.destinationLocation,
+    this.tasksExit = const [],
+    this.tasksRestarted = const [],
+    this.destinations = const [],
     this.tripDistanceKm,
     this.tripDurationSeconds,
     this.arrivalTime,
+    this.startTime,
+    this.photoProofAddress,
+    this.otpVerifiedAddress,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -145,14 +290,12 @@ class Task {
       isFormRequired: json['customFields'] != null
           ? (json['customFields']['formRequired'] as bool?) ?? false
           : false,
-      isOtpVerified: json['customFields'] != null
-          ? (json['customFields']['otpVerified'] as bool?)
-          : (json['progressSteps'] != null
-                ? (json['progressSteps']['otpVerified'] as bool?)
-                : null),
-      otpVerifiedAt: json['customFields'] != null
-          ? _dateFromJson(json['customFields']['otpVerifiedAt'])
-          : null,
+      isOtpVerified:
+          (json['customFields']?['otpVerified'] as bool?) ??
+          (json['progressSteps']?['otpVerified'] as bool?),
+      otpVerifiedAt: _dateFromJson(
+        json['customFields']?['otpVerifiedAt'] ?? json['otpVerifiedAt'],
+      ),
       photoProof: json['progressSteps'] != null
           ? (json['progressSteps']['photoProof'] as bool?)
           : null,
@@ -178,9 +321,21 @@ class Task {
               json['destinationLocation'] as Map<String, dynamic>,
             )
           : null,
+      tasksExit: _parseList(json['tasks_exit'], TaskExitRecord.fromJson),
+      tasksRestarted: _parseList(
+        json['tasks_restarted'],
+        TaskRestartRecord.fromJson,
+      ),
+      destinations: _parseList(
+        json['destinations'],
+        TaskDestinationRecord.fromJson,
+      ),
       tripDistanceKm: (json['tripDistanceKm'] as num?)?.toDouble(),
       tripDurationSeconds: json['tripDurationSeconds'] as int?,
       arrivalTime: _dateFromJson(json['arrivalTime']),
+      startTime: _dateFromJson(json['startTime']),
+      photoProofAddress: json['photoProofAddress'] as String?,
+      otpVerifiedAddress: json['otpVerifiedAddress'] as String?,
     );
   }
 
@@ -233,6 +388,10 @@ class Task {
       case 'completed':
       case 'completed tasks':
         return TaskStatus.completed;
+      case 'arrived':
+        return TaskStatus.arrived;
+      case 'exited':
+        return TaskStatus.exited;
       case 'approved':
         return TaskStatus.approved;
       case 'rejected':
@@ -285,9 +444,15 @@ class Task {
     bool? autoApprove,
     TaskLocation? sourceLocation,
     TaskLocation? destinationLocation,
+    List<TaskExitRecord>? tasksExit,
+    List<TaskRestartRecord>? tasksRestarted,
+    List<TaskDestinationRecord>? destinations,
     double? tripDistanceKm,
     int? tripDurationSeconds,
     DateTime? arrivalTime,
+    DateTime? startTime,
+    String? photoProofAddress,
+    String? otpVerifiedAddress,
   }) {
     return Task(
       id: id ?? this.id,
@@ -315,9 +480,129 @@ class Task {
       autoApprove: autoApprove ?? this.autoApprove,
       sourceLocation: sourceLocation ?? this.sourceLocation,
       destinationLocation: destinationLocation ?? this.destinationLocation,
+      tasksExit: tasksExit ?? this.tasksExit,
+      tasksRestarted: tasksRestarted ?? this.tasksRestarted,
+      destinations: destinations ?? this.destinations,
       tripDistanceKm: tripDistanceKm ?? this.tripDistanceKm,
       tripDurationSeconds: tripDurationSeconds ?? this.tripDurationSeconds,
       arrivalTime: arrivalTime ?? this.arrivalTime,
+      startTime: startTime ?? this.startTime,
+      photoProofAddress: photoProofAddress ?? this.photoProofAddress,
+      otpVerifiedAddress: otpVerifiedAddress ?? this.otpVerifiedAddress,
+    );
+  }
+}
+
+/// Timeline event from completion report (DB: tasks + trackings).
+class TimelineEvent {
+  final String type;
+  final String label;
+  final DateTime? time;
+  final String? address;
+  final double? lat;
+  final double? lng;
+  final String? exitReason;
+  final String? movementType;
+
+  const TimelineEvent({
+    required this.type,
+    required this.label,
+    this.time,
+    this.address,
+    this.lat,
+    this.lng,
+    this.exitReason,
+    this.movementType,
+  });
+
+  factory TimelineEvent.fromJson(Map<String, dynamic> json) {
+    final timeVal = json['time'];
+    DateTime? time;
+    if (timeVal != null) {
+      if (timeVal is String)
+        time = DateTime.tryParse(timeVal);
+      else if (timeVal is Map && timeVal[r'$date'] != null) {
+        time = DateTime.tryParse(timeVal[r'$date'].toString());
+      }
+    }
+    return TimelineEvent(
+      type: (json['type'] as String?) ?? '',
+      label: (json['label'] as String?) ?? '',
+      time: time,
+      address: json['address'] as String?,
+      lat: (json['lat'] as num?)?.toDouble(),
+      lng: (json['lng'] as num?)?.toDouble(),
+      exitReason: json['exitReason'] as String?,
+      movementType: json['movementType'] as String?,
+    );
+  }
+}
+
+/// Route point for polyline.
+class RoutePoint {
+  final double lat;
+  final double lng;
+  final DateTime? timestamp;
+  final String? movementType;
+  final String? address;
+
+  const RoutePoint({
+    required this.lat,
+    required this.lng,
+    this.timestamp,
+    this.movementType,
+    this.address,
+  });
+
+  factory RoutePoint.fromJson(Map<String, dynamic> json) {
+    final ts = json['timestamp'];
+    DateTime? time;
+    if (ts != null) {
+      if (ts is String)
+        time = DateTime.tryParse(ts);
+      else if (ts is Map && ts[r'$date'] != null) {
+        time = DateTime.tryParse(ts[r'$date'].toString());
+      }
+    }
+    return RoutePoint(
+      lat: (json['lat'] as num?)?.toDouble() ?? 0,
+      lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      timestamp: time,
+      movementType: json['movementType'] as String?,
+      address: json['address'] as String?,
+    );
+  }
+}
+
+/// Full task completion report from API.
+class TaskCompletionReport {
+  final Task task;
+  final List<TimelineEvent> timeline;
+  final List<RoutePoint> routePoints;
+
+  const TaskCompletionReport({
+    required this.task,
+    required this.timeline,
+    required this.routePoints,
+  });
+
+  factory TaskCompletionReport.fromJson(Map<String, dynamic> json) {
+    final taskJson = json['task'] as Map<String, dynamic>?;
+    final task = taskJson != null
+        ? Task.fromJson(taskJson)
+        : throw Exception('Task required');
+    final timelineList = json['timeline'] as List<dynamic>? ?? [];
+    final timeline = timelineList
+        .map((e) => TimelineEvent.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final routeList = json['routePoints'] as List<dynamic>? ?? [];
+    final routePoints = routeList
+        .map((e) => RoutePoint.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return TaskCompletionReport(
+      task: task,
+      timeline: timeline,
+      routePoints: routePoints,
     );
   }
 }

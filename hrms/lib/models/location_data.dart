@@ -1,4 +1,5 @@
 import 'package:background_location_tracker/background_location_tracker.dart';
+import 'package:geolocator/geolocator.dart' as gl;
 
 class Location {
   final double? latitude;
@@ -30,6 +31,19 @@ class Location {
           .horizontalAccuracy, // Assuming horizontalAccuracy is the primary accuracy
       bearing: data.course, // Assuming course is the bearing
       time: DateTime.now().millisecondsSinceEpoch.toDouble(),
+    );
+  }
+
+  /// From Geolocator Position – for frequent foreground updates.
+  factory Location.fromPosition(gl.Position position) {
+    return Location(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      speed: position.speed,
+      altitude: position.altitude,
+      accuracy: position.accuracy,
+      bearing: position.heading,
+      time: position.timestamp.millisecondsSinceEpoch.toDouble(),
     );
   }
 }

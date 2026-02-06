@@ -1,30 +1,113 @@
-// View completed task details with task/customer info and geo track timeline (same style as TaskCompletedScreen).
+// Task Completion detailed view with timeline and route map.
+// Fetches data from DB (tasks + trackings). Timeline + map side-by-side.
+
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/my_tasks_screen.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/services/task_service.dart';
+import 'package:hrms/utils/date_display_util.dart';
 
-class _TimelineEvent {
-  final DateTime time;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color iconColor;
-
-  const _TimelineEvent({
-    required this.time,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.iconColor,
-  });
-}
-
-class CompletedTaskDetailScreen extends StatelessWidget {
+class CompletedTaskDetailScreen extends StatefulWidget {
   final Task task;
 
   const CompletedTaskDetailScreen({super.key, required this.task});
+
+  @override
+  State<CompletedTaskDetailScreen> createState() =>
+      _CompletedTaskDetailScreenState();
+}
+
+class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
+  TaskCompletionReport? _report;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchReport();
+  }
+
+  Future<void> _fetchReport() async {
+    if (widget.task.id == null || widget.task.id!.isEmpty) {
+      setState(() {
+        _report = TaskCompletionReport(
+          task: widget.task,
+          timeline: _buildFallbackTimeline(),
+          routePoints: [],
+        );
+        _loading = false;
+      });
+      return;
+    }
+    try {
+      final report = await TaskService().getTaskCompletionReport(
+        widget.task.id!,
+      );
+      if (mounted) {
+        setState(() {
+          _report = report;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _report = TaskCompletionReport(
+            task: widget.task,
+            timeline: _buildFallbackTimeline(),
+            routePoints: [],
+          );
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  List<TimelineEvent> _buildFallbackTimeline() {
+    final t = widget.task;
+    final events = <TimelineEvent>[];
+    if (t.startTime != null) {
+      events.add(
+        TimelineEvent(
+          type: 'start',
+          label: 'Start',
+          time: t.startTime,
+          address: t.sourceLocation?.displayAddress,
+          lat: t.sourceLocation?.lat,
+          lng: t.sourceLocation?.lng,
+        ),
+      );
+    }
+    if (t.arrivalTime != null) {
+      events.add(
+        TimelineEvent(
+          type: 'arrived',
+          label: 'Arrived',
+          time: t.arrivalTime,
+          address: null,
+          lat: t.destinationLocation?.lat,
+          lng: t.destinationLocation?.lng,
+        ),
+      );
+    }
+    if (t.completedDate != null) {
+      events.add(
+        TimelineEvent(
+          type: 'completed',
+          label: 'Completed',
+          time: t.completedDate,
+          address: null,
+          lat: t.destinationLocation?.lat,
+          lng: t.destinationLocation?.lng,
+        ),
+      );
+    }
+    return events;
+  }
 
   void _goToMyTasks(BuildContext context) {
     Navigator.of(context).pushAndRemoveUntil(
@@ -33,185 +116,48 @@ class CompletedTaskDetailScreen extends StatelessWidget {
     );
   }
 
-  List<_TimelineEvent> _buildTimelineEvents() {
-    final events = <_TimelineEvent>[];
-    final completedAt = task.completedDate ?? DateTime.now();
-    final otpVerifiedAt = task.otpVerifiedAt;
-    final otpDone = task.isOtpVerified == true;
-
-    // Build events in time order (earliest first)
-    if (otpDone &&
-        otpVerifiedAt != null &&
-        otpVerifiedAt.isBefore(completedAt)) {
-      events.add(
-        _TimelineEvent(
-          time: otpVerifiedAt,
-          title: 'OTP Verified',
-          subtitle: 'Customer OTP confirmed',
-          icon: Icons.verified_user_rounded,
-          iconColor: Colors.blue.shade600,
-        ),
-      );
+  IconData _iconForType(String type) {
+    switch (type) {
+      case 'start':
+        return Icons.play_circle_filled_rounded;
+      case 'movement':
+        return Icons.directions_rounded;
+      case 'exit':
+        return Icons.power_off_rounded;
+      case 'restart':
+        return Icons.replay_rounded;
+      case 'arrived':
+        return Icons.location_on_rounded;
+      case 'completed':
+        return Icons.check_circle_rounded;
+      default:
+        return Icons.circle_rounded;
     }
-
-    events.add(
-      _TimelineEvent(
-        time: completedAt,
-        title: 'Task Completed',
-        subtitle: 'Task finished successfully',
-        icon: Icons.check_circle_rounded,
-        iconColor: AppColors.primary,
-      ),
-    );
-
-    return events;
   }
 
-  Widget _buildTimeline(BuildContext context) {
-    final events = _buildTimelineEvents();
-    if (events.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Text(
-          'No track details available for this task.',
-          style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-        ),
-      );
+  Color _colorForType(String type) {
+    switch (type) {
+      case 'start':
+        return Colors.green;
+      case 'movement':
+        return Colors.blue;
+      case 'exit':
+        return Colors.orange;
+      case 'restart':
+        return Colors.teal;
+      case 'arrived':
+        return Colors.pink;
+      case 'completed':
+        return AppColors.primary;
+      default:
+        return Colors.grey;
     }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Column(
-          children: [
-            for (int i = 0; i < events.length; i++) ...[
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: events[i].iconColor,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: events[i].iconColor.withOpacity(0.4),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-              ),
-              if (i < events.length - 1)
-                Container(width: 2, height: 56, color: Colors.grey.shade300),
-            ],
-          ],
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (int i = 0; i < events.length; i++) ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        events[i].icon,
-                        size: 22,
-                        color: events[i].iconColor,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              DateFormat('h:mm a').format(events[i].time),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              events[i].title,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                            if (events[i].subtitle.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                events[i].subtitle,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (i < events.length - 1) const SizedBox(height: 4),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final customerName = task.customer?.customerName ?? '—';
-    final customerAddress = task.customer != null
-        ? '${task.customer!.address}, ${task.customer!.city}, ${task.customer!.pincode}'
-        : '—';
-    final completedAt = task.completedDate;
+    final report = _report;
+    final task = report?.task ?? widget.task;
 
     return PopScope(
       canPop: false,
@@ -230,7 +176,7 @@ class CompletedTaskDetailScreen extends StatelessWidget {
             onPressed: () => _goToMyTasks(context),
           ),
           title: const Text(
-            'Completed Task Details',
+            'Task Completion Report',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -240,149 +186,686 @@ class CompletedTaskDetailScreen extends StatelessWidget {
           centerTitle: true,
           elevation: 0,
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Task details card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Task #${task.taskId}',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _fetchReport,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            'Using cached data. $_error',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange.shade800,
+                            ),
+                          ),
+                        ),
+                      _buildTaskInfoCard(task),
+                      const SizedBox(height: 16),
+                      _buildAddressCard(task),
+                      const SizedBox(height: 16),
+                      _buildTimingsCard(task),
+                      const SizedBox(height: 16),
+                      _buildProofsCard(task),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Activity Timeline & Route',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${task.taskTitle} - $customerName',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
+                      const SizedBox(height: 12),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth > 600;
+                          if (isWide) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 1,
+                                  child: _buildMapSection(report),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 1,
+                                  child: _buildTimelineSection(report),
+                                ),
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildMapSection(report),
+                              const SizedBox(height: 16),
+                              _buildTimelineSection(report),
+                            ],
+                          );
+                        },
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _detailRow(
-                      'Expected by',
-                      DateFormat(
-                        'dd MMM yyyy',
-                      ).format(task.expectedCompletionDate),
-                    ),
-                    if (completedAt != null) ...[
-                      _detailRow(
-                        'Completed at',
-                        DateFormat('dd MMM yyyy, h:mm a').format(completedAt),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _goToMyTasks(context),
+                          icon: const Icon(Icons.list_rounded, size: 22),
+                          label: const Text('Return to My Tasks'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
-                    if (task.isOtpRequired)
-                      _detailRow(
-                        'OTP',
-                        task.isOtpVerified == true ? 'Verified' : '—',
-                      ),
-                  ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 20),
-              // Customer / address card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Customer & Address',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _detailRow('Customer', customerName),
-                    if (task.customer?.customerNumber != null &&
-                        task.customer!.customerNumber!.isNotEmpty)
-                      _detailRow('Contact', task.customer!.customerNumber!),
-                    _detailRow('Address', customerAddress),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Track details timeline (same as TaskCompletedScreen)
+      ),
+    );
+  }
+
+  Widget _buildTaskInfoCard(Task task) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🆔', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
               Text(
-                'Track Details',
-                style: TextStyle(
+                'Task #${task.taskId}',
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 20,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: _buildTimeline(context),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _goToMyTasks(context),
-                  icon: const Icon(Icons.list_rounded, size: 22),
-                  label: const Text('Return to My Tasks'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                  color: Colors.black,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Text(
+            task.taskTitle,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.black,
+            ),
+          ),
+          if (task.description.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              task.description,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Status: Completed',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressCard(Task task) {
+    final source = task.sourceLocation?.displayAddress ?? '—';
+    final dest =
+        task.destinationLocation?.displayAddress ??
+        (task.customer != null
+            ? '${task.customer!.address}, ${task.customer!.city}, ${task.customer!.pincode}'
+            : '—');
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Source & Destination',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('📍', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Source',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      source,
+                      style: const TextStyle(fontSize: 13, color: Colors.black),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('🎯', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Destination',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dest,
+                      style: const TextStyle(fontSize: 13, color: Colors.black),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimingsCard(Task task) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🕒', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Text(
+                'Timings',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _timingRow('Start', task.startTime),
+          _timingRow('Arrived', task.arrivalTime),
+          _timingRow('Completed', task.completedDate),
+          if (task.tripDurationSeconds != null && task.tripDurationSeconds! > 0)
+            _timingRow(
+              'Duration',
+              null,
+              suffix: '${(task.tripDurationSeconds! / 60).round()} mins',
+            ),
+          if (task.tripDistanceKm != null && task.tripDistanceKm! > 0)
+            _timingRow(
+              'Distance',
+              null,
+              suffix: '${task.tripDistanceKm!.toStringAsFixed(1)} km',
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _timingRow(String label, DateTime? time, {String? suffix}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+          Text(
+            time != null
+                ? DateDisplayUtil.formatDateTime(time)
+                : (suffix ?? '—'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.black,
+            ),
+            textAlign: TextAlign.right,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProofsCard(Task task) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Verification',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _proofRow(
+            'OTP Status',
+            task.isOtpVerified == true ? 'Verified' : '—',
+          ),
+          _proofRow(
+            'Photo Proof',
+            task.photoProofUrl != null ? 'Uploaded' : '—',
+          ),
+          if (task.photoProofAddress != null &&
+              task.photoProofAddress!.isNotEmpty)
+            _proofRow('Photo Address', task.photoProofAddress!),
+          if (task.otpVerifiedAddress != null &&
+              task.otpVerifiedAddress!.isNotEmpty)
+            _proofRow('OTP Verified At', task.otpVerifiedAddress!),
+          if (task.photoProofUrl != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                task.photoProofUrl!,
+                height: 120,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 80,
+                  color: Colors.grey.shade200,
+                  child: const Icon(Icons.broken_image, size: 40),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _proofRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 12, color: Colors.black),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapSection(TaskCompletionReport? report) {
+    final task = report?.task ?? widget.task;
+    List<LatLng> routePoints = (report?.routePoints ?? [])
+        .map((p) => LatLng(p.lat, p.lng))
+        .toList();
+    if (routePoints.isEmpty) {
+      if (task.sourceLocation != null &&
+          (task.sourceLocation!.lat != 0 || task.sourceLocation!.lng != 0)) {
+        routePoints.add(
+          LatLng(task.sourceLocation!.lat, task.sourceLocation!.lng),
+        );
+      }
+      if (task.destinationLocation != null &&
+          (task.destinationLocation!.lat != 0 ||
+              task.destinationLocation!.lng != 0)) {
+        routePoints.add(
+          LatLng(task.destinationLocation!.lat, task.destinationLocation!.lng),
+        );
+      }
+    }
+
+    if (routePoints.isEmpty) {
+      return Container(
+        height: 200,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(16),
         ),
+        child: Center(
+          child: Text(
+            'No location data',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+        ),
+      );
+    }
+
+    final bounds = _computeBounds(routePoints);
+    final center = LatLng(
+      (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
+      (bounds.southwest.longitude + bounds.northeast.longitude) / 2,
+    );
+
+    final markers = <Marker>{};
+    if (routePoints.isNotEmpty) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('start'),
+          position: routePoints.first,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
+          infoWindow: const InfoWindow(title: 'Start'),
+        ),
+      );
+      if (routePoints.length > 1) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('end'),
+            position: routePoints.last,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
+            infoWindow: const InfoWindow(title: 'Completed'),
+          ),
+        );
+      }
+    }
+
+    return Container(
+      height: 280,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(target: center, zoom: 14),
+          polylines: routePoints.length > 1
+              ? {
+                  Polyline(
+                    polylineId: const PolylineId('route'),
+                    points: routePoints,
+                    color: AppColors.primary,
+                    width: 4,
+                  ),
+                }
+              : {},
+          markers: markers,
+          mapToolbarEnabled: false,
+          zoomControlsEnabled: true,
+          myLocationButtonEnabled: false,
+        ),
+      ),
+    );
+  }
+
+  LatLngBounds _computeBounds(List<LatLng> points) {
+    if (points.isEmpty) {
+      return LatLngBounds(
+        southwest: const LatLng(0, 0),
+        northeast: const LatLng(0, 0),
+      );
+    }
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    const pad = 0.005;
+    return LatLngBounds(
+      southwest: LatLng(minLat - pad, minLng - pad),
+      northeast: LatLng(maxLat + pad, maxLng + pad),
+    );
+  }
+
+  Widget _buildTimelineSection(TaskCompletionReport? report) {
+    final timeline = report?.timeline ?? _buildFallbackTimeline();
+    if (timeline.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Text(
+          'No timeline data available for this task.',
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < timeline.length; i++) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: _colorForType(timeline[i].type),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _colorForType(
+                              timeline[i].type,
+                            ).withOpacity(0.4),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _iconForType(timeline[i].type),
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                    if (i < timeline.length - 1)
+                      Container(
+                        width: 2,
+                        height: 48,
+                        color: Colors.grey.shade300,
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          timeline[i].time != null
+                              ? DateDisplayUtil.formatTime(timeline[i].time!)
+                              : '—',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          timeline[i].label,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                        if (timeline[i].address != null &&
+                            timeline[i].address!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            timeline[i].address!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        if (timeline[i].exitReason != null &&
+                            timeline[i].exitReason!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Reason: ${timeline[i].exitReason}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade800,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

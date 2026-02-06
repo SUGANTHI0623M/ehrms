@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hrms/models/task.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 
 class TaskCard extends StatelessWidget {
   final Task task;
@@ -49,16 +49,26 @@ class TaskCard extends StatelessWidget {
       elevation: 2,
       shadowColor: Colors.black.withOpacity(0.08),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Task #${task.taskId}',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                Row(
+                  children: [
+                    Text('🆔', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Task #${task.taskId}',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
                 Chip(
                   label: Text(
@@ -74,102 +84,135 @@ class TaskCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              task.taskTitle,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-                color: Colors.black87,
-              ),
-            ),
-            if (task.customer != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  task.customer!.customerName,
-                  style: TextStyle(color: Colors.grey[800], fontSize: 12),
-                ),
-              ),
-            if (task.customer?.customerNumber != null &&
-                task.customer!.customerNumber!.isNotEmpty)
-              Text(
-                task.customer!.customerNumber!,
-                style: TextStyle(color: Colors.grey[600], fontSize: 11),
-              ),
             const SizedBox(height: 10),
-
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.location_on,
-                    color: Theme.of(context).primaryColor,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Destination',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 10,
-                          ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('📄', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Description',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
-                        if (task.customer != null)
-                          Text(
-                            '${task.customer!.address}, ${task.customer!.city}, ${task.customer!.pincode}',
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        task.taskTitle,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (task.description.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            task.description,
                             style: TextStyle(
                               color: Colors.black87,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 11,
+                              fontSize: 12,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
-
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_today,
-                      color: Colors.grey[500],
-                      size: 12,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _formatCompletionDate(
-                        task.expectedCompletionDate.toIso8601String(),
+                const Text('📍', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Source',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      style: TextStyle(color: Colors.grey[700], fontSize: 11),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        task.sourceLocation?.displayAddress ??
+                            'Current location',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 12,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-                Row(
-                  children: [
-                    Icon(Icons.alt_route, color: Colors.grey[500], size: 12),
-                    const SizedBox(width: 4),
-                    Text(
-                      '-- km away',
-                      style: TextStyle(color: Colors.grey[700], fontSize: 11),
-                    ),
-                  ],
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('🎯', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Destination',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        task.destinationLocation?.displayAddress ??
+                            (task.customer != null
+                                ? '${task.customer!.address}, ${task.customer!.city}, ${task.customer!.pincode}'
+                                : '—'),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 12,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Text('🕒', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Text(
+                  _formatCompletionDate(
+                    task.expectedCompletionDate.toIso8601String(),
+                  ),
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -209,7 +252,7 @@ class TaskCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: Text(
-                  'Completed: ${DateFormat('dd MMM yyyy').format(task.completedDate!)}',
+                  'Completed: ${DateDisplayUtil.formatDateOnly(task.completedDate!)}',
                   style: TextStyle(color: Colors.grey[600], fontSize: 10),
                 ),
               ),
@@ -260,20 +303,21 @@ class TaskCard extends StatelessWidget {
 
   String _formatCompletionDate(String dateString) {
     final date = DateTime.parse(dateString);
+    final local = date.isUtc ? date.toLocal() : date;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
 
-    if (date.year == today.year &&
-        date.month == today.month &&
-        date.day == today.day) {
-      return 'Today, ${DateFormat('h:mm a').format(date)}';
+    if (local.year == today.year &&
+        local.month == today.month &&
+        local.day == today.day) {
+      return 'Today, ${DateDisplayUtil.formatTime(local)}';
     }
-    if (date.year == tomorrow.year &&
-        date.month == tomorrow.month &&
-        date.day == tomorrow.day) {
-      return 'Tomorrow, ${DateFormat('h:mm a').format(date)}';
+    if (local.year == tomorrow.year &&
+        local.month == tomorrow.month &&
+        local.day == tomorrow.day) {
+      return 'Tomorrow, ${DateDisplayUtil.formatTime(local)}';
     }
-    return DateFormat('dd MMM yyyy, h:mm a').format(date);
+    return DateDisplayUtil.formatDateTime(local);
   }
 }

@@ -9,11 +9,11 @@ import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/dashboard/dashboard_screen.dart';
 import 'package:hrms/screens/geo/add_task_screen.dart';
-import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
-import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:hrms/widgets/app_drawer.dart';
 import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:hrms/widgets/menu_icon_button.dart';
+import 'package:hrms/screens/geo/arrived_screen.dart';
+import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
+import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -446,16 +446,18 @@ class _MyTasksScreenState extends State<MyTasksScreen>
 
   Color _getStatusChipColor(TaskStatus status) {
     switch (status) {
-      case TaskStatus.assigned:
-        return Colors.green.shade600;
       case TaskStatus.pending:
         return Colors.orange.shade600;
+      case TaskStatus.inProgress:
+        return Colors.blue.shade600;
+      case TaskStatus.completed:
+        return Colors.green.shade600;
+      case TaskStatus.assigned:
+        return Colors.green.shade600;
       case TaskStatus.scheduled:
         return Colors.blue.shade600;
       case TaskStatus.reopened:
         return Colors.teal.shade600;
-      case TaskStatus.completed:
-        return Colors.grey.shade600;
       default:
         return Colors.grey.shade600;
     }
@@ -482,6 +484,95 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     }
   }
 
+  Widget _buildTaskProgressBar() {
+    final total = _tasks.length;
+    if (total == 0) return const SizedBox.shrink();
+    final completed = _tasks
+        .where((t) => t.status == TaskStatus.completed)
+        .length;
+    final inProgress = _tasks
+        .where((t) => t.status == TaskStatus.inProgress)
+        .length;
+    final pending = _tasks
+        .where(
+          (t) =>
+              t.status == TaskStatus.pending ||
+              t.status == TaskStatus.assigned ||
+              t.status == TaskStatus.scheduled,
+        )
+        .length;
+    final percentage = total > 0 ? (completed / total * 100).round() : 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$percentage% complete',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              Flexible(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    _progressChip('$completed done', Colors.green.shade600),
+                    _progressChip(
+                      '$inProgress in progress',
+                      Colors.blue.shade600,
+                    ),
+                    _progressChip('$pending pending', Colors.orange.shade600),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: total > 0 ? completed / total : 0.0,
+              backgroundColor: Colors.grey.shade300,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.green.shade600),
+              minHeight: 6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _progressChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   Widget _buildRequirementChip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -502,29 +593,40 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     );
   }
 
-  Widget _buildTaskCardDetailRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 14, color: Colors.black87),
-        const SizedBox(width: 6),
-        Text(
-          '$label: ',
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.black87,
-            fontWeight: FontWeight.w600,
+  Widget _buildTaskCardDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: Colors.grey.shade600),
+          const SizedBox(width: 6),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 12, color: Colors.black87),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -544,6 +646,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         }
       },
       child: Scaffold(
+        drawer: const AppDrawer(),
         backgroundColor: Colors.white,
         appBar: AppBar(
           leading: _isSelectionMode
@@ -554,7 +657,12 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                     _selectedTaskIds.clear();
                   }),
                 )
-              : const MenuIconButton(),
+              : Builder(
+                  builder: (ctx) => IconButton(
+                    icon: const Icon(Icons.menu_rounded),
+                    onPressed: () => Scaffold.of(ctx).openDrawer(),
+                  ),
+                ),
           title: Text(
             _isSelectionMode
                 ? 'Select tasks to export (${_selectedTaskIds.length})'
@@ -568,6 +676,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
               : TabBar(
                   controller: _tabController,
                   isScrollable: true,
+                  padding: EdgeInsets.zero,
+                  tabAlignment: TabAlignment.start,
                   labelColor: AppColors.primary,
                   unselectedLabelColor: Colors.black,
                   indicatorColor: AppColors.primary,
@@ -629,10 +739,6 @@ class _MyTasksScreenState extends State<MyTasksScreen>
             ],
           ],
         ),
-        drawer: AppDrawer(
-          currentIndex: widget.dashboardTabIndex ?? 1,
-          onNavigateToIndex: widget.onNavigateToIndex,
-        ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _errorMessage != null
@@ -640,6 +746,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (!_isSelectionMode && _tasks.isNotEmpty)
+                    _buildTaskProgressBar(),
                   if (!_isSelectionMode && _showFilterSection)
                     _buildFilterSection(),
                   Expanded(
@@ -708,7 +816,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                         : RefreshIndicator(
                             onRefresh: _fetchTasks,
                             child: ListView.builder(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                               itemCount: _filteredTasks.length,
                               itemBuilder: (context, index) {
                                 final task = _filteredTasks[index];
@@ -744,6 +852,46 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                     ),
                                               ),
                                             );
+                                          } else if (task.status ==
+                                              TaskStatus.arrived) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => ArrivedScreen(
+                                                  taskMongoId: task.id,
+                                                  taskId: task.taskId,
+                                                  task: task,
+                                                  totalDuration: Duration(
+                                                    seconds:
+                                                        task.tripDurationSeconds ??
+                                                        0,
+                                                  ),
+                                                  totalDistanceKm:
+                                                      task.tripDistanceKm ??
+                                                      0.0,
+                                                  isWithinGeofence: false,
+                                                  arrivalTime:
+                                                      task.arrivalTime ??
+                                                      DateTime.now(),
+                                                  sourceLat:
+                                                      task.sourceLocation?.lat,
+                                                  sourceLng:
+                                                      task.sourceLocation?.lng,
+                                                  sourceAddress: task
+                                                      .sourceLocation
+                                                      ?.address,
+                                                  destLat: task
+                                                      .destinationLocation
+                                                      ?.lat,
+                                                  destLng: task
+                                                      .destinationLocation
+                                                      ?.lng,
+                                                  destAddress: task
+                                                      .destinationLocation
+                                                      ?.address,
+                                                ),
+                                              ),
+                                            );
                                           } else {
                                             Navigator.push(
                                               context,
@@ -756,12 +904,12 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                             );
                                           }
                                         },
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(14),
                                   child: Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
+                                    margin: const EdgeInsets.only(bottom: 8),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: isSelected
                                             ? AppColors.primary
@@ -770,37 +918,42 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.05),
-                                          blurRadius: 8,
+                                          color: Colors.black.withOpacity(0.04),
+                                          blurRadius: 6,
                                           offset: const Offset(0, 2),
                                         ),
                                       ],
                                     ),
                                     child: Padding(
-                                      padding: const EdgeInsets.all(16),
+                                      padding: const EdgeInsets.all(12),
                                       child: Opacity(
                                         opacity: isCompleted ? 0.7 : 1.0,
                                         child: Row(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            if (_isSelectionMode)
-                                              Padding(
-                                                padding: const EdgeInsets.only(
-                                                  right: 12,
-                                                  top: 2,
-                                                ),
-                                                child: Icon(
-                                                  isSelected
-                                                      ? Icons.check_circle
-                                                      : Icons
-                                                            .radio_button_unchecked,
-                                                  color: isSelected
-                                                      ? AppColors.primary
-                                                      : Colors.grey,
-                                                  size: 22,
-                                                ),
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                right: 10,
+                                                top: 2,
                                               ),
+                                              child: Icon(
+                                                _isSelectionMode
+                                                    ? (isSelected
+                                                          ? Icons.check_circle
+                                                          : Icons
+                                                                .radio_button_unchecked)
+                                                    : Icons.assignment_rounded,
+                                                color: _isSelectionMode
+                                                    ? (isSelected
+                                                          ? AppColors.primary
+                                                          : Colors.grey)
+                                                    : AppColors.primary,
+                                                size: _isSelectionMode
+                                                    ? 22
+                                                    : 20,
+                                              ),
+                                            ),
                                             Expanded(
                                               child: Column(
                                                 crossAxisAlignment:
@@ -813,15 +966,15 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                     children: [
                                                       Expanded(
                                                         child: Text(
-                                                          task.taskTitle,
+                                                          'Task #${task.taskId}',
                                                           style:
                                                               const TextStyle(
-                                                                fontSize: 15,
+                                                                fontSize: 14,
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .bold,
                                                                 color: Colors
-                                                                    .black87,
+                                                                    .black,
                                                               ),
                                                           maxLines: 1,
                                                           overflow: TextOverflow
@@ -834,56 +987,94 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                         ).format(
                                                           task.expectedCompletionDate,
                                                         ),
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors.black87,
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          color: Colors
+                                                              .grey
+                                                              .shade700,
                                                           fontWeight:
                                                               FontWeight.w500,
                                                         ),
                                                       ),
                                                     ],
                                                   ),
-                                                  const SizedBox(height: 8),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    task.taskTitle,
+                                                    style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: Colors.black,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 4),
                                                   Row(
                                                     children: [
                                                       Icon(
-                                                        Icons.event_rounded,
-                                                        size: 14,
-                                                        color: Colors.black87,
+                                                        Icons
+                                                            .calendar_today_outlined,
+                                                        size: 12,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade600,
                                                       ),
-                                                      const SizedBox(width: 6),
-                                                      Text(
-                                                        'Earliest: —',
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors.black87,
+                                                      const SizedBox(width: 4),
+                                                      Flexible(
+                                                        child: Text(
+                                                          'Expected: ${DateFormat('dd MMM yy').format(task.expectedCompletionDate)}',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color: Colors
+                                                                .grey
+                                                                .shade800,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                          ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
                                                         ),
                                                       ),
-                                                      const SizedBox(width: 16),
-                                                      Icon(
-                                                        Icons.schedule_rounded,
-                                                        size: 14,
-                                                        color: Colors.black87,
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      Text(
-                                                        'Expected: ${DateFormat('dd MMM yy').format(task.expectedCompletionDate)}',
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors.black87,
-                                                          fontWeight:
-                                                              FontWeight.w500,
+                                                      if (isCompleted &&
+                                                          task.completedDate !=
+                                                              null) ...[
+                                                        const SizedBox(
+                                                          width: 12,
                                                         ),
-                                                      ),
+                                                        Flexible(
+                                                          child: Text(
+                                                            'Completed: ${DateFormat('dd MMM yy').format(task.completedDate!)}',
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              color: Colors
+                                                                  .grey
+                                                                  .shade800,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w500,
+                                                            ),
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ],
                                                   ),
                                                   if (task.customer !=
                                                       null) ...[
-                                                    const SizedBox(height: 8),
+                                                    const SizedBox(height: 4),
                                                     _buildTaskCardDetailRow(
-                                                      Icons.person_rounded,
-                                                      'Customer',
-                                                      task.customer!.customerNumber !=
+                                                      icon: Icons
+                                                          .person_outline_rounded,
+                                                      label: 'Customer',
+                                                      value:
+                                                          task
+                                                                      .customer!
+                                                                      .customerNumber !=
                                                                   null &&
                                                               task
                                                                   .customer!
@@ -894,49 +1085,55 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                                 .customer!
                                                                 .customerName,
                                                     ),
-                                                    const SizedBox(height: 4),
-                                                    _buildTaskCardDetailRow(
-                                                      Icons.location_on_rounded,
-                                                      'Address',
-                                                      '${task.customer?.address ?? ''}, ${task.customer?.city ?? ''}, ${task.customer?.pincode ?? ''}'
-                                                          .trim(),
-                                                    ),
                                                   ],
+                                                  _buildTaskCardDetailRow(
+                                                    icon: Icons
+                                                        .location_on_outlined,
+                                                    label: 'Destination',
+                                                    value:
+                                                        task
+                                                            .destinationLocation
+                                                            ?.displayAddress ??
+                                                        '${task.customer?.address ?? ''}, ${task.customer?.city ?? ''}, ${task.customer?.pincode ?? ''}'
+                                                            .trim(),
+                                                  ),
                                                   const SizedBox(height: 8),
                                                   Row(
                                                     mainAxisAlignment:
                                                         MainAxisAlignment
                                                             .spaceBetween,
                                                     children: [
-                                                      Wrap(
-                                                        spacing: 6,
-                                                        runSpacing: 4,
-                                                        children: [
-                                                          if (task
-                                                              .isOtpRequired)
-                                                            _buildRequirementChip(
-                                                              'OTP',
-                                                              Colors.blue,
-                                                            ),
-                                                          if (task
-                                                              .isGeoFenceRequired)
-                                                            _buildRequirementChip(
-                                                              'Geo',
-                                                              Colors.purple,
-                                                            ),
-                                                          if (task
-                                                              .isPhotoRequired)
-                                                            _buildRequirementChip(
-                                                              'Photo',
-                                                              Colors.orange,
-                                                            ),
-                                                          if (task
-                                                              .isFormRequired)
-                                                            _buildRequirementChip(
-                                                              'Form',
-                                                              Colors.teal,
-                                                            ),
-                                                        ],
+                                                      Expanded(
+                                                        child: Wrap(
+                                                          spacing: 6,
+                                                          runSpacing: 4,
+                                                          children: [
+                                                            if (task
+                                                                .isOtpRequired)
+                                                              _buildRequirementChip(
+                                                                'OTP',
+                                                                Colors.blue,
+                                                              ),
+                                                            if (task
+                                                                .isGeoFenceRequired)
+                                                              _buildRequirementChip(
+                                                                'Geo',
+                                                                Colors.purple,
+                                                              ),
+                                                            if (task
+                                                                .isPhotoRequired)
+                                                              _buildRequirementChip(
+                                                                'Photo',
+                                                                Colors.orange,
+                                                              ),
+                                                            if (task
+                                                                .isFormRequired)
+                                                              _buildRequirementChip(
+                                                                'Form',
+                                                                Colors.teal,
+                                                              ),
+                                                          ],
+                                                        ),
                                                       ),
                                                       Container(
                                                         padding:
@@ -966,22 +1163,6 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                       ),
                                                     ],
                                                   ),
-                                                  if (isCompleted) ...[
-                                                    const SizedBox(height: 12),
-                                                    Align(
-                                                      alignment:
-                                                          Alignment.centerRight,
-                                                      child: Text(
-                                                        'Completed ${task.completedDate != null ? DateFormat('dd MMM yyyy').format(task.completedDate!) : ''}',
-                                                        style: const TextStyle(
-                                                          fontSize: 10,
-                                                          fontStyle:
-                                                              FontStyle.italic,
-                                                          color: Colors.black87,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
                                                 ],
                                               ),
                                             ),
@@ -997,6 +1178,18 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                   ),
                 ],
               ),
+        bottomNavigationBar: AppBottomNavigationBar(
+          currentIndex: 0,
+          onTap: (index) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) =>
+                    DashboardScreen(initialIndex: index.clamp(0, 4)),
+              ),
+              (route) => false,
+            );
+          },
+        ),
         floatingActionButton:
             _loggedInStaffId != null && _loggedInStaffId!.isNotEmpty
             ? SizedBox(
@@ -1021,7 +1214,6 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                 ),
               )
             : null,
-        bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       ),
     );
   }

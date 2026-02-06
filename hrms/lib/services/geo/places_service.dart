@@ -25,11 +25,13 @@ class PlaceDetails {
   final double lat;
   final double lng;
   final String? formattedAddress;
+  final String? pincode;
 
   const PlaceDetails({
     required this.lat,
     required this.lng,
     this.formattedAddress,
+    this.pincode,
   });
 }
 
@@ -47,12 +49,12 @@ class PlacesService {
     if (key == null || key.isEmpty || input.trim().isEmpty) return [];
 
     try {
-      // Full URL so Dio uses it as-is (baseUrl is ignored for absolute URLs).
+      // Full URL – no types restriction for full coverage: cities, areas,
+      // streets, landmarks, businesses, pincodes (Google Maps–like).
       var url =
           'https://maps.googleapis.com/maps/api/place/autocomplete/json'
           '?input=${Uri.encodeComponent(input.trim())}'
-          '&key=$key'
-          '&types=geocode';
+          '&key=$key';
       if (lat != null && lng != null) {
         url += '&location=$lat,$lng&radius=50000';
       }
@@ -118,7 +120,7 @@ class PlacesService {
       final url =
           'https://maps.googleapis.com/maps/api/place/details/json'
           '?place_id=${Uri.encodeComponent(placeId)}'
-          '&fields=geometry,formatted_address'
+          '&fields=geometry,formatted_address,address_components'
           '&key=$key';
       final res = await _dio.get<Map<String, dynamic>>(
         url,
@@ -145,10 +147,22 @@ class PlacesService {
       final lng = (location['lng'] as num?)?.toDouble();
       if (lat == null || lng == null) return null;
       final formattedAddress = result['formatted_address'] as String?;
+      String? pincode;
+      final components = result['address_components'] as List<dynamic>?;
+      if (components != null) {
+        for (final c in components) {
+          if (c is Map &&
+              (c['types'] as List?)?.contains('postal_code') == true) {
+            pincode = c['long_name'] as String?;
+            break;
+          }
+        }
+      }
       return PlaceDetails(
         lat: lat,
         lng: lng,
         formattedAddress: formattedAddress,
+        pincode: pincode,
       );
     } on DioException catch (e) {
       if (kDebugMode) {

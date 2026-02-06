@@ -1,10 +1,11 @@
 // OTP Verification screen – customer card, 4-digit OTP input, Verify & Complete.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -134,14 +135,37 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _verifying = true;
     });
     try {
-      await TaskService().verifyOtp(widget.taskMongoId!, otp);
+      double? lat;
+      double? lng;
+      String? fullAddress;
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+        final placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          fullAddress = [
+            p.street,
+            p.locality,
+            p.administrativeArea,
+            p.country,
+          ].where((e) => e != null && e.isNotEmpty).join(', ');
+        }
+      } catch (_) {}
+      await TaskService().verifyOtp(
+        widget.taskMongoId!,
+        otp,
+        lat: lat,
+        lng: lng,
+        fullAddress: fullAddress,
+      );
       if (mounted) {
-        setState(() {
-          _verified = true;
-          _verifiedOtp = otp;
-          _verifiedAt = DateTime.now();
-          _verifying = false;
-        });
+        setState(() => _verifying = false);
+        // Automatically go back to Arrived screen after successful verification
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {
@@ -276,11 +300,14 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                 color: Colors.red.shade400,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                phone,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade700,
+                              Expanded(
+                                child: Text(
+                                  phone,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -293,6 +320,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               ),
               const SizedBox(height: 12),
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
@@ -308,6 +336,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     fontWeight: FontWeight.w500,
                     color: AppColors.primary,
                   ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(height: 20),
@@ -426,16 +456,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               size: 22,
                             ),
                           const SizedBox(width: 10),
-                          Text(
-                            _sendingOtp
-                                ? 'Sending OTP to customer email...'
-                                : _otpSent
-                                ? 'OTP sent to customer. Enter the code below.'
-                                : 'Sending OTP...',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade800,
-                              fontWeight: FontWeight.w500,
+                          Expanded(
+                            child: Text(
+                              _sendingOtp
+                                  ? 'Sending OTP to customer email...'
+                                  : _otpSent
+                                  ? 'OTP sent to customer. Enter the code below.'
+                                  : 'Sending OTP...',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade800,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -507,9 +540,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (i) {
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(4, (i) {
                             return SizedBox(
                               width: 56,
                               child: TextField(
@@ -567,6 +604,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               ),
                             );
                           }),
+                          ),
                         ),
                         if (_error != null) ...[
                           const SizedBox(height: 8),
@@ -589,15 +627,18 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                 color: Colors.grey.shade600,
                               ),
                             ),
-                            GestureDetector(
-                              onTap: _resendOtp,
-                              child: Text(
-                                'Resend OTP',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w600,
-                                  decoration: TextDecoration.underline,
+                            Flexible(
+                              child: GestureDetector(
+                                onTap: _resendOtp,
+                                child: Text(
+                                  'Resend OTP',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ),
@@ -625,7 +666,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text('Verify & Complete Task'),
+                                : const Text('Verify OTP'),
                           ),
                         ),
                       ],
@@ -845,7 +886,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 

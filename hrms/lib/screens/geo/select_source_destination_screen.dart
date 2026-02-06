@@ -285,10 +285,23 @@ class _SelectSourceDestinationScreenState
                     iconColor: AppColors.primary,
                     label: 'Your location',
                     value: _sourceAddress,
-                    trailing: Icon(
-                      Icons.more_vert_rounded,
-                      size: 20,
-                      color: Colors.grey.shade600,
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Auto',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
                     ),
                   ),
                   Divider(height: 24, color: Colors.grey.shade200),
@@ -408,7 +421,6 @@ class _SelectSourceDestinationScreenState
           ],
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
@@ -616,7 +628,11 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
         } catch (_) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Could not get place coordinates')),
+              const SnackBar(
+                content: Text(
+                  'Could not get coordinates. Try another result or set destination on the map in the next step.',
+                ),
+              ),
             );
           }
         }
@@ -680,7 +696,7 @@ class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
               child: TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Search location...',
+                  hintText: 'Search cities, areas, streets, landmarks...',
                   prefixIcon: const Icon(Icons.search_rounded),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),

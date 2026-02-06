@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const TaskSettings = require('../models/TaskSettings');
 const Customer = require('../models/Customer');
+const Tracking = require('../models/Tracking');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const { sendTaskOtpEmail } = require('../services/emailService');
@@ -17,6 +18,13 @@ exports.createTask = async (req, res) => {
     await newTask.save();
     res.status(201).json(newTask);
   } catch (error) {
+    console.error('[Tasks] createTask validation error:', error.message);
+    console.error('[Tasks] Request body:', JSON.stringify(req.body, null, 2));
+    if (error.errors) {
+      Object.keys(error.errors).forEach((k) => {
+        console.error(`[Tasks]   ${k}:`, error.errors[k]?.message);
+      });
+    }
     res.status(400).json({ message: error.message });
   }
 };
@@ -55,12 +63,19 @@ exports.getTasksByStaffId = async (req, res) => {
 /** Merge task-settings (enableOtpVerification, etc.) into task for API response. */
 async function mergeTaskSettings(taskDoc, companyId) {
   const task = taskDoc?.toObject ? taskDoc.toObject() : { ...taskDoc };
+  // Ensure customFields.otpVerified reflects progressSteps.otpVerified for API consumers
+  if (task.progressSteps?.otpVerified === true) {
+    task.customFields = task.customFields || {};
+    task.customFields.otpVerified = true;
+    task.customFields.otpVerifiedAt = task.otpVerifiedAt;
+  }
   if (!companyId) return task;
   try {
     const settings = await TaskSettings.findOne({ companyId }).lean();
     if (settings?.settings?.enableOtpVerification === true) {
       task.customFields = task.customFields || {};
-      task.customFields.otpRequired = true;
+      // Respect task-level isOtpRequired: false – do not override with company setting
+      task.customFields.otpRequired = task.isOtpRequired !== false;
     }
     if (settings?.settings?.requireApprovalOnComplete !== undefined) {
       task.requireApprovalOnComplete = settings.settings.requireApprovalOnComplete;
@@ -111,6 +126,7 @@ exports.updateTask = async (req, res) => {
       startLng,
       sourceLocation,
       destinationLocation,
+      destinationChanged,
       tripDistanceKm,
       tripDurationSeconds,
       arrivalTime,
@@ -123,13 +139,30 @@ exports.updateTask = async (req, res) => {
     if (startTime != null) updateData.startTime = new Date(startTime);
     if (resolvedStartLocation != null) updateData.startLocation = resolvedStartLocation;
     if (sourceLocation != null) updateData.sourceLocation = sourceLocation;
-    if (destinationLocation != null) updateData.destinationLocation = destinationLocation;
+    if (destinationLocation != null) {
+      updateData.destinationLocation = destinationLocation;
+      updateData.destinationChanged = destinationChanged !== false;
+    }
+    if (destinationChanged != null && destinationLocation == null)
+      updateData.destinationChanged = destinationChanged;
     if (tripDistanceKm != null) updateData.tripDistanceKm = Number(tripDistanceKm);
     if (tripDurationSeconds != null) updateData.tripDurationSeconds = Number(tripDurationSeconds);
     if (arrivalTime != null) updateData.arrivalTime = new Date(arrivalTime);
+
+    const updateOp = { $set: updateData };
+    if (destinationLocation != null) {
+      updateOp.$push = {
+        destinations: {
+          lat: Number(destinationLocation.lat),
+          lng: Number(destinationLocation.lng),
+          address: destinationLocation.address || '',
+          changedAt: new Date(),
+        },
+      };
+    }
     const task = await Task.findByIdAndUpdate(
       taskId,
-      { $set: updateData },
+      updateOp,
       { new: true }
     ).populate('assignedTo').populate('customerId');
     if (!task) {
@@ -225,6 +258,153 @@ exports.updateSteps = async (req, res) => {
   }
 };
 
+// GET /tasks/:id/completion-report – full task completion report with timeline + route from DB.
+exports.getCompletionReport = async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const task = await Task.findById(taskId)
+      .populate('assignedTo', 'name')
+      .populate('customerId')
+      .lean();
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const trackingRecords = await Tracking.find({ taskId })
+      .sort({ timestamp: 1 })
+      .lean();
+
+    const locationHistory = task.locationHistory || [];
+    const routePoints = locationHistory.length > 0
+      ? locationHistory.map((p) => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp }))
+      : trackingRecords
+          .filter((r) => r.latitude != null && r.longitude != null)
+          .map((r) => ({
+            lat: r.latitude,
+            lng: r.longitude,
+            timestamp: r.timestamp,
+            movementType: r.movementType,
+            address: r.address || r.fullAddress,
+          }));
+
+    const timeline = [];
+    const taskObj = task;
+
+    if (taskObj.startTime) {
+      timeline.push({
+        type: 'start',
+        label: 'Start',
+        time: taskObj.startTime,
+        address: taskObj.sourceLocation?.address || taskObj.sourceLocation?.fullAddress,
+        lat: taskObj.sourceLocation?.lat,
+        lng: taskObj.sourceLocation?.lng,
+      });
+    }
+
+    let lastMovementType = null;
+    for (const tr of trackingRecords) {
+      const ts = tr.timestamp || tr.time;
+      if (!ts) continue;
+      if (tr.status === 'arrived') {
+        timeline.push({
+          type: 'arrived',
+          label: 'Arrived',
+          time: ts,
+          address: tr.fullAddress || tr.address,
+          lat: tr.latitude,
+          lng: tr.longitude,
+        });
+      } else if (tr.exitStatus === 'exited') {
+        timeline.push({
+          type: 'exit',
+          label: 'Outage',
+          time: tr.exitedAt || ts,
+          address: tr.address || tr.fullAddress,
+          lat: tr.latitude,
+          lng: tr.longitude,
+          exitReason: tr.exitReason,
+        });
+      } else if (tr.movementType && tr.movementType !== lastMovementType) {
+        lastMovementType = tr.movementType;
+        const label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
+        timeline.push({
+          type: 'movement',
+          label,
+          time: ts,
+          address: tr.fullAddress || tr.address,
+          lat: tr.latitude,
+          lng: tr.longitude,
+          movementType: tr.movementType,
+        });
+      }
+    }
+
+    const exits = taskObj.tasks_exit || [];
+    for (const ex of exits) {
+      if (!timeline.some((t) => t.type === 'exit' && new Date(t.time).getTime() === new Date(ex.exitedAt).getTime())) {
+        timeline.push({
+          type: 'exit',
+          label: 'Outage',
+          time: ex.exitedAt,
+          address: ex.address,
+          lat: ex.lat,
+          lng: ex.lng,
+          exitReason: ex.exitReason,
+        });
+      }
+    }
+
+    const restarts = taskObj.tasks_restarted || [];
+    for (const rs of restarts) {
+      timeline.push({
+        type: 'restart',
+        label: 'Resumed',
+        time: rs.resumedAt,
+        address: rs.address,
+        lat: rs.lat,
+        lng: rs.lng,
+      });
+    }
+
+    if (taskObj.arrivalTime && !timeline.some((t) => t.type === 'arrived')) {
+      timeline.push({
+        type: 'arrived',
+        label: 'Arrived',
+        time: taskObj.arrivalTime,
+        address: taskObj.arrivedFullAddress,
+        lat: taskObj.arrivedLatitude,
+        lng: taskObj.arrivedLongitude,
+      });
+    }
+
+    if (taskObj.completedDate) {
+      timeline.push({
+        type: 'completed',
+        label: 'Completed',
+        time: taskObj.completedDate,
+        address: taskObj.arrivedFullAddress,
+        lat: taskObj.arrivedLatitude,
+        lng: taskObj.arrivedLongitude,
+      });
+    }
+
+    timeline.sort((a, b) => {
+      const ta = a.time ? new Date(a.time).getTime() : 0;
+      const tb = b.time ? new Date(b.time).getTime() : 0;
+      return ta - tb;
+    });
+
+    res.status(200).json({
+      task: task,
+      timeline,
+      routePoints,
+    });
+  } catch (error) {
+    console.error('[Tasks] getCompletionReport error:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // GET /tasks/:id/tracking-path – full GPS path for admin replay (NO interpolation).
 exports.getTrackingPath = async (req, res) => {
   try {
@@ -282,12 +462,16 @@ exports.uploadPhotoProof = async (req, res) => {
     if (!photoUrl) {
       return res.status(500).json({ message: 'Photo upload failed' });
     }
+    const { lat, lng, fullAddress } = req.body;
     const updateData = {
       photoProofUrl: photoUrl,
       photoProofUploadedAt: new Date(),
       'progressSteps.photoProof': true,
     };
     if (description) updateData.photoProofDescription = description;
+    if (lat != null) updateData.photoProofLat = Number(lat);
+    if (lng != null) updateData.photoProofLng = Number(lng);
+    if (fullAddress) updateData.photoProofAddress = String(fullAddress);
     const task = await Task.findByIdAndUpdate(
       taskId,
       { $set: updateData },
@@ -382,14 +566,17 @@ exports.verifyOtp = async (req, res) => {
     if (otpStr !== storedOtp) {
       return res.status(400).json({ message: 'Invalid OTP. Please try again.' });
     }
+    const { lat, lng, fullAddress } = req.body;
+    const otpUpdate = {
+      'progressSteps.otpVerified': true,
+      otpVerifiedAt: new Date(),
+    };
+    if (lat != null) otpUpdate.otpVerifiedLat = Number(lat);
+    if (lng != null) otpUpdate.otpVerifiedLng = Number(lng);
+    if (fullAddress) otpUpdate.otpVerifiedAddress = String(fullAddress);
     const updated = await Task.findByIdAndUpdate(
       taskId,
-      {
-        $set: {
-          'progressSteps.otpVerified': true,
-          otpVerifiedAt: new Date(),
-        },
-      },
+      { $set: otpUpdate },
       { new: true }
     ).populate('assignedTo').populate('customerId');
     console.log('[Tasks] OTP verified for task:', updated.taskId);

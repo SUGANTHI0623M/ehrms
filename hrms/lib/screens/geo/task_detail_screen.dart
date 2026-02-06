@@ -6,14 +6,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/customer.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
+import 'package:hrms/screens/geo/task_history_screen.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/directions_service.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:hrms/widgets/app_drawer.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
-import 'package:hrms/widgets/menu_icon_button.dart';
 import 'package:hrms/services/task_service.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -62,6 +61,33 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         final refreshed = await TaskService().getTaskById(task.id!);
         if (mounted) {
           setState(() => task = refreshed);
+          if (refreshed.status == TaskStatus.arrived) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (context) => ArrivedScreen(
+                    taskMongoId: refreshed.id,
+                    taskId: refreshed.taskId,
+                    task: refreshed,
+                    totalDuration: Duration(
+                      seconds: refreshed.tripDurationSeconds ?? 0,
+                    ),
+                    totalDistanceKm: refreshed.tripDistanceKm ?? 0.0,
+                    isWithinGeofence: false,
+                    arrivalTime: refreshed.arrivalTime ?? DateTime.now(),
+                    sourceLat: refreshed.sourceLocation?.lat,
+                    sourceLng: refreshed.sourceLocation?.lng,
+                    sourceAddress: refreshed.sourceLocation?.address,
+                    destLat: refreshed.destinationLocation?.lat,
+                    destLng: refreshed.destinationLocation?.lng,
+                    destAddress: refreshed.destinationLocation?.address,
+                  ),
+                ),
+              );
+            });
+            return;
+          }
         }
       } catch (_) {}
     }
@@ -303,8 +329,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         return 'Scheduled';
       case TaskStatus.inProgress:
         return 'In Progress';
+      case TaskStatus.arrived:
+        return 'Arrived';
       case TaskStatus.completed:
         return 'Completed';
+      case TaskStatus.exited:
+        return 'Exited';
       case TaskStatus.rejected:
         return 'Rejected';
       case TaskStatus.reopened:
@@ -330,15 +360,31 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: const MenuIconButton(),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text(
           'Task Details',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: 'Ride history',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => TaskHistoryScreen(task: task),
+                ),
+              );
+            },
+          ),
+        ],
       ),
-      drawer: AppDrawer(currentIndex: 1),
       body: Column(
         children: [
           Expanded(
@@ -360,7 +406,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   _buildTaskRequirements(),
                   _buildOtpVerificationStatus(),
                   const SizedBox(height: 16),
-                  _buildTaskSettingsCard(),
+                  _buildExitRestartHistoryCard(),
                   const SizedBox(height: 16),
                   _buildReadyToStartCard(),
                 ],
@@ -370,7 +416,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           _buildBottomButtons(),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
@@ -563,7 +608,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 child: Text(
                   task.taskTitle,
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
                   ),
@@ -592,7 +637,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(height: 6),
           Text(
             'Task #${task.taskId}',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           if (task.description.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -607,7 +652,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 return Text(
                   descText,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     color: Colors.grey.shade700,
                     height: 1.4,
                   ),
@@ -678,7 +723,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const Text(
             'Customer Information',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
               color: AppColors.textPrimary,
             ),
@@ -693,7 +738,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   initial,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -706,7 +751,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     Text(
                       _customer!.customerName,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary,
                       ),
@@ -742,13 +787,35 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   Text(
                     _customer!.customerNumber!,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: 13,
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
+            ),
+          ],
+          if (_customer!.effectiveEmail != null &&
+              _customer!.effectiveEmail!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Icons.email_rounded,
+                  size: 20,
+                  color: Colors.grey.shade600,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _customer!.effectiveEmail!,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -824,7 +891,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 const Text(
                   'Source:',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
                   ),
@@ -853,7 +920,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               const Text(
                 'Destination:',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: AppColors.textPrimary,
                 ),
@@ -866,7 +933,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ? parsed.destination!
                 : address,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               color: Colors.grey.shade800,
               height: 1.4,
             ),
@@ -897,7 +964,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         const Text(
           'Task Requirements',
           style: TextStyle(
-            fontSize: 16,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
             color: AppColors.textPrimary,
           ),
@@ -959,7 +1026,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const Text(
             'Dates',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
               color: AppColors.textPrimary,
             ),
@@ -990,7 +1057,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           'EEEE, dd MMM yyyy \'at\' h:mm a',
                         ).format(task.assignedDate!),
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 12,
                           color: Colors.grey.shade800,
                         ),
                       ),
@@ -1026,7 +1093,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           'EEEE, dd MMM yyyy \'at\' h:mm a',
                         ).format(task.expectedCompletionDate),
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 12,
                           color: Colors.grey.shade800,
                         ),
                       ),
@@ -1061,7 +1128,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           'EEEE, dd MMM yyyy \'at\' h:mm a',
                         ).format(task.completedDate!),
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 12,
                           color: Colors.grey.shade800,
                         ),
                       ),
@@ -1082,6 +1149,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             verified ? Icons.verified_rounded : Icons.pending_rounded,
@@ -1089,22 +1157,166 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             color: verified ? AppColors.primary : Colors.orange.shade700,
           ),
           const SizedBox(width: 8),
-          Text(
-            'OTP Verified: ${verified ? "Yes" : "No"}',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: verified ? AppColors.primary : Colors.orange.shade700,
-            ),
-          ),
-          if (!verified)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                '(Task can be approved only after OTP verification)',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: DefaultTextStyle.of(context).style,
+                children: [
+                  TextSpan(
+                    text: 'OTP Verified: ${verified ? "Yes" : "No"}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: verified
+                          ? AppColors.primary
+                          : Colors.orange.shade700,
+                    ),
+                  ),
+                  if (!verified)
+                    TextSpan(
+                      text:
+                          ' (Task can be approved only after OTP verification)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExitRestartHistoryCard() {
+    final exits = task.tasksExit;
+    final restarts = task.tasksRestarted;
+    if (exits.isEmpty && restarts.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Exit & Restart History',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TaskHistoryScreen(task: task),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.history_rounded, size: 18),
+                label: const Text('Full history'),
+              ),
+            ],
+          ),
+          if (exits.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...exits.map(
+              (e) => _historyTile(
+                'Exit',
+                e.exitReason,
+                e.exitedAt,
+                e.address,
+                e.pincode,
+                Icons.exit_to_app_rounded,
+                Colors.orange,
+              ),
+            ),
+          ],
+          if (restarts.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...restarts.map(
+              (r) => _historyTile(
+                'Restart',
+                null,
+                r.resumedAt,
+                r.address,
+                r.pincode,
+                Icons.play_arrow_rounded,
+                Colors.green,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _historyTile(
+    String type,
+    String? reason,
+    DateTime? date,
+    String? address,
+    String? pincode,
+    IconData icon,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$type${date != null ? ' • ${DateFormat('MMM d, h:mm a').format(date)}' : ''}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (reason != null && reason.isNotEmpty)
+                  Text(
+                    reason,
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                if (address != null && address.isNotEmpty)
+                  Text(
+                    address,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                if (pincode != null && pincode.isNotEmpty)
+                  Text(
+                    'Pincode: $pincode',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1131,7 +1343,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const Text(
             'Task settings',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
               color: AppColors.textPrimary,
             ),
@@ -1156,12 +1368,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
         ),
         Text(
           value ? 'Yes' : 'No',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
             color: value ? AppColors.primary : Colors.grey.shade600,
           ),
@@ -1195,7 +1407,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 Text(
                   'Ready to Start?',
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: AppColors.secondary,
                   ),
@@ -1225,6 +1437,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       task.id!.isNotEmpty &&
       (task.status == TaskStatus.assigned || task.status == TaskStatus.pending);
 
+  /// Show "Resume Ride" when task was exited (user can restart).
+  bool get _showResumeAfterExitButton =>
+      task.id != null &&
+      task.id!.isNotEmpty &&
+      task.status == TaskStatus.exited;
+
   /// Show "Resume Ride" when task is in progress.
   bool get _showResumeRideButton =>
       task.id != null &&
@@ -1238,6 +1456,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   bool get _showApprovalButtons =>
       !_showStartRideButton &&
       !_showResumeRideButton &&
+      !_showResumeAfterExitButton &&
       !_showBackOnly &&
       !task.autoApprove &&
       task.status != TaskStatus.rejected &&
@@ -1440,7 +1659,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   label: const Text(
                     'Back to Ride',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
@@ -1501,7 +1720,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                             label: Text(
                               _actionLoading ? 'Approving...' : 'Approve',
                               style: const TextStyle(
-                                fontSize: 16,
+                                fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
@@ -1518,10 +1737,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ],
                     ),
-                    if (_showStartRideButton || _showResumeRideButton)
+                    if (_showStartRideButton ||
+                        _showResumeRideButton ||
+                        _showResumeAfterExitButton)
                       const SizedBox(height: 12),
                   ],
-                  if (_showStartRideButton)
+                  if (_showStartRideButton || _showResumeAfterExitButton)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -1535,15 +1756,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Icon(
-                                Icons.directions_car_rounded,
+                            : Icon(
+                                _showResumeAfterExitButton
+                                    ? Icons.play_arrow_rounded
+                                    : Icons.directions_car_rounded,
                                 color: Colors.white,
                                 size: 24,
                               ),
                         label: Text(
-                          _actionLoading ? 'Starting...' : 'Start Ride',
+                          _actionLoading
+                              ? 'Starting...'
+                              : (_showResumeAfterExitButton
+                                    ? 'Resume Ride'
+                                    : 'Start Ride'),
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -1580,7 +1807,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         label: Text(
                           _actionLoading ? 'Resuming...' : 'Resume Ride',
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -1597,7 +1824,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ),
                   if (!_showApprovalButtons &&
                       !_showStartRideButton &&
-                      !_showResumeRideButton)
+                      !_showResumeRideButton &&
+                      !_showResumeAfterExitButton)
                     Row(
                       children: [
                         Expanded(

@@ -33,11 +33,10 @@ app.use(helmet());
 
 // Configure CORS – web at hrms.askeva.net, API at ehrms.askeva.net, local dev IPs
 const allowedOrigins = [
-    'https://hrms.askeva.net', 'http://hrms.askeva.net',
+  
     'https://ehrms.askeva.net', 'http://ehrms.askeva.net',
     'http://localhost:8080', 'http://127.0.0.1:8080',
-    'http://192.168.16.114:3000', 'http://192.168.16.114:8080',
-    'http://192.168.16.104:3000', 'http://192.168.16.104:8080'
+   
 ];
 
 app.use(cors({

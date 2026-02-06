@@ -6,8 +6,7 @@ import 'package:hrms/screens/geo/otp_verification_screen.dart';
 import 'package:hrms/screens/geo/photo_proof_screen.dart';
 import 'package:hrms/screens/geo/task_completed_screen.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:hrms/widgets/app_drawer.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
+import 'package:hrms/screens/geo/task_history_screen.dart';
 import 'package:intl/intl.dart';
 
 class ArrivedScreen extends StatefulWidget {
@@ -112,410 +111,468 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
     final walkingDur = widget.walkingDuration ?? Duration.zero;
     final walkingKm = widget.walkingDistanceKm ?? 0.0;
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        flexibleSpace: Container(
-          decoration: BoxDecoration(color: AppColors.primary),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _showExitConfirmation();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          flexibleSpace: Container(
+            decoration: BoxDecoration(color: AppColors.primary),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            onPressed: _showExitConfirmation,
+          ),
+          title: const Text(
+            'Arrived',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          centerTitle: true,
+          elevation: 0,
+          actions: [
+            if (task != null)
+              IconButton(
+                icon: const Icon(Icons.history_rounded, color: Colors.white),
+                tooltip: 'Task history',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TaskHistoryScreen(task: task!),
+                    ),
+                  );
+                },
+              ),
+          ],
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          'Arrived',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 12, top: 8, bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade100,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Task info card – Task Name, ID, Description
+                if ((task ?? widget.task) != null)
+                  Builder(
+                    builder: (context) {
+                      final t = task ?? widget.task!;
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              t.taskTitle,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'ID: ${t.taskId}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            if (t.description.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                t.description,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                // Arrival confirmation card
                 Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          color: Colors.white,
+                          size: 40,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        "You've Arrived!",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Great job! You reached the customer location.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      if (widget.isWithinGeofence) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.check_circle_rounded,
+                                color: AppColors.primary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Within Geo-Fence',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "You're inside the 500m radius",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  'Stopped',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade800,
+                const SizedBox(height: 20),
+                // Trip details card - all trip info
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Trip Details',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _row(
+                        'Total Distance',
+                        '${widget.totalDistanceKm.toStringAsFixed(2)} km',
+                      ),
+                      _row('Time Taken', _formatDuration(widget.totalDuration)),
+                      _row(
+                        'Arrival Time',
+                        DateFormat('h:mm a').format(widget.arrivalTime),
+                      ),
+                      if (drivingKm > 0 || walkingKm > 0) ...[
+                        _row(
+                          'Driving',
+                          drivingKm > 0
+                              ? '${_formatDuration(drivingDur)} (${drivingKm.toStringAsFixed(1)} km)'
+                              : '—',
+                        ),
+                        _row(
+                          'Walking',
+                          walkingKm > 0
+                              ? '${_formatDuration(walkingDur)} (${walkingKm.toStringAsFixed(1)} km)'
+                              : '—',
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 12),
+                      _locationSection(
+                        'Source',
+                        widget.sourceAddress ?? task?.sourceLocation?.address,
+                        widget.sourceLat ?? task?.sourceLocation?.lat,
+                        widget.sourceLng ?? task?.sourceLocation?.lng,
+                      ),
+                      const SizedBox(height: 12),
+                      _locationSection(
+                        'Destination',
+                        widget.destAddress ??
+                            task?.destinationLocation?.address,
+                        widget.destLat ?? task?.destinationLocation?.lat,
+                        widget.destLng ?? task?.destinationLocation?.lng,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Next Steps card – all steps, then Continue to Form (→ OTP if required).
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border(
+                      left: BorderSide(color: AppColors.primary, width: 4),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Next Steps',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Complete these requirements to finish the task:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _nextStepRow(
+                        icon: Icons.location_on_rounded,
+                        label: 'Reached location',
+                        done: true,
+                      ),
+                      _nextStepRow(
+                        icon: Icons.camera_alt_rounded,
+                        label: 'Take photo proof',
+                        done: _photoProofDone,
+                        onTap: task != null && widget.taskMongoId != null
+                            ? () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) => PhotoProofScreen(
+                                      task: task!,
+                                      taskMongoId: widget.taskMongoId,
+                                      onPhotoUploaded: () => _refreshTask(),
+                                    ),
+                                  ),
+                                );
+                                await _refreshTask();
+                              }
+                            : null,
+                      ),
+                      // OTP can be verified even when form is not filled – no dependency.
+                      _nextStepRow(
+                        icon: Icons.pin_rounded,
+                        label: 'Get OTP from customer',
+                        done: task?.isOtpVerified == true,
+                        onTap: _canOpenOtpScreen()
+                            ? () async {
+                                final mongoId =
+                                    widget.taskMongoId ?? task?.id ?? '';
+                                final t = task;
+                                if (t == null || mongoId.isEmpty) return;
+                                final verified = await Navigator.push<bool>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => OtpVerificationScreen(
+                                      task: t,
+                                      taskMongoId: mongoId,
+                                      arrivalTime: widget.arrivalTime,
+                                      totalDuration: widget.totalDuration,
+                                      totalDistanceKm: widget.totalDistanceKm,
+                                      autoSendOtp: true,
+                                    ),
+                                  ),
+                                );
+                                if (context.mounted) {
+                                  if (verified == true) {
+                                    setState(() {
+                                      _task = _task?.copyWith(
+                                        isOtpVerified: true,
+                                      );
+                                    });
+                                  }
+                                  await _refreshTask();
+                                }
+                              }
+                            : null,
+                      ),
+                      _nextStepRow(
+                        icon: Icons.description_rounded,
+                        label: 'Fill required form (optional)',
+                        done: false,
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed:
+                              (task?.isOtpRequired != true ||
+                                  task?.isOtpVerified == true)
+                              ? () async {
+                                  final t = task ?? widget.task;
+                                  final startedAt = widget.arrivalTime.subtract(
+                                    widget.totalDuration,
+                                  );
+                                  final otpVerified = t?.isOtpVerified == true;
+                                  if (widget.taskMongoId != null &&
+                                      widget.taskMongoId!.isNotEmpty) {
+                                    try {
+                                      await TaskService().endTask(
+                                        widget.taskMongoId!,
+                                      );
+                                    } catch (_) {}
+                                  }
+                                  if (context.mounted) {
+                                    final refreshed = task ?? t;
+                                    Navigator.of(context).pushReplacement(
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            TaskCompletedScreen(
+                                              task: refreshed,
+                                              taskMongoId: widget.taskMongoId,
+                                              taskId: widget.taskId,
+                                              startedAt: startedAt,
+                                              completedAt: DateTime.now(),
+                                              totalDuration:
+                                                  widget.totalDuration,
+                                              totalDistanceKm:
+                                                  widget.totalDistanceKm,
+                                              otpVerified: otpVerified,
+                                              geoFence: widget.isWithinGeofence,
+                                              formSubmitted: false,
+                                              photoProof: _photoProofDone,
+                                              arrivalTime: widget.arrivalTime,
+                                              otpVerifiedAt:
+                                                  refreshed?.otpVerifiedAt,
+                                              verifiedOtp: null,
+                                            ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.secondary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.grey.shade300,
+                            disabledForegroundColor: Colors.grey.shade600,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.check_circle_rounded,
+                            size: 22,
+                          ),
+                          label: const Text('Complete Task'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
-      drawer: AppDrawer(currentIndex: 1),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Arrival confirmation card
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_rounded,
-                        color: Colors.white,
-                        size: 40,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      "You've Arrived!",
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Great job! You reached the customer location.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (widget.isWithinGeofence) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.check_circle_rounded,
-                              color: AppColors.primary,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Within Geo-Fence',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "You're inside the 500m radius",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Trip details card - all trip info
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Trip Details',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _row(
-                      'Total Distance',
-                      '${widget.totalDistanceKm.toStringAsFixed(2)} km',
-                    ),
-                    _row('Time Taken', _formatDuration(widget.totalDuration)),
-                    _row(
-                      'Arrival Time',
-                      DateFormat('h:mm a').format(widget.arrivalTime),
-                    ),
-                    if (drivingKm > 0 || walkingKm > 0) ...[
-                      _row(
-                        'Driving',
-                        drivingKm > 0
-                            ? '${_formatDuration(drivingDur)} (${drivingKm.toStringAsFixed(1)} km)'
-                            : '—',
-                      ),
-                      _row(
-                        'Walking',
-                        walkingKm > 0
-                            ? '${_formatDuration(walkingDur)} (${walkingKm.toStringAsFixed(1)} km)'
-                            : '—',
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                    const SizedBox(height: 12),
-                    _locationSection(
-                      'Source',
-                      widget.sourceAddress ?? task?.sourceLocation?.address,
-                      widget.sourceLat ?? task?.sourceLocation?.lat,
-                      widget.sourceLng ?? task?.sourceLocation?.lng,
-                    ),
-                    const SizedBox(height: 12),
-                    _locationSection(
-                      'Destination',
-                      widget.destAddress ?? task?.destinationLocation?.address,
-                      widget.destLat ?? task?.destinationLocation?.lat,
-                      widget.destLng ?? task?.destinationLocation?.lng,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Next Steps card – all steps, then Continue to Form (→ OTP if required).
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border(
-                    left: BorderSide(color: AppColors.primary, width: 4),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Next Steps',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Complete these requirements to finish the task:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _nextStepRow(
-                      icon: Icons.location_on_rounded,
-                      label: 'Reached location',
-                      done: true,
-                    ),
-                    _nextStepRow(
-                      icon: Icons.camera_alt_rounded,
-                      label: 'Take photo proof',
-                      done: _photoProofDone,
-                      onTap: task != null && widget.taskMongoId != null
-                          ? () async {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (ctx) => PhotoProofScreen(
-                                    task: task!,
-                                    taskMongoId: widget.taskMongoId,
-                                    onPhotoUploaded: () => _refreshTask(),
-                                  ),
-                                ),
-                              );
-                              await _refreshTask();
-                            }
-                          : null,
-                    ),
-                    // OTP can be verified even when form is not filled – no dependency.
-                    _nextStepRow(
-                      icon: Icons.pin_rounded,
-                      label: 'Get OTP from customer',
-                      done: task?.isOtpVerified == true,
-                      onTap: _canOpenOtpScreen()
-                          ? () async {
-                              final mongoId =
-                                  widget.taskMongoId ?? task?.id ?? '';
-                              final t = task;
-                              if (t == null || mongoId.isEmpty) return;
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => OtpVerificationScreen(
-                                    task: t,
-                                    taskMongoId: mongoId,
-                                    arrivalTime: widget.arrivalTime,
-                                    totalDuration: widget.totalDuration,
-                                    totalDistanceKm: widget.totalDistanceKm,
-                                    autoSendOtp: true,
-                                  ),
-                                ),
-                              );
-                              if (context.mounted) await _refreshTask();
-                            }
-                          : null,
-                    ),
-                    _nextStepRow(
-                      icon: Icons.description_rounded,
-                      label: 'Fill required form (optional)',
-                      done: false,
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final t = task ?? widget.task;
-                          final startedAt = widget.arrivalTime.subtract(
-                            widget.totalDuration,
-                          );
-                          final otpRequired = t != null && t.isOtpRequired;
-                          final otpVerified = t?.isOtpVerified == true;
-
-                          if (otpRequired && !otpVerified) {
-                            // Go to OTP screen, auto-send OTP, refresh when returning
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => OtpVerificationScreen(
-                                  task: t!,
-                                  taskMongoId: widget.taskMongoId,
-                                  arrivalTime: widget.arrivalTime,
-                                  totalDuration: widget.totalDuration,
-                                  totalDistanceKm: widget.totalDistanceKm,
-                                  autoSendOtp: true,
-                                ),
-                              ),
-                            );
-                            if (context.mounted) await _refreshTask();
-                          } else {
-                            // Task Completed: end task and go to completed screen
-                            if (widget.taskMongoId != null &&
-                                widget.taskMongoId!.isNotEmpty) {
-                              try {
-                                await TaskService().endTask(
-                                  widget.taskMongoId!,
-                                );
-                              } catch (_) {}
-                            }
-                            if (context.mounted) {
-                              final refreshed = task ?? t;
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (context) => TaskCompletedScreen(
-                                    task: refreshed,
-                                    taskMongoId: widget.taskMongoId,
-                                    taskId: widget.taskId,
-                                    startedAt: startedAt,
-                                    completedAt: DateTime.now(),
-                                    totalDuration: widget.totalDuration,
-                                    totalDistanceKm: widget.totalDistanceKm,
-                                    otpVerified: otpVerified,
-                                    geoFence: widget.isWithinGeofence,
-                                    formSubmitted: false,
-                                    photoProof: _photoProofDone,
-                                    arrivalTime: widget.arrivalTime,
-                                    otpVerifiedAt: refreshed?.otpVerifiedAt,
-                                    verifiedOtp: null,
-                                  ),
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        icon: Icon(
-                          (task?.isOtpRequired == true &&
-                                  task?.isOtpVerified != true)
-                              ? Icons.pin_rounded
-                              : Icons.check_circle_rounded,
-                          size: 22,
-                        ),
-                        label: Text(
-                          (task?.isOtpRequired == true &&
-                                  task?.isOtpVerified != true)
-                              ? 'Verify OTP'
-                              : 'Task Completed',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
+  }
+
+  Future<void> _showExitConfirmation() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit Task?'),
+        content: const Text(
+          'Are you sure you want to exit? You can resume this task later from My Tasks.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Widget _row(String label, String value) {

@@ -13,6 +13,7 @@ const {
   updateLocation,
   updateSteps,
   getTrackingPath,
+  getCompletionReport,
   endTask,
   uploadPhotoProof,
   sendOtp,
@@ -43,6 +44,7 @@ const upload = multer({
 
 router.get('/', getAllTasks);
 router.get('/staff/:staffId', getTasksByStaffId);
+router.get('/:id/completion-report', getCompletionReport);
 router.get('/:id/tracking-path', protect, getTrackingPath);
 router.get('/:id', getTaskById);
 router.post('/', createTask);

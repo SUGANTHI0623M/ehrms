@@ -13,7 +13,6 @@ class EndTaskScreen extends StatelessWidget {
         title: const Text('Task Completed'),
         automaticallyImplyLeading: false,
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),

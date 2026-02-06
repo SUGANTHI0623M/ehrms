@@ -1,10 +1,10 @@
 // hrms/lib/config/constants.dart
 class AppConstants {
   /// Production API – use for release builds.
-   static const String baseUrl = 'https://ehrms.askeva.net/api';
+   //static const String baseUrl = 'https://ehrms.askeva.net/api';
 
   /// Local dev – backend on port 9001. Use your machine's IP for physical device.
- // static const String baseUrl = 'http://192.168.16.104:9001/api';
+ static const String baseUrl = 'http://192.168.16.104:9001/api';
   // Android emulator: use 10.0.2.2 to reach host
   // stati
   //c const String baseUrl = 'http://10.0.2.2:9001/api';

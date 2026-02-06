@@ -24,9 +24,41 @@ class LocationService {
   LatLng? _geofenceCenter;
   final double _geofenceRadius = 150; // 100-200 meters, defaulting to 150
 
+  StreamSubscription<gl.Position>? _geolocatorSubscription;
+
   Future<void> initLocationService({required LatLng customerLocation}) async {
     _geofenceCenter = customerLocation;
     await _checkAndRequestPermissions();
+
+    // Get initial position immediately so map and tracking start right away.
+    try {
+      final pos = await gl.Geolocator.getCurrentPosition(
+        desiredAccuracy: gl.LocationAccuracy.high,
+      );
+      final loc = Location.fromPosition(pos);
+      if (loc.latitude != null && loc.longitude != null) {
+        _locationController.add(loc);
+      }
+    } catch (_) {}
+
+    // Start Geolocator for frequent foreground updates (every 2m when moving).
+    // This ensures lat/long update as you move and route refreshes like Google Maps.
+    _geolocatorSubscription =
+        gl.Geolocator.getPositionStream(
+          locationSettings: gl.LocationSettings(
+            accuracy: gl.LocationAccuracy.high,
+            distanceFilter: 2, // Update every 2 meters for responsive tracking
+          ),
+        ).listen((gl.Position position) {
+          final loc = Location.fromPosition(position);
+          if (loc.latitude != null && loc.longitude != null) {
+            _locationController.add(loc);
+            _classifyMovement(loc.speed ?? 0);
+            _checkGeofence(loc);
+          }
+        });
+
+    // Keep background tracker for when app goes to background.
     await BackgroundLocationTrackerManager.startTracking();
     BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
       final Location currentLocation = Location.fromBackgroundData(data);
@@ -86,6 +118,8 @@ class LocationService {
   }
 
   void dispose() {
+    _geolocatorSubscription?.cancel();
+    _geolocatorSubscription = null;
     _locationController.close();
     _geofenceController.close();
     BackgroundLocationTrackerManager.stopTracking();

@@ -11,7 +11,8 @@ const { reverseGeocode } = require('../services/geocodingService');
  */
 exports.storeTracking = async (req, res) => {
   try {
-    const { taskId, lat, lng, timestamp, batteryPercent, movementType } = req.body;
+    console.log('[Tracking] POST /store – raw body:', JSON.stringify(req.body));
+    const { taskId, lat, lng, timestamp, batteryPercent, movementType, destinationLat, destinationLng } = req.body;
     const staffId = req.staff?._id;
     const staffName = req.staff?.name;
     if (!taskId || lat == null || lng == null) {
@@ -38,6 +39,8 @@ exports.storeTracking = async (req, res) => {
       timestamp: timestamp ? new Date(timestamp) : new Date(),
       batteryPercent: batteryPercent != null ? Number(batteryPercent) : undefined,
       movementType: movementType || undefined,
+      destinationLat: destinationLat != null ? Number(destinationLat) : undefined,
+      destinationLng: destinationLng != null ? Number(destinationLng) : undefined,
       address: geo?.address || undefined,
       city: geo?.city || undefined,
       area: geo?.area || undefined,
@@ -76,6 +79,201 @@ exports.getTrackingData = async (req, res) => {
     res.status(200).json({ success: true, data: records });
   } catch (error) {
     console.error('[Tracking] Error fetching tracking data:', error.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+/**
+ * POST /api/tracking/exit
+ * Body: { taskId, exitReason, lat?, lng? }
+ * Saves exit to tasks.tasks_exit array AND trackings collection.
+ * Mobile sends current GPS (lat, lng) for address resolution.
+ */
+exports.exitTracking = async (req, res) => {
+  try {
+    const { taskId, exitReason, lat, lng } = req.body;
+    const staffId = req.staff?._id;
+    const staffName = req.staff?.name;
+    if (!taskId || !exitReason || String(exitReason).trim() === '') {
+      return res.status(400).json({ success: false, message: 'taskId and exitReason required' });
+    }
+    const task = await Task.findById(taskId).select('assignedTo').populate('assignedTo', 'name');
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    const staffIdObj = task.assignedTo?._id || staffId;
+    const resolvedStaffName = task.assignedTo?.name || staffName;
+
+    const exitLat = lat != null ? Number(lat) : 0;
+    const exitLng = lng != null ? Number(lng) : 0;
+    let geo = null;
+    if (exitLat !== 0 || exitLng !== 0) {
+      try {
+        geo = await reverseGeocode(exitLat, exitLng);
+      } catch (e) {
+        console.log('[Tracking] Exit geocode failed:', e.message);
+      }
+    }
+
+    const exitRecord = {
+      lat: exitLat,
+      lng: exitLng,
+      address: geo?.address || undefined,
+      pincode: geo?.pincode || undefined,
+      exitReason: String(exitReason).trim(),
+      exitedAt: new Date(),
+    };
+
+    await Task.findByIdAndUpdate(taskId, {
+      $push: { tasks_exit: exitRecord },
+      $set: { status: 'exited' },
+    });
+
+    const trackingDoc = {
+      taskId,
+      staffId: staffIdObj || staffId,
+      staffName: resolvedStaffName,
+      latitude: exitLat,
+      longitude: exitLng,
+      exitStatus: 'exited',
+      exitReason: exitRecord.exitReason,
+      exitedAt: exitRecord.exitedAt,
+      address: geo?.address || undefined,
+      pincode: geo?.pincode || undefined,
+    };
+    await Tracking.create(trackingDoc);
+    res.status(201).json({ success: true, message: 'Exit recorded' });
+  } catch (error) {
+    console.error('[Tracking] Error recording exit:', error.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+/**
+ * POST /api/tracking/restart
+ * Body: { taskId, lat?, lng? }
+ * Records restart in tasks.tasks_restarted, updates status to in_progress.
+ */
+exports.restartTracking = async (req, res) => {
+  try {
+    const { taskId, lat, lng, fullAddress, pincode } = req.body;
+    if (!taskId) {
+      return res.status(400).json({ success: false, message: 'taskId required' });
+    }
+    const task = await Task.findById(taskId);
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    const resumeLat = lat != null ? Number(lat) : 0;
+    const resumeLng = lng != null ? Number(lng) : 0;
+    let geo = null;
+    if (resumeLat !== 0 || resumeLng !== 0) {
+      try {
+        geo = await reverseGeocode(resumeLat, resumeLng);
+      } catch (e) {
+        console.log('[Tracking] Restart geocode failed:', e.message);
+      }
+    }
+    const restartRecord = {
+      lat: resumeLat,
+      lng: resumeLng,
+      address: geo?.address || undefined,
+      pincode: geo?.pincode || undefined,
+      resumedAt: new Date(),
+    };
+    const updateData = {
+      $push: { tasks_restarted: restartRecord },
+      $set: {
+        status: 'in_progress',
+        startTime: new Date(),
+        startLocation: { lat: resumeLat, lng: resumeLng },
+        sourceLocation: {
+          lat: resumeLat,
+          lng: resumeLng,
+          address: fullAddress || geo?.address || undefined,
+          fullAddress: fullAddress || geo?.address || undefined,
+          pincode: pincode || geo?.pincode || undefined,
+        },
+      },
+    };
+    await Task.findByIdAndUpdate(taskId, updateData);
+    res.status(200).json({ success: true, message: 'Restart recorded' });
+  } catch (error) {
+    console.error('[Tracking] Error recording restart:', error.message);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+/**
+ * POST /api/tracking/arrived
+ * Body: { taskId, lat, lng, fullAddress?, pincode?, sourceFullAddress? }
+ * Stores arrived in tasks and trackings. Sets task status to "arrived".
+ */
+exports.arrivedTracking = async (req, res) => {
+  try {
+    const { taskId, lat, lng, fullAddress, pincode, sourceFullAddress } = req.body;
+    const staffId = req.staff?._id;
+    const staffName = req.staff?.name;
+    if (!taskId || lat == null || lng == null) {
+      return res.status(400).json({ success: false, message: 'taskId, lat, lng required' });
+    }
+    const task = await Task.findById(taskId).select('assignedTo sourceLocation').populate('assignedTo', 'name');
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    const staffIdObj = task.assignedTo?._id || staffId;
+    const resolvedStaffName = task.assignedTo?.name || staffName;
+
+    const arrivalLat = Number(lat);
+    const arrivalLng = Number(lng);
+    let geo = null;
+    try {
+      geo = await reverseGeocode(arrivalLat, arrivalLng);
+    } catch (e) {
+      console.log('[Tracking] Arrived geocode failed:', e.message);
+    }
+    const resolvedFullAddress = fullAddress || geo?.address;
+    const resolvedPincode = pincode || geo?.pincode;
+    const resolvedSourceFullAddress = sourceFullAddress || task.sourceLocation?.address || task.sourceLocation?.fullAddress;
+
+    const now = new Date();
+    const updateData = {
+      status: 'arrived',
+      'progressSteps.reachedLocation': true,
+      arrivalTime: now,
+      arrivedLatitude: arrivalLat,
+      arrivedLongitude: arrivalLng,
+      arrivedFullAddress: resolvedFullAddress,
+      arrivedPincode: resolvedPincode,
+      arrivedDate: now,
+      arrivedTime: now.toTimeString().slice(0, 8),
+      sourceFullAddress: resolvedSourceFullAddress,
+    };
+    if (req.body.tripDistanceKm != null) updateData.tripDistanceKm = Number(req.body.tripDistanceKm);
+    if (req.body.tripDurationSeconds != null) updateData.tripDurationSeconds = Number(req.body.tripDurationSeconds);
+    if (req.body.sourceLocation) {
+      const src = task.sourceLocation?.toObject?.() || {};
+      updateData.sourceLocation = { ...src, ...req.body.sourceLocation };
+    }
+    await Task.findByIdAndUpdate(taskId, { $set: updateData });
+
+    const trackingDoc = {
+      taskId,
+      staffId: staffIdObj || staffId,
+      staffName: resolvedStaffName,
+      latitude: arrivalLat,
+      longitude: arrivalLng,
+      status: 'arrived',
+      fullAddress: resolvedFullAddress,
+      address: resolvedFullAddress,
+      pincode: resolvedPincode,
+      time: now,
+      timestamp: now,
+    };
+    await Tracking.create(trackingDoc);
+    res.status(201).json({ success: true, message: 'Arrived recorded' });
+  } catch (error) {
+    console.error('[Tracking] Error recording arrived:', error.message);
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
