@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 
 const taskSettingsSchema = new mongoose.Schema(
   {
-    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
     settings: {
       autoApprove: { type: Boolean, default: false },
       enableOtpVerification: { type: Boolean, default: false },

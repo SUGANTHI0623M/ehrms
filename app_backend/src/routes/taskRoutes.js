@@ -48,7 +48,7 @@ router.get('/:id/completion-report', getCompletionReport);
 router.get('/:id/tracking-path', protect, getTrackingPath);
 router.get('/:id', getTaskById);
 router.post('/', createTask);
-router.patch('/:id', updateTask);
+router.patch('/:id', protect, updateTask);
 // Live tracking & step progress (authenticated).
 router.post('/:id/location', protect, updateLocation);
 router.patch('/:id/steps', protect, updateSteps);

@@ -22,6 +22,8 @@ const assetsRoutes = require('./src/routes/assetsRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
 const trackingRoutes = require('./src/routes/trackingRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
+const pmsRoutes = require('./src/routes/pmsRoutes');
+const performanceRoutes = require('./src/routes/performanceRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -92,6 +94,8 @@ console.log('[Server] Tracking routes registered at /api/tracking');
 app.use('/api/customers', customerRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/onboarding/customers', customerRoutes);
+app.use('/api/pms', pmsRoutes);
+app.use('/api/performance', performanceRoutes);
 console.log('[Server] Customer routes registered at /api/onboarding/customers');
 
 // Debug: Log all incoming requests (only in development)

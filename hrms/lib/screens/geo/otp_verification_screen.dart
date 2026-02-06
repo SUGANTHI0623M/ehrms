@@ -6,7 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
@@ -547,63 +547,61 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             mainAxisSize: MainAxisSize.min,
                             children: List.generate(4, (i) {
-                            return SizedBox(
-                              width: 56,
-                              child: TextField(
-                                controller: _controllers[i],
-                                focusNode: _focusNodes[i],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                maxLength: 1,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                decoration: InputDecoration(
-                                  counterText: '',
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: _error != null
-                                          ? AppColors.error
-                                          : (_controllers[i].text.isNotEmpty
-                                                ? AppColors.primary.withOpacity(
-                                                    0.6,
-                                                  )
-                                                : Colors.grey.shade300),
+                              return SizedBox(
+                                width: 56,
+                                child: TextField(
+                                  controller: _controllers[i],
+                                  focusNode: _focusNodes[i],
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  maxLength: 1,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: InputDecoration(
+                                    counterText: '',
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: _error != null
+                                            ? AppColors.error
+                                            : (_controllers[i].text.isNotEmpty
+                                                  ? AppColors.primary
+                                                        .withOpacity(0.6)
+                                                  : Colors.grey.shade300),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: _error != null
+                                            ? AppColors.error
+                                            : (_controllers[i].text.isNotEmpty
+                                                  ? AppColors.primary
+                                                        .withOpacity(0.6)
+                                                  : Colors.grey.shade300),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: AppColors.primary,
+                                        width: 2,
+                                      ),
                                     ),
                                   ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: _error != null
-                                          ? AppColors.error
-                                          : (_controllers[i].text.isNotEmpty
-                                                ? AppColors.primary.withOpacity(
-                                                    0.6,
-                                                  )
-                                                : Colors.grey.shade300),
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: AppColors.primary,
-                                      width: 2,
-                                    ),
-                                  ),
+                                  onChanged: (v) {
+                                    if (v.length == 1 && i < 3) {
+                                      _focusNodes[i + 1].requestFocus();
+                                    }
+                                    setState(() => _error = null);
+                                  },
                                 ),
-                                onChanged: (v) {
-                                  if (v.length == 1 && i < 3) {
-                                    _focusNodes[i + 1].requestFocus();
-                                  }
-                                  setState(() => _error = null);
-                                },
-                              ),
-                            );
-                          }),
+                              );
+                            }),
                           ),
                         ),
                         if (_error != null) ...[
@@ -816,7 +814,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             const SizedBox(height: 8),
                             _verificationLine('OTP matched: $_verifiedOtp'),
                             _verificationLine(
-                              'Verified at: ${_verifiedAt != null ? DateFormat('h:mm a').format(_verifiedAt!) : '—'}',
+                              'Verified at: ${_verifiedAt != null ? DateDisplayUtil.formatTime(_verifiedAt!) : '—'}',
                             ),
                             _verificationLine(
                               'Customer: $customerName ($phone)',

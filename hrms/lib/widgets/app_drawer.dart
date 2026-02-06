@@ -10,6 +10,7 @@ import '../screens/settings/settings_screen.dart';
 import '../screens/assets/assets_listing_screen.dart';
 import '../screens/geo/my_tasks_screen.dart';
 import '../screens/profile/profile_screen.dart';
+import '../screens/performance/performance_module_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   /// Current tab index when used from Dashboard (0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance).
@@ -37,9 +38,24 @@ class _AppDrawerState extends State<AppDrawer> {
     final prefs = await SharedPreferences.getInstance();
     final userString = prefs.getString('user');
     if (userString != null && mounted) {
-      setState(() {
-        _userData = jsonDecode(userString);
-      });
+      final data = jsonDecode(userString) as Map<String, dynamic>;
+      setState(() => _userData = data);
+
+      // Fallback: if locationAccess is missing (user logged in before backend added it),
+      // fetch profile to get locationAccess from staffData and update stored user
+      if (!data.containsKey('locationAccess')) {
+        try {
+          final result = await AuthService().getProfile();
+          if (result['success'] == true && mounted) {
+            final profileData = result['data'];
+            final staffData = profileData?['staffData'];
+            final locationAccess = staffData?['locationAccess'] == true;
+            data['locationAccess'] = locationAccess;
+            await prefs.setString('user', jsonEncode(data));
+            if (mounted) setState(() => _userData = data);
+          }
+        } catch (_) {}
+      }
     }
   }
 
@@ -85,18 +101,20 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _buildDrawerItem(
-                  icon: Icons.assignment_rounded,
-                  title: 'Tasks',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Future.microtask(
-                      () => _navigateAndClearStack(
-                        const MyTasksScreen(dashboardTabIndex: 1),
-                      ),
-                    );
-                  },
-                ),
+                //  if (_userData?['locationAccess'] == true)
+                if (1 == 1)
+                  _buildDrawerItem(
+                    icon: Icons.assignment_rounded,
+                    title: 'Tasks',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Future.microtask(
+                        () => _navigateAndClearStack(
+                          const MyTasksScreen(dashboardTabIndex: 1),
+                        ),
+                      );
+                    },
+                  ),
                 _buildDrawerItem(
                   icon: Icons.access_time_rounded,
                   title: 'Attendance',
@@ -131,6 +149,18 @@ class _AppDrawerState extends State<AppDrawer> {
                     Navigator.pop(context);
                     Future.microtask(
                       () => _navigateAndClearStack(const AssetsListingScreen()),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.trending_up_rounded,
+                  title: 'Performance',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(
+                        const PerformanceModuleScreen(),
+                      ),
                     );
                   },
                 ),

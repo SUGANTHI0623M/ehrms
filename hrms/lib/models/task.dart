@@ -3,6 +3,8 @@ import 'package:hrms/models/customer.dart';
 DateTime? _parseDate(dynamic value) {
   if (value == null) return null;
   if (value is String) return DateTime.tryParse(value);
+  if (value is num)
+    return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
   if (value is Map<dynamic, dynamic>) {
     final dateStr = value[r'$date'];
     if (dateStr != null) return DateTime.tryParse(dateStr.toString());
@@ -82,14 +84,15 @@ class TaskExitRecord {
   factory TaskExitRecord.fromJson(Map<String, dynamic>? json) {
     if (json == null)
       return const TaskExitRecord(lat: 0, lng: 0, exitReason: '');
+    final loc = json['exitLocation'] as Map<String, dynamic>? ?? json;
     return TaskExitRecord(
-      lat: (json['lat'] as num?)?.toDouble() ?? 0,
-      lng: (json['lng'] as num?)?.toDouble() ?? 0,
-      address: (json['address'] ?? json['fullAddress']) as String?,
-      fullAddress: json['fullAddress'] as String?,
-      pincode: json['pincode'] as String?,
+      lat: (loc['lat'] as num?)?.toDouble() ?? 0,
+      lng: (loc['lng'] as num?)?.toDouble() ?? 0,
+      address: (loc['address'] ?? loc['fullAddress']) as String?,
+      fullAddress: loc['fullAddress'] as String?,
+      pincode: loc['pincode'] as String?,
       exitReason: (json['exitReason'] as String?) ?? '',
-      exitedAt: Task._dateFromJson(json['exitedAt']),
+      exitedAt: Task._dateFromJson(json['exitedAt'] ?? json['time']),
     );
   }
 }
@@ -113,13 +116,16 @@ class TaskRestartRecord {
 
   factory TaskRestartRecord.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const TaskRestartRecord(lat: 0, lng: 0);
+    final loc = json['restartLocation'] as Map<String, dynamic>? ?? json;
     return TaskRestartRecord(
-      lat: (json['lat'] as num?)?.toDouble() ?? 0,
-      lng: (json['lng'] as num?)?.toDouble() ?? 0,
-      address: (json['address'] ?? json['fullAddress']) as String?,
-      fullAddress: json['fullAddress'] as String?,
-      pincode: json['pincode'] as String?,
-      resumedAt: _parseDate(json['resumedAt']),
+      lat: (loc['lat'] as num?)?.toDouble() ?? 0,
+      lng: (loc['lng'] as num?)?.toDouble() ?? 0,
+      address: (loc['address'] ?? loc['fullAddress']) as String?,
+      fullAddress: loc['fullAddress'] as String?,
+      pincode: loc['pincode'] as String?,
+      resumedAt: _parseDate(
+        json['restartedAt'] ?? json['resumedAt'] ?? json['time'],
+      ),
     );
   }
 }
@@ -152,11 +158,13 @@ enum TaskStatus {
   onlineReady,
   assigned,
   approved,
+  staffapproved,
   pending,
   scheduled,
   inProgress,
   arrived,
   exited,
+  waitingForApproval,
   completed,
   rejected,
   cancelled,
@@ -365,6 +373,8 @@ class Task {
   static DateTime? _dateFromJson(dynamic value) {
     if (value == null) return null;
     if (value is String) return DateTime.tryParse(value);
+    if (value is num)
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
     if (value is Map<dynamic, dynamic>) {
       final dateStr = value[r'$date'];
       if (dateStr != null) return DateTime.tryParse(dateStr.toString());
@@ -372,11 +382,13 @@ class Task {
     return null;
   }
 
-  /// Backend expects snake_case: in_progress, not inProgress.
+  /// Backend expects snake_case: in_progress, waiting_for_approval, etc.
   static String statusToApiString(TaskStatus s) {
     switch (s) {
       case TaskStatus.inProgress:
         return 'in_progress';
+      case TaskStatus.waitingForApproval:
+        return 'waiting_for_approval';
       default:
         return s.name;
     }
@@ -403,8 +415,12 @@ class Task {
         return TaskStatus.arrived;
       case 'exited':
         return TaskStatus.exited;
+      case 'waiting_for_approval':
+        return TaskStatus.waitingForApproval;
       case 'approved':
         return TaskStatus.approved;
+      case 'staffapproved':
+        return TaskStatus.staffapproved;
       case 'rejected':
         return TaskStatus.rejected;
       case 'cancelled':
@@ -536,6 +552,11 @@ class TimelineEvent {
     if (timeVal != null) {
       if (timeVal is String)
         time = DateTime.tryParse(timeVal);
+      else if (timeVal is num)
+        time = DateTime.fromMillisecondsSinceEpoch(
+          timeVal.toInt(),
+          isUtc: true,
+        );
       else if (timeVal is Map && timeVal[r'$date'] != null) {
         time = DateTime.tryParse(timeVal[r'$date'].toString());
       }
@@ -575,6 +596,8 @@ class RoutePoint {
     if (ts != null) {
       if (ts is String)
         time = DateTime.tryParse(ts);
+      else if (ts is num)
+        time = DateTime.fromMillisecondsSinceEpoch(ts.toInt(), isUtc: true);
       else if (ts is Map && ts[r'$date'] != null) {
         time = DateTime.tryParse(ts[r'$date'].toString());
       }

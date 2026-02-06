@@ -4,6 +4,19 @@ const Task = require('../models/Task');
 const TaskDetails = require('../models/TaskDetails');
 const { upsertTaskDetails, buildUnsetExtended } = require('./taskController');
 const { reverseGeocode } = require('../services/geocodingService');
+const { parseTimestamp } = require('../utils/dateUtils');
+
+/** Build location object per spec: { lat, lng, address?, pincode?, recordedAt } */
+function buildLocationObject(lat, lng, address, pincode) {
+  const now = new Date();
+  return {
+    lat: Number(lat),
+    lng: Number(lng),
+    ...(address != null && address !== '' && { address: String(address) }),
+    ...(pincode != null && pincode !== '' && { pincode: String(pincode) }),
+    recordedAt: parseTimestamp(now),
+  };
+}
 
 /** Haversine distance in meters between two lat/lng points. */
 function haversineDistanceM(lat1, lng1, lat2, lng2) {
@@ -53,7 +66,7 @@ exports.storeTracking = async (req, res) => {
       staffName: resolvedStaffName,
       latitude: Number(lat),
       longitude: Number(lng),
-      timestamp: timestamp ? new Date(timestamp) : new Date(),
+      timestamp: parseTimestamp(timestamp),
       batteryPercent: batteryPercent != null ? Number(batteryPercent) : undefined,
       movementType: movementType || undefined,
       destinationLat: destinationLat != null ? Number(destinationLat) : undefined,
@@ -115,9 +128,15 @@ exports.exitTracking = async (req, res) => {
     if (!taskId || !exitReason || String(exitReason).trim() === '') {
       return res.status(400).json({ success: false, message: 'taskId and exitReason required' });
     }
-    const task = await Task.findById(taskId).select('assignedTo taskId').populate('assignedTo', 'name');
+    const task = await Task.findById(taskId).select('assignedTo taskId status').populate('assignedTo', 'name');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    if (task.status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status for exit: task must be in_progress, got ${task.status}`,
+      });
     }
     const staffIdObj = task.assignedTo?._id || staffId;
     const resolvedStaffName = task.assignedTo?.name || staffName;
@@ -134,16 +153,12 @@ exports.exitTracking = async (req, res) => {
     }
 
     const exitAddress = geo?.address || undefined;
-    const exitNow = new Date();
+    const exitNow = parseTimestamp(new Date());
+    const exitLocation = buildLocationObject(exitLat, exitLng, exitAddress, geo?.pincode);
     const exitRecord = {
-      lat: exitLat,
-      lng: exitLng,
-      address: exitAddress,
-      fullAddress: exitAddress,
-      pincode: geo?.pincode || undefined,
-      exitReason: String(exitReason).trim(),
       exitedAt: exitNow,
-      time: exitNow,
+      exitReason: String(exitReason).trim(),
+      exitLocation,
     };
 
     await Task.findByIdAndUpdate(taskId, {
@@ -193,9 +208,15 @@ exports.restartTracking = async (req, res) => {
     if (!taskId) {
       return res.status(400).json({ success: false, message: 'taskId required' });
     }
-    const task = await Task.findById(taskId).select('taskId');
+    const task = await Task.findById(taskId).select('taskId status');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    if (task.status !== 'exited') {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status for restart: task must be exited, got ${task.status}`,
+      });
     }
     const resumeLat = lat != null ? Number(lat) : 0;
     const resumeLng = lng != null ? Number(lng) : 0;
@@ -208,21 +229,24 @@ exports.restartTracking = async (req, res) => {
       }
     }
     const restartAddress = fullAddress || geo?.address || undefined;
-    const resumeNow = new Date();
+    const resumeNow = parseTimestamp(new Date());
+    const restartLocation = buildLocationObject(
+      resumeLat,
+      resumeLng,
+      restartAddress,
+      pincode || geo?.pincode
+    );
     const restartRecord = {
-      lat: resumeLat,
-      lng: resumeLng,
-      address: restartAddress,
-      fullAddress: restartAddress,
-      pincode: pincode || geo?.pincode || undefined,
-      resumedAt: resumeNow,
-      time: resumeNow,
+      restartedAt: resumeNow,
+      restartLocation,
     };
     const updateData = {
       status: 'in_progress',
-      startTime: new Date(),
-      started: new Date(),
+      startTime: resumeNow,
+      started: resumeNow,
       startLocation: { lat: resumeLat, lng: resumeLng },
+      rideStartLocation: restartLocation,
+      rideStartedAt: resumeNow,
       sourceLocation: {
         lat: resumeLat,
         lng: resumeLng,
@@ -264,9 +288,15 @@ exports.arrivedTracking = async (req, res) => {
     if (!taskId || lat == null || lng == null) {
       return res.status(400).json({ success: false, message: 'taskId, lat, lng required' });
     }
-    const task = await Task.findById(taskId).select('assignedTo taskId').populate('assignedTo', 'name');
+    const task = await Task.findById(taskId).select('assignedTo taskId status').populate('assignedTo', 'name');
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    if (task.status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status for arrived: task must be in_progress, got ${task.status}`,
+      });
     }
     const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
     const staffIdObj = task.assignedTo?._id || staffId;
@@ -285,18 +315,26 @@ exports.arrivedTracking = async (req, res) => {
     const srcLoc = details?.sourceLocation || req.body?.sourceLocation || {};
     const resolvedSourceFullAddress = sourceFullAddress || srcLoc.address || srcLoc.fullAddress;
 
-    const now = new Date();
+    const now = parseTimestamp(new Date());
+    const arrivalLocation = buildLocationObject(
+      arrivalLat,
+      arrivalLng,
+      resolvedFullAddress,
+      resolvedPincode
+    );
     const updateData = {
       status: 'arrived',
       progressSteps: { ...(details?.progressSteps || {}), reachedLocation: true },
       arrivalTime: now,
       arrived: now,
+      arrivedAt: now,
       arrivedLatitude: arrivalLat,
       arrivedLongitude: arrivalLng,
       arrivedFullAddress: resolvedFullAddress,
       arrivedPincode: resolvedPincode,
       arrivedDate: now,
-      arrivedTime: now.toTimeString().slice(0, 8),
+      arrivedTime: new Date(now).toTimeString().slice(0, 8),
+      arrivalLocation,
       sourceFullAddress: resolvedSourceFullAddress,
     };
     if (req.body.tripDurationSeconds != null) updateData.tripDurationSeconds = Number(req.body.tripDurationSeconds);

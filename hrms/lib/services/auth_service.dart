@@ -48,6 +48,13 @@ class AuthService {
       if (userData != null) {
         await prefs.setString('user', jsonEncode(userData));
       }
+      if (data != null && data['user'] != null) {
+        final user = data['user'] as Map<String, dynamic>?;
+        final taskSettings = user?['taskSettings'] as Map<String, dynamic>?;
+        if (taskSettings != null) {
+          await prefs.setString('taskSettings', jsonEncode(taskSettings));
+        }
+      }
       _api.setAuthToken(accessToken);
       return {'success': true, 'data': data};
     } on DioException catch (e) {
@@ -155,6 +162,11 @@ class AuthService {
       }
       if (data != null && data['user'] != null) {
         await prefs.setString('user', jsonEncode(data['user']));
+        final user = data['user'] as Map<String, dynamic>?;
+        final taskSettings = user?['taskSettings'] as Map<String, dynamic>?;
+        if (taskSettings != null) {
+          await prefs.setString('taskSettings', jsonEncode(taskSettings));
+        }
       }
       _api.setAuthToken(data?['accessToken']);
       return {'success': true, 'data': data};
@@ -346,6 +358,20 @@ class AuthService {
   Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token');
+  }
+
+  /// Task settings (enableOtpVerification, autoApprove, etc.) stored on login.
+  /// Used by arrived screen as fallback when task doesn't have isOtpRequired.
+  static Future<bool> isOtpRequiredFromStoredSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final str = prefs.getString('taskSettings');
+    if (str == null) return false;
+    try {
+      final map = jsonDecode(str) as Map<String, dynamic>?;
+      return map?['enableOtpVerification'] == true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // -------------------------

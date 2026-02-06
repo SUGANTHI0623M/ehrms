@@ -46,6 +46,9 @@ const staffSchema = new mongoose.Schema({
     // Reference to candidate for education, experience, and documents
     candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate' },
 
+    // Tasks module visibility – when true, show Tasks in app drawer
+    locationAccess: { type: Boolean, default: false },
+
     salary: {
         // Fixed Salary Components (Monthly)
         basicSalary: Number,

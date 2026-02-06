@@ -3,6 +3,7 @@ const Staff = require('../models/Staff');
 const Company = require('../models/Company');
 const Branch = require('../models/Branch');
 const Candidate = require('../models/Candidate');
+const TaskSettings = require('../models/TaskSettings');
 const jwt = require('jsonwebtoken');
 const fs = require('fs').promises;
 const path = require('path');
@@ -207,6 +208,22 @@ const login = async (req, res) => {
         // Prepare Response
         let company = staff?.businessId || user.companyId;
         const formattedPermissions = user.roleId?.permissions || [];
+        const businessId = staff?.businessId?._id || staff?.businessId || company?._id || company;
+
+        // Fetch task settings for staff's businessId (enableOtpVerification, autoApprove, etc.)
+        let taskSettings = null;
+        try {
+            if (businessId) {
+                taskSettings = await TaskSettings.findOne({
+                    $or: [{ companyId: businessId }, { businessId }],
+                }).lean();
+            }
+            if (!taskSettings) {
+                taskSettings = await TaskSettings.findOne().lean();
+            }
+        } catch (e) {
+            console.warn('[Auth] TaskSettings fetch failed:', e?.message);
+        }
 
         const userResponse = {
             id: user._id,
@@ -218,7 +235,9 @@ const login = async (req, res) => {
             companyName: company && company.name ? company.name : undefined,
             permissions: formattedPermissions,
             staffId: staff?._id,
-            avatar: staff?.avatar || user.avatar
+            avatar: staff?.avatar || user.avatar,
+            locationAccess: staff?.locationAccess === true,
+            taskSettings: taskSettings?.settings || null,
         };
 
         // Create a refresh token (if needed by frontend, though Flutter usually uses access token for now)
@@ -285,6 +304,21 @@ const googleLogin = async (req, res) => {
 
         let company = staff?.businessId || user.companyId;
         const formattedPermissions = user.roleId?.permissions || [];
+        const businessId = staff?.businessId?._id || staff?.businessId || company?._id || company;
+
+        let taskSettings = null;
+        try {
+            if (businessId) {
+                taskSettings = await TaskSettings.findOne({
+                    $or: [{ companyId: businessId }, { businessId }],
+                }).lean();
+            }
+            if (!taskSettings) {
+                taskSettings = await TaskSettings.findOne().lean();
+            }
+        } catch (e) {
+            console.warn('[Auth] TaskSettings fetch failed (google):', e?.message);
+        }
 
         const userResponse = {
             id: user._id,
@@ -296,7 +330,9 @@ const googleLogin = async (req, res) => {
             companyName: company && company.name ? company.name : undefined,
             permissions: formattedPermissions,
             staffId: staff?._id,
-            avatar: staff?.avatar || user.avatar
+            avatar: staff?.avatar || user.avatar,
+            locationAccess: staff?.locationAccess === true,
+            taskSettings: taskSettings?.settings || null,
         };
 
         res.json({

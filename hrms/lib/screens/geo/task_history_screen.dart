@@ -83,13 +83,6 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _loading ? null : _fetchTaskDetails,
-            tooltip: 'Refresh',
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

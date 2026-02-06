@@ -8,8 +8,9 @@ import 'package:hrms/screens/geo/otp_verification_screen.dart';
 import 'package:hrms/screens/geo/photo_proof_screen.dart';
 import 'package:hrms/screens/geo/task_completed_screen.dart';
 import 'package:hrms/screens/geo/task_history_screen.dart';
+import 'package:hrms/services/auth_service.dart';
 import 'package:hrms/services/task_service.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 
 class ArrivedScreen extends StatefulWidget {
   final String? taskMongoId;
@@ -64,15 +65,27 @@ class ArrivedScreen extends StatefulWidget {
 class _ArrivedScreenState extends State<ArrivedScreen> {
   Task? _task;
   bool _photoProofDone = false;
+  bool _storedOtpRequired = false;
 
   Task? get task => _task;
+
+  /// OTP requirement: from task API (mergeTaskSettings) or fallback to stored
+  /// settings from login (TaskSettings.enableOtpVerification).
+  bool get _isOtpRequiredFromSettings =>
+      (task ?? widget.task)?.isOtpRequired == true || _storedOtpRequired;
 
   @override
   void initState() {
     super.initState();
     _task = widget.task;
     _photoProofDone = widget.task?.photoProof == true;
+    _loadStoredTaskSettings();
     _refreshTask();
+  }
+
+  Future<void> _loadStoredTaskSettings() async {
+    final otpRequired = await AuthService.isOtpRequiredFromStoredSettings();
+    if (mounted) setState(() => _storedOtpRequired = otpRequired);
   }
 
   bool _canOpenOtpScreen() {
@@ -83,6 +96,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
         task?.isOtpVerified != true;
   }
 
+  /// Fetches task from API with TaskSettings merged (isOtpRequired from enableOtpVerification).
   Future<void> _refreshTask() async {
     if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
     try {
@@ -333,7 +347,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                       _row('Time Taken', _formatDuration(widget.totalDuration)),
                       _row(
                         'Arrival Time',
-                        DateFormat('h:mm a').format(widget.arrivalTime),
+                        DateDisplayUtil.formatTime(widget.arrivalTime),
                       ),
                       if (drivingKm > 0 || walkingKm > 0) ...[
                         _row(
@@ -432,43 +446,46 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                               }
                             : null,
                       ),
-                      // OTP can be verified even when form is not filled – no dependency.
-                      _nextStepRow(
-                        icon: Icons.pin_rounded,
-                        label: 'Get OTP from customer',
-                        done: task?.isOtpVerified == true,
-                        onTap: _canOpenOtpScreen()
-                            ? () async {
-                                final mongoId =
-                                    widget.taskMongoId ?? task?.id ?? '';
-                                final t = task;
-                                if (t == null || mongoId.isEmpty) return;
-                                final verified = await Navigator.push<bool>(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => OtpVerificationScreen(
-                                      task: t,
-                                      taskMongoId: mongoId,
-                                      arrivalTime: widget.arrivalTime,
-                                      totalDuration: widget.totalDuration,
-                                      totalDistanceKm: widget.totalDistanceKm,
-                                      autoSendOtp: true,
+                      // OTP step: only when TaskSettings.enableOtpVerification is true
+                      if (_isOtpRequiredFromSettings)
+                        _nextStepRow(
+                          icon: Icons.pin_rounded,
+                          label: 'Get OTP from customer',
+                          done: (task ?? widget.task)?.isOtpVerified == true,
+                          onTap: _canOpenOtpScreen()
+                              ? () async {
+                                  final mongoId =
+                                      widget.taskMongoId ?? task?.id ?? '';
+                                  final t = task;
+                                  if (t == null || mongoId.isEmpty) return;
+                                  final verified = await Navigator.push<bool>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          OtpVerificationScreen(
+                                            task: t,
+                                            taskMongoId: mongoId,
+                                            arrivalTime: widget.arrivalTime,
+                                            totalDuration: widget.totalDuration,
+                                            totalDistanceKm:
+                                                widget.totalDistanceKm,
+                                            autoSendOtp: true,
+                                          ),
                                     ),
-                                  ),
-                                );
-                                if (context.mounted) {
-                                  if (verified == true) {
-                                    setState(() {
-                                      _task = _task?.copyWith(
-                                        isOtpVerified: true,
-                                      );
-                                    });
+                                  );
+                                  if (context.mounted) {
+                                    if (verified == true) {
+                                      setState(() {
+                                        _task = _task?.copyWith(
+                                          isOtpVerified: true,
+                                        );
+                                      });
+                                    }
+                                    await _refreshTask();
                                   }
-                                  await _refreshTask();
                                 }
-                              }
-                            : null,
-                      ),
+                              : null,
+                        ),
                       _nextStepRow(
                         icon: Icons.description_rounded,
                         label: 'Fill required form (optional)',
@@ -479,29 +496,31 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed:
-                              (task?.isOtpRequired != true ||
-                                  task?.isOtpVerified == true)
+                              (!_isOtpRequiredFromSettings ||
+                                  (task ?? widget.task)?.isOtpVerified == true)
                               ? () async {
                                   final t = task ?? widget.task;
                                   final startedAt = widget.arrivalTime.subtract(
                                     widget.totalDuration,
                                   );
-                                  final otpVerified = t?.isOtpVerified == true;
+                                  final otpVerified =
+                                      (task ?? widget.task)?.isOtpVerified ==
+                                      true;
+                                  Task? refreshed = task ?? t;
                                   if (widget.taskMongoId != null &&
                                       widget.taskMongoId!.isNotEmpty) {
                                     try {
-                                      await TaskService().endTask(
+                                      refreshed = await TaskService().endTask(
                                         widget.taskMongoId!,
                                       );
                                     } catch (_) {}
                                   }
                                   if (context.mounted) {
-                                    final refreshed = task ?? t;
                                     Navigator.of(context).pushReplacement(
                                       MaterialPageRoute(
                                         builder: (context) =>
                                             TaskCompletedScreen(
-                                              task: refreshed,
+                                              task: refreshed ?? task ?? t,
                                               taskMongoId: widget.taskMongoId,
                                               taskId: widget.taskId,
                                               startedAt: startedAt,
@@ -516,7 +535,8 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                               photoProof: _photoProofDone,
                                               arrivalTime: widget.arrivalTime,
                                               otpVerifiedAt:
-                                                  refreshed?.otpVerifiedAt,
+                                                  (refreshed ?? task ?? t)
+                                                      ?.otpVerifiedAt,
                                               verifiedOtp: null,
                                             ),
                                       ),

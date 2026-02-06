@@ -32,7 +32,9 @@ class TaskService {
       'description': description,
       'assignedTo': assignedTo,
       'customerId': customerId,
-      'expectedCompletionDate': expectedCompletionDate.toIso8601String(),
+      'expectedCompletionDate': expectedCompletionDate
+          .toUtc()
+          .toIso8601String(),
       'status': status,
     };
     if (sourceLocation != null) body['sourceLocation'] = sourceLocation;
@@ -147,9 +149,15 @@ class TaskService {
       await _setToken();
       final body = <String, dynamic>{};
       if (status != null) body['status'] = status;
-      if (startTime != null) body['startTime'] = startTime.toIso8601String();
+      if (startTime != null)
+        body['startTime'] = startTime.toUtc().toIso8601String();
       if (startLat != null && startLng != null) {
-        body['startLocation'] = {'lat': startLat, 'lng': startLng};
+        final now = DateTime.now().toUtc();
+        body['startLocation'] = {
+          'lat': startLat,
+          'lng': startLng,
+          'recordedAt': now.toIso8601String(),
+        };
       }
       if (sourceLocation != null) body['sourceLocation'] = sourceLocation;
       if (destinationLocation != null)
@@ -160,7 +168,7 @@ class TaskService {
       if (tripDurationSeconds != null)
         body['tripDurationSeconds'] = tripDurationSeconds;
       if (arrivalTime != null)
-        body['arrivalTime'] = arrivalTime.toIso8601String();
+        body['arrivalTime'] = arrivalTime.toUtc().toIso8601String();
       final response = await _api.dio.patch<Map<String, dynamic>>(
         '/tasks/$id',
         data: body,
@@ -187,7 +195,7 @@ class TaskService {
     final body = <String, dynamic>{
       'lat': lat,
       'lng': lng,
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
     if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
     if (movementType != null) body['movementType'] = movementType;
@@ -211,7 +219,7 @@ class TaskService {
       'taskId': taskMongoId,
       'lat': lat,
       'lng': lng,
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
     if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
     if (movementType != null) body['movementType'] = movementType;

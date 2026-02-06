@@ -12,7 +12,7 @@ const taskSchema = new mongoose.Schema({
   description: { type: String, default: '' },
   status: {
     type: String,
-    enum: ['assigned', 'approved', 'pending', 'scheduled', 'in_progress', 'arrived', 'exited', 'completed', 'rejected', 'reopened'],
+    enum: ['assigned', 'approved', 'staffapproved', 'pending', 'scheduled', 'in_progress', 'arrived', 'exited', 'completed', 'rejected', 'reopened', 'waiting_for_approval'],
     default: 'assigned',
   },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },

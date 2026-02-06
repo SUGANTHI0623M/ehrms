@@ -15,6 +15,7 @@ import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,18 +79,33 @@ class _MyTasksScreenState extends State<MyTasksScreen>
             .where(
               (t) =>
                   t.status == TaskStatus.assigned ||
-                  t.status == TaskStatus.scheduled,
+                  t.status == TaskStatus.scheduled ||
+                  t.status == TaskStatus.approved ||
+                  t.status == TaskStatus.staffapproved,
             )
             .toList();
         break;
       case 2: // In progress
-        list = list.where((t) => t.status == TaskStatus.inProgress).toList();
+        list = list
+            .where(
+              (t) =>
+                  t.status == TaskStatus.inProgress ||
+                  t.status == TaskStatus.arrived ||
+                  t.status == TaskStatus.exited,
+            )
+            .toList();
         break;
       case 3: // Pending
         list = list.where((t) => t.status == TaskStatus.pending).toList();
         break;
       case 4: // Completed
-        list = list.where((t) => t.status == TaskStatus.completed).toList();
+        list = list
+            .where(
+              (t) =>
+                  t.status == TaskStatus.completed ||
+                  t.status == TaskStatus.waitingForApproval,
+            )
+            .toList();
         break;
       case 5: // Rejected
         list = list.where((t) => t.status == TaskStatus.rejected).toList();
@@ -450,14 +466,29 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return Colors.orange.shade600;
       case TaskStatus.inProgress:
         return Colors.blue.shade600;
+      case TaskStatus.arrived:
+        return Colors.indigo.shade600;
+      case TaskStatus.exited:
+        return Colors.amber.shade700;
       case TaskStatus.completed:
         return Colors.green.shade600;
+      case TaskStatus.waitingForApproval:
+        return Colors.amber.shade600;
       case TaskStatus.assigned:
         return Colors.green.shade600;
       case TaskStatus.scheduled:
         return Colors.blue.shade600;
+      case TaskStatus.approved:
+      case TaskStatus.staffapproved:
+        return Colors.teal.shade600;
+      case TaskStatus.rejected:
+        return Colors.red.shade600;
       case TaskStatus.reopened:
         return Colors.teal.shade600;
+      case TaskStatus.cancelled:
+        return Colors.grey.shade600;
+      case TaskStatus.onlineReady:
+        return Colors.grey.shade600;
       default:
         return Colors.grey.shade600;
     }
@@ -471,16 +502,29 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return 'Pending';
       case TaskStatus.scheduled:
         return 'Scheduled';
+      case TaskStatus.approved:
+      case TaskStatus.staffapproved:
+        return 'Approved';
       case TaskStatus.inProgress:
         return 'In Progress';
+      case TaskStatus.arrived:
+        return 'Arrived';
+      case TaskStatus.exited:
+        return 'Exited';
+      case TaskStatus.waitingForApproval:
+        return 'Waiting for Approval';
       case TaskStatus.completed:
-        return 'Done';
+        return 'Completed';
+      case TaskStatus.rejected:
+        return 'Rejected';
       case TaskStatus.cancelled:
         return 'Cancelled';
       case TaskStatus.reopened:
         return 'Reopened';
-      default:
+      case TaskStatus.onlineReady:
         return 'Ready';
+      default:
+        return 'Unknown';
     }
   }
 
@@ -498,7 +542,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           (t) =>
               t.status == TaskStatus.pending ||
               t.status == TaskStatus.assigned ||
-              t.status == TaskStatus.scheduled,
+              t.status == TaskStatus.scheduled ||
+              t.status == TaskStatus.staffapproved,
         )
         .length;
     final percentage = total > 0 ? (completed / total * 100).round() : 0;
@@ -982,9 +1027,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                         ),
                                                       ),
                                                       Text(
-                                                        DateFormat(
-                                                          'dd MMM yy',
-                                                        ).format(
+                                                        DateDisplayUtil.formatShortDate(
                                                           task.expectedCompletionDate,
                                                         ),
                                                         style: TextStyle(
@@ -1025,7 +1068,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                       const SizedBox(width: 4),
                                                       Flexible(
                                                         child: Text(
-                                                          'Expected: ${DateFormat('dd MMM yy').format(task.expectedCompletionDate)}',
+                                                          'Expected: ${DateDisplayUtil.formatShortDate(task.expectedCompletionDate)}',
                                                           style: TextStyle(
                                                             fontSize: 11,
                                                             color: Colors
@@ -1046,7 +1089,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                         ),
                                                         Flexible(
                                                           child: Text(
-                                                            'Completed: ${DateFormat('dd MMM yy').format(task.completedDate!)}',
+                                                            'Completed: ${DateDisplayUtil.formatShortDate(task.completedDate!)}',
                                                             style: TextStyle(
                                                               fontSize: 11,
                                                               color: Colors

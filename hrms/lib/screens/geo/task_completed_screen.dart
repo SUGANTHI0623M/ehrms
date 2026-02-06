@@ -111,6 +111,9 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
 
   Task? get _task => _fetchedTask ?? widget.task;
 
+  bool get _isWaitingForApproval =>
+      _task?.status == TaskStatus.waitingForApproval;
+
   double get _displayDistanceKm =>
       _task?.tripDistanceKm ?? widget.totalDistanceKm;
 
@@ -281,9 +284,12 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
             decoration: BoxDecoration(color: AppColors.primary),
           ),
           leading: const SizedBox.shrink(),
-          title: const Text(
-            'Task Completed',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          title: Text(
+            _isWaitingForApproval ? 'Waiting for Approval' : 'Task Completed',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           centerTitle: true,
           elevation: 0,
@@ -331,7 +337,9 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Task Completed!',
+                  _isWaitingForApproval
+                      ? 'Waiting for Approval'
+                      : 'Task Completed!',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 24,
@@ -341,7 +349,9 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Excellent work! The task has been successfully completed.',
+                  _isWaitingForApproval
+                      ? 'Your task completion has been submitted. Awaiting admin approval.'
+                      : 'Excellent work! The task has been successfully completed.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                 ),
@@ -490,7 +500,9 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'Task Completed Successfully',
+                        _isWaitingForApproval
+                            ? 'Awaiting Admin Approval'
+                            : 'Task Completed Successfully',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -501,7 +513,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                if (_task != null)
+                if (_task != null && !_isWaitingForApproval)
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(

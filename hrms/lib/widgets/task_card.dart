@@ -25,18 +25,58 @@ class TaskCard extends StatelessWidget {
         statusColor = Colors.blue;
         statusText = 'Scheduled';
         break;
+      case TaskStatus.approved:
+      case TaskStatus.staffapproved:
+        statusColor = Colors.teal;
+        statusText = 'Approved';
+        break;
+      case TaskStatus.inProgress:
+        statusColor = Colors.blue;
+        statusText = 'In Progress';
+        break;
+      case TaskStatus.arrived:
+        statusColor = Colors.indigo;
+        statusText = 'Arrived';
+        break;
+      case TaskStatus.exited:
+        statusColor = Colors.amber;
+        statusText = 'Exited';
+        break;
+      case TaskStatus.waitingForApproval:
+        statusColor = Colors.amber;
+        statusText = 'Waiting for Approval';
+        break;
       case TaskStatus.completed:
-        statusColor = Colors.grey;
+        statusColor = Colors.green;
         statusText = 'Completed';
         break;
+      case TaskStatus.rejected:
+        statusColor = Colors.red;
+        statusText = 'Rejected';
+        break;
+      case TaskStatus.cancelled:
+        statusColor = Colors.grey;
+        statusText = 'Cancelled';
+        break;
+      case TaskStatus.reopened:
+        statusColor = Colors.teal;
+        statusText = 'Reopened';
+        break;
+      case TaskStatus.onlineReady:
+        statusColor = Colors.grey;
+        statusText = 'Ready';
+        break;
       default:
-        statusColor = Colors.grey; // Default color
-        statusText = 'Unknown'; // Default text
+        statusColor = Colors.grey;
+        statusText = 'Unknown';
         break;
     }
 
     bool isTaskActionable =
-        task.status == TaskStatus.assigned || task.status == TaskStatus.pending;
+        task.status == TaskStatus.assigned ||
+        task.status == TaskStatus.pending ||
+        task.status == TaskStatus.approved ||
+        task.status == TaskStatus.staffapproved;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -205,9 +245,7 @@ class TaskCard extends StatelessWidget {
                 const Text('🕒', style: TextStyle(fontSize: 14)),
                 const SizedBox(width: 8),
                 Text(
-                  _formatCompletionDate(
-                    task.expectedCompletionDate.toIso8601String(),
-                  ),
+                  _formatCompletionDate(task.expectedCompletionDate),
                   style: const TextStyle(
                     color: Colors.black,
                     fontSize: 12,
@@ -301,8 +339,7 @@ class TaskCard extends StatelessWidget {
     );
   }
 
-  String _formatCompletionDate(String dateString) {
-    final date = DateTime.parse(dateString);
+  String _formatCompletionDate(DateTime date) {
     final local = date.isUtc ? date.toLocal() : date;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

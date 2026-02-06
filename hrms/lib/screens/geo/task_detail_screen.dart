@@ -11,7 +11,7 @@ import 'package:hrms/screens/geo/live_tracking_screen.dart';
 import 'package:hrms/screens/geo/task_history_screen.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/directions_service.dart';
-import 'package:intl/intl.dart';
+import 'package:hrms/utils/date_display_util.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hrms/services/task_service.dart';
 
@@ -323,6 +323,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         return 'Assigned';
       case TaskStatus.approved:
         return 'Approved';
+      case TaskStatus.staffapproved:
+        return 'Staff Approved';
       case TaskStatus.pending:
         return 'Pending';
       case TaskStatus.scheduled:
@@ -335,6 +337,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         return 'Completed';
       case TaskStatus.exited:
         return 'Exited';
+      case TaskStatus.waitingForApproval:
+        return 'Waiting for Approval';
       case TaskStatus.rejected:
         return 'Rejected';
       case TaskStatus.reopened:
@@ -1053,9 +1057,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ),
                       Text(
-                        DateFormat(
-                          'EEEE, dd MMM yyyy \'at\' h:mm a',
-                        ).format(task.assignedDate!),
+                        DateDisplayUtil.formatFull(task.assignedDate!),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade800,
@@ -1089,9 +1091,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ),
                       Text(
-                        DateFormat(
-                          'EEEE, dd MMM yyyy \'at\' h:mm a',
-                        ).format(task.expectedCompletionDate),
+                        DateDisplayUtil.formatFull(task.expectedCompletionDate),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade800,
@@ -1124,9 +1124,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ),
                       Text(
-                        DateFormat(
-                          'EEEE, dd MMM yyyy \'at\' h:mm a',
-                        ).format(task.completedDate!),
+                        DateDisplayUtil.formatFull(task.completedDate!),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade800,
@@ -1174,8 +1172,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   ),
                   if (!verified)
                     TextSpan(
-                      text:
-                          ' (Task can be approved only after OTP verification)',
+                      text: ' (OTP required at arrival to complete task)',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
@@ -1372,7 +1369,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   if (date != null)
                     _historyDetailRow(
                       'Date & Time',
-                      DateFormat('dd MMM yyyy, h:mm a').format(date),
+                      DateDisplayUtil.formatDateTime(date),
                     ),
                   if (reason != null && reason.isNotEmpty)
                     _historyDetailRow('Reason', reason),
@@ -1498,11 +1495,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   bool _actionLoading = false;
 
-  /// Show "Start Ride" when task is assigned or pending.
+  /// Show "Start Ride": autoApprove true → assigned/pending (direct start); autoApprove false → only when approved
+  /// autoApprove false = manual approval required; autoApprove true = can start directly
   bool get _showStartRideButton =>
       task.id != null &&
       task.id!.isNotEmpty &&
-      (task.status == TaskStatus.assigned || task.status == TaskStatus.pending);
+      ((task.status == TaskStatus.assigned ||
+                  task.status == TaskStatus.pending) &&
+              task.autoApprove ||
+          (!task.autoApprove &&
+              (task.status == TaskStatus.approved ||
+                  task.status == TaskStatus.staffapproved)));
 
   /// Show "Resume Ride" when task was exited (user can restart).
   bool get _showResumeAfterExitButton =>
@@ -1516,22 +1519,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       task.id!.isNotEmpty &&
       task.status == TaskStatus.inProgress;
 
-  /// Show only Back when completed or rejected.
+  /// Show only Back when completed, waiting_for_approval, or rejected.
   bool get _showBackOnly =>
-      task.status == TaskStatus.completed || task.status == TaskStatus.rejected;
+      task.status == TaskStatus.completed ||
+      task.status == TaskStatus.waitingForApproval ||
+      task.status == TaskStatus.rejected;
 
+  /// Show Approve/Reject when autoApprove is false (manual approval required) and task is assigned/pending.
   bool get _showApprovalButtons =>
-      !_showStartRideButton &&
+      !task.autoApprove &&
+      (task.status == TaskStatus.assigned ||
+          task.status == TaskStatus.pending) &&
+      task.id != null &&
+      task.id!.isNotEmpty &&
       !_showResumeRideButton &&
       !_showResumeAfterExitButton &&
-      !_showBackOnly &&
-      !task.autoApprove &&
-      task.status != TaskStatus.rejected &&
-      task.status != TaskStatus.completed &&
-      task.status != TaskStatus.approved &&
-      task.status != TaskStatus.inProgress;
+      !_showBackOnly;
 
-  bool get _canApprove => !task.isOtpRequired || (task.isOtpVerified == true);
+  /// Staff can always approve; OTP verification applies only at arrival (arrived screen).
+  bool get _canApprove => true;
 
   /// Resolve pickup (source) LatLng: task.sourceLocation > current GPS.
   LatLng? get _pickupLatLng {
@@ -1617,16 +1623,23 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
     setState(() => _actionLoading = true);
     try {
-      final updated = await TaskService().updateTask(
-        task.id!,
-        status: 'in_progress',
-        startTime: DateTime.now(),
-        startLat: _currentPosition?.latitude ?? pickup.latitude,
-        startLng: _currentPosition?.longitude ?? pickup.longitude,
-      );
-      // Store initial point in Tracking collection (separate route).
       final startLat = _currentPosition?.latitude ?? pickup.latitude;
       final startLng = _currentPosition?.longitude ?? pickup.longitude;
+      late final Task updated;
+      if (task.status == TaskStatus.exited) {
+        // Resume after exit: use restart API (exited -> in_progress not allowed via updateTask)
+        await TaskService().restartTask(task.id!, lat: startLat, lng: startLng);
+        updated = await TaskService().getTaskById(task.id!);
+      } else {
+        updated = await TaskService().updateTask(
+          task.id!,
+          status: 'in_progress',
+          startTime: DateTime.now(),
+          startLat: startLat,
+          startLng: startLng,
+        );
+      }
+      // Store initial point in Tracking collection (separate route).
       debugPrint('[TaskDetail] Sending to DB: lat=$startLat lng=$startLng');
       TaskService()
           .storeTracking(task.id!, startLat, startLng, movementType: 'stop')

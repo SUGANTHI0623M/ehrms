@@ -62,12 +62,30 @@ const taskDetailsSchema = new mongoose.Schema({
     formFilled: { type: Boolean, default: false },
     otpVerified: { type: Boolean, default: false },
   },
-  isOtpRequired: { type: Boolean, default: false },
-  isGeoFenceRequired: { type: Boolean, default: false },
-  isPhotoRequired: { type: Boolean, default: false },
-  isFormRequired: { type: Boolean, default: false },
+  // isOtpRequired, isGeoFenceRequired, isPhotoRequired, isFormRequired come from TaskSettings only – not stored here
   tasks_exit: { type: Array, default: [] },
   tasks_restarted: { type: Array, default: [] },
+  approvedAt: { type: Date },
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+  rejectedAt: { type: Date },
+  rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+  completedAt: { type: Date },
+  completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+  rideStartedAt: { type: Date },
+  rideStartLocation: {
+    lat: { type: Number },
+    lng: { type: Number },
+    address: { type: String },
+    pincode: { type: String },
+    recordedAt: { type: Date },
+  },
+  arrivalLocation: {
+    lat: { type: Number },
+    lng: { type: Number },
+    address: { type: String },
+    pincode: { type: String },
+    recordedAt: { type: Date },
+  },
 }, { timestamps: true, strict: false });
 
 // Upsert by taskId
