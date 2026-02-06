@@ -3,7 +3,7 @@ const express = require('express');
 const connectDB = require('./src/config/db');
 const cors = require('cors');
 const helmet = require('helmet');
-
+//index
 const authRoutes = require('./src/routes/authRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
