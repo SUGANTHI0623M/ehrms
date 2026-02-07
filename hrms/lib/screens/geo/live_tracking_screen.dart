@@ -8,9 +8,11 @@ import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/location_data.dart';
 import 'package:hrms/models/tracking_event.dart';
 import 'package:hrms/services/geo/directions_service.dart';
-import 'package:hrms/services/geo/location_service.dart' show LocationService, GeofenceEvent;
+import 'package:hrms/services/geo/location_service.dart'
+    show LocationService, GeofenceEvent;
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/exit_ride_bottom_sheet.dart';
@@ -100,6 +102,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   final bool _formFilled = false;
   final bool _otpVerified = false;
   bool _updatingSteps = false;
+  bool _submittingArrived = false;
   Timer? _locationUploadTimer;
 
   /// Last position we sent to DB – used to compute speed from distance when device speed is 0.
@@ -720,7 +723,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
               _geofenceStatusMessage = null;
               break;
             case GeofenceEvent.exit:
-              _geofenceStatusMessage = '⚠️ You are outside the destination area';
+              _geofenceStatusMessage =
+                  '⚠️ You are outside the destination area';
               break;
             case GeofenceEvent.lowAccuracy:
               _geofenceStatusMessage = '📡 Waiting for accurate GPS signal…';
@@ -766,11 +770,17 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       builder: (ctx) => const ExitRideBottomSheet(),
     );
     if (result == null || !mounted) return;
+    final exitType = result['exitType'] as String?;
     final reason = result['reason']?.trim();
-    if (reason == null || reason.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please provide a reason')));
+    if (exitType == null ||
+        exitType.isEmpty ||
+        reason == null ||
+        reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select exit type and provide a reason'),
+        ),
+      );
       return;
     }
     if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
@@ -792,9 +802,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         await TaskService().exitRide(
           widget.taskMongoId!,
           reason,
+          exitType: exitType,
           lat: lat,
           lng: lng,
         );
+        await PresenceTrackingService().resumePresenceTracking();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -804,7 +816,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         return;
       }
     }
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
   }
 
   Future<void> _markReachedLocation() async {
@@ -829,6 +845,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   }
 
   Future<void> _onArrived() async {
+    if (_submittingArrived) return;
     final totalKm = _totalDistanceCovered / 1000;
     final arrival = DateTime.now();
     final durationSeconds = _totalTimeElapsed.inSeconds;
@@ -847,7 +864,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         widget.taskMongoId!.isNotEmpty &&
         lat != null &&
         lng != null) {
-      setState(() => _updatingSteps = true);
+      if (mounted) setState(() => _submittingArrived = true);
       try {
         final destAddress = _dropoffAddress.isNotEmpty
             ? _dropoffAddress
@@ -877,8 +894,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           },
         );
         if (mounted) setState(() => _reachedLocation = true);
-      } catch (_) {}
-      if (mounted) setState(() => _updatingSteps = false);
+      } catch (_) {
+        if (mounted) setState(() => _submittingArrived = false);
+        return;
+      }
+      // Keep _submittingArrived true until navigation; prevents double-tap
     }
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -1164,15 +1184,24 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                onPressed: _onArrived,
-                icon: const Icon(
-                  Icons.location_on_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                label: const Text(
-                  'Arrived',
-                  style: TextStyle(
+                onPressed: _submittingArrived ? null : _onArrived,
+                icon: _submittingArrived
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.location_on_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                label: Text(
+                  _submittingArrived ? 'Submitting...' : 'Arrived',
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
@@ -1180,6 +1209,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
+                  disabledBackgroundColor: AppColors.primary.withOpacity(0.7),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

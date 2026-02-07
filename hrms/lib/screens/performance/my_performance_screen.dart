@@ -325,12 +325,16 @@ class _MyPerformanceScreenState extends State<MyPerformanceScreen> {
               color: AppColors.primary,
             ),
             const SizedBox(width: 8),
-            Text(
-              'Latest Performance Review - ${latestReview['reviewCycle'] ?? 'Review'}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
+            Expanded(
+              child: Text(
+                'Latest Performance Review - ${latestReview['reviewCycle'] ?? 'Review'}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
           ],

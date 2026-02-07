@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
+import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
 import '../../utils/request_guard.dart';
@@ -154,6 +155,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     } else if (state is AttendanceCheckOutSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);
+      PresenceTrackingService().stopTracking();
       SnackBarUtils.showSnackBar(
         context,
         'Checked Out Successfully!',

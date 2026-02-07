@@ -14,6 +14,7 @@ import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/services/presence_tracking_service.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final Task task;
@@ -337,12 +338,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         return 'Completed';
       case TaskStatus.exited:
         return 'Exited';
+      case TaskStatus.exitedOnArrival:
+        return 'Exited on Arrival';
+      case TaskStatus.holdOnArrival:
+        return 'Hold on Arrival';
+      case TaskStatus.reopenedOnArrival:
+        return 'Reopened on Arrival';
       case TaskStatus.waitingForApproval:
         return 'Waiting for Approval';
       case TaskStatus.rejected:
         return 'Rejected';
       case TaskStatus.reopened:
         return 'Reopened';
+      case TaskStatus.hold:
+        return 'Hold';
       case TaskStatus.cancelled:
         return 'Cancelled';
       default:
@@ -1507,11 +1516,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               (task.status == TaskStatus.approved ||
                   task.status == TaskStatus.staffapproved)));
 
-  /// Show "Resume Ride" when task was exited (user can restart).
+  /// Show "Resume Ride" when task is on hold, holdOnArrival, reopenedOnArrival, exited with hold, or admin reopened.
   bool get _showResumeAfterExitButton =>
       task.id != null &&
       task.id!.isNotEmpty &&
-      task.status == TaskStatus.exited;
+      (task.status == TaskStatus.hold ||
+          task.status == TaskStatus.holdOnArrival ||
+          task.status == TaskStatus.reopenedOnArrival ||
+          task.status == TaskStatus.exited &&
+              (task.taskExitStatus == 'hold' || task.taskExitStatus == null) ||
+          task.status == TaskStatus.reopened);
 
   /// Show "Resume Ride" when task is in progress.
   bool get _showResumeRideButton =>
@@ -1626,8 +1640,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final startLat = _currentPosition?.latitude ?? pickup.latitude;
       final startLng = _currentPosition?.longitude ?? pickup.longitude;
       late final Task updated;
-      if (task.status == TaskStatus.exited) {
-        // Resume after exit: use restart API (exited -> in_progress not allowed via updateTask)
+      if (task.status == TaskStatus.exited ||
+          task.status == TaskStatus.hold ||
+          task.status == TaskStatus.holdOnArrival ||
+          task.status == TaskStatus.reopenedOnArrival ||
+          task.status == TaskStatus.reopened) {
+        // Resume after exit/hold/reopened: use restart API
         await TaskService().restartTask(task.id!, lat: startLat, lng: startLng);
         updated = await TaskService().getTaskById(task.id!);
       } else {
@@ -1646,19 +1664,44 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           .catchError(
             (e) => debugPrint('[TaskDetail] storeTracking failed: $e'),
           );
+      PresenceTrackingService().pausePresenceTracking();
       if (mounted) {
         setState(() => _actionLoading = false);
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => LiveTrackingScreen(
-              taskId: updated.taskId,
-              taskMongoId: updated.id,
-              pickupLocation: pickup,
-              dropoffLocation: dropoff,
-              task: updated,
+        if (updated.status == TaskStatus.arrived) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => ArrivedScreen(
+                taskMongoId: updated.id,
+                taskId: updated.taskId,
+                task: updated,
+                totalDuration: Duration(
+                  seconds: updated.tripDurationSeconds ?? 0,
+                ),
+                totalDistanceKm: updated.tripDistanceKm ?? 0.0,
+                isWithinGeofence: false,
+                arrivalTime: updated.arrivalTime ?? DateTime.now(),
+                sourceLat: updated.sourceLocation?.lat,
+                sourceLng: updated.sourceLocation?.lng,
+                sourceAddress: updated.sourceLocation?.address,
+                destLat: updated.destinationLocation?.lat,
+                destLng: updated.destinationLocation?.lng,
+                destAddress: updated.destinationLocation?.address,
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => LiveTrackingScreen(
+                taskId: updated.taskId,
+                taskMongoId: updated.id,
+                pickupLocation: pickup,
+                dropoffLocation: dropoff,
+                task: updated,
+              ),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1688,6 +1731,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     try {
       // Refresh task to get latest state; do NOT update status or startTime.
       final refreshed = await TaskService().getTaskById(task.id!);
+      PresenceTrackingService().pausePresenceTracking();
       if (mounted) {
         setState(() => _actionLoading = false);
         Navigator.of(context).pushReplacement(
@@ -1902,6 +1946,22 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ),
                     ),
+                  if ((task.status == TaskStatus.exited &&
+                          task.taskExitStatus == 'exited') ||
+                      task.status == TaskStatus.exitedOnArrival) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'Task was fully exited. Only admin can reopen this task; then you can resume the ride.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (!_showApprovalButtons &&
                       !_showStartRideButton &&
                       !_showResumeRideButton &&

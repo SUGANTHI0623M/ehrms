@@ -14,8 +14,9 @@ class TaskService {
   }
 
   /// Create task via existing backend API. assignedTo = staffId.
+  /// taskId is auto-generated on backend (format: TASK-XXXXXXXX-XXXX).
+  /// businessId sent from stored login data (staffs collection) as fallback.
   Future<Task> createTask({
-    required String taskId,
     required String taskTitle,
     required String description,
     required String assignedTo,
@@ -26,8 +27,9 @@ class TaskService {
     Map<String, dynamic>? destinationLocation,
   }) async {
     await _setToken();
+    final prefs = await SharedPreferences.getInstance();
+    final storedBusinessId = prefs.getString('businessId');
     final body = <String, dynamic>{
-      'taskId': taskId,
       'taskTitle': taskTitle,
       'description': description,
       'assignedTo': assignedTo,
@@ -36,7 +38,11 @@ class TaskService {
           .toUtc()
           .toIso8601String(),
       'status': status,
+      'source': 'app',
     };
+    if (storedBusinessId != null && storedBusinessId.isNotEmpty) {
+      body['businessId'] = storedBusinessId;
+    }
     if (sourceLocation != null) body['sourceLocation'] = sourceLocation;
     if (destinationLocation != null)
       body['destinationLocation'] = destinationLocation;
@@ -177,8 +183,11 @@ class TaskService {
       if (data == null) throw Exception('Failed to update task');
       return Task.fromJson(data);
     } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response!.data as Map)['message']?.toString()
+          : null;
       throw Exception(
-        'Failed to update task: ${e.response?.statusCode ?? e.message}',
+        msg ?? 'Failed to update task: ${e.response?.statusCode ?? e.message}',
       );
     }
   }
@@ -316,10 +325,12 @@ class TaskService {
     return Task.fromJson(result);
   }
 
-  /// Exit ride: record reason, GPS, save to tasks_exit + trackings.
+  /// Exit ride: record exitType ('hold'|'exited'), reason, GPS.
+  /// hold = staff can resume; exited = only after admin reopens.
   Future<void> exitRide(
     String taskMongoId,
     String exitReason, {
+    required String exitType,
     double? lat,
     double? lng,
   }) async {
@@ -327,6 +338,7 @@ class TaskService {
     final data = <String, dynamic>{
       'taskId': taskMongoId,
       'exitReason': exitReason,
+      'exitType': exitType,
     };
     if (lat != null) data['lat'] = lat;
     if (lng != null) data['lng'] = lng;

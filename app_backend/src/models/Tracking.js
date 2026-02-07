@@ -2,10 +2,11 @@ const mongoose = require('mongoose');
 
 /**
  * Tracking collection – stores every GPS point (every 15 sec) from mobile app.
+ * taskId = tasks._id (ObjectId) – same as tasks collection ObjectId.
  * Admin fetches this data for live tracking view and history.
  */
 const trackingSchema = new mongoose.Schema({
-  taskId: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', required: true },
+  taskId: { type: mongoose.Schema.Types.ObjectId, ref: 'Task' }, // = tasks._id; optional for presence-only
   staffId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },
   staffName: { type: String },
   latitude: { type: Number, required: true },
@@ -27,6 +28,7 @@ const trackingSchema = new mongoose.Schema({
   time: { type: Date },
   exitReason: { type: String },
   exitedAt: { type: Date },
+  presenceStatus: { type: String, enum: ['in_office', 'task', 'out_of_office'] }, // based on task status + branch geofence
 }, { timestamps: true });
 
 trackingSchema.index({ staffId: 1, timestamp: -1 });

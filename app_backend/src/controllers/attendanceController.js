@@ -2,6 +2,8 @@ const Attendance = require('../models/Attendance');
 const Staff = require('../models/Staff');
 const User = require('../models/User'); // Import if needed
 const AttendanceTemplate = require('../models/AttendanceTemplate'); // Register model
+const Tracking = require('../models/Tracking');
+const { reverseGeocode } = require('../services/geocodingService');
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
@@ -9,6 +11,43 @@ cloudinary.config({
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
+
+/** Insert presence tracking into trackings collection (presenceStatus: in_office on check-in, out_of_office on check-out). */
+async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceStatus, address, area, city, pincode) {
+    try {
+        let fullAddress = address || '';
+        if (!fullAddress && (area || city || pincode)) {
+            const parts = [pincode, area, city, address].filter(Boolean);
+            fullAddress = parts.join(', ');
+        }
+        if (!fullAddress) {
+            try {
+                const geo = await reverseGeocode(Number(lat), Number(lng));
+                fullAddress = geo?.address || geo?.fullAddress || '';
+                if (!address && geo) address = geo.address;
+                if (!pincode && geo?.pincode) pincode = geo.pincode;
+            } catch (e) {
+                console.log('[AttendanceTracking] Geocode failed:', e.message);
+            }
+        }
+        const now = new Date();
+        await Tracking.create({
+            staffId,
+            staffName: staffName || undefined,
+            latitude: Number(lat),
+            longitude: Number(lng),
+            timestamp: now,
+            time: now,
+            status: 'arrived',
+            presenceStatus,
+            address: address || fullAddress || undefined,
+            fullAddress: fullAddress || address || undefined,
+            pincode: pincode || undefined,
+        });
+    } catch (e) {
+        console.error('[AttendanceTracking] Insert failed:', e.message);
+    }
+}
 
 // Helper to calculate distance
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -598,6 +637,7 @@ const checkIn = async (req, res) => {
             existing.fineAmount = fineResult.fineAmount ?? 0;
             existing.workHours = 0;
             await existing.save();
+            await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
             const response = existing.toObject ? existing.toObject() : existing;
             if (warnings.length > 0) response.warnings = warnings;
             return res.status(200).json(response);
@@ -670,6 +710,8 @@ const checkIn = async (req, res) => {
             earlyMinutes: fineResult.earlyMinutes,
             fineAmount: fineResult.fineAmount
         });
+
+        await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
 
         // Include warnings in response if any
         const response = attendance.toObject ? attendance.toObject() : attendance;
@@ -900,6 +942,12 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     attendance.fineAmount = fineResult.fineAmount;
 
     await attendance.save();
+
+    const userLat = latitude != null ? parseFloat(latitude) : (attendance.location?.punchOut?.latitude ?? attendance.location?.punchIn?.latitude ?? 0);
+    const userLng = longitude != null ? parseFloat(longitude) : (attendance.location?.punchOut?.longitude ?? attendance.location?.punchIn?.longitude ?? 0);
+    if (userLat !== 0 || userLng !== 0) {
+        await insertAttendanceTracking(staff._id, staff.name, userLat, userLng, 'out_of_office', address, area, city, pincode);
+    }
 
     // Include warnings in response if any
     const response = attendance.toObject ? attendance.toObject() : attendance;

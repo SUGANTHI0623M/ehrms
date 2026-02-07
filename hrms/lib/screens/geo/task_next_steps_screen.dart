@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/screens/geo/end_task_screen.dart';
 import 'package:hrms/widgets/app_drawer.dart';
 import 'package:hrms/widgets/bottom_navigation_bar.dart';
@@ -16,6 +17,7 @@ class TaskNextStepsScreen extends StatelessWidget {
     if (taskMongoId != null && taskMongoId!.isNotEmpty) {
       try {
         await TaskService().endTask(taskMongoId!);
+        await PresenceTrackingService().resumePresenceTracking();
       } catch (_) {}
     }
     if (context.mounted) {

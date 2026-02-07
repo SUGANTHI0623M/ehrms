@@ -1,12 +1,12 @@
 /**
  * TaskDetails – full task details (no location history; that's in trackings collection).
- * All extended fields: source, destination, progressSteps, arrived, photoProof, OTP, etc.
+ * taskId here = tasks._id (ObjectId) – lookup key; NOT the same as tasks.taskId (TASK-XXX).
  * Upserted whenever a task is created/updated/arrived/verified/photo/end.
  */
 const mongoose = require('mongoose');
 
 const taskDetailsSchema = new mongoose.Schema({
-  taskId: { type: String, required: true, unique: true },
+  taskId: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', required: true, unique: true }, // = tasks._id
   taskTitle: { type: String, required: true },
   description: { type: String, default: '' },
   status: { type: String, default: 'assigned' },
@@ -63,8 +63,8 @@ const taskDetailsSchema = new mongoose.Schema({
     otpVerified: { type: Boolean, default: false },
   },
   // isOtpRequired, isGeoFenceRequired, isPhotoRequired, isFormRequired come from TaskSettings only – not stored here
-  tasks_exit: { type: Array, default: [] },
-  tasks_restarted: { type: Array, default: [] },
+  exit: { type: Array, default: [] },
+  restarted: { type: Array, default: [] },
   approvedAt: { type: Date },
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
   rejectedAt: { type: Date },
@@ -86,6 +86,9 @@ const taskDetailsSchema = new mongoose.Schema({
     pincode: { type: String },
     recordedAt: { type: Date },
   },
+  // Per-segment ride distance & duration. segment: travel_started | travel_resumed; endType: travel_exited | arrived
+  taskTravelDuration: { type: Array, default: [] }, // [{ segment, endType, durationSeconds, endTime }]
+  taskTravelDistance: { type: Array, default: [] }, // [{ segment, endType, distanceKm, endTime }]
 }, { timestamps: true, strict: false });
 
 // Upsert by taskId

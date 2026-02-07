@@ -1,6 +1,10 @@
-// Shared Exit Ride bottom sheet – reason form, submit mandatory.
+// Shared Exit Ride bottom sheet – exit type (Hold ride / Exit full ride) + reason required.
 // Used by LiveTrackingScreen and ArrivedScreen.
 import 'package:flutter/material.dart';
+
+/// Exit type: 'hold' = staff can resume; 'exited' = only after admin reopens.
+const String kExitTypeHold = 'hold';
+const String kExitTypeExited = 'exited';
 
 class ExitRideBottomSheet extends StatefulWidget {
   const ExitRideBottomSheet({super.key});
@@ -11,7 +15,12 @@ class ExitRideBottomSheet extends StatefulWidget {
 
 class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
   final _reasonController = TextEditingController();
+  String? _selectedExitType; // 'hold' | 'exited'
   String? _selectedReason;
+  static const _exitTypeOptions = [
+    {'label': 'Hold ride', 'value': kExitTypeHold},
+    {'label': 'Exit full ride', 'value': kExitTypeExited},
+  ];
   static const _presetReasons = [
     'Customer not available',
     'Wrong address',
@@ -28,6 +37,14 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
   }
 
   void _submit() {
+    if (_selectedExitType == null || _selectedExitType!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select Hold ride or Exit full ride'),
+        ),
+      );
+      return;
+    }
     String reason;
     if (_selectedReason == 'Other') {
       reason = _reasonController.text.trim();
@@ -45,7 +62,13 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
       );
       return;
     }
-    Navigator.of(context).pop({'reason': reason});
+    final exitType = _selectedExitType!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      Navigator.of(
+        context,
+      ).pop(<String, String>{'exitType': exitType, 'reason': reason});
+    });
   }
 
   @override
@@ -115,7 +138,7 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tracking will stop. You can resume this task later from My Tasks.',
+              'Tracking will stop. Hold ride: you can resume later. Exit full ride: only admin can reopen.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
@@ -124,6 +147,48 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
               ),
             ),
             const SizedBox(height: 24),
+            Text(
+              'Exit type (required)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedExitType,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+              hint: Text(
+                'Select Hold ride or Exit full ride',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              items: _exitTypeOptions
+                  .map(
+                    (e) => DropdownMenuItem<String>(
+                      value: e['value'] as String,
+                      child: Text(e['label'] as String),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedExitType = v),
+            ),
+            const SizedBox(height: 16),
             Text(
               'Reason (required)',
               style: TextStyle(

@@ -10,6 +10,7 @@ import 'package:hrms/screens/geo/task_completed_screen.dart';
 import 'package:hrms/screens/geo/task_history_screen.dart';
 import 'package:hrms/services/auth_service.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
 
 class ArrivedScreen extends StatefulWidget {
@@ -66,13 +67,14 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   Task? _task;
   bool _photoProofDone = false;
   bool _storedOtpRequired = false;
+  bool _submittingExit = false;
 
   Task? get task => _task;
 
-  /// OTP requirement: from task API (mergeTaskSettings) or fallback to stored
-  /// settings from login (TaskSettings.enableOtpVerification).
+  /// OTP requirement: from task API (mergeTaskSettings, matched by staff businessId)
+  /// or fallback to stored settings from login. Prefer API value when task is loaded.
   bool get _isOtpRequiredFromSettings =>
-      (task ?? widget.task)?.isOtpRequired == true || _storedOtpRequired;
+      _task?.isOtpRequired ?? widget.task?.isOtpRequired ?? _storedOtpRequired;
 
   @override
   void initState() {
@@ -513,6 +515,8 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                       refreshed = await TaskService().endTask(
                                         widget.taskMongoId!,
                                       );
+                                      await PresenceTrackingService()
+                                          .resumePresenceTracking();
                                     } catch (_) {}
                                   }
                                   if (context.mounted) {
@@ -575,6 +579,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   /// Exit Ride: open bottom sheet with reason form (same as live tracking).
   /// Calls exitRide API with current GPS, then pops.
   Future<void> _onExitRide() async {
+    if (_submittingExit) return;
     final result = await showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
@@ -582,15 +587,22 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
       builder: (ctx) => const ExitRideBottomSheet(),
     );
     if (result == null || !mounted) return;
+    final exitType = result['exitType'] as String?;
     final reason = result['reason']?.trim();
-    if (reason == null || reason.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please provide a reason')));
+    if (exitType == null ||
+        exitType.isEmpty ||
+        reason == null ||
+        reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select exit type and provide a reason'),
+        ),
+      );
       return;
     }
     final mongoId = widget.taskMongoId ?? task?.id;
     if (mongoId != null && mongoId.isNotEmpty) {
+      if (mounted) setState(() => _submittingExit = true);
       try {
         double? lat;
         double? lng;
@@ -604,17 +616,30 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
           lat = widget.destLat ?? task?.destinationLocation?.lat;
           lng = widget.destLng ?? task?.destinationLocation?.lng;
         }
-        await TaskService().exitRide(mongoId, reason, lat: lat, lng: lng);
+        await TaskService().exitRide(
+          mongoId,
+          reason,
+          exitType: exitType,
+          lat: lat,
+          lng: lng,
+        );
+        await PresenceTrackingService().resumePresenceTracking();
       } catch (e) {
         if (mounted) {
+          setState(() => _submittingExit = false);
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Failed to exit ride: $e')));
         }
         return;
       }
+      if (mounted) setState(() => _submittingExit = false);
     }
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
   }
 
   Widget _row(String label, String value) {

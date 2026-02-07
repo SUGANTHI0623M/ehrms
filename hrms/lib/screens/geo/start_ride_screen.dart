@@ -13,6 +13,7 @@ import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -411,6 +412,7 @@ class _StartRideScreenState extends State<StartRideScreen> {
           .catchError(
             (e) => debugPrint('[StartRide] storeTracking failed: $e'),
           );
+      PresenceTrackingService().pausePresenceTracking();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(

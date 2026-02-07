@@ -42,6 +42,18 @@ class TaskCard extends StatelessWidget {
         statusColor = Colors.amber;
         statusText = 'Exited';
         break;
+      case TaskStatus.exitedOnArrival:
+        statusColor = Colors.orange;
+        statusText = 'Exited on Arrival';
+        break;
+      case TaskStatus.holdOnArrival:
+        statusColor = Colors.amber;
+        statusText = 'Hold on Arrival';
+        break;
+      case TaskStatus.reopenedOnArrival:
+        statusColor = Colors.teal;
+        statusText = 'Reopened on Arrival';
+        break;
       case TaskStatus.waitingForApproval:
         statusColor = Colors.amber;
         statusText = 'Waiting for Approval';

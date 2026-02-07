@@ -210,15 +210,17 @@ const login = async (req, res) => {
         const formattedPermissions = user.roleId?.permissions || [];
         const businessId = staff?.businessId?._id || staff?.businessId || company?._id || company;
 
+        // businessId comes from staffs collection (staff.businessId)
         // Fetch task settings for staff's businessId (enableOtpVerification, autoApprove, etc.)
         let taskSettings = null;
         try {
             if (businessId) {
+                const bid = businessId._id ?? businessId;
                 taskSettings = await TaskSettings.findOne({
-                    $or: [{ companyId: businessId }, { businessId }],
+                    $or: [{ companyId: bid }, { businessId: bid }],
                 }).lean();
             }
-            if (!taskSettings) {
+            if (!taskSettings && !businessId) {
                 taskSettings = await TaskSettings.findOne().lean();
             }
         } catch (e) {
@@ -233,6 +235,7 @@ const login = async (req, res) => {
             phone: user.phone,
             companyId: company?._id || company,
             companyName: company && company.name ? company.name : undefined,
+            businessId: businessId || company?._id || company,
             permissions: formattedPermissions,
             staffId: staff?._id,
             avatar: staff?.avatar || user.avatar,
@@ -309,11 +312,12 @@ const googleLogin = async (req, res) => {
         let taskSettings = null;
         try {
             if (businessId) {
+                const bid = businessId._id ?? businessId;
                 taskSettings = await TaskSettings.findOne({
-                    $or: [{ companyId: businessId }, { businessId }],
+                    $or: [{ companyId: bid }, { businessId: bid }],
                 }).lean();
             }
-            if (!taskSettings) {
+            if (!taskSettings && !businessId) {
                 taskSettings = await TaskSettings.findOne().lean();
             }
         } catch (e) {
@@ -328,6 +332,7 @@ const googleLogin = async (req, res) => {
             phone: user.phone,
             companyId: company?._id || company,
             companyName: company && company.name ? company.name : undefined,
+            businessId: businessId || company?._id || company,
             permissions: formattedPermissions,
             staffId: staff?._id,
             avatar: staff?.avatar || user.avatar,

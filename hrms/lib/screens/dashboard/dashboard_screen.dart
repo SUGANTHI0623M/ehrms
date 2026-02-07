@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../widgets/bottom_navigation_bar.dart';
+import '../../services/presence_tracking_service.dart';
+import '../../bloc/attendance/attendance_bloc.dart';
 import 'home_dashboard_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../holidays/holidays_screen.dart';
@@ -22,6 +25,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _currentIndex = (widget.initialIndex ?? 0).clamp(0, 4);
+    // Start staff presence tracking when dashboard loads (attendance-validated).
+    PresenceTrackingService().startTracking();
   }
 
   void _onDrawerNavigateToIndex(int index) {
@@ -63,24 +68,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ];
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (_currentIndex != 0) {
-          setState(() => _currentIndex = 0);
-        } else {
-          Navigator.of(context).pop();
+    return BlocListener<AttendanceBloc, AttendanceState>(
+      listener: (context, state) async {
+        if (state is AttendanceCheckInSuccess) {
+          await PresenceTrackingService().setTrackingAllowed();
+          PresenceTrackingService().startTracking();
+        } else if (state is AttendanceCheckOutSuccess) {
+          await PresenceTrackingService().stopTracking();
         }
       },
-      child: Scaffold(
-        body: IndexedStack(
-          index: _currentIndex.clamp(0, screens.length - 1),
-          children: screens,
-        ),
-        bottomNavigationBar: AppBottomNavigationBar(
-          currentIndex: _currentIndex.clamp(0, 4),
-          onTap: (index) => setState(() => _currentIndex = index),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (_currentIndex != 0) {
+            setState(() => _currentIndex = 0);
+          } else {
+            Navigator.of(context).pop();
+          }
+        },
+        child: Scaffold(
+          body: IndexedStack(
+            index: _currentIndex.clamp(0, screens.length - 1),
+            children: screens,
+          ),
+          bottomNavigationBar: AppBottomNavigationBar(
+            currentIndex: _currentIndex.clamp(0, 4),
+            onTap: (index) => setState(() => _currentIndex = index),
+          ),
         ),
       ),
     );

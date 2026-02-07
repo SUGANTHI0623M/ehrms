@@ -44,6 +44,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   List<PlacePrediction> _destinationPredictions = [];
   String _sourceAddress = '';
   String _destinationAddress = '';
+  DateTime _expectedCompletionDate = DateTime.now().add(
+    const Duration(days: 1),
+  );
   bool _useCurrentLocationForSource = true;
   bool _destinationChangedByUser = false;
   String _currentLocationAddress = '';
@@ -487,7 +490,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         }
       }
 
-      final taskId = 'TASK-${DateTime.now().millisecondsSinceEpoch}';
       final destLocation = <String, dynamic>{
         'lat': dropoff.latitude,
         'lng': dropoff.longitude,
@@ -499,12 +501,11 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       }
 
       final task = await TaskService().createTask(
-        taskId: taskId,
         taskTitle: _taskTitleController.text.trim(),
         description: _buildDescription(),
         assignedTo: widget.staffId,
         customerId: _selectedCustomer!.id!,
-        expectedCompletionDate: DateTime.now().add(const Duration(days: 1)),
+        expectedCompletionDate: _expectedCompletionDate,
         status: 'assigned',
         sourceLocation: {
           'lat': pickup.latitude,
@@ -610,6 +611,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                     const SizedBox(height: 16),
                     _buildCustomerField(),
                     const SizedBox(height: 16),
+                    _buildExpectedCompletionDateField(),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _descriptionController,
                       decoration: _inputDecoration(
@@ -682,6 +685,60 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildExpectedCompletionDateField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Expected Completion Date',
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _expectedCompletionDate,
+              firstDate: DateTime.now(),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked != null && mounted) {
+              setState(() => _expectedCompletionDate = picked);
+            }
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              prefixIcon: Icon(
+                Icons.calendar_today_rounded,
+                size: 20,
+                color: AppColors.primary,
+              ),
+              labelText: 'Select date',
+              labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+            ),
+            child: Text(
+              '${_expectedCompletionDate.day.toString().padLeft(2, '0')}/${_expectedCompletionDate.month.toString().padLeft(2, '0')}/${_expectedCompletionDate.year}',
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

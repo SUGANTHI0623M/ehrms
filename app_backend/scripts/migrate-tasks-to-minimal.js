@@ -18,7 +18,7 @@ const EXTENDED_KEYS = [
   'photoProofLng', 'photoProofAddress', 'otpCode', 'otpSentAt', 'otpVerifiedAt',
   'otpVerifiedLat', 'otpVerifiedLng', 'otpVerifiedAddress', 'progressSteps',
   'isOtpRequired', 'isGeoFenceRequired', 'isPhotoRequired', 'isFormRequired',
-  'tasks_exit', 'tasks_restarted', 'completedDate', 'locationHistory',
+  'exit', 'restarted', 'completedDate', 'locationHistory',
 ];
 
 async function run() {
@@ -26,8 +26,8 @@ async function run() {
   const tasks = await Task.find().lean();
   let migrated = 0;
   for (const task of tasks) {
-    const taskId = task.taskId || task._id?.toString();
-    if (!taskId) continue;
+    const taskMongoId = task._id;
+    if (!taskMongoId) continue;
     const hasExtended = EXTENDED_KEYS.some((k) => task[k] !== undefined && task[k] !== null);
     if (!hasExtended) continue;
     const details = {};
@@ -36,15 +36,15 @@ async function run() {
     }
     if (Object.keys(details).length > 0) {
       await TaskDetails.findOneAndUpdate(
-        { taskId },
-        { $set: { ...details, taskId } },
+        { taskId: taskMongoId },
+        { $set: { ...details, taskId: taskMongoId } },
         { upsert: true }
       );
       const unset = {};
       for (const k of EXTENDED_KEYS) unset[k] = 1;
       await Task.updateOne({ _id: task._id }, { $unset: unset });
       migrated++;
-      console.log('Migrated:', taskId);
+      console.log('Migrated:', task.taskId || taskMongoId);
     }
   }
   console.log('Done. Migrated', migrated, 'of', tasks.length, 'tasks');

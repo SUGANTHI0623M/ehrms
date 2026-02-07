@@ -54,6 +54,15 @@ class AuthService {
         if (taskSettings != null) {
           await prefs.setString('taskSettings', jsonEncode(taskSettings));
         }
+        // Store businessId from staff (staffs collection) for task creation etc.
+        final businessId = user?['businessId'] ?? user?['companyId'];
+        if (businessId != null) {
+          final idStr = businessId is Map
+              ? (businessId['\$oid'] ?? businessId['_id'] ?? businessId)
+                    .toString()
+              : businessId.toString();
+          await prefs.setString('businessId', idStr);
+        }
       }
       _api.setAuthToken(accessToken);
       return {'success': true, 'data': data};

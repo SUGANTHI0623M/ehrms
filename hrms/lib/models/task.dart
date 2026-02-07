@@ -70,6 +70,7 @@ class TaskExitRecord {
   final String? pincode;
   final String exitReason;
   final DateTime? exitedAt;
+  final int? batteryPercent;
 
   const TaskExitRecord({
     required this.lat,
@@ -79,6 +80,7 @@ class TaskExitRecord {
     this.pincode,
     required this.exitReason,
     this.exitedAt,
+    this.batteryPercent,
   });
 
   factory TaskExitRecord.fromJson(Map<String, dynamic>? json) {
@@ -93,6 +95,7 @@ class TaskExitRecord {
       pincode: loc['pincode'] as String?,
       exitReason: (json['exitReason'] as String?) ?? '',
       exitedAt: Task._dateFromJson(json['exitedAt'] ?? json['time']),
+      batteryPercent: (json['batteryPercent'] as num?)?.toInt(),
     );
   }
 }
@@ -104,6 +107,7 @@ class TaskRestartRecord {
   final String? fullAddress;
   final String? pincode;
   final DateTime? resumedAt;
+  final int? batteryPercent;
 
   const TaskRestartRecord({
     required this.lat,
@@ -112,6 +116,7 @@ class TaskRestartRecord {
     this.fullAddress,
     this.pincode,
     this.resumedAt,
+    this.batteryPercent,
   });
 
   factory TaskRestartRecord.fromJson(Map<String, dynamic>? json) {
@@ -126,6 +131,7 @@ class TaskRestartRecord {
       resumedAt: _parseDate(
         json['restartedAt'] ?? json['resumedAt'] ?? json['time'],
       ),
+      batteryPercent: (json['batteryPercent'] as num?)?.toInt(),
     );
   }
 }
@@ -164,11 +170,15 @@ enum TaskStatus {
   inProgress,
   arrived,
   exited,
+  exitedOnArrival,
+  holdOnArrival,
+  reopenedOnArrival,
   waitingForApproval,
   completed,
   rejected,
   cancelled,
   reopened,
+  hold,
 }
 
 class Task {
@@ -213,6 +223,9 @@ class Task {
   /// Exit history – each exit is a separate record.
   final List<TaskExitRecord> tasksExit;
 
+  /// Latest exit type from tasks.task_exit: 'hold' = staff can resume; 'exited' = only after admin reopens.
+  final String? taskExitStatus;
+
   /// Restart history – when task resumed after exit.
   final List<TaskRestartRecord> tasksRestarted;
 
@@ -232,6 +245,13 @@ class Task {
 
   /// OTP verified address.
   final String? otpVerifiedAddress;
+
+  /// Battery at key events (from tracking; optional).
+  final int? startBatteryPercent;
+  final int? arrivalBatteryPercent;
+  final int? photoProofBatteryPercent;
+  final int? otpVerifiedBatteryPercent;
+  final int? completedBatteryPercent;
 
   Task({
     this.id,
@@ -259,6 +279,7 @@ class Task {
     this.sourceLocation,
     this.destinationLocation,
     this.tasksExit = const [],
+    this.taskExitStatus,
     this.tasksRestarted = const [],
     this.destinations = const [],
     this.tripDistanceKm,
@@ -267,6 +288,11 @@ class Task {
     this.startTime,
     this.photoProofAddress,
     this.otpVerifiedAddress,
+    this.startBatteryPercent,
+    this.arrivalBatteryPercent,
+    this.photoProofBatteryPercent,
+    this.otpVerifiedBatteryPercent,
+    this.completedBatteryPercent,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -340,9 +366,15 @@ class Task {
               json['destinationLocation'] as Map<String, dynamic>,
             )
           : null,
-      tasksExit: _parseList(json['tasks_exit'], TaskExitRecord.fromJson),
+      tasksExit: _parseList(
+        json['exit'] ?? json['tasks_exit'],
+        TaskExitRecord.fromJson,
+      ),
+      taskExitStatus: (json['task_exit'] is Map
+          ? (json['task_exit'] as Map<String, dynamic>)['status'] as String?
+          : null),
       tasksRestarted: _parseList(
-        json['tasks_restarted'],
+        json['restarted'] ?? json['tasks_restarted'],
         TaskRestartRecord.fromJson,
       ),
       destinations: _parseList(
@@ -355,6 +387,14 @@ class Task {
       startTime: _dateFromJson(json['startTime']),
       photoProofAddress: json['photoProofAddress'] as String?,
       otpVerifiedAddress: json['otpVerifiedAddress'] as String?,
+      startBatteryPercent: (json['startBatteryPercent'] as num?)?.toInt(),
+      arrivalBatteryPercent: (json['arrivalBatteryPercent'] as num?)?.toInt(),
+      photoProofBatteryPercent: (json['photoProofBatteryPercent'] as num?)
+          ?.toInt(),
+      otpVerifiedBatteryPercent: (json['otpVerifiedBatteryPercent'] as num?)
+          ?.toInt(),
+      completedBatteryPercent: (json['completedBatteryPercent'] as num?)
+          ?.toInt(),
     );
   }
 
@@ -415,6 +455,12 @@ class Task {
         return TaskStatus.arrived;
       case 'exited':
         return TaskStatus.exited;
+      case 'exitedonarrival':
+        return TaskStatus.exitedOnArrival;
+      case 'holdonarrival':
+        return TaskStatus.holdOnArrival;
+      case 'reopenedonarrival':
+        return TaskStatus.reopenedOnArrival;
       case 'waiting_for_approval':
         return TaskStatus.waitingForApproval;
       case 'approved':
@@ -428,6 +474,8 @@ class Task {
         return TaskStatus.cancelled;
       case 'reopened':
         return TaskStatus.reopened;
+      case 'hold':
+        return TaskStatus.hold;
       default:
         return TaskStatus.onlineReady;
     }
@@ -534,6 +582,7 @@ class TimelineEvent {
   final double? lng;
   final String? exitReason;
   final String? movementType;
+  final int? batteryPercent;
 
   const TimelineEvent({
     required this.type,
@@ -544,6 +593,7 @@ class TimelineEvent {
     this.lng,
     this.exitReason,
     this.movementType,
+    this.batteryPercent,
   });
 
   factory TimelineEvent.fromJson(Map<String, dynamic> json) {
@@ -570,6 +620,7 @@ class TimelineEvent {
       lng: (json['lng'] as num?)?.toDouble(),
       exitReason: json['exitReason'] as String?,
       movementType: json['movementType'] as String?,
+      batteryPercent: (json['batteryPercent'] as num?)?.toInt(),
     );
   }
 }

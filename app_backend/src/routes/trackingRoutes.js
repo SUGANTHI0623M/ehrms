@@ -1,11 +1,26 @@
 const express = require('express');
-const { startTracking, getTrackingData, storeTracking, exitTracking, restartTracking, arrivedTracking } = require('../controllers/trackingController');
+const {
+  startTracking,
+  getTrackingData,
+  storeTracking,
+  storePresenceTracking,
+  getPresenceTrackingStatus,
+  getPresenceTrackingData,
+  exitTracking,
+  restartTracking,
+  arrivedTracking,
+} = require('../controllers/trackingController');
 const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
 // Mobile app: store tracking point (Start Ride + every 15 sec)
 router.post('/store', protect, storeTracking);
+
+// Staff presence tracking (attendance-based, no task)
+router.post('/presence/store', protect, storePresenceTracking);
+router.get('/presence/status', protect, getPresenceTrackingStatus);
+router.get('/presence', protect, getPresenceTrackingData);
 
 // Mobile app: exit ride (reason required)
 router.post('/exit', protect, exitTracking);

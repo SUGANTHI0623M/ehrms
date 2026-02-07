@@ -123,6 +123,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                               _displayTask.sourceLocation?.fullAddress,
                           lat: _displayTask.sourceLocation?.lat,
                           lng: _displayTask.sourceLocation?.lng,
+                          batteryPercent: _displayTask.startBatteryPercent,
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -141,6 +142,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                           address: null,
                           lat: null,
                           lng: null,
+                          batteryPercent: _displayTask.arrivalBatteryPercent,
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -179,6 +181,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                           time: _displayTask.photoProofUploadedAt!,
                           address: _displayTask.photoProofAddress,
                           photoUrl: _displayTask.photoProofUrl,
+                          batteryPercent: _displayTask.photoProofBatteryPercent,
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -197,6 +200,8 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                           address: _displayTask.otpVerifiedAddress,
                           lat: null,
                           lng: null,
+                          batteryPercent:
+                              _displayTask.otpVerifiedBatteryPercent,
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -229,6 +234,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                           address: null,
                           lat: null,
                           lng: null,
+                          batteryPercent: _displayTask.completedBatteryPercent,
                         ),
                       ],
                     ] else
@@ -292,6 +298,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
     required DateTime time,
     String? address,
     String? photoUrl,
+    int? batteryPercent,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -341,6 +348,26 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                   DateDisplayUtil.formatTimeline(time),
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
+                if (batteryPercent != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.battery_std_rounded,
+                        size: 14,
+                        color: _batteryColor(batteryPercent),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Battery: $batteryPercent%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _batteryColor(batteryPercent),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (address != null && address.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -390,6 +417,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
     String? address,
     double? lat,
     double? lng,
+    int? batteryPercent,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -435,6 +463,26 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                   DateDisplayUtil.formatTimeline(time),
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
+                if (batteryPercent != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.battery_std_rounded,
+                        size: 14,
+                        color: _batteryColor(batteryPercent),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Battery: $batteryPercent%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _batteryColor(batteryPercent),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (address != null && address.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -457,7 +505,11 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
     );
   }
 
-  Widget _detailRow(String label, String value) {
+  /// Blue if battery >= 10 or null; red if battery < 10.
+  Color _batteryColor(int? percent) =>
+      (percent != null && percent < 10) ? Colors.red : Colors.blue;
+
+  Widget _detailRow(String label, String value, {Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -477,7 +529,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontSize: 13, color: Colors.black),
+              style: TextStyle(fontSize: 13, color: valueColor ?? Colors.black),
             ),
           ),
         ],
@@ -534,6 +586,12 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                   _detailRow(
                     'Date & Time',
                     DateDisplayUtil.formatDateTime(e.exitedAt!),
+                  ),
+                if (e.batteryPercent != null)
+                  _detailRow(
+                    'Battery',
+                    '${e.batteryPercent}%',
+                    valueColor: _batteryColor(e.batteryPercent),
                   ),
                 _detailRow(
                   'Reason',
@@ -605,6 +663,12 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                   _detailRow(
                     'Date & Time',
                     DateDisplayUtil.formatDateTime(r.resumedAt!),
+                  ),
+                if (r.batteryPercent != null)
+                  _detailRow(
+                    'Battery',
+                    '${r.batteryPercent}%',
+                    valueColor: _batteryColor(r.batteryPercent),
                   ),
                 if (r.address != null && r.address!.isNotEmpty)
                   _detailRow('Location', r.address!),

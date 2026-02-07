@@ -470,6 +470,12 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return Colors.indigo.shade600;
       case TaskStatus.exited:
         return Colors.amber.shade700;
+      case TaskStatus.exitedOnArrival:
+        return Colors.orange.shade800;
+      case TaskStatus.holdOnArrival:
+        return Colors.amber.shade700;
+      case TaskStatus.reopenedOnArrival:
+        return Colors.teal.shade600;
       case TaskStatus.completed:
         return Colors.green.shade600;
       case TaskStatus.waitingForApproval:
@@ -511,6 +517,12 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return 'Arrived';
       case TaskStatus.exited:
         return 'Exited';
+      case TaskStatus.exitedOnArrival:
+        return 'Exited on Arrival';
+      case TaskStatus.holdOnArrival:
+        return 'Hold on Arrival';
+      case TaskStatus.reopenedOnArrival:
+        return 'Reopened on Arrival';
       case TaskStatus.waitingForApproval:
         return 'Waiting for Approval';
       case TaskStatus.completed:
@@ -898,7 +910,11 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                               ),
                                             );
                                           } else if (task.status ==
-                                              TaskStatus.arrived) {
+                                                  TaskStatus.arrived ||
+                                              task.status ==
+                                                  TaskStatus.holdOnArrival ||
+                                              task.status ==
+                                                  TaskStatus.reopenedOnArrival) {
                                             Navigator.push(
                                               context,
                                               MaterialPageRoute(

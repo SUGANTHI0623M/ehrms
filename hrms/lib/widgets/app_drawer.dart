@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/presence_tracking_service.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/settings/settings_screen.dart';
@@ -81,6 +82,8 @@ class _AppDrawerState extends State<AppDrawer> {
   }
 
   Future<void> _logout(BuildContext context) async {
+    // Stop presence tracking before clearing auth.
+    await PresenceTrackingService().stopTracking();
     // Clear token, prefs, and sign out from Google/Firebase (must complete before navigating).
     await AuthService().logout();
     if (!context.mounted) return;

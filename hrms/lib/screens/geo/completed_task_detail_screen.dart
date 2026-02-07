@@ -823,15 +823,42 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          timeline[i].time != null
-                              ? DateDisplayUtil.formatTime(timeline[i].time!)
-                              : '—',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              timeline[i].time != null
+                                  ? DateDisplayUtil.formatTime(
+                                      timeline[i].time!,
+                                    )
+                                  : '—',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (timeline[i].batteryPercent != null) ...[
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.battery_std_rounded,
+                                size: 16,
+                                color: timeline[i].batteryPercent! < 10
+                                    ? Colors.red
+                                    : Colors.blue,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${timeline[i].batteryPercent}%',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: timeline[i].batteryPercent! < 10
+                                      ? Colors.red
+                                      : Colors.blue,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(

@@ -2,6 +2,14 @@ const Task = require('../models/Task');
 const TaskDetails = require('../models/TaskDetails');
 const TaskSettings = require('../models/TaskSettings');
 
+/**
+ * DATA MODEL – taskId / _id semantics:
+ * - tasks._id: MongoDB ObjectId (e.g. 6986ebfaefed8a6147709364)
+ * - tasks.taskId: Human-readable TASK-XXXXXXXX-XXXX (e.g. TASK-69844967-989712-8903)
+ * - task_details.taskId: = tasks._id (ObjectId) – lookup key, NOT same as tasks.taskId
+ * - trackings.taskId: = tasks.taskId (TASK-XXXXXXXX-XXXX) – same format as tasks.taskId
+ */
+
 /** Build location object per spec: { lat, lng, address?, pincode?, recordedAt } */
 function buildLocationObject(lat, lng, address, pincode) {
   const now = parseTimestamp(new Date());
@@ -14,18 +22,42 @@ function buildLocationObject(lat, lng, address, pincode) {
   };
 }
 
-/** Valid status transitions for updateTask. Reject invalid transitions. */
+/** Valid status transitions for updateTask. Aligned with task status enum. */
 const VALID_TRANSITIONS = {
-  approved: ['assigned', 'pending'],
-  staffapproved: ['assigned', 'pending'],
-  rejected: ['assigned', 'pending'],
-  in_progress: ['approved', 'staffapproved', 'assigned', 'pending', 'exited'],
+  approved: ['assigned', 'pending', 'scheduled', 'reopened', 'not yet started', 'hold'],
+  staffapproved: ['assigned', 'pending', 'scheduled', 'reopened', 'not yet started', 'hold'],
+  rejected: ['assigned', 'pending', 'reopened', 'not yet started', 'hold', 'delayed tasks'],
+  in_progress: ['approved', 'staffapproved', 'assigned', 'pending', 'exited', 'reopened', 'not yet started', 'pending', 'hold'],
+  'in progress': ['approved', 'staffapproved', 'assigned', 'pending', 'exited', 'reopened', 'not yet started', 'hold'],
+  arrived: ['in_progress', 'in progress'],
+  'serving today': ['in_progress', 'in progress', 'reopened', 'pending'],
+  'delayed tasks': ['in_progress', 'in progress', 'pending', 'reopened'],
+  'completed tasks': ['arrived', 'in_progress', 'in progress', 'serving today'],
+  completed: ['arrived', 'in_progress', 'in progress'],
+  reopened: ['exited', 'completed', 'completed tasks', 'rejected'],
+  reopenedOnArrival: ['exitedOnArrival'],
+  hold: ['in_progress', 'in progress', 'pending', 'assigned'],
+  exited: ['in_progress', 'in progress'],
+  exitedOnArrival: ['arrived'],
+  holdOnArrival: ['arrived'],
+  waiting_for_approval: ['arrived', 'in progress', 'in_progress'],
 };
+function normalizeStatusForTransition(s) {
+  const v = String(s || '').toLowerCase().trim();
+  if (v === 'in progress') return 'in_progress';
+  return v;
+}
 function isValidStatusTransition(fromStatus, toStatus) {
   if (!toStatus) return true;
-  const allowed = VALID_TRANSITIONS[toStatus];
+  const to = normalizeStatusForTransition(toStatus);
+  const from = normalizeStatusForTransition(fromStatus);
+  const key = Object.keys(VALID_TRANSITIONS).find((k) => k.toLowerCase() === to);
+  const allowed = VALID_TRANSITIONS[to] || VALID_TRANSITIONS[to.replace(/\s+/g, '_')] || (key ? VALID_TRANSITIONS[key] : undefined);
   if (!allowed) return true; // Allow other transitions for backward compat
-  return allowed.includes(fromStatus);
+  const fromNorm = from.replace(/\s+/g, '_');
+  const fromLower = fromNorm.toLowerCase();
+  return allowed.includes(from) || allowed.includes(fromNorm) ||
+    allowed.some((a) => String(a).toLowerCase() === fromLower);
 }
 const Customer = require('../models/Customer');
 const Tracking = require('../models/Tracking');
@@ -34,7 +66,7 @@ const { parseTimestamp } = require('../utils/dateUtils');
 const MINIMAL_TASK_KEYS = [
   'taskId', 'taskTitle', 'description', 'status', 'assignedTo', 'customerId',
   'assignedBy', 'assignedDate', 'expectedCompletionDate', 'earliestCompletionDate',
-  'latestCompletionDate', 'businessId',
+  'latestCompletionDate', 'businessId', 'source',
 ];
 
 const EXTENDED_TASK_KEYS = [
@@ -46,9 +78,10 @@ const EXTENDED_TASK_KEYS = [
   'photoProofUrl', 'photoProofUploadedAt', 'photoProofDescription', 'photoProofLat',
   'photoProofLng', 'photoProofAddress', 'otpCode', 'otpSentAt', 'otpVerifiedAt',
   'otpVerifiedLat', 'otpVerifiedLng', 'otpVerifiedAddress', 'progressSteps',
-  'tasks_exit', 'tasks_restarted', 'completedDate', 'completedBy', 'locationHistory',
+  'completedDate', 'completedBy', 'locationHistory',
   'approvedAt', 'approvedBy', 'rejectedAt', 'rejectedBy',
 ];
+// exit and restarted are stored in tasks collection and must never be unset
 
 /** Build $unset for extended fields (to keep tasks collection minimal). Exported for trackingController. */
 exports.buildUnsetExtended = function buildUnsetExtended() {
@@ -67,26 +100,39 @@ function getMinimalTaskFields(doc) {
   return out;
 }
 
+/** Generate taskId in format TASK-XXXXXXXX-XXXX (alphanumeric) */
+function generateTaskId() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const rand = () => chars[Math.floor(Math.random() * chars.length)];
+  const p1 = Array(8).fill(0).map(() => rand()).join('');
+  const p2 = Array(4).fill(0).map(() => rand()).join('');
+  return `TASK-${p1}-${p2}`;
+}
+
 /** Fields that come from TaskSettings only – do not store in task_details */
 const TASK_SETTINGS_ONLY_FIELDS = ['isOtpRequired', 'isGeoFenceRequired', 'isPhotoRequired', 'isFormRequired'];
 
-/** Upsert full task details into task_details collection. Exported for use in trackingController. */
+/** Upsert full task details into task_details collection. Exported for use in trackingController.
+ * fullDoc must include taskMongoId (tasks._id) for lookup; task_details.taskId stores tasks._id.
+ */
 exports.upsertTaskDetails = async function upsertTaskDetails(fullDoc) {
-  if (!fullDoc || !fullDoc.taskId) return;
+  const taskMongoId = fullDoc?.taskMongoId ?? fullDoc?._id;
+  if (!fullDoc || !taskMongoId) return;
   try {
     const obj = fullDoc?.toObject ? fullDoc.toObject() : { ...fullDoc };
     delete obj.locationHistory;
     delete obj.__v;
-    delete obj._id; // task_details uses taskId as lookup, not _id
+    delete obj._id; // task_details gets its own _id
+    obj.taskId = taskMongoId; // task_details.taskId = tasks._id (ObjectId)
     TASK_SETTINGS_ONLY_FIELDS.forEach((k) => delete obj[k]);
     const unsetFields = {};
     TASK_SETTINGS_ONLY_FIELDS.forEach((k) => { unsetFields[k] = 1; });
     await TaskDetails.findOneAndUpdate(
-      { taskId: obj.taskId },
+      { taskId: taskMongoId },
       { $set: obj, $unset: unsetFields },
       { upsert: true, new: true }
     );
-    console.log('[Tasks] Upserted task_details for:', obj.taskId);
+    console.log('[Tasks] Upserted task_details for task:', taskMongoId);
   } catch (err) {
     console.warn('[Tasks] upsertTaskDetails error:', err.message);
   }
@@ -96,14 +142,15 @@ exports.upsertTaskDetails = async function upsertTaskDetails(fullDoc) {
 async function mergeTaskWithDetails(taskDoc) {
   if (!taskDoc) return null;
   const task = taskDoc.toObject ? taskDoc.toObject() : { ...taskDoc };
-  const taskIdStr = task.taskId || task._id?.toString();
+  const taskMongoId = task._id;
   let details = null;
-  if (taskIdStr) {
-    details = await TaskDetails.findOne({ taskId: taskIdStr }).lean();
+  if (taskMongoId) {
+    details = await TaskDetails.findOne({ taskId: taskMongoId }).lean();
   }
   const merged = { ...(details || {}), ...task };
   merged._id = task._id;
-  merged.taskId = task.taskId || details?.taskId || taskIdStr;
+  // task.taskId = human-readable (TASK-XXXXXXXX-XXXX); details.taskId = ObjectId (for lookup only)
+  merged.taskId = task.taskId || taskMongoId?.toString?.();
   if (details) {
     for (const k of EXTENDED_TASK_KEYS) {
       if (details[k] !== undefined) merged[k] = details[k];
@@ -133,12 +180,24 @@ function normalizeTaskBody(body) {
 
 exports.createTask = async (req, res) => {
   try {
+    const staffId = req.staff?._id;
+    // businessId: from staff (staffs collection), else req.companyId (auth middleware), else body
+    let businessId = req.staff?.businessId ?? req.companyId ?? req.body?.businessId;
+    businessId = businessId?._id ?? businessId; // handle populated object
     const normalized = normalizeTaskBody(req.body);
+    delete normalized.taskId; // Never use client taskId; always auto-generate
     const minimal = getMinimalTaskFields(normalized);
-    if (!minimal.taskId) minimal.taskId = `TASK-${Date.now()}`;
+    // Auto-generate taskId in format TASK-XXXXXXXX-XXXX (alphanumeric); never use ObjectId
+    minimal.taskId = generateTaskId();
+    if (!minimal.source) minimal.source = 'app';
+    // assignedBy: staff creating task (from auth) or fallback to assignedTo
+    minimal.assignedBy = staffId ?? minimal.assignedTo ?? normalized.assignedTo;
+    if (businessId) minimal.businessId = businessId;
+    const now = parseTimestamp(new Date());
+    if (staffId && !minimal.assignedDate) minimal.assignedDate = now;
     const newTask = new Task(minimal);
     await newTask.save();
-    const fullDoc = { ...normalized, taskId: newTask.taskId, _id: newTask._id };
+    const fullDoc = { ...normalized, taskId: newTask.taskId, _id: newTask._id, taskMongoId: newTask._id };
     await exports.upsertTaskDetails(fullDoc);
     const merged = await mergeTaskWithDetails(newTask);
     res.status(201).json(merged);
@@ -203,11 +262,11 @@ async function mergeTaskSettings(taskDoc, companyId) {
         $or: [{ companyId }, { businessId: companyId }],
       }).lean();
     }
-    if (!settings) {
+    if (!settings && !companyId) {
       settings = await TaskSettings.findOne().lean();
     }
+    task.customFields = task.customFields || {};
     if (settings) {
-      task.customFields = task.customFields || {};
       // OTP required/not required comes only from TaskSettings (enableOtpVerification)
       task.customFields.otpRequired = settings.settings?.enableOtpVerification === true;
       if (settings.settings?.requireApprovalOnComplete !== undefined) {
@@ -216,6 +275,8 @@ async function mergeTaskSettings(taskDoc, companyId) {
       if (settings.settings?.autoApprove !== undefined) {
         task.autoApprove = settings.settings.autoApprove;
       }
+    } else {
+      task.customFields.otpRequired = false;
     }
   } catch (err) {
     console.warn('[Tasks] mergeTaskSettings:', err.message);
@@ -225,9 +286,29 @@ async function mergeTaskSettings(taskDoc, companyId) {
 
 function getCompanyIdFromTask(task) {
   const assignedTo = task?.assignedTo;
-  if (assignedTo?.businessId) return assignedTo.businessId;
-  if (task?.businessId) return task.businessId;
-  return null;
+  const fromStaff = assignedTo?.businessId;
+  const fromTask = task?.businessId;
+  const id = fromStaff?._id ?? fromStaff ?? fromTask?._id ?? fromTask;
+  return id || null;
+}
+
+/** Find battery percent from tracking record closest to given date (within 60 min). */
+function batteryAtTime(trackingRecords, date) {
+  if (!date || !Array.isArray(trackingRecords) || trackingRecords.length === 0) return undefined;
+  const t = new Date(date).getTime();
+  const oneHour = 60 * 60 * 1000;
+  let best = null;
+  let bestDiff = Infinity;
+  for (const r of trackingRecords) {
+    const rt = (r.timestamp || r.time) ? new Date(r.timestamp || r.time).getTime() : NaN;
+    if (Number.isNaN(rt) || r.batteryPercent == null) continue;
+    const diff = Math.abs(rt - t);
+    if (diff <= oneHour && diff < bestDiff) {
+      bestDiff = diff;
+      best = r.batteryPercent;
+    }
+  }
+  return best != null ? Number(best) : undefined;
 }
 
 exports.getTaskById = async (req, res) => {
@@ -242,6 +323,26 @@ exports.getTaskById = async (req, res) => {
     const mergedTask = await mergeTaskWithDetails(task);
     const companyId = getCompanyIdFromTask(task);
     const merged = await mergeTaskSettings(mergedTask, companyId);
+
+    const trackingRecords = await Tracking.find({ taskId: task._id }).sort({ timestamp: 1 }).lean();
+    if (trackingRecords.length > 0) {
+      if (merged.startTime) merged.startBatteryPercent = batteryAtTime(trackingRecords, merged.startTime);
+      if (merged.arrivalTime) merged.arrivalBatteryPercent = batteryAtTime(trackingRecords, merged.arrivalTime);
+      if (merged.photoProofUploadedAt) merged.photoProofBatteryPercent = batteryAtTime(trackingRecords, merged.photoProofUploadedAt);
+      if (merged.otpVerifiedAt) merged.otpVerifiedBatteryPercent = batteryAtTime(trackingRecords, merged.otpVerifiedAt);
+      if (merged.completedDate) merged.completedBatteryPercent = batteryAtTime(trackingRecords, merged.completedDate);
+      const exits = merged.exit || [];
+      merged.exit = exits.map((ex) => ({
+        ...ex,
+        batteryPercent: batteryAtTime(trackingRecords, ex.exitedAt || ex.time),
+      }));
+      const restarts = merged.restarted || [];
+      merged.restarted = restarts.map((rs) => ({
+        ...rs,
+        batteryPercent: batteryAtTime(trackingRecords, rs.restartedAt || rs.resumedAt || rs.time),
+      }));
+    }
+
     console.log('[Tasks] Fetched task:', task.taskId || taskId);
     res.status(200).json(merged);
   } catch (error) {
@@ -310,13 +411,13 @@ exports.updateTask = async (req, res) => {
     if (!task) return res.status(404).json({ message: 'Task not found' });
 
     if (status != null && !isValidStatusTransition(task.status, status)) {
-      return res.status(400).json({
-        message: `Invalid status transition: ${task.status} → ${status}`,
-      });
+      const msg = `Invalid status transition: ${task.status} → ${status}`;
+      console.log('[Tasks] PATCH rejected:', msg);
+      return res.status(400).json({ message: msg });
     }
 
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
-    const fullDoc = { ...(details || {}), ...req.body, ...updateData, taskId: task.taskId };
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
+    const fullDoc = { ...(details || {}), ...req.body, ...updateData, taskMongoId: task._id };
     if (destinationLocation != null) {
       fullDoc.destinations = fullDoc.destinations || [];
       fullDoc.destinations.push({
@@ -327,6 +428,7 @@ exports.updateTask = async (req, res) => {
       });
     }
     const minimalUpdate = getMinimalTaskFields(fullDoc);
+    delete minimalUpdate.taskId; // Never overwrite taskId – set at creation (TASK-XXXXXXXX-XXXX)
     const updateOp = {};
     if (Object.keys(minimalUpdate).length > 0) updateOp.$set = minimalUpdate;
     updateOp.$unset = exports.buildUnsetExtended();
@@ -409,10 +511,10 @@ exports.updateSteps = async (req, res) => {
     }
     const task = await Task.findById(taskId).populate('assignedTo').populate('customerId');
     if (!task) return res.status(404).json({ message: 'Task not found' });
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const fullDoc = {
       ...(details || {}),
-      taskId: task.taskId,
+      taskMongoId: task._id,
       progressSteps: {
         ...(details?.progressSteps || {}),
         ...(reachedLocation !== undefined && { reachedLocation: !!reachedLocation }),
@@ -442,7 +544,7 @@ exports.getCompletionReport = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const taskObj = { ...(details || {}), ...task };
     if (details) {
       for (const k of EXTENDED_TASK_KEYS) {
@@ -450,7 +552,7 @@ exports.getCompletionReport = async (req, res) => {
       }
     }
 
-    const trackingRecords = await Tracking.find({ taskId })
+    const trackingRecords = await Tracking.find({ taskId: task._id })
       .sort({ timestamp: 1 })
       .lean();
 
@@ -465,8 +567,9 @@ exports.getCompletionReport = async (req, res) => {
           }));
 
     const timeline = [];
+    const hasRestarts = ((taskObj.tasks_restarted || taskObj.restarted || []).length > 0);
 
-    if (taskObj.startTime) {
+    if (taskObj.startTime && !hasRestarts) {
       timeline.push({
         type: 'start',
         label: 'Start',
@@ -474,10 +577,12 @@ exports.getCompletionReport = async (req, res) => {
         address: taskObj.sourceLocation?.address || taskObj.sourceLocation?.fullAddress,
         lat: taskObj.sourceLocation?.lat,
         lng: taskObj.sourceLocation?.lng,
+        batteryPercent: batteryAtTime(trackingRecords, taskObj.startTime),
       });
     }
 
     let lastMovementType = null;
+    let hasHadExit = false;
     for (const tr of trackingRecords) {
       const ts = tr.timestamp || tr.time;
       if (!ts) continue;
@@ -489,8 +594,10 @@ exports.getCompletionReport = async (req, res) => {
           address: tr.fullAddress || tr.address,
           lat: tr.latitude,
           lng: tr.longitude,
+          batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
         });
       } else if (tr.exitStatus === 'exited') {
+        hasHadExit = true;
         timeline.push({
           type: 'exit',
           label: 'Outage',
@@ -499,23 +606,30 @@ exports.getCompletionReport = async (req, res) => {
           lat: tr.latitude,
           lng: tr.longitude,
           exitReason: tr.exitReason,
+          batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
         });
       } else if (tr.movementType && tr.movementType !== lastMovementType) {
         lastMovementType = tr.movementType;
-        const label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
+        let label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
+        let type = 'movement';
+        if ((label === 'Start' || tr.movementType === 'start') && hasHadExit) {
+          label = 'Resumed';
+          type = 'restart';
+        }
         timeline.push({
-          type: 'movement',
+          type,
           label,
           time: ts,
           address: tr.fullAddress || tr.address,
           lat: tr.latitude,
           lng: tr.longitude,
           movementType: tr.movementType,
+          batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
         });
       }
     }
 
-    const exits = taskObj.tasks_exit || [];
+    const exits = taskObj.tasks_exit || taskObj.exit || [];
     for (const ex of exits) {
       const loc = ex.exitLocation || ex;
       const exTime = ex.exitedAt || ex.time;
@@ -528,11 +642,12 @@ exports.getCompletionReport = async (req, res) => {
           lat: loc.lat,
           lng: loc.lng,
           exitReason: ex.exitReason,
+          batteryPercent: batteryAtTime(trackingRecords, exTime),
         });
       }
     }
 
-    const restarts = taskObj.tasks_restarted || [];
+    const restarts = taskObj.tasks_restarted || taskObj.restarted || [];
     for (const rs of restarts) {
       const loc = rs.restartLocation || rs;
       const rsTime = rs.restartedAt || rs.resumedAt || rs.time;
@@ -543,6 +658,7 @@ exports.getCompletionReport = async (req, res) => {
         address: loc.address || loc.fullAddress,
         lat: loc.lat,
         lng: loc.lng,
+        batteryPercent: batteryAtTime(trackingRecords, rsTime),
       });
     }
 
@@ -554,6 +670,7 @@ exports.getCompletionReport = async (req, res) => {
         address: taskObj.photoProofAddress,
         lat: taskObj.photoProofLat,
         lng: taskObj.photoProofLng,
+        batteryPercent: batteryAtTime(trackingRecords, taskObj.photoProofUploadedAt),
       });
     }
 
@@ -565,6 +682,7 @@ exports.getCompletionReport = async (req, res) => {
         address: taskObj.otpVerifiedAddress,
         lat: taskObj.otpVerifiedLat,
         lng: taskObj.otpVerifiedLng,
+        batteryPercent: batteryAtTime(trackingRecords, taskObj.otpVerifiedAt),
       });
     }
 
@@ -576,6 +694,7 @@ exports.getCompletionReport = async (req, res) => {
         address: taskObj.arrivedFullAddress,
         lat: taskObj.arrivedLatitude,
         lng: taskObj.arrivedLongitude,
+        batteryPercent: batteryAtTime(trackingRecords, taskObj.arrivalTime),
       });
     }
 
@@ -587,6 +706,7 @@ exports.getCompletionReport = async (req, res) => {
         address: taskObj.arrivedFullAddress,
         lat: taskObj.arrivedLatitude,
         lng: taskObj.arrivedLongitude,
+        batteryPercent: batteryAtTime(trackingRecords, taskObj.completedDate),
       });
     }
 
@@ -618,7 +738,7 @@ exports.getTrackingPath = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
-    const trackingRecords = await Tracking.find({ taskId })
+    const trackingRecords = await Tracking.find({ taskId: task._id })
       .sort({ timestamp: 1 })
       .lean();
     const points = trackingRecords
@@ -672,10 +792,10 @@ exports.uploadPhotoProof = async (req, res) => {
     const { lat, lng, fullAddress } = req.body;
     const task = await Task.findById(taskId).populate('assignedTo').populate('customerId');
     if (!task) return res.status(404).json({ message: 'Task not found' });
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const fullDoc = {
       ...(details || {}),
-      taskId: task.taskId,
+      taskMongoId: task._id,
       photoProofUrl: photoUrl,
       photoProofUploadedAt: new Date(),
       progressSteps: {
@@ -740,10 +860,10 @@ exports.sendOtp = async (req, res) => {
         message: result.error || 'Failed to send OTP. Set SENDPULSE_CLIENT_ID, SENDPULSE_CLIENT_SECRET, SENDPULSE_FROM_EMAIL in .env',
       });
     }
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const fullDoc = {
       ...(details || {}),
-      taskId: task.taskId,
+      taskMongoId: task._id,
       otpCode: otp,
       otpSentAt: new Date(),
     };
@@ -772,7 +892,7 @@ exports.verifyOtp = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const storedOtp = details?.otpCode;
     if (!storedOtp) {
       return res.status(400).json({ message: 'No OTP sent for this task. Please send OTP first.' });
@@ -784,7 +904,7 @@ exports.verifyOtp = async (req, res) => {
     const { lat, lng, fullAddress } = req.body;
     const fullDoc = {
       ...(details || {}),
-      taskId: task.taskId,
+      taskMongoId: task._id,
       progressSteps: {
         ...(details?.progressSteps || {}),
         otpVerified: true,
@@ -821,10 +941,15 @@ exports.endTask = async (req, res) => {
     const companyId = getCompanyIdFromTask(task);
     let requireApprovalOnComplete = false;
     try {
-      const settings = await TaskSettings.findOne({ companyId }).lean();
-      requireApprovalOnComplete = settings?.settings?.requireApprovalOnComplete === true;
+      if (companyId) {
+        const bid = companyId._id ?? companyId;
+        const settings = await TaskSettings.findOne({
+          $or: [{ companyId: bid }, { businessId: bid }],
+        }).lean();
+        requireApprovalOnComplete = settings?.settings?.requireApprovalOnComplete === true;
+      }
     } catch (err) {
-      console.warn('[Tasks] endTask mergeTaskSettings:', err.message);
+      console.warn('[Tasks] endTask TaskSettings:', err.message);
     }
     const newStatus = requireApprovalOnComplete ? 'waiting_for_approval' : 'completed';
     const completedAt = parseTimestamp(new Date());
@@ -832,10 +957,10 @@ exports.endTask = async (req, res) => {
       $set: { status: newStatus },
       $unset: exports.buildUnsetExtended(),
     });
-    const details = await TaskDetails.findOne({ taskId: task.taskId }).lean();
+    const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const fullDoc = {
       ...(details || {}),
-      taskId: task.taskId,
+      taskMongoId: task._id,
       status: newStatus,
       completedDate: completedAt,
       completedBy: staffId,
