@@ -1,4 +1,5 @@
 // Arrived screen – trip summary, "You've Arrived!", Within Geo-Fence, Next Steps.
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
@@ -627,9 +628,14 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
       } catch (e) {
         if (mounted) {
           setState(() => _submittingExit = false);
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Failed to exit ride: $e')));
+          String msg = 'Failed to exit ride';
+          if (e is DioException && e.response?.data is Map) {
+            final data = e.response!.data as Map;
+            msg = data['message']?.toString() ?? msg;
+          } else {
+            msg = '$msg: ${e.toString()}';
+          }
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         }
         return;
       }
