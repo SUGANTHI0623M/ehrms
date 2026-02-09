@@ -32,6 +32,7 @@ const StaffLocationAccess = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Staff Location Access Management</CardTitle>
+                  <Badge className="bg-green-100 text-green-800 mt-2">0 of 1 Licenses Left</Badge>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground mt-2">

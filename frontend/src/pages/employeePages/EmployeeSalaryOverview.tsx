@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { 
-  Wallet as DollarSign, 
+  DollarSign, 
   Calendar as CalendarIcon, 
   TrendingUp,
   CheckCircle2,

@@ -798,36 +798,16 @@ const OfferLetterForm = () => {
                       <Input
                         id="basicSalary"
                         type="number"
-                        min="0"
-                        step="0.01"
                         value={salaryStructure.basicSalary !== undefined && salaryStructure.basicSalary !== null ? salaryStructure.basicSalary : ''}
                         onChange={(e) => {
-                          const inputValue = e.target.value;
-                          // Allow empty string for clearing
-                          if (inputValue === '') {
-                            setSalaryStructure(prev => ({
-                              ...prev,
-                              basicSalary: 0,
-                            }));
-                            return;
-                          }
-                          const value = parseFloat(inputValue);
-                          // Only accept positive numbers
-                          if (!isNaN(value) && value >= 0) {
-                            setSalaryStructure(prev => ({
-                              ...prev,
-                              basicSalary: value,
-                              // Auto-calculate DA and HRA
-                              dearnessAllowance: value > 0 ? value * 0.5 : prev.dearnessAllowance,
-                              houseRentAllowance: value > 0 ? value * 0.2 : prev.houseRentAllowance,
-                            }));
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          // Prevent negative sign, 'e', 'E', '+', '.' (if already present)
-                          if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') {
-                            e.preventDefault();
-                          }
+                          const value = parseFloat(e.target.value) || 0;
+                          setSalaryStructure(prev => ({
+                            ...prev,
+                            basicSalary: value,
+                            // Auto-calculate DA and HRA
+                            dearnessAllowance: value > 0 ? value * 0.5 : prev.dearnessAllowance,
+                            houseRentAllowance: value > 0 ? value * 0.2 : prev.houseRentAllowance,
+                          }));
                         }}
                         placeholder="e.g., 50000"
                         required
@@ -1028,7 +1008,7 @@ const OfferLetterForm = () => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="monthly">Monthly</SelectItem>
-                          {/* <SelectItem value="yearly">Yearly</SelectItem> */}
+                          <SelectItem value="yearly">Yearly</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

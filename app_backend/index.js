@@ -20,10 +20,12 @@ const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
 const assetsRoutes = require('./src/routes/assetsRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
+const formRoutes = require('./src/routes/formRoutes');
 const trackingRoutes = require('./src/routes/trackingRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 const pmsRoutes = require('./src/routes/pmsRoutes');
 const performanceRoutes = require('./src/routes/performanceRoutes');
+const lmsRoutes = require('./src/routes/lmsRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -88,6 +90,7 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/forms', formRoutes);
 app.use('/api/tracking', trackingRoutes);
 console.log('[Server] Task routes registered at /api/tasks');
 console.log('[Server] Tracking routes registered at /api/tracking');
@@ -96,7 +99,9 @@ app.use('/api/assets', assetsRoutes);
 app.use('/api/onboarding/customers', customerRoutes);
 app.use('/api/pms', pmsRoutes);
 app.use('/api/performance', performanceRoutes);
+app.use('/api/lms', lmsRoutes);
 console.log('[Server] Customer routes registered at /api/onboarding/customers');
+console.log('[Server] LMS routes registered at /api/lms');
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

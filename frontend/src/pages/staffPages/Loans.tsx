@@ -17,14 +17,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useGetLoansQuery, useApproveLoanMutation, useRejectLoanMutation } from "@/store/api/loanApi";
+import { useGetLoansQuery, useApproveLoanMutation } from "@/store/api/loanApi";
 import { message } from "antd";
 import MainLayout from "@/components/MainLayout";
 import { Search, CheckCircle, XCircle } from "lucide-react";
 import { Pagination } from "@/components/ui/Pagination";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 interface LoansProps {
   employeeId?: string;
@@ -36,9 +33,6 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [approveConfirmId, setApproveConfirmId] = useState<string | null>(null);
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectLoanId, setRejectLoanId] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
 
   // Reset page when tab or search changes
   useEffect(() => {
@@ -53,7 +47,6 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
     limit: pageSize
   });
   const [approveLoan, { isLoading: isApproving }] = useApproveLoanMutation();
-  const [rejectLoan, { isLoading: isRejecting }] = useRejectLoanMutation();
 
   const loans = loansData?.data?.loans || [];
   const pagination = loansData?.data?.pagination;
@@ -66,24 +59,6 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
       refetch();
     } catch (error: any) {
       message.error(error?.data?.error?.message || "Failed to approve loan");
-    }
-  };
-
-  const handleReject = async () => {
-    if (!rejectLoanId) return;
-    if (!rejectionReason.trim()) {
-      message.error("Please provide a rejection reason");
-      return;
-    }
-    try {
-      await rejectLoan({ id: rejectLoanId, reason: rejectionReason }).unwrap();
-      message.success("Loan rejected");
-      setRejectDialogOpen(false);
-      setRejectLoanId(null);
-      setRejectionReason("");
-      refetch();
-    } catch (error: any) {
-      message.error(error?.data?.error?.message || "Failed to reject loan");
     }
   };
 
@@ -177,48 +152,16 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                             <TableCell className="max-w-xs truncate text-sm">{loan.purpose}</TableCell>
                             <TableCell>{getStatusBadge(loan.status)}</TableCell>
                             <TableCell className="text-right">
-                              {loan.status === "Pending" ? (
-                                <div className="flex justify-end gap-2">
-                                  <Button
-                                    size="sm"
-                                    onClick={() => setApproveConfirmId(loan._id)}
-                                    disabled={isApproving}
-                                    className="text-xs"
-                                  >
-                                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-                                    <span className="hidden sm:inline">Approve</span>
-                                    <span className="sm:hidden">OK</span>
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setRejectLoanId(loan._id);
-                                      setRejectDialogOpen(true);
-                                    }}
-                                    disabled={isRejecting}
-                                    className="text-xs"
-                                  >
-                                    <XCircle className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-                                    <span className="hidden sm:inline">Reject</span>
-                                    <span className="sm:hidden">X</span>
-                                  </Button>
-                                </div>
-                              ) : loan.status === "Approved" || loan.status === "Active" ? (
-                                <div className="flex justify-end">
-                                  <Badge variant="default" className="text-xs">
-                                    <CheckCircle className="w-3 h-3 mr-1" />
-                                    Approved
-                                  </Badge>
-                                </div>
-                              ) : loan.status === "Rejected" ? (
-                                <div className="flex justify-end">
-                                  <Badge variant="destructive" className="text-xs">
-                                    <XCircle className="w-3 h-3 mr-1" />
-                                    Rejected
-                                  </Badge>
-                                </div>
-                              ) : null}
+                              <Button
+                                size="sm"
+                                onClick={() => setApproveConfirmId(loan._id)}
+                                disabled={isApproving}
+                                className="text-xs"
+                              >
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                                <span className="hidden sm:inline">Approve</span>
+                                <span className="sm:hidden">OK</span>
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -402,56 +345,6 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* REJECT DIALOG */}
-        <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
-          setRejectDialogOpen(open);
-          if (!open) {
-            setRejectLoanId(null);
-            setRejectionReason("");
-          }
-        }}>
-          <DialogContent className="w-[95%] sm:w-full max-w-md">
-            <DialogHeader>
-              <DialogTitle>Reject Loan Application</DialogTitle>
-              <DialogDescription>
-                Please provide a reason for rejecting this loan application. This will be visible to the employee.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="rejection-reason">Rejection Reason <span className="text-red-500">*</span></Label>
-                <Textarea
-                  id="rejection-reason"
-                  placeholder="Enter rejection reason..."
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  className="min-h-[100px]"
-                  required
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRejectDialogOpen(false);
-                  setRejectLoanId(null);
-                  setRejectionReason("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleReject}
-                disabled={!rejectionReason.trim() || isRejecting}
-              >
-                {isRejecting ? "Rejecting..." : "Reject Loan"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
     </div>
   );
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,243 +6,144 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Star, Check, AlertTriangle, TrendingUp, Users, Award, FileCheck, BarChart3, FileText, Search, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ArrowLeft, Star, Check, AlertTriangle, TrendingUp, Users, Award, FileCheck, BarChart3 } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
 import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  useGetPerformanceReviewsQuery, 
-  useSubmitHRReviewMutation,
-  useGetPerformanceReviewByIdQuery 
-} from "@/store/api/performanceReviewApi";
-import { useGetReviewCyclesQuery } from "@/store/api/reviewCycleApi";
-import { format } from "date-fns";
-import { useDebounce } from "@/hooks/useDebounce";
+import { useGetGoalsQuery, useSubmitReviewMutation } from "@/store/api/pmsApi";
+import { message } from "antd";
+
+interface ReviewData {
+  id: string;
+  employeeName: string;
+  employeeId: string;
+  department: string;
+  role: string;
+  selfRating: number;
+  managerRating: number;
+  incrementPercent: number;
+  bonusPercent: number;
+  recommendation: string;
+  status: "pending" | "approved" | "flagged";
+  biasFlag: boolean;
+}
 
 export default function HRReview() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
-  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [flagDialogOpen, setFlagDialogOpen] = useState(false);
+  const [flagReason, setFlagReason] = useState("");
 
-  // Pagination and filters
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [reviewCycleFilter, setReviewCycleFilter] = useState<string>("all");
-  const [reviewTypeFilter, setReviewTypeFilter] = useState<string>("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const limit = 10;
-
-  // Debounce search term for better performance
-  const debouncedSearchTerm = useDebounce(searchTerm, 500);
-
-  // Reset page to 1 when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, reviewCycleFilter, reviewTypeFilter, debouncedSearchTerm]);
-
-  // Build query params
-  const queryParams = useMemo(() => {
-    const params: any = {
-      page,
-      limit,
-    };
-
-    // Status filter - for HR reviews, we want reviews that have manager review submitted
-    // When "all", send multiple statuses to backend to get all HR-relevant reviews
-    if (statusFilter === "all") {
-      // Send comma-separated statuses that are relevant for HR review
-      params.status = "manager-review-submitted,hr-review-pending,hr-review-submitted,completed";
-    } else if (statusFilter === "pending") {
-      params.status = "manager-review-submitted";
-    } else {
-      params.status = statusFilter;
-    }
-
-    if (reviewCycleFilter !== "all") {
-      params.reviewCycle = reviewCycleFilter;
-    }
-
-    if (reviewTypeFilter !== "all") {
-      params.reviewType = reviewTypeFilter;
-    }
-
-    if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
-      params.search = debouncedSearchTerm.trim();
-    }
-
-    return params;
-  }, [page, statusFilter, reviewCycleFilter, reviewTypeFilter, debouncedSearchTerm]);
-
-  // Fetch reviews with proper pagination
-  const { data: reviewsData, isLoading, refetch } = useGetPerformanceReviewsQuery(queryParams);
-
-  // Fetch all reviews for stats and filter options (without pagination)
-  const { data: allReviewsData } = useGetPerformanceReviewsQuery({
-    limit: 1000,
+  const { data: goalsData, isLoading } = useGetGoalsQuery({
+    status: "approved",
+    page: 1,
+    limit: 100
   });
+  const [submitReview, { isLoading: isSubmitting }] = useSubmitReviewMutation();
 
-  const { data: selectedReviewData } = useGetPerformanceReviewByIdQuery(selectedReviewId || "", {
-    skip: !selectedReviewId,
-  });
-
-  const [submitHRReview, { isLoading: isSubmitting }] = useSubmitHRReviewMutation();
+  const goals = goalsData?.data?.goals || [];
   
-  // Fetch all cycles for filter dropdown
-  const { data: cyclesData } = useGetReviewCyclesQuery({ page: 1, limit: 100 });
-  const cycles = cyclesData?.data?.cycles || [];
-
-  // Get all reviews for filtering and stats
-  const allReviews = allReviewsData?.data?.reviews || [];
-  
-  // Get unique review cycles from cyclesData (all cycles), not just from reviews
-  const reviewCycles = useMemo(() => {
-    // Get cycles from cyclesData (all cycles)
-    const cycleNames = cycles.map((c: any) => c.name).filter(Boolean);
-    return Array.from(new Set(cycleNames)).sort();
-  }, [cycles]);
-
-  // Get all review types from cycles API (all available types)
-  const reviewTypes = useMemo(() => {
-    const types = new Set<string>();
-    cycles.forEach((c: any) => {
-      if (c.type) types.add(c.type);
-    });
-    // Also include all possible types as fallback
-    const allPossibleTypes = ['Quarterly', 'Half-Yearly', 'Annual', 'Probation', 'Custom'];
-    allPossibleTypes.forEach(type => types.add(type));
-    return Array.from(types).sort();
-  }, [cycles]);
-
-  // Filter reviews for HR - reviews that have manager review submitted or are ready for HR
-  // Also include reviews where managerReview exists (even if status hasn't been updated yet)
-  const reviewsForHR = allReviews.filter(
-    (r: any) => {
-      // Check by status
-      if (
-        r.status === "manager-review-submitted" ||
-        r.status === "hr-review-pending" ||
-        r.status === "hr-review-submitted" ||
-        r.status === "completed"
-      ) {
-        return true;
-      }
-      // Also include if managerReview has been submitted (has overallRating)
-      if (r.managerReview && r.managerReview.overallRating) {
-        return true;
-      }
-      return false;
-    }
+  // Filter goals that have manager review but no HR review
+  const pendingHRReviews = goals.filter(g => 
+    g.managerReview && !g.hrReview
   );
 
-  // Backend already filters by HR-relevant statuses, so use reviews directly
-  // Backend sends reviews with status: manager-review-submitted, hr-review-pending, hr-review-submitted, or completed
-  const filteredReviews = reviewsData?.data?.reviews || [];
-
-  // Use reviews directly (backend handles all filtering)
-  const searchedReviews = filteredReviews;
-
-  const selectedReview = selectedReviewData?.data?.review;
-
-  // HR review form state
-  const [hrReviewForm, setHrReviewForm] = useState({
-    overallRating: 0,
-    alignmentWithCompanyValues: 0,
-    growthPotential: 0,
-    feedback: "",
-    recommendations: "",
+  // Calculate reviews data from goals
+  const reviews = pendingHRReviews.map(goal => {
+    const employee = goal.employeeId as any;
+    const selfRating = goal.selfReview?.rating || 0;
+    const managerRating = goal.managerReview?.rating || 0;
+    
+    // Calculate recommendations based on ratings
+    let recommendation = "increment";
+    let incrementPercent = 0;
+    let bonusPercent = 0;
+    
+    if (managerRating >= 4.5) {
+      recommendation = "promotion";
+      incrementPercent = 20;
+      bonusPercent = 15;
+    } else if (managerRating >= 4.0) {
+      recommendation = "increment";
+      incrementPercent = 15;
+      bonusPercent = 10;
+    } else if (managerRating >= 3.5) {
+      recommendation = "increment";
+      incrementPercent = 8;
+      bonusPercent = 5;
+    } else if (managerRating < 2.5) {
+      recommendation = "pip";
+      incrementPercent = 0;
+      bonusPercent = 0;
+    }
+    
+    // Check for bias (large gap between self and manager rating)
+    const biasFlag = Math.abs(selfRating - managerRating) > 1.5;
+    
+    return {
+      id: goal._id,
+      employeeName: employee?.name || "N/A",
+      employeeId: employee?.employeeId || "N/A",
+      department: employee?.department || "N/A",
+      role: employee?.designation || "N/A",
+      selfRating,
+      managerRating,
+      incrementPercent,
+      bonusPercent,
+      recommendation,
+      status: goal.hrReview ? "approved" : "pending" as const,
+      biasFlag
+    };
   });
 
-  const handleOpenReviewDialog = (reviewId: string) => {
-    setSelectedReviewId(reviewId);
-    setReviewDialogOpen(true);
-  };
+  const selectedReview = reviews.find(r => r.id === selectedReviewId);
+  const selectedGoal = goals.find(g => g._id === selectedReviewId);
 
-  // Update form when selected review data loads
-  useEffect(() => {
-    if (selectedReview?.hrReview) {
-      const hr = selectedReview.hrReview;
-      setHrReviewForm({
-        overallRating: hr.overallRating || 0,
-        alignmentWithCompanyValues: hr.alignmentWithCompanyValues || 0,
-        growthPotential: hr.growthPotential || 0,
-        feedback: hr.feedback || "",
-        recommendations: hr.recommendations || "",
-      });
-    } else if (selectedReview) {
-      setHrReviewForm({
-        overallRating: 0,
-        alignmentWithCompanyValues: 0,
-        growthPotential: 0,
-        feedback: "",
-        recommendations: "",
-      });
-    }
-  }, [selectedReview]);
-
-  const handleSubmitReview = async () => {
-    if (!selectedReviewId) return;
-
-    // Validation
-    if (
-      hrReviewForm.overallRating === 0 ||
-      hrReviewForm.alignmentWithCompanyValues === 0 ||
-      hrReviewForm.growthPotential === 0
-    ) {
-      toast({
-        title: "Validation Error",
-        description: "Please provide all ratings",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  const handleApprove = async (reviewId: string) => {
+    if (!selectedGoal) return;
+    
     try {
-      await submitHRReview({
-        id: selectedReviewId,
-        data: hrReviewForm,
+      // Submit HR review with same rating as manager for approval
+      await submitReview({
+        id: reviewId,
+        type: 'hr',
+        rating: selectedGoal.managerReview?.rating || 4,
+        comments: flagReason || "Approved by HR"
       }).unwrap();
-
-      toast({
-        title: "Success",
-        description: "HR review submitted successfully. The employee will be notified.",
-      });
-
-      setReviewDialogOpen(false);
+      
+      message.success("Review approved successfully!");
       setSelectedReviewId(null);
-      refetch();
+      setFlagReason("");
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.data?.error?.message || "Failed to submit HR review",
-        variant: "destructive",
-      });
+      message.error(error?.data?.error?.message || "Failed to approve review");
     }
   };
 
-  // Calculate statistics from all HR reviews
-  const totalReviews = reviewsForHR.length;
-  const completedReviews = reviewsForHR.filter((r) => r.status === "completed").length;
-  const pendingReviews = reviewsForHR.filter(
-    (r) => r.status === "manager-review-submitted" || r.status === "hr-review-pending"
-  ).length;
+  const handleFlag = async () => {
+    if (!selectedReviewId || !selectedGoal) return;
+    
+    try {
+      // Submit HR review with flag/rejection
+      await submitReview({
+        id: selectedReviewId,
+        type: 'hr',
+        rating: selectedGoal.managerReview?.rating || 3,
+        comments: flagReason || "Flagged for review"
+      }).unwrap();
+      
+      message.success("Review flagged successfully!");
+      setFlagDialogOpen(false);
+      setSelectedReviewId(null);
+      setFlagReason("");
+    } catch (error: any) {
+      message.error(error?.data?.error?.message || "Failed to flag review");
+    }
+  };
 
-  // Calculate average ratings
-  const reviewsWithRatings = reviewsForHR.filter((r) => r.managerReview?.overallRating);
-  const avgRating =
-    reviewsWithRatings.length > 0
-      ? reviewsWithRatings.reduce((sum, r) => sum + (r.managerReview?.overallRating || 0), 0) /
-        reviewsWithRatings.length
-      : 0;
-
-  // Rating distribution
   const getRatingDistribution = () => {
     const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    reviewsWithRatings.forEach((r) => {
-      const rating = Math.round(r.managerReview?.overallRating || 0);
+    reviews.forEach((r) => {
+      const rating = Math.round(r.managerRating);
       if (rating >= 1 && rating <= 5) {
         distribution[rating as keyof typeof distribution]++;
       }
@@ -251,23 +152,24 @@ export default function HRReview() {
   };
 
   const distribution = getRatingDistribution();
+  const avgRating = reviews.length > 0 
+    ? reviews.reduce((sum, r) => sum + r.managerRating, 0) / reviews.length 
+    : 0;
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "manager-review-submitted":
-        return <Badge className="bg-blue-500">Manager Review Submitted</Badge>;
-      case "hr-review-pending":
-        return <Badge className="bg-orange-500">HR Review Pending</Badge>;
-      case "hr-review-submitted":
-      case "completed":
-        return <Badge className="bg-green-500">Completed</Badge>;
+  const getRecommendationBadge = (rec: string) => {
+    switch (rec) {
+      case "promotion":
+        return <Badge className="bg-purple-500">Promotion</Badge>;
+      case "increment":
+        return <Badge className="bg-green-500">Increment</Badge>;
+      case "bonus":
+        return <Badge className="bg-blue-500">Bonus</Badge>;
+      case "pip":
+        return <Badge className="bg-red-500">PIP</Badge>;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="outline">{rec}</Badge>;
     }
   };
-
-  const pagination = reviewsData?.data?.pagination;
-  const totalPages = pagination?.pages || 1;
 
   return (
     <MainLayout>
@@ -280,10 +182,20 @@ export default function HRReview() {
             <div>
               <h2 className="text-xl md:text-2xl font-bold">HR Review & Finalization</h2>
               <p className="text-sm text-muted-foreground">
-                Validate ratings and finalize performance reviews
+                Validate ratings and finalize PMS cycle
               </p>
             </div>
           </div>
+          <Button 
+            onClick={() => {
+              message.info("Finalize all functionality - to be implemented");
+            }} 
+            className="gap-2"
+            variant="outline"
+          >
+            <FileCheck className="w-4 h-4" />
+            Finalize All & Close Cycle
+          </Button>
         </div>
 
         {/* Summary Stats */}
@@ -295,7 +207,7 @@ export default function HRReview() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Reviews</p>
-                <p className="text-2xl font-bold">{totalReviews}</p>
+                <p className="text-2xl font-bold">{reviews.length}</p>
               </div>
             </CardContent>
           </Card>
@@ -305,8 +217,10 @@ export default function HRReview() {
                 <Check className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{completedReviews}</p>
+                <p className="text-sm text-muted-foreground">Approved</p>
+                <p className="text-2xl font-bold">
+                  {reviews.filter((r) => r.status === "approved").length}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -316,8 +230,10 @@ export default function HRReview() {
                 <AlertTriangle className="w-6 h-6 text-yellow-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Pending</p>
-                <p className="text-2xl font-bold">{pendingReviews}</p>
+                <p className="text-sm text-muted-foreground">Bias Flags</p>
+                <p className="text-2xl font-bold">
+                  {reviews.filter((r) => r.biasFlag).length}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -335,135 +251,37 @@ export default function HRReview() {
         </div>
 
         {/* Rating Distribution */}
-        {reviewsWithRatings.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BarChart3 className="w-5 h-5 text-primary" />
-                Rating Distribution
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-end gap-4 h-32">
-                {[1, 2, 3, 4, 5].map((rating) => (
-                  <div key={rating} className="flex-1 flex flex-col items-center gap-2">
-                    <div
-                      className="w-full bg-primary/80 rounded-t transition-all"
-                      style={{
-                        height:
-                          reviewsWithRatings.length > 0
-                            ? `${
-                                (distribution[rating as keyof typeof distribution] /
-                                  reviewsWithRatings.length) *
-                                100
-                              }%`
-                            : "0%",
-                        minHeight:
-                          distribution[rating as keyof typeof distribution] > 0 ? "20px" : "0",
-                      }}
-                    />
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                        <span className="font-medium">{rating}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {distribution[rating as keyof typeof distribution]} emp
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Search and Filters */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Search & Filter</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              Rating Distribution
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="lg:col-span-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <Input
-                    placeholder="Search by name, ID, department..."
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value);
-                      setPage(1); // Reset to first page on search
+            <div className="flex items-end gap-4 h-32">
+              {[1, 2, 3, 4, 5].map((rating) => (
+                <div key={rating} className="flex-1 flex flex-col items-center gap-2">
+                  <div
+                    className="w-full bg-primary/80 rounded-t transition-all"
+                    style={{
+                      height: reviews.length > 0 
+                        ? `${(distribution[rating as keyof typeof distribution] / reviews.length) * 100}%`
+                        : "0%",
+                      minHeight: distribution[rating as keyof typeof distribution] > 0 ? "20px" : "0",
                     }}
-                    className="pl-10 pr-10"
                   />
-                  {searchTerm && (
-                    <button
-                      onClick={() => {
-                        setSearchTerm("");
-                        setPage(1);
-                      }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      type="button"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                      <span className="font-medium">{rating}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {distribution[rating as keyof typeof distribution]} emp
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <Select value={statusFilter} onValueChange={(value) => {
-                  setStatusFilter(value);
-                  setPage(1);
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="manager-review-submitted">Manager Submitted</SelectItem>
-                    <SelectItem value="hr-review-pending">HR Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Select value={reviewCycleFilter} onValueChange={(value) => {
-                  setReviewCycleFilter(value);
-                  setPage(1);
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Review Cycle" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Cycles</SelectItem>
-                    {reviewCycles.map((cycle) => (
-                      <SelectItem key={cycle} value={cycle}>
-                        {cycle}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Select value={reviewTypeFilter} onValueChange={(value) => {
-                  setReviewTypeFilter(value);
-                  setPage(1);
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Review Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    {reviewTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -471,261 +289,143 @@ export default function HRReview() {
         {/* Reviews Table */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">All Reviews</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Showing {searchedReviews.length} of {reviewsForHR.length} HR reviews
-                {pagination && ` (${pagination.total} total in system)`}
-              </p>
-            </div>
+            <CardTitle className="text-base">All Reviews</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
-              </div>
-            ) : searchedReviews.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No reviews found. Try adjusting your filters.
-              </div>
+              <div className="text-center py-8 text-muted-foreground">Loading reviews...</div>
+            ) : reviews.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No reviews pending HR approval</div>
             ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Employee</TableHead>
-                        <TableHead className="text-center">Self Rating</TableHead>
-                        <TableHead className="text-center">Manager Rating</TableHead>
-                        <TableHead className="text-center">HR Rating</TableHead>
-                        <TableHead className="text-center">Review Cycle</TableHead>
-                        <TableHead className="text-center">Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {searchedReviews.map((review: any) => {
-                        const employee = review.employeeId as any;
-                        const selfRating = review.selfReview?.overallRating || 0;
-                        const managerRating = review.managerReview?.overallRating || 0;
-                        return (
-                          <TableRow key={review._id}>
-                            <TableCell>
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                                  {employee?.name?.charAt(0) || "N"}
-                                </div>
-                                <div>
-                                  <p className="font-medium">{employee?.name || "N/A"}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {employee?.employeeId || "N/A"} • {employee?.department || "N/A"}
-                                  </p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                                {selfRating > 0 ? selfRating.toFixed(1) : "N/A"}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Star className="w-4 h-4 text-blue-500 fill-blue-500" />
-                                {managerRating > 0 ? managerRating.toFixed(1) : "N/A"}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Star className="w-4 h-4 text-green-500 fill-green-500" />
-                                {review.hrReview?.overallRating ? review.hrReview.overallRating.toFixed(1) : "N/A"}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <p className="text-sm">{review.reviewCycle}</p>
-                              <p className="text-xs text-muted-foreground">{review.reviewType}</p>
-                            </TableCell>
-                            <TableCell className="text-center">{getStatusBadge(review.status)}</TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleOpenReviewDialog(review._id)}
-                                disabled={isSubmitting}
-                              >
-                                <FileText className="w-4 h-4 mr-2" />
-                                {review.hrReview ? "View/Edit Review" : "Submit HR Review"}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Pagination */}
-                {pagination && pagination.total > 0 && (
-                  <div className="flex items-center justify-between mt-4">
-                    <p className="text-sm text-muted-foreground">
-                      Page {page} of {pagination.pages} ({pagination.total} total)
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        disabled={page === 1 || isLoading}
-                      >
-                        <ChevronLeft className="w-4 h-4 mr-1" />
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage((p) => Math.min(pagination.pages, p + 1))}
-                        disabled={page === pagination.pages || isLoading}
-                      >
-                        Next
-                        <ChevronRight className="w-4 h-4 ml-1" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead className="text-center">Self Rating</TableHead>
+                      <TableHead className="text-center">Manager Rating</TableHead>
+                      <TableHead className="text-center">Increment %</TableHead>
+                      <TableHead className="text-center">Bonus %</TableHead>
+                      <TableHead className="text-center">Recommendation</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reviews.map((review) => (
+                    <TableRow key={review.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                            {review.employeeName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-medium">{review.employeeName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {review.employeeId} • {review.department}
+                            </p>
+                          </div>
+                          {review.biasFlag && (
+                            <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                          {review.selfRating.toFixed(1)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Star className="w-4 h-4 text-blue-500 fill-blue-500" />
+                          {review.managerRating.toFixed(1)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center font-medium text-green-600">
+                        {review.incrementPercent}%
+                      </TableCell>
+                      <TableCell className="text-center font-medium text-blue-600">
+                        {review.bonusPercent}%
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {getRecommendationBadge(review.recommendation)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          className={
+                            review.status === "approved"
+                              ? "bg-green-500"
+                              : review.status === "flagged"
+                              ? "bg-red-500"
+                              : "bg-yellow-500"
+                          }
+                        >
+                          {review.status.charAt(0).toUpperCase() + review.status.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {review.status === "pending" && (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-green-600"
+                              onClick={() => {
+                                setSelectedReviewId(review.id);
+                                handleApprove(review.id);
+                              }}
+                              disabled={isSubmitting}
+                            >
+                              <Check className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600"
+                              onClick={() => {
+                                setSelectedReviewId(review.id);
+                                setFlagDialogOpen(true);
+                              }}
+                              disabled={isSubmitting}
+                            >
+                              <AlertTriangle className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
 
-        {/* HR Review Dialog */}
-        <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        {/* Flag Dialog */}
+        <Dialog open={flagDialogOpen} onOpenChange={setFlagDialogOpen}>
+          <DialogContent>
             <DialogHeader>
-              <DialogTitle>HR Review</DialogTitle>
+              <DialogTitle>Flag Review for Reconsideration</DialogTitle>
             </DialogHeader>
-            {selectedReview && (
-              <div className="space-y-6 py-4">
-                {/* Employee Info */}
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="font-semibold">
-                    {(selectedReview.employeeId as any)?.name || "N/A"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {(selectedReview.employeeId as any)?.designation || "N/A"} •{" "}
-                    {(selectedReview.employeeId as any)?.department || "N/A"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Review Cycle: {selectedReview.reviewCycle} • {selectedReview.reviewType}
-                  </p>
-                </div>
-
-                {/* Review Summary */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Self Rating</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                      <span className="font-semibold">
-                        {selectedReview.selfReview?.overallRating?.toFixed(1) || "N/A"}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Manager Rating</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <Star className="w-4 h-4 text-blue-500 fill-blue-500" />
-                      <span className="font-semibold">
-                        {selectedReview.managerReview?.overallRating?.toFixed(1) || "N/A"}
-                      </span>
-                    </div>
-                  </div>
-                  {selectedReview.hrReview && (
-                    <div className="p-3 bg-muted rounded-lg">
-                      <p className="text-sm text-muted-foreground">HR Rating</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Star className="w-4 h-4 text-green-500 fill-green-500" />
-                        <span className="font-semibold">
-                          {selectedReview.hrReview?.overallRating?.toFixed(1) || "N/A"}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* HR Ratings */}
-                <div className="space-y-4">
-                  <h4 className="font-semibold">HR Performance Ratings (1-5)</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      { key: "overallRating", label: "Overall Rating" },
-                      { key: "alignmentWithCompanyValues", label: "Alignment with Company Values" },
-                      { key: "growthPotential", label: "Growth Potential" },
-                    ].map(({ key, label }) => (
-                      <div key={key} className="space-y-2">
-                        <Label>{label} *</Label>
-                        <div className="flex gap-1">
-                          {[1, 2, 3, 4, 5].map((rating) => (
-                            <Button
-                              key={rating}
-                              type="button"
-                              variant={
-                                hrReviewForm[key as keyof typeof hrReviewForm] === rating
-                                  ? "default"
-                                  : "outline"
-                              }
-                              size="sm"
-                              className="w-10 h-10 p-0"
-                              onClick={() =>
-                                setHrReviewForm({
-                                  ...hrReviewForm,
-                                  [key]: rating,
-                                })
-                              }
-                            >
-                              {rating}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Feedback */}
-                <div className="space-y-2">
-                  <Label>Feedback</Label>
-                  <Textarea
-                    value={hrReviewForm.feedback}
-                    onChange={(e) =>
-                      setHrReviewForm({ ...hrReviewForm, feedback: e.target.value })
-                    }
-                    placeholder="Provide HR feedback..."
-                    rows={4}
-                  />
-                </div>
-
-                {/* Recommendations */}
-                <div className="space-y-2">
-                  <Label>Recommendations</Label>
-                  <Textarea
-                    value={hrReviewForm.recommendations}
-                    onChange={(e) =>
-                      setHrReviewForm({ ...hrReviewForm, recommendations: e.target.value })
-                    }
-                    placeholder="Provide recommendations..."
-                    rows={3}
-                  />
-                </div>
-              </div>
-            )}
+            <div className="space-y-4 py-4">
+              <p className="text-sm text-muted-foreground">
+                Employee: <strong>{selectedReview?.employeeName || "N/A"}</strong>
+              </p>
+              <Textarea
+                placeholder="Reason for flagging (bias check, inconsistency, etc.)..."
+                value={flagReason}
+                onChange={(e) => setFlagReason(e.target.value)}
+                rows={4}
+              />
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setFlagDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmitReview} disabled={isSubmitting}>
-                {isSubmitting ? "Submitting..." : "Submit HR Review"}
+              <Button variant="destructive" onClick={handleFlag}>
+                Flag & Send Back
               </Button>
             </DialogFooter>
           </DialogContent>

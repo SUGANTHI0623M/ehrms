@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
+import MainLayout from "@/components/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Home, Receipt, ArrowRight } from "lucide-react";
 
@@ -25,11 +24,8 @@ const PayrollHub = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <Header />
-
-      <main className="ml-64 mt-16 p-8">
+    <MainLayout>
+      <div className="p-8">
         <div className=" mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Payroll Management</h1>
@@ -82,8 +78,8 @@ const PayrollHub = () => {
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
+      </div>
+    </MainLayout >
   );
 };
 

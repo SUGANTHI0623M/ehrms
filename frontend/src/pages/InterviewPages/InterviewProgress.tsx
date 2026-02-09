@@ -895,7 +895,7 @@ const InterviewProgress = () => {
                               <div className="flex items-center gap-2">
                                 {response.score !== undefined && response.score !== null && (
                                   <Badge variant="outline" className="font-semibold">
-                                    Score: {response.score} / {response.maxScore || 5}
+                                    Score: {response.score} / {response.maxScore || 'N/A'}
                                   </Badge>
                                 )}
                                 {response.isSatisfactory !== undefined && (

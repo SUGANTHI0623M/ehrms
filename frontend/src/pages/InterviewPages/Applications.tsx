@@ -35,7 +35,7 @@ const Applications = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
-          
+
             <div className="col-span-1 lg:col-span-1 order-1 lg:order-1">
               <Card>
                 <CardContent className="p-4">
@@ -56,7 +56,7 @@ const Applications = () => {
               </Card>
             </div>
 
-  
+
             <div className="col-span-1 lg:col-span-4 order-2 lg:order-2">
               <Card>
                 <CardContent className="p-6 space-y-4">

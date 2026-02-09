@@ -300,21 +300,10 @@ const OnboardingDocuments = () => {
                           <input
                             type="file"
                             className="hidden"
-                            accept=".pdf,.jpg,.jpeg,.png"
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                // Validate file size (10MB)
-                                if (file.size > 10 * 1024 * 1024) {
-                                  toast.error("File size must be less than 10MB");
-                                  return;
-                                }
-                                // Validate file type
-                                const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-                                if (!allowedTypes.includes(file.type)) {
-                                  toast.error("Only PDF, JPEG, JPG, and PNG files are allowed");
-                                  return;
-                                }
                                 handleFileUpload(doc, file);
                               }
                             }}
@@ -421,21 +410,10 @@ const OnboardingDocuments = () => {
                           <input
                             type="file"
                             className="hidden"
-                            accept=".pdf,.jpg,.jpeg,.png"
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                // Validate file size (10MB)
-                                if (file.size > 10 * 1024 * 1024) {
-                                  toast.error("File size must be less than 10MB");
-                                  return;
-                                }
-                                // Validate file type
-                                const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-                                if (!allowedTypes.includes(file.type)) {
-                                  toast.error("Only PDF, JPEG, JPG, and PNG files are allowed");
-                                  return;
-                                }
                                 handleFileUpload(doc, file);
                               }
                             }}

@@ -13,6 +13,7 @@ import 'package:hrms/services/geo/location_service.dart'
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
+import 'package:hrms/services/geo/live_tracking_service.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/exit_ride_bottom_sheet.dart';
@@ -20,6 +21,7 @@ import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:floating/floating.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   final String taskId;
@@ -110,6 +112,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   double? _lastSentLng;
   DateTime? _lastSentTime;
 
+  final Floating _floating = Floating();
+
   @override
   void initState() {
     super.initState();
@@ -156,9 +160,18 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     );
 
     // Send GPS point every 15 sec: updateLocation (task path) + storeTracking (Tracking collection).
+    // Persist for background tracking (continues when app closed or in background).
     if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
       debugPrint(
         '[LiveTracking] Timer started: taskMongoId=${widget.taskMongoId}',
+      );
+      LiveTrackingService().startTracking(
+        taskMongoId: widget.taskMongoId!,
+        taskId: widget.taskId,
+        pickupLat: widget.pickupLocation.latitude,
+        pickupLng: widget.pickupLocation.longitude,
+        dropoffLat: _dropoffLatLng.latitude,
+        dropoffLng: _dropoffLatLng.longitude,
       );
       // Send first point after 2 sec, then every 15 sec.
       Future.delayed(const Duration(seconds: 2), () {
@@ -173,6 +186,19 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       debugPrint(
         '[LiveTracking] Timer NOT started: taskMongoId is null or empty',
       );
+    }
+    _enablePipOnMinimize();
+  }
+
+  Future<void> _enablePipOnMinimize() async {
+    try {
+      final available = await _floating.isPipAvailable;
+      if (available && mounted) {
+        await _floating.enable(OnLeavePiP(aspectRatio: Rational.landscape()));
+        debugPrint('[LiveTracking] PiP enabled: minimize to show floating map');
+      }
+    } catch (e) {
+      debugPrint('[LiveTracking] PiP not available: $e');
     }
   }
 
@@ -756,6 +782,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     _timer?.cancel();
     _etaUpdateTimer?.cancel();
     _locationUploadTimer?.cancel();
+    _floating.cancelOnLeavePiP();
     LocationService().dispose();
     super.dispose();
   }
@@ -806,6 +833,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           lat: lat,
           lng: lng,
         );
+        await LiveTrackingService().stopTracking();
         await PresenceTrackingService().resumePresenceTracking();
       } catch (e) {
         if (mounted) {
@@ -817,9 +845,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       }
     }
     if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).pop();
-      });
+      await _floating.cancelOnLeavePiP();
+      await Future.delayed(const Duration(milliseconds: 150));
+      if (mounted) Navigator.of(context).pop();
     }
   }
 
@@ -894,6 +922,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           },
         );
         if (mounted) setState(() => _reachedLocation = true);
+        await LiveTrackingService().stopTracking();
       } catch (_) {
         if (mounted) setState(() => _submittingArrived = false);
         return;
@@ -1224,6 +1253,83 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     );
   }
 
+  Widget _buildPipView(Set<Polyline> allPolylines) {
+    final center =
+        _lastLocation != null &&
+            _lastLocation!.latitude != null &&
+            _lastLocation!.longitude != null
+        ? LatLng(_lastLocation!.latitude!, _lastLocation!.longitude!)
+        : widget.pickupLocation;
+    return Container(
+      color: Colors.white,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: center, zoom: 14.0),
+            markers: {
+              if (_staffMarker != null) _staffMarker!,
+              if (_pickupMarker != null) _pickupMarker!,
+              if (_dropoffMarker != null) _dropoffMarker!,
+            },
+            polylines: allPolylines,
+            myLocationEnabled: true,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: Colors.white.withOpacity(0.95),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.navigation_rounded,
+                        size: 16,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _dropoffAddress.isNotEmpty
+                              ? (_dropoffAddress.length > 35
+                                    ? '${_dropoffAddress.substring(0, 35)}...'
+                                    : _dropoffAddress)
+                              : 'Towards destination',
+                          style: const TextStyle(fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _etaText != null
+                        ? 'Arrive $_etaText'
+                        : '${_remainingDistanceKm.toStringAsFixed(2)} km',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allPolylines = <Polyline>{
@@ -1231,6 +1337,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       if (_shortestRoutePolyline != null) _shortestRoutePolyline!,
     };
 
+    return PiPSwitcher(
+      childWhenDisabled: _buildFullScreen(allPolylines),
+      childWhenEnabled: _buildPipView(allPolylines),
+    );
+  }
+
+  Widget _buildFullScreen(Set<Polyline> allPolylines) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {

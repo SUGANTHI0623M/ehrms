@@ -18,8 +18,6 @@ interface User {
     name: string;
     permissions: Permission[];
   };
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager';
-  sidebarPermissions?: string[];
 }
 
 interface AuthState {

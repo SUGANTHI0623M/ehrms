@@ -116,8 +116,7 @@ export const getModuleMenuItems = (
 export const getUserPermissions = (
   role: string,
   roleId?: { permissions: Permission[] } | null,
-  userPermissionsArr?: string[] | ModulePermission[],
-  sidebarPermissions?: string[]
+  userPermissionsArr?: string[] | ModulePermission[]
 ): ModulePermission[] => {
   // Priority 0: Admin always has full access
   if (role === 'Admin' || role === 'admin') {
@@ -142,149 +141,7 @@ export const getUserPermissions = (
       { module: 'company-policy', actions: ['view', 'read', 'create', 'update', 'delete'] },
       { module: 'integrations', actions: ['view', 'read', 'create', 'update', 'delete'] },
       { module: 'settings', actions: ['view', 'read', 'create', 'update', 'delete'] },
-      { module: 'hrms-geo', actions: ['view', 'read', 'create', 'update', 'delete'] },
     ];
-  }
-
-  // For Employee role: Check sidebarPermissions first and add them as permissions
-  if (role === 'Employee' && sidebarPermissions && Array.isArray(sidebarPermissions) && sidebarPermissions.length > 0) {
-    const sidebarPerms: ModulePermission[] = [];
-    
-    // Map sidebar modules to permission modules
-    const sidebarModuleMap: Record<string, string> = {
-      'interview': 'interview',
-      'staff': 'staff',
-      'payroll': 'payroll',
-      'hrms-geo': 'hrms-geo',
-      'performance': 'performance',
-      'lms': 'lms',
-      'assets': 'assets',
-      'integrations': 'integrations',
-      'settings': 'settings',
-    };
-    
-    // Map sub-modules to parent modules
-    const subModuleToParentMap: Record<string, string> = {
-      // Interview sub-modules
-      'job_openings': 'interview',
-      'candidates': 'interview',
-      'interview_appointments': 'interview',
-      'interview_process': 'interview',
-      'offer_letter': 'interview',
-      'document_collection': 'interview',
-      'background_verification': 'interview',
-      'refer_candidate': 'interview',
-      // Staff sub-modules
-      'staff_overview': 'staff',
-      'salary_overview': 'staff',
-      'salary_structure': 'staff',
-      'attendance': 'staff',
-      'leaves_approval': 'staff',
-      'loans': 'staff',
-      'expense_claims': 'staff',
-      'payslip_requests': 'staff',
-      // Performance sub-modules
-      'performance_overview': 'performance',
-      'performance_analytics': 'performance',
-      'performance_reviews': 'performance',
-      'review_cycles': 'performance',
-      'manager_review': 'performance',
-      'hr_review': 'performance',
-      'goals_management': 'performance',
-      'kra_kpi': 'performance',
-      'pms_reports': 'performance',
-      'pms_settings': 'performance',
-      // Payroll sub-modules
-      'payroll_management': 'payroll',
-      // HRMS Geo sub-modules
-      'hrms_geo_dashboard': 'hrms-geo',
-      'tracking': 'hrms-geo',
-      'forms': 'hrms-geo',
-      'tasks': 'hrms-geo',
-      'customers': 'hrms-geo',
-      'geo_settings': 'hrms-geo',
-      // LMS sub-modules
-      'course_library': 'lms',
-      'live_session': 'lms',
-      'quiz_generator': 'lms',
-      'assessment': 'lms',
-      'score_analytics': 'lms',
-      // Assets sub-modules
-      'assets_type': 'assets',
-      'assets': 'assets',
-      // Integrations sub-modules
-      'all_integrations': 'integrations',
-      'exotel': 'integrations',
-      'email': 'integrations',
-      'google_calendar': 'integrations',
-      'sms': 'integrations',
-      'rcs': 'integrations',
-      'voice': 'integrations',
-      // Settings sub-modules
-      'user_management': 'settings',
-      'attendance_settings': 'settings',
-      'business_settings': 'settings',
-      'payroll_settings': 'settings',
-      'business_info': 'settings',
-      'company_policy': 'settings',
-      'onboarding_documents': 'settings',
-      'others': 'settings',
-    };
-    
-    sidebarPermissions.forEach((sidebarModule) => {
-      // Check if it's a sub-module that maps to a parent
-      let parentModule = sidebarModule;
-      if (subModuleToParentMap[sidebarModule]) {
-        parentModule = subModuleToParentMap[sidebarModule];
-      }
-      
-      // Map to backend module
-      const module = sidebarModuleMap[parentModule] || parentModule;
-      
-      // Employees with sidebar permissions get read/view access
-      sidebarPerms.push({
-        module,
-        actions: ['read', 'view', 'export']
-      });
-      
-      // Add sub-modules for interview
-      if (sidebarModule === 'interview' || parentModule === 'interview') {
-        sidebarPerms.push(
-          { module: 'candidates', actions: ['read', 'view'] },
-          { module: 'job_openings', actions: ['read', 'view'] },
-          { module: 'interview_appointments', actions: ['read', 'view'] },
-          { module: 'interview_process', actions: ['read', 'view'] },
-          { module: 'offer_letter', actions: ['read', 'view'] },
-          { module: 'document_collection', actions: ['read', 'view'] },
-          { module: 'background_verification', actions: ['read', 'view'] },
-          { module: 'refer_candidate', actions: ['read', 'view'] }
-        );
-      }
-    });
-    
-    // Merge with user-specific permissions if they exist
-    if (userPermissionsArr && userPermissionsArr.length > 0) {
-      const firstPerm = userPermissionsArr[0] as any;
-      if (typeof firstPerm === 'object' && firstPerm !== null && firstPerm.module && Array.isArray(firstPerm.actions)) {
-        // Already formatted - merge with sidebar permissions
-        const existingPerms = userPermissionsArr as ModulePermission[];
-        existingPerms.forEach(perm => {
-          const existing = sidebarPerms.find(p => p.module === perm.module);
-          if (existing) {
-            // Merge actions
-            perm.actions.forEach(action => {
-              if (!existing.actions.includes(action)) {
-                existing.actions.push(action);
-              }
-            });
-          } else {
-            sidebarPerms.push(perm);
-          }
-        });
-      }
-    }
-    
-    return sidebarPerms;
   }
 
   // Priority 1: User-specific permissions (can be string array or formatted permissions)
@@ -320,7 +177,6 @@ export const getUserPermissions = (
         { module: 'company-policy', actions: ['view', 'read', 'create', 'update', 'delete'] },
         { module: 'integrations', actions: ['view', 'read', 'create', 'update', 'delete'] },
         { module: 'settings', actions: ['view', 'read', 'create', 'update', 'delete'] },
-        { module: 'hrms-geo', actions: ['view', 'read', 'create', 'update', 'delete'] },
       ];
     }
 
@@ -351,8 +207,6 @@ export const getUserPermissions = (
       'lms': 'lms',
       'integrations': 'integrations',
       'settings': 'settings',
-      'hrms-geo': 'hrms-geo',
-      'hrms_geo': 'hrms-geo',
       'requisition': 'requisition',
       'jobs': 'jobs', // Keeping for backward compat if needed
       'jobs_timeline': 'jobs_timeline',
@@ -453,7 +307,6 @@ export const getUserPermissions = (
         else if (perm.includes('lms')) moduleName = 'lms';
         else if (perm.includes('settings')) moduleName = 'settings';
         else if (perm.includes('interview')) moduleName = 'interview';
-        else if (perm.includes('hrms-geo') || perm.includes('hrms_geo')) moduleName = 'hrms-geo';
       }
 
       if (moduleName) {

@@ -1,9 +1,13 @@
 // hrms/lib/screens/splash/splash_screen.dart
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:background_location_tracker/background_location_tracker.dart';
 import '../../config/app_colors.dart';
+import '../../services/geo/live_tracking_service.dart';
 import '../auth/login_screen.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../geo/live_tracking_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -55,6 +59,38 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     if (token != null && token.isNotEmpty) {
+      final activeInfo = await LiveTrackingService().getActiveTaskInfo();
+      if (activeInfo != null && mounted) {
+        // If user tapped "Stop tracking" in notification, native tracking stopped but we had stale state.
+        // Sync: clear LiveTrackingService and go to dashboard.
+        final isTracking = await BackgroundLocationTrackerManager.isTracking();
+        if (!isTracking) {
+          await LiveTrackingService().stopTracking();
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => DashboardScreen()),
+          );
+          return;
+        }
+        // Live tracking in progress – go directly to LiveTrackingScreen (no resume prompt)
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => LiveTrackingScreen(
+              taskId: activeInfo['taskId'] as String,
+              taskMongoId: activeInfo['taskMongoId'] as String,
+              pickupLocation: LatLng(
+                activeInfo['pickupLat'] as double,
+                activeInfo['pickupLng'] as double,
+              ),
+              dropoffLocation: LatLng(
+                activeInfo['dropoffLat'] as double,
+                activeInfo['dropoffLng'] as double,
+              ),
+              task: null,
+            ),
+          ),
+        );
+        return;
+      }
       // User is logged in, navigate to Dashboard
       Navigator.of(
         context,

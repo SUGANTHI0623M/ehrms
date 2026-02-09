@@ -5,7 +5,6 @@ import { useRegisterMutation, useGetPlatformLogoQuery } from "@/store/api/authAp
 import { useAppDispatch } from "@/store/hooks";
 import { setCredentials } from "@/store/slices/authSlice";
 import { getRoleDashboard } from "@/utils/roleUtils";
-import { Eye, EyeOff } from "lucide-react";
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -30,17 +29,13 @@ const Signup = () => {
     confirmPassword?: string;
   }>({});
   const [platformLogo, setPlatformLogo] = useState<string | null>(null);
-  const [showPasswords, setShowPasswords] = useState({
-    password: false,
-    confirmPassword: false,
-  });
 
   useEffect(() => {
     if (platformLogoData?.data?.logo) {
       const logo = platformLogoData.data.logo;
       setPlatformLogo(logo.startsWith('http') || logo.startsWith('/') 
         ? logo 
-        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:9000'}${logo}`
+        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}${logo}`
       );
     }
   }, [platformLogoData]);
@@ -246,32 +241,18 @@ const Signup = () => {
 
           <div>
             <label className="block mb-1.5 sm:mb-2 text-sm sm:text-base font-medium text-gray-700">Password</label>
-            <div className="relative">
-              <input
-                type={showPasswords.password ? "text" : "password"}
-                name="password"
-                className={`w-full rounded-lg border px-3 sm:px-4 py-2.5 sm:py-3 pr-10 text-sm sm:text-base focus:ring focus:ring-indigo-200 outline-none ${
-                  errors.password ? "border-red-500" : ""
-                }`}
-                placeholder="Enter password (min 6 characters)"
-                value={form.password}
-                onChange={handleChange}
-                required
-                minLength={6}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPasswords({ ...showPasswords, password: !showPasswords.password })}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                aria-label={showPasswords.password ? "Hide password" : "Show password"}
-              >
-                {showPasswords.password ? (
-                  <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                ) : (
-                  <Eye className="w-4 h-4 sm:w-5 sm:h-5" />
-                )}
-              </button>
-            </div>
+            <input
+              type="password"
+              name="password"
+              className={`w-full rounded-lg border px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base focus:ring focus:ring-indigo-200 outline-none ${
+                errors.password ? "border-red-500" : ""
+              }`}
+              placeholder="Enter password (min 6 characters)"
+              value={form.password}
+              onChange={handleChange}
+              required
+              minLength={6}
+            />
             {errors.password && (
               <p className="text-red-500 text-xs sm:text-sm mt-1">{errors.password}</p>
             )}
@@ -279,31 +260,17 @@ const Signup = () => {
 
           <div>
             <label className="block mb-1.5 sm:mb-2 text-sm sm:text-base font-medium text-gray-700">Confirm Password</label>
-            <div className="relative">
-              <input
-                type={showPasswords.confirmPassword ? "text" : "password"}
-                name="confirmPassword"
-                className={`w-full rounded-lg border px-3 sm:px-4 py-2.5 sm:py-3 pr-10 text-sm sm:text-base focus:ring focus:ring-indigo-200 outline-none ${
-                  errors.confirmPassword ? "border-red-500" : ""
-                }`}
-                placeholder="Confirm password"
-                value={form.confirmPassword}
-                onChange={handleChange}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPasswords({ ...showPasswords, confirmPassword: !showPasswords.confirmPassword })}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                aria-label={showPasswords.confirmPassword ? "Hide password" : "Show password"}
-              >
-                {showPasswords.confirmPassword ? (
-                  <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                ) : (
-                  <Eye className="w-4 h-4 sm:w-5 sm:h-5" />
-                )}
-              </button>
-            </div>
+            <input
+              type="password"
+              name="confirmPassword"
+              className={`w-full rounded-lg border px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base focus:ring focus:ring-indigo-200 outline-none ${
+                errors.confirmPassword ? "border-red-500" : ""
+              }`}
+              placeholder="Confirm password"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              required
+            />
             {errors.confirmPassword && (
               <p className="text-red-500 text-xs sm:text-sm mt-1">{errors.confirmPassword}</p>
             )}

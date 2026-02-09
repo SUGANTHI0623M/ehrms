@@ -3,12 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import { 
-  Calendar, 
-  Clock, 
-  Wallet as DollarSign, 
-  FileText, 
-  Wallet, 
+import {
+  Calendar,
+  Clock,
+  DollarSign,
+  FileText,
+  Wallet,
   CheckCircle2,
   AlertCircle,
   TrendingUp,
@@ -30,12 +30,12 @@ import { getLocationWithAddress } from "@/utils/geocoding";
 import { message } from "antd";
 import { calculateWorkingDays, type WorkingDaysInfo, type FineInfo } from "@/utils/salaryCalculation.util";
 import { calculateTotalFine } from "@/utils/fineCalculation.util";
-import { 
-  calculateSalaryStructure, 
-  calculateProratedSalary, 
+import {
+  calculateSalaryStructure,
+  calculateProratedSalary,
   formatCurrency,
-  type SalaryStructureInputs, 
-  type CalculatedSalaryStructure 
+  type SalaryStructureInputs,
+  type CalculatedSalaryStructure
 } from "@/utils/salaryStructureCalculation.util";
 // Helper function to format date
 const formatDate = (dateString: string | Date) => {
@@ -48,7 +48,7 @@ const EmployeeDashboard = () => {
   const { data, isLoading, error } = useGetEmployeeDashboardQuery();
   const navigate = useNavigate();
   const currentUser = useAppSelector((state) => state.auth.user);
-  
+
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address: string } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
@@ -144,16 +144,16 @@ const EmployeeDashboard = () => {
 
   // Get salary structure from staff (set by admin)
   const staffSalary = staffWithSalary?.salary;
-  
+
   // Calculate salary structure dynamically from inputs (admin-set structure)
   let calculatedSalary: CalculatedSalaryStructure | null = null;
   let proratedSalary: { proratedGrossSalary: number; proratedDeductions: number; proratedNetSalary: number; attendancePercentage: number } | null = null;
-  
+
   // Check if staff has new salary structure format (set by admin)
   if (staffSalary && 'basicSalary' in staffSalary && staffSalary.basicSalary) {
     // New format - calculate from admin-set inputs
     calculatedSalary = calculateSalaryStructure(staffSalary as SalaryStructureInputs);
-    
+
     // Calculate prorated salary based on attendance (present days / working days)
     proratedSalary = calculateProratedSalary(
       calculatedSalary,
@@ -191,7 +191,7 @@ const EmployeeDashboard = () => {
       },
       totalCTC: (oldSalary.ctcYearly || oldSalary.gross * 12) || 0,
     };
-    
+
     proratedSalary = calculateProratedSalary(
       calculatedSalary,
       workingDaysInfo.workingDays,
@@ -214,7 +214,7 @@ const EmployeeDashboard = () => {
 
   // Calculate fine information from attendance records
   const fineInfo: FineInfo = calculateTotalFine(attendanceRecords);
-  
+
   // Apply fine to prorated net salary
   if (proratedSalary && fineInfo.totalFineAmount > 0) {
     proratedSalary.proratedNetSalary = Math.max(0, proratedSalary.proratedNetSalary - fineInfo.totalFineAmount);
@@ -258,16 +258,16 @@ const EmployeeDashboard = () => {
         maximumAge: 0,
       });
       const address = locationData.address || locationData.formattedAddress;
-      const hasValidAddress = address && 
-        address !== "Location captured" && 
+      const hasValidAddress = address &&
+        address !== "Location captured" &&
         !address.match(/^-?\d+\.?\d*,\s*-?\d+\.?\d*$/);
-      
+
       if (!hasValidAddress) {
         const addressParts: string[] = [];
         if (locationData.city) addressParts.push(locationData.city);
         if (locationData.state) addressParts.push(locationData.state);
         if (locationData.country) addressParts.push(locationData.country);
-        const builtAddress = addressParts.length > 0 
+        const builtAddress = addressParts.length > 0
           ? addressParts.join(', ')
           : `${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)}`;
         setLocation({
@@ -364,7 +364,7 @@ const EmployeeDashboard = () => {
   };
 
   // Calendar modifiers for attendance status
-  const daysArray = Array.from({ length: totalDaysInMonth }, (_, i) => 
+  const daysArray = Array.from({ length: totalDaysInMonth }, (_, i) =>
     new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
   );
 
@@ -372,7 +372,7 @@ const EmployeeDashboard = () => {
     if (monthHolidays.some(h => isSameDay(h, date))) return "holiday";
     const dayOfWeek = date.getDay();
     const dayOfMonth = date.getDate();
-    
+
     // Check week off based on pattern
     if (weeklyOffPattern === 'oddEvenSaturday') {
       if (dayOfWeek === 0) return "weekend"; // All Sundays are off
@@ -384,7 +384,7 @@ const EmployeeDashboard = () => {
       // Standard pattern: Saturday and Sunday are weekends
       if (dayOfWeek === 0 || dayOfWeek === 6) return "weekend";
     }
-    
+
     const attendance = attendanceRecords.find(record => isSameDay(parseISO(record.date), date));
     if (attendance) {
       const status = attendance.status as string;
@@ -419,10 +419,7 @@ const EmployeeDashboard = () => {
     "not-marked": "text-muted-foreground",
   };
 
-  // Disable punch in if already punched in, or if status is Present/Absent (manually marked by admin/HR)
-  const canPunchIn = !todayAttendance?.punchIn && 
-                     todayAttendance?.status !== "Present" && 
-                     todayAttendance?.status !== "Absent";
+  const canPunchIn = !todayAttendance?.punchIn;
   const canPunchOut = todayAttendance?.punchIn && !todayAttendance?.punchOut;
 
   const quickActions = [
@@ -598,8 +595,8 @@ const EmployeeDashboard = () => {
                         {formatCurrency(calculatedSalary.monthly.grossSalary)}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        {currentPayroll && (currentPayroll.status === 'Processed' || currentPayroll.status === 'Paid') 
-                          ? 'From processed payroll' 
+                        {currentPayroll && (currentPayroll.status === 'Processed' || currentPayroll.status === 'Paid')
+                          ? 'From processed payroll'
                           : 'From salary structure'}
                       </div>
                     </div>
@@ -621,8 +618,8 @@ const EmployeeDashboard = () => {
                         {formatCurrency(calculatedSalary.monthly.netMonthlySalary)}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        {currentPayroll && (currentPayroll.status === 'Processed' || currentPayroll.status === 'Paid') 
-                          ? 'From processed payroll' 
+                        {currentPayroll && (currentPayroll.status === 'Processed' || currentPayroll.status === 'Paid')
+                          ? 'From processed payroll'
                           : 'From salary structure'}
                       </div>
                     </div>
@@ -708,7 +705,7 @@ const EmployeeDashboard = () => {
                         )}
                         {calculatedSalary.monthly.houseRentAllowance > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
-                            <span>HRA</span>
+                            <span>HRA.</span>
                             <span className="font-medium text-green-600">
                               {formatCurrency(calculatedSalary.monthly.houseRentAllowance)}
                             </span>
@@ -872,7 +869,7 @@ const EmployeeDashboard = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium">Today ({format(new Date(), "dd MMM")})</span>
                           {todayAttendance?.status && (
-                            <Badge 
+                            <Badge
                               variant={(todayAttendance.status as string) === 'Present' || (todayAttendance.status as string) === 'Approved' ? 'default' : 'secondary'}
                               className={(todayAttendance.status as string) === 'Present' || (todayAttendance.status as string) === 'Approved' ? 'bg-green-500' : ''}
                             >

@@ -456,7 +456,11 @@ const updateProfile = async (req, res) => {
 
         if (name) user.name = name;
         if (phone) user.phone = phone;
-        if (avatar) user.avatar = avatar; // Assuming User model has avatar, otherwise update Staff
+        // Support avatar delete: when avatar/photoUrl key is present, update (including clearing to empty)
+        if ('avatar' in req.body || 'photoUrl' in req.body) {
+            const avatarVal = req.body.avatar ?? req.body.photoUrl ?? null;
+            user.avatar = (avatarVal && String(avatarVal).trim()) ? avatarVal : null;
+        }
 
         await user.save();
 
@@ -470,7 +474,10 @@ const updateProfile = async (req, res) => {
             const updateData = {};
             if (name) updateData.name = name;
             if (phone) updateData.phone = phone;
-            if (avatar) updateData.avatar = avatar;
+            if ('avatar' in req.body || 'photoUrl' in req.body) {
+                const avatarVal = req.body.avatar ?? req.body.photoUrl ?? null;
+                updateData.avatar = (avatarVal && String(avatarVal).trim()) ? avatarVal : null;
+            }
             if (gender) updateData.gender = gender;
             if (maritalStatus) updateData.maritalStatus = maritalStatus;
             if (dob) updateData.dob = dob;

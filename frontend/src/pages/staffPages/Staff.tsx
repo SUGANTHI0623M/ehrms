@@ -14,20 +14,11 @@ import {
   DialogTitle, DialogTrigger
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Plus, Edit, Eye, EyeOff, Users as UsersIcon, X, Mail, Phone, Calendar, Building2, Filter, Upload, Download, FileSpreadsheet, Check } from "lucide-react";
+import { Search, Plus, Edit, Eye, EyeOff, Users as UsersIcon, X, Mail, Phone, Calendar, Building2, Filter } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
-import { useGetStaffQuery, useGetStaffStatsQuery, useCreateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useImportStaffFromExcelMutation, useExportStaffToExcelMutation, useDownloadSampleStaffFileMutation } from "@/store/api/staffApi";
+import { useGetStaffQuery, useGetStaffStatsQuery, useCreateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery } from "@/store/api/staffApi";
 import { useGetActiveBranchesQuery } from "@/store/api/branchApi";
-import { useGetDepartmentsQuery, useCreateDepartmentMutation } from "@/store/api/jobOpeningApi";
-import { useGetAttendanceQuery } from "@/store/api/attendanceApi";
-import { format } from "date-fns";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getCountryOptions } from "@/utils/countryCodeUtils"; "@/components/ui/popover";
-import { ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { message } from "antd";
 import { useAppSelector } from "@/store/hooks";
 import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
@@ -41,15 +32,10 @@ const Staff = () => {
   const [currentPage, setCurrentPage] = useState(Number(searchParams.get("page")) || 1);
   const [pageSize, setPageSize] = useState(Number(searchParams.get("limit")) || 20);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
-    alternativePhone: "",
-    countryCode: "91", // Default to India
     designation: "",
     department: "",
     staffType: "Full Time" as const,
@@ -59,13 +45,8 @@ const Staff = () => {
     shiftName: "",
     attendanceTemplateId: "",
     leaveTemplateId: "",
-    holidayTemplateId: "",
-    managerId: "",
-    role: ""
+    holidayTemplateId: ""
   });
-  const [openDepartment, setOpenDepartment] = useState(false);
-  const [departmentSearch, setDepartmentSearch] = useState("");
-  const [newDepartmentName, setNewDepartmentName] = useState("");
   const [showPasswords, setShowPasswords] = useState({
     password: false,
     confirmPassword: false
@@ -79,17 +60,6 @@ const Staff = () => {
   const attendanceTemplates = templatesData?.data?.attendanceTemplates || [];
   const leaveTemplates = templatesData?.data?.leaveTemplates || [];
   const holidayTemplates = templatesData?.data?.holidayTemplates || [];
-  const { data: departmentsData, refetch: refetchDepartments } = useGetDepartmentsQuery();
-  const [createDepartment] = useCreateDepartmentMutation();
-  const departments = departmentsData?.data?.departments || [];
-  
-  // Get all staff for reporting manager selection
-  const { data: allStaffData } = useGetStaffQuery({ limit: 1000, status: "Active" });
-  const allStaffForManager = allStaffData?.data?.staff || [];
-
-  // Get all staff to extract unique departments (not just current page)
-  const { data: allStaffForDepartments } = useGetStaffQuery({ limit: 10000 });
-  const allStaffMembers = allStaffForDepartments?.data?.staff || [];
 
   // Permission Checks
   const { user } = useAppSelector((state) => state.auth);
@@ -136,136 +106,42 @@ const Staff = () => {
     };
   }, [searchQuery, setSearchParams]);
 
-  // When "On Leave" is selected, we want to show staff who are absent today based on attendance
-  // So we fetch all active staff (not filtered by status) and then filter by attendance records
   const { data: staffData, isLoading: isLoadingStaff } = useGetStaffQuery({
     search: debouncedSearchQuery || undefined,
-    status: statusFilter !== "all" && statusFilter !== "On Leave" ? statusFilter : undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
     department: departmentFilter !== "all" ? departmentFilter : undefined,
     page: currentPage,
-    limit: statusFilter === "On Leave" ? 1000 : pageSize // Get more records when filtering by attendance
+    limit: pageSize
   });
 
   const { data: statsData, isLoading: isLoadingStats } = useGetStaffStatsQuery();
   const [createStaff, { isLoading: isCreating }] = useCreateStaffMutation();
 
-  const handleCreateDepartment = async () => {
-    if (!newDepartmentName.trim()) {
-      toast.error("Please enter a department name");
-      return;
-    }
-
-    // Check if department already exists (case-insensitive)
-    const existing = departments.find(d => d.name.toLowerCase() === newDepartmentName.trim().toLowerCase());
-    if (existing) {
-      toast.info("Department already exists");
-      setFormData({ ...formData, department: existing.name });
-      setNewDepartmentName("");
-      setDepartmentSearch("");
-      setOpenDepartment(false);
-      return;
-    }
-
-    try {
-      const result = await createDepartment({ name: newDepartmentName.trim() }).unwrap();
-      if (result.success) {
-        setFormData({ ...formData, department: result.data.department.name });
-        toast.success("Department created successfully");
-        setNewDepartmentName("");
-        setDepartmentSearch("");
-        setOpenDepartment(false);
-        refetchDepartments();
-      }
-    } catch (error: any) {
-      const errorMessage = error?.data?.error?.message || "Failed to create department";
-      if (errorMessage.toLowerCase().includes("already exists") || errorMessage.toLowerCase().includes("duplicate")) {
-        toast.info("Department already exists");
-        refetchDepartments().then(() => {
-          const existingDept = departments.find(d => d.name.toLowerCase() === newDepartmentName.trim().toLowerCase());
-          if (existingDept) {
-            setFormData({ ...formData, department: existingDept.name });
-          }
-        });
-      } else {
-        toast.error(errorMessage);
-      }
-    }
-  };
-  const [importStaffFromExcel, { isLoading: isImporting }] = useImportStaffFromExcelMutation();
-  const [exportStaffToExcel, { isLoading: isExporting }] = useExportStaffToExcelMutation();
-  const [downloadSampleStaffFile, { isLoading: isDownloadingSample }] = useDownloadSampleStaffFileMutation();
-
-  const allStaffFromQuery = staffData?.data?.staff || [];
-  const pagination = staffData?.data?.pagination;
-
-  // Fetch today's absent attendance records to show count in stats card and for filtering
-  const todayDateStr = format(new Date(), "yyyy-MM-dd");
-  const { data: todayAttendanceData, isLoading: isLoadingAttendance } = useGetAttendanceQuery({
-    date: todayDateStr,
-    status: "Absent",
-    includeAllEmployees: true,
-    limit: 1000
-  });
-
-  const todayAbsentRecords = todayAttendanceData?.data?.attendance || [];
-  const todayAbsentEmployeeIds = new Set(todayAbsentRecords.map((record: any) => {
-    // Handle both populated and non-populated employeeId
-    let employeeId: string;
-    if (typeof record.employeeId === 'object' && record.employeeId !== null) {
-      employeeId = String(record.employeeId._id || record.employeeId);
-    } else {
-      employeeId = String(record.employeeId);
-    }
-    return employeeId;
-  }));
-
-  // Calculate today's absent count from attendance records
-  const todayAbsentCount = todayAbsentEmployeeIds.size;
-
   const stats = statsData?.data?.stats ? [
     { title: "Total Staff", value: statsData.data.stats.total.toString(), color: "text-primary", icon: UsersIcon },
     { title: "Active", value: statsData.data.stats.active.toString(), color: "text-green-600", icon: UsersIcon },
-    { title: "On Leave", value: todayAbsentCount.toString(), color: "text-yellow-600", icon: UsersIcon },
+    { title: "On Leave", value: statsData.data.stats.onLeave.toString(), color: "text-yellow-600", icon: UsersIcon },
     { title: "Deactivated", value: statsData.data.stats.deactivated.toString(), color: "text-gray-500", icon: UsersIcon },
   ] : [
     { title: "Total Staff", value: "0", color: "text-primary", icon: UsersIcon },
     { title: "Active", value: "0", color: "text-green-600", icon: UsersIcon },
-    { title: "On Leave", value: todayAbsentCount.toString(), color: "text-yellow-600", icon: UsersIcon },
+    { title: "On Leave", value: "0", color: "text-yellow-600", icon: UsersIcon },
     { title: "Deactivated", value: "0", color: "text-gray-500", icon: UsersIcon },
   ];
 
-  // Filter staff list: when "On Leave" is selected, show only staff who are absent today
-  const staff = useMemo(() => {
-    if (statusFilter === "On Leave") {
-      // Filter to show only staff who are absent today based on attendance records
-      // Convert staff._id to string for comparison
-      return allStaffFromQuery.filter((staffMember) => 
-        todayAbsentEmployeeIds.has(String(staffMember._id))
-      );
-    }
-    return allStaffFromQuery;
-  }, [allStaffFromQuery, statusFilter, todayAbsentEmployeeIds]);
+  const staff = staffData?.data?.staff || [];
+  const pagination = staffData?.data?.pagination;
 
-  // Get unique departments from all staff data (not just current page) and combine with API departments
+  // Get unique departments from staff data
   const uniqueDepartments = useMemo(() => {
-    const departmentsSet = new Set<string>();
-    
-    // Add departments from the API (source of truth)
-    departments.forEach((dept) => {
-      if (dept.name) {
-        departmentsSet.add(dept.name);
-      }
-    });
-    
-    // Add departments from all staff records (to catch any that might not be in the departments table)
-    allStaffMembers.forEach((member) => {
+    const departments = new Set<string>();
+    staff.forEach((member) => {
       if (member.department) {
-        departmentsSet.add(member.department);
+        departments.add(member.department);
       }
     });
-    
-    return Array.from(departmentsSet).sort();
-  }, [departments, allStaffMembers]);
+    return Array.from(departments).sort();
+  }, [staff]);
 
   // Update URL params when filters change
   useEffect(() => {
@@ -311,15 +187,13 @@ const Staff = () => {
               <p className="text-sm text-muted-foreground mt-1">Manage and view all company staff members</p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {canCreate && (
-                <>
-                  <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="w-full md:w-auto">
-                        <Plus className="w-4 h-4 mr-2" /> Add Staff
-                      </Button>
-                    </DialogTrigger>
+            {canCreate && (
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="w-full md:w-auto">
+                    <Plus className="w-4 h-4 mr-2" /> Add Staff
+                  </Button>
+                </DialogTrigger>
                 <DialogContent className="max-w-2xl w-[95%]">
                   <DialogHeader>
                     <DialogTitle>Add New Staff Member</DialogTitle>
@@ -330,25 +204,14 @@ const Staff = () => {
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     
-                    // Validate passwords - both are mandatory
-                    if (!formData.password || !formData.confirmPassword) {
-                      message.error("Both password and confirm password are required");
-                      return;
-                    }
-
-                    if (formData.password !== formData.confirmPassword) {
+                    // Validate passwords if provided
+                    if (formData.password && formData.password !== formData.confirmPassword) {
                       message.error("Passwords do not match");
                       return;
                     }
 
-                    if (formData.password.length < 8) {
-                      message.error("Password must be at least 8 characters long");
-                      return;
-                    }
-
-                    // Validate phone number is exactly 10 digits
-                    if (!formData.phone || formData.phone.length !== 10 || !/^\d{10}$/.test(formData.phone)) {
-                      message.error("Phone number must be exactly 10 digits");
+                    if (formData.password && formData.password.length < 6) {
+                      message.error("Password must be at least 6 characters long");
                       return;
                     }
 
@@ -357,20 +220,16 @@ const Staff = () => {
                         name: formData.name,
                         email: formData.email,
                         phone: formData.phone,
-                        alternativePhone: formData.alternativePhone || undefined,
-                        countryCode: formData.countryCode,
                         designation: formData.designation,
                         department: formData.department,
                         staffType: formData.staffType,
                         status: "Active",
                         branchId: formData.branchId || undefined,
-                        password: formData.password,
+                        password: formData.password || undefined,
                         shiftName: formData.shiftName && formData.shiftName !== "none" ? formData.shiftName : undefined,
                         attendanceTemplateId: formData.attendanceTemplateId && formData.attendanceTemplateId !== "none" ? formData.attendanceTemplateId : undefined,
                         leaveTemplateId: formData.leaveTemplateId && formData.leaveTemplateId !== "none" ? formData.leaveTemplateId : undefined,
                         holidayTemplateId: formData.holidayTemplateId && formData.holidayTemplateId !== "none" ? formData.holidayTemplateId : undefined,
-                        managerId: formData.managerId && formData.managerId !== "none" ? formData.managerId : undefined,
-                        role: formData.role && formData.role !== "none" ? formData.role : undefined,
                       }).unwrap();
                       message.success("Staff added successfully!");
                       setIsAddDialogOpen(false);
@@ -378,8 +237,6 @@ const Staff = () => {
                         name: "",
                         email: "",
                         phone: "",
-                        alternativePhone: "",
-                        countryCode: "91",
                         designation: "",
                         department: "",
                         staffType: "Full Time",
@@ -389,13 +246,8 @@ const Staff = () => {
                         shiftName: "",
                         attendanceTemplateId: "",
                         leaveTemplateId: "",
-                        holidayTemplateId: "",
-                        managerId: "",
-                        role: ""
+                        holidayTemplateId: ""
                       });
-                      setDepartmentSearch("");
-                      setNewDepartmentName("");
-                      setOpenDepartment(false);
                       setShowPasswords({
                         password: false,
                         confirmPassword: false
@@ -425,62 +277,13 @@ const Staff = () => {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label>Country Code <span className="text-red-500">*</span></Label>
-                        <Select
-                          value={formData.countryCode}
-                          onValueChange={(value) => setFormData({ ...formData, countryCode: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select country code" />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-[300px]">
-                            {getCountryOptions().map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.flag} +{option.code} {option.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Phone Number <span className="text-red-500">*</span></Label>
+                        <Label>Phone <span className="text-red-500">*</span></Label>
                         <Input
                           name="phone"
-                          type="tel"
                           value={formData.phone}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/\D/g, ''); // Remove non-digits
-                            if (value.length <= 10) {
-                              setFormData({ ...formData, phone: value });
-                            }
-                          }}
-                          placeholder="Enter 10 digit phone number"
+                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                           required
-                          maxLength={10}
-                          minLength={10}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          Enter exactly 10 digits
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Alternative Phone Number (Optional)</Label>
-                        <Input
-                          name="alternativePhone"
-                          type="tel"
-                          value={formData.alternativePhone || ""}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/\D/g, ''); // Remove non-digits
-                            if (value.length <= 10) {
-                              setFormData({ ...formData, alternativePhone: value || undefined });
-                            }
-                          }}
-                          placeholder="Enter 10 digit alternative phone number"
-                          maxLength={10}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Optional - Enter exactly 10 digits
-                        </p>
                       </div>
                       <div className="space-y-1">
                         <Label>Designation <span className="text-red-500">*</span></Label>
@@ -493,109 +296,30 @@ const Staff = () => {
                       </div>
                       <div className="space-y-1">
                         <Label>Department <span className="text-red-500">*</span></Label>
-                        <Popover open={openDepartment} onOpenChange={setOpenDepartment}>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" role="combobox" aria-expanded={openDepartment} className="w-full justify-between">
-                              {formData.department ? formData.department : "Select or enter department..."}
-                              <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[300px] p-0">
-                            <Command>
-                              <CommandInput
-                                placeholder="Search or type new department..."
-                                value={departmentSearch}
-                                onValueChange={(value) => {
-                                  setDepartmentSearch(value);
-                                  setNewDepartmentName(value);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && departmentSearch.trim()) {
-                                    e.preventDefault();
-                                    setNewDepartmentName(departmentSearch);
-                                    handleCreateDepartment();
-                                  }
-                                }}
-                              />
-                              <CommandList>
-                                <CommandEmpty>
-                                  <div className="p-2 space-y-2">
-                                    <div className="text-sm text-muted-foreground text-center">
-                                      No department found.
-                                    </div>
-                                    {departmentSearch.trim() && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full"
-                                        onClick={() => {
-                                          setNewDepartmentName(departmentSearch);
-                                          handleCreateDepartment();
-                                        }}
-                                      >
-                                        <X className="h-4 w-4 mr-2 rotate-45" />
-                                        Add "{departmentSearch}"
-                                      </Button>
-                                    )}
-                                  </div>
-                                </CommandEmpty>
-                                <CommandGroup>
-                                  {departments
-                                    .filter((dept) =>
-                                      !departmentSearch || dept.name.toLowerCase().includes(departmentSearch.toLowerCase())
-                                    )
-                                    .map((dept) => (
-                                      <CommandItem
-                                        key={dept._id}
-                                        value={dept.name}
-                                        onSelect={(currentValue) => {
-                                          setFormData({ ...formData, department: dept.name });
-                                          setOpenDepartment(false);
-                                          setDepartmentSearch("");
-                                        }}
-                                      >
-                                        <Check className={cn("mr-2 h-4 w-4", formData.department === dept.name ? "opacity-100" : "opacity-0")} />
-                                        {dept.name}
-                                      </CommandItem>
-                                    ))}
-                                  {uniqueDepartments
-                                    .filter((dept) => !departments.some(d => d.name.toLowerCase() === dept.toLowerCase()))
-                                    .filter((dept) =>
-                                      !departmentSearch || dept.toLowerCase().includes(departmentSearch.toLowerCase())
-                                    )
-                                    .map((dept) => (
-                                      <CommandItem
-                                        key={dept}
-                                        value={dept}
-                                        onSelect={(currentValue) => {
-                                          setFormData({ ...formData, department: dept });
-                                          setOpenDepartment(false);
-                                          setDepartmentSearch("");
-                                        }}
-                                      >
-                                        <Check className={cn("mr-2 h-4 w-4", formData.department === dept ? "opacity-100" : "opacity-0")} />
-                                        {dept}
-                                      </CommandItem>
-                                    ))}
-                                  {departmentSearch.trim() && 
-                                   !departments.some(d => d.name.toLowerCase() === departmentSearch.toLowerCase()) &&
-                                   !uniqueDepartments.some(d => d.toLowerCase() === departmentSearch.toLowerCase()) && (
-                                    <CommandItem
-                                      onSelect={() => {
-                                        setNewDepartmentName(departmentSearch);
-                                        handleCreateDepartment();
-                                      }}
-                                      className="text-primary font-medium"
-                                    >
-                                      <X className="h-4 w-4 mr-2 rotate-45" />
-                                      Add "{departmentSearch}" as new department
-                                    </CommandItem>
-                                  )}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
+                        <Select
+                          value={formData.department}
+                          onValueChange={(value) => setFormData({ ...formData, department: value })}
+                          required
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                          <SelectContent>
+                            {uniqueDepartments.length > 0 ? (
+                              uniqueDepartments.map((dept) => (
+                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="HR">HR</SelectItem>
+                                <SelectItem value="Development">Development</SelectItem>
+                                <SelectItem value="Marketing">Marketing</SelectItem>
+                                <SelectItem value="Sales">Sales</SelectItem>
+                                <SelectItem value="Operations">Operations</SelectItem>
+                                <SelectItem value="Finance">Finance</SelectItem>
+                                <SelectItem value="IT">IT</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-1">
                         <Label>Staff Type <span className="text-red-500">*</span></Label>
@@ -632,14 +356,13 @@ const Staff = () => {
                         </div>
                       )}
                       <div className="space-y-1">
-                        <Label>Password <span className="text-red-500">*</span></Label>
+                        <Label>Password (Optional)</Label>
                         <div className="relative">
                           <Input
                             type={showPasswords.password ? "text" : "password"}
                             value={formData.password}
                             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                             placeholder="Set login password for employee"
-                            required
                           />
                           <Button
                             type="button"
@@ -656,39 +379,35 @@ const Staff = () => {
                           </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Password is required for employee login (minimum 8 characters)
+                          If not provided, a random password will be generated
                         </p>
                       </div>
-                      <div className="space-y-1">
-                        <Label>Confirm Password <span className="text-red-500">*</span></Label>
-                        <div className="relative">
-                          <Input
-                            type={showPasswords.confirmPassword ? "text" : "password"}
-                            value={formData.confirmPassword}
-                            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                            placeholder="Confirm password"
-                            required
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => setShowPasswords({ ...showPasswords, confirmPassword: !showPasswords.confirmPassword })}
-                          >
-                            {showPasswords.confirmPassword ? (
-                              <EyeOff className="w-4 h-4" />
-                            ) : (
-                              <Eye className="w-4 h-4" />
-                            )}
-                          </Button>
+                      {formData.password && (
+                        <div className="space-y-1">
+                          <Label>Confirm Password</Label>
+                          <div className="relative">
+                            <Input
+                              type={showPasswords.confirmPassword ? "text" : "password"}
+                              value={formData.confirmPassword}
+                              onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                              placeholder="Confirm password"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowPasswords({ ...showPasswords, confirmPassword: !showPasswords.confirmPassword })}
+                            >
+                              {showPasswords.confirmPassword ? (
+                                <EyeOff className="w-4 h-4" />
+                              ) : (
+                                <Eye className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
-                        {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                          <p className="text-xs text-red-500">
-                            Passwords do not match
-                          </p>
-                        )}
-                      </div>
+                      )}
                       {shifts.length > 0 && (
                         <div className="space-y-1">
                           <Label>Shift</Label>
@@ -765,37 +484,6 @@ const Staff = () => {
                           </Select>
                         </div>
                       )}
-                      <div className="space-y-1">
-                        <Label>Reporting Manager</Label>
-                        <Select
-                          value={formData.managerId}
-                          onValueChange={(value) => setFormData({ ...formData, managerId: value === "none" ? "" : value })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select reporting manager (optional)" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            {allStaffForManager.map((staffMember) => (
-                              <SelectItem key={staffMember._id} value={staffMember._id}>
-                                {staffMember.name} ({staffMember.employeeId})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Role</Label>
-                        <Select
-                          value={formData.role}
-                          onValueChange={(value) => setFormData({ ...formData, role: value === "none" ? "" : value })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select role (optional)" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            <SelectItem value="Intern">Intern</SelectItem>
-                            <SelectItem value="Employee">Employee</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
                     </div>
 
                     <div className="flex justify-end gap-3">
@@ -814,13 +502,8 @@ const Staff = () => {
                           shiftName: "",
                           attendanceTemplateId: "",
                           leaveTemplateId: "",
-                          holidayTemplateId: "",
-                          managerId: "",
-                          role: ""
+                          holidayTemplateId: ""
                         });
-                        setDepartmentSearch("");
-                        setNewDepartmentName("");
-                        setOpenDepartment(false);
                         setShowPasswords({
                           password: false,
                           confirmPassword: false
@@ -831,187 +514,7 @@ const Staff = () => {
                   </form>
                 </DialogContent>
               </Dialog>
-
-              <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full md:w-auto">
-                    <Upload className="w-4 h-4 mr-2" /> Import Staff
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl w-[95%]">
-                  <DialogHeader>
-                    <DialogTitle>Import Staff from Excel</DialogTitle>
-                    <DialogDescription>
-                      Upload an Excel file to import staff members. Download the sample file to see the required format.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Excel File</Label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".xlsx,.xls,.xlsm"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setSelectedFile(file);
-                            }
-                          }}
-                          className="hidden"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <FileSpreadsheet className="w-4 h-4 mr-2" />
-                          {selectedFile ? selectedFile.name : "Choose File"}
-                        </Button>
-                        {selectedFile && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedFile(null);
-                              if (fileInputRef.current) {
-                                fileInputRef.current.value = '';
-                              }
-                            }}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Only Excel files (.xlsx, .xls, .xlsm) are allowed. Maximum file size: 10MB
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={isDownloadingSample}
-                        onClick={async () => {
-                          try {
-                            const blob = await downloadSampleStaffFile().unwrap();
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'samplestafffile.xlsx';
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-                            message.success("Sample file downloaded successfully");
-                          } catch (error: any) {
-                            const errorMessage = error?.data?.error?.message || error?.error?.data?.error?.message || "Failed to download sample file";
-                            message.error(errorMessage);
-                          }
-                        }}
-                      >
-                        <Download className="w-4 h-4 mr-2" /> {isDownloadingSample ? "Downloading..." : "Download Sample File"}
-                      </Button>
-                    </div>
-
-                    <div className="bg-muted p-3 rounded-md">
-                      <p className="text-sm font-medium mb-2">Required Columns:</p>
-                      <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
-                        <li>Name (Mandatory)</li>
-                        <li>Email (Mandatory)</li>
-                        <li>Phone (Mandatory)</li>
-                        <li>Designation (Mandatory)</li>
-                        <li>Department (Mandatory)</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setIsImportDialogOpen(false);
-                        setSelectedFile(null);
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = '';
-                        }
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={!selectedFile || isImporting}
-                      onClick={async () => {
-                        if (!selectedFile) {
-                          message.error("Please select a file");
-                          return;
-                        }
-
-                        try {
-                          const result = await importStaffFromExcel({ file: selectedFile }).unwrap();
-                          message.success(
-                            `Import completed! ${result.data.imported} imported, ${result.data.failed} failed`
-                          );
-                          
-                          if (result.data.failed.length > 0) {
-                            const failedList = result.data.failed
-                              .map((f: any) => `Row ${f.row}: ${f.error}`)
-                              .join('\n');
-                            message.warning(`Some rows failed:\n${failedList}`, 10);
-                          }
-
-                          setIsImportDialogOpen(false);
-                          setSelectedFile(null);
-                          if (fileInputRef.current) {
-                            fileInputRef.current.value = '';
-                          }
-                        } catch (error: any) {
-                          message.error(
-                            error?.data?.error?.message || "Failed to import staff from Excel"
-                          );
-                        }
-                      }}
-                    >
-                      {isImporting ? "Importing..." : "Import Staff"}
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-
-              <Button
-                variant="outline"
-                className="w-full md:w-auto"
-                disabled={isExporting}
-                onClick={async () => {
-                  try {
-                    const blob = await exportStaffToExcel().unwrap();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `staff_export_${Date.now()}.xlsx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    message.success("Staff data exported successfully");
-                  } catch (error: any) {
-                    const errorMessage = error?.data?.error?.message || error?.error?.data?.error?.message || "Failed to export staff data";
-                    message.error(errorMessage);
-                  }
-                }}
-              >
-                <Download className="w-4 h-4 mr-2" /> {isExporting ? "Exporting..." : "Export Staff"}
-              </Button>
-                </>
-              )}
-            </div>
+            )}
           </div>
 
           {/* STATS */}
@@ -1120,16 +623,14 @@ const Staff = () => {
                         <TableHead className="min-w-[120px]">Joining Date</TableHead>
                         <TableHead className="min-w-[100px]">Status</TableHead>
                         <TableHead className="min-w-[200px]">Policies & Templates</TableHead>
-                        {statusFilter !== "On Leave" && (
-                          <TableHead className="text-right min-w-[80px]">Actions</TableHead>
-                        )}
+                        <TableHead className="text-right min-w-[80px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
 
                     <TableBody>
-                      {(isLoadingStaff || (statusFilter === "On Leave" && isLoadingAttendance)) ? (
+                      {isLoadingStaff ? (
                         <TableRow>
-                          <TableCell colSpan={statusFilter === "On Leave" ? 10 : 11} className="text-center py-12">
+                          <TableCell colSpan={11} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2">
                               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                               <span className="text-muted-foreground">Loading staff data...</span>
@@ -1138,14 +639,12 @@ const Staff = () => {
                         </TableRow>
                       ) : staff.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={statusFilter === "On Leave" ? 10 : 11} className="text-center py-12">
+                          <TableCell colSpan={11} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2">
                               <UsersIcon className="w-12 h-12 text-muted-foreground" />
                               <span className="text-muted-foreground font-medium">No staff found</span>
                               <span className="text-sm text-muted-foreground">
-                                {statusFilter === "On Leave" && todayAbsentEmployeeIds.size === 0
-                                  ? "No staff members are absent today"
-                                  : searchQuery || statusFilter !== "all" || departmentFilter !== "all"
+                                {searchQuery || statusFilter !== "all" || departmentFilter !== "all"
                                   ? "Try adjusting your filters"
                                   : "Get started by adding a new staff member"}
                               </span>
@@ -1173,9 +672,16 @@ const Staff = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                {staffMember.designation || "N/A"}
-                              </div>
+                              {staffMember.jobOpeningId && typeof staffMember.jobOpeningId === 'object' ? (
+                                <div className="text-sm">
+                                  <div className="font-medium">{staffMember.jobOpeningId.title}</div>
+                                  {staffMember.jobOpeningId.department && (
+                                    <div className="text-xs text-muted-foreground">{staffMember.jobOpeningId.department}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">N/A</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge variant="outline" className="text-xs">
@@ -1190,9 +696,7 @@ const Staff = () => {
                                 </div>
                                 <div className="flex items-center gap-1.5 text-sm">
                                   <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-                                  <span className="text-xs">
-                                    {staffMember.countryCode ? `+${staffMember.countryCode} ` : ''}{staffMember.phone}
-                                  </span>
+                                  <span className="text-xs">{staffMember.phone}</span>
                                 </div>
                               </div>
                             </TableCell>
@@ -1243,23 +747,21 @@ const Staff = () => {
                             </TableCell>
 
                             {/* STOP PROPAGATION FOR ACTION BUTTONS */}
-                            {statusFilter !== "On Leave" && (
-                              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex justify-end gap-2">
-                                  {canView && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => navigate(`/staff-profile/${staffMember._id}`)}
-                                      title="View Profile"
-                                    >
-                                      <Eye className="w-4 h-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                            )}
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex justify-end gap-2">
+                                {canView && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => navigate(`/staff-profile/${staffMember._id}`)}
+                                    title="View Profile"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
                           </TableRow>
                         ))
                       )}
@@ -1269,7 +771,7 @@ const Staff = () => {
               </div>
 
               {/* PAGINATION */}
-              {pagination && statusFilter !== "On Leave" && (
+              {pagination && (
                 <div className="px-6 py-4 border-t">
                   <Pagination
                     page={currentPage}
@@ -1286,11 +788,6 @@ const Staff = () => {
                     }}
                     showPageSizeSelector={true}
                   />
-                </div>
-              )}
-              {statusFilter === "On Leave" && staff.length > 0 && (
-                <div className="px-6 py-4 border-t text-sm text-muted-foreground text-center">
-                  Showing {staff.length} staff member{staff.length !== 1 ? 's' : ''} absent today
                 </div>
               )}
             </CardContent>

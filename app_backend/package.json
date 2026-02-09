@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^1.40.0",
     "@sendgrid/mail": "^8.1.4",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.9.0",

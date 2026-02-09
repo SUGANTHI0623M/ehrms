@@ -36,14 +36,7 @@ export default function MainLayout({ children, sidebar }: MainLayoutProps) {
         />
       );
     }
-    return (
-      <Sidebar 
-        mobileOpen={sidebarOpen} 
-        collapsed={collapsed}
-        onClose={() => setSidebarOpen(false)} 
-        onCollapse={(collapsed) => setCollapsed(collapsed)}
-      />
-    );
+    return <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />;
   };
 
   const handleMenuClick = () => {
@@ -53,10 +46,11 @@ export default function MainLayout({ children, sidebar }: MainLayoutProps) {
     if (isMobile) {
       // Mobile: toggle mobile sidebar for all roles
       setSidebarOpen(!sidebarOpen);
-    } else {
-      // Desktop: toggle collapse for all roles
+    } else if (isEmployee) {
+      // Desktop for employees: toggle collapse
       setCollapsed(!collapsed);
     }
+    // For other roles on desktop, sidebar is always visible (no toggle needed)
   };
 
   return (
@@ -66,14 +60,16 @@ export default function MainLayout({ children, sidebar }: MainLayoutProps) {
 
       {/* Main Content Area - Consistent layout matching CandidateSidebar pattern */}
       <div 
-        className={`flex-1 w-full transition-all duration-300 overflow-x-hidden ${
-          // For desktop: apply margin based on collapse state
-          collapsed ? 'lg:ml-20' : 'lg:ml-64'  // 80px when collapsed, 256px when expanded
+        className={`flex-1 w-full transition-all duration-300 ${
+          // For desktop: apply margin based on role and collapse state
+          isEmployee 
+            ? (collapsed ? 'lg:ml-20' : 'lg:ml-64')  // Employee: 80px when collapsed, 256px when expanded
+            : 'lg:ml-64'  // All other roles: always 256px (64 * 4)
         }`}
       >
         <Header onMenuClick={handleMenuClick} />
 
-        <main className="pt-14 sm:pt-16 lg:pt-16 min-h-[calc(100vh-4rem)] overflow-x-hidden w-full max-w-full">
+        <main className="pt-14 sm:pt-16 lg:pt-16 min-h-[calc(100vh-4rem)]">
           <PageTransition>
             {children}
           </PageTransition>

@@ -380,6 +380,8 @@ const Candidates = () => {
   const { data: candidatesData, isLoading: isLoadingCandidates, isFetching: isFetchingCandidates, refetch } = useGetCandidatesQuery(queryParams, {
     // Force refetch when arguments change (especially page changes)
     refetchOnMountOrArgChange: true,
+    // Keep unused data for a short time to prevent flickering
+    keepUnusedDataFor: 30,
   });
 
   // Log API call states
@@ -432,8 +434,8 @@ const Candidates = () => {
 
   return (
     <MainLayout>
-      <main className="p-3 sm:p-4 overflow-x-hidden">
-        <div className="space-y-6 w-full max-w-full">
+      <main className="p-3 sm:p-4">
+        <div className="space-y-6">
 
           {/* DASHBOARD STATS */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
@@ -595,9 +597,9 @@ const Candidates = () => {
           )}
 
           {/* DISPLAY */}
-          <Card className="w-full overflow-hidden max-w-full">
-            <CardHeader className="w-full">
-              <div className="flex justify-between items-center w-full">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
                 <CardTitle>
                   All Candidates
                   {candidatesData?.data?.pagination && (
@@ -620,7 +622,7 @@ const Candidates = () => {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="overflow-hidden w-full max-w-full" style={{ padding: view === "kanban" ? 0 : undefined }}>
+            <CardContent>
 
               {/* CARD VIEW */}
               {view === "card" && (
@@ -736,7 +738,6 @@ const Candidates = () => {
                         <th className="p-3 text-left">Primary Skill</th>
                         <th className="p-3 text-left">Phone</th>
                         <th className="p-3 text-left">Source</th>
-                        <th className="p-3 text-left">Applied Date</th>
                         <th className="p-3 text-center">Status</th>
                         <th className="p-3 text-center">Action</th>
                       </tr>
@@ -744,11 +745,11 @@ const Candidates = () => {
                     <tbody>
                       {showLoading ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center">Loading candidates...</td>
+                          <td colSpan={8} className="p-8 text-center">Loading candidates...</td>
                         </tr>
                       ) : filteredCandidates.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center">
+                          <td colSpan={8} className="p-8 text-center">
                             <p className="text-muted-foreground">No candidates found</p>
                             {(search || statusFilter) && (
                               <Button
@@ -791,13 +792,6 @@ const Candidates = () => {
                                   {c.source === 'SELF_APPLIED' ? 'Self Applied' : c.source === 'MANUAL' ? 'Manual Entry' : c.source || '-'}
                                 </span>
                               )}
-                            </td>
-                            <td className="p-3 text-muted-foreground">
-                              {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-GB', { 
-                                day: '2-digit', 
-                                month: 'short', 
-                                year: 'numeric' 
-                              }) : '-'}
                             </td>
                             <td className="p-3 text-center">
                               <TooltipProvider>
@@ -983,21 +977,11 @@ const Candidates = () => {
 
               {/* KANBAN VIEW */}
               {view === "kanban" && (
-                <div className="w-full overflow-hidden max-w-full">
+                <div className="pb-4">
                   {isLoadingCandidates ? (
                     <div className="text-center py-8">Loading candidates...</div>
                   ) : (
-                    <div 
-                      className="flex overflow-x-auto gap-4" 
-                      style={{ 
-                        minHeight: 'calc(100vh - 250px)', 
-                        scrollbarWidth: 'thin',
-                        WebkitOverflowScrolling: 'touch',
-                        padding: '1rem',
-                        width: '100%',
-                        maxWidth: '100%'
-                      }}
-                    >
+                    <div className="flex overflow-x-auto gap-4 pb-4 px-2" style={{ minHeight: 'calc(100vh - 250px)' }}>
                       {[
                         { title: "Applied", color: "bg-blue-500", id: "applied", status: "APPLIED", round: 0 },
                         { title: "Interview Scheduled", color: "bg-indigo-500", id: "scheduled", status: "INTERVIEW_SCHEDULED", round: 0 },
@@ -1010,10 +994,17 @@ const Candidates = () => {
                         { title: "Background Verification", color: "bg-cyan-600", id: "bgv", status: "OFFER_ACCEPTED", round: 0 },
                         { title: "Onboarded", color: "bg-green-600", id: "onboarded", status: "HIRED", round: 0 },
                       ].map((column, idx) => {
-                        // Use the same backend-filtered candidates as Table and Card views
-                        // Backend already handles search, status, and date filtering
                         const columnCandidates = (candidatesData?.data?.candidates || []).filter(
                           (c) => {
+                            // Base Search Filter
+                            const matchesSearch = !search ||
+                              `${c.firstName} ${c.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
+                              c.position?.toLowerCase().includes(search.toLowerCase()) ||
+                              c.email?.toLowerCase().includes(search.toLowerCase()) ||
+                              c.primarySkill?.toLowerCase().includes(search.toLowerCase());
+
+                            if (!matchesSearch) return false;
+
                             const status = c.status;
                             // Use currentJobStage (from backend) or fallback to currentRound (legacy)
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1224,20 +1215,11 @@ const Candidates = () => {
                           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                           required
                         />
-                        <DatePicker
+                        <Input
                           placeholder="Date of Birth"
-                          style={{ width: "100%" }}
-                          value={formData.dateOfBirth ? dayjs(formData.dateOfBirth) : undefined}
-                          onChange={(date: Dayjs | null) =>
-                            setFormData({
-                              ...formData,
-                              dateOfBirth: date ? date.format("YYYY-MM-DD") : undefined,
-                            })
-                          }
-                          disabledDate={(current) => {
-                            // Disable future dates
-                            return current && current > dayjs().endOf('day');
-                          }}
+                          type="date"
+                          value={formData.dateOfBirth}
+                          onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
                         />
                         <Input
                           placeholder="Gender"

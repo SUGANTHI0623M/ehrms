@@ -2,17 +2,17 @@ import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select } from "antd";
+import { Select, DatePicker } from "antd";
+import { RangePickerProps } from "antd/es/date-picker";
 import MainLayout from "@/components/MainLayout";
 import { useGetAdminDashboardQuery } from "@/store/api/adminDashboardApi";
 import { useGetCandidatesQuery } from "@/store/api/candidateApi";
-import { useGetDepartmentsQuery } from "@/store/api/jobOpeningApi";
 import {
   Users,
   UserCheck,
   Briefcase,
   TrendingUp,
-  Wallet as DollarSign,
+  DollarSign,
   FileText,
   BookOpen,
   Package,
@@ -31,29 +31,17 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, LineChart, Line, PolarAngleAxis, PolarGrid, PolarRadiusAxis, AreaChart, Area, LabelList, RadialBarChart, RadialBar } from "recharts";
 
+const { RangePicker } = DatePicker;
+
 const AdminDashboard = () => {
+  const [dateRange, setDateRange] = useState<[string, string] | null>(null);
   const [department, setDepartment] = useState<string>("all");
-  const [status, setStatus] = useState<string>("all");
-
-  // Fetch departments for dropdown
-  const { data: departmentsData } = useGetDepartmentsQuery();
-
-  // Candidate status options
-  const candidateStatuses = [
-    { value: "all", label: "All Statuses" },
-    { value: "Applied", label: "Applied" },
-    { value: "Screening", label: "Screening" },
-    { value: "Shortlisted", label: "Shortlisted" },
-    { value: "Interview", label: "Interview" },
-    { value: "Offer", label: "Offer" },
-    { value: "Hired", label: "Hired" },
-    { value: "Rejected", label: "Rejected" },
-  ];
 
   // Normalize query params to ensure consistent cache keys
   const queryParams = {
+    startDate: dateRange?.[0] || undefined,
+    endDate: dateRange?.[1] || undefined,
     department: department !== "all" ? department : undefined,
-    status: status !== "all" ? status : undefined,
   };
 
   // Remove undefined values to ensure consistent serialization
@@ -91,11 +79,11 @@ const AdminDashboard = () => {
   // Chart data preparation
   const candidateStatusData = dashboardData?.recruitment?.candidatesByStatus
     ? Object.entries(dashboardData.recruitment.candidatesByStatus)
-        .map(([name, value]) => ({
-          name,
-          value: Number(value) || 0,
-        }))
-        .filter((item) => item.value > 0) // Only show statuses with candidates
+      .map(([name, value]) => ({
+        name,
+        value: Number(value) || 0,
+      }))
+      .filter((item) => item.value > 0) // Only show statuses with candidates
     : [];
 
   // Prepare displayStatus chart data from candidates array
@@ -137,31 +125,31 @@ const AdminDashboard = () => {
   const roleData = dashboardData?.staff?.employeesByRole || [];
   const goalStatusData = dashboardData?.performance?.goalsByStatus
     ? Object.entries(dashboardData.performance.goalsByStatus).map(([name, value]) => ({
-        name,
-        value,
-      }))
+      name,
+      value,
+    }))
     : [];
 
   const assetStatusData = dashboardData?.assets?.assetsByStatus
     ? Object.entries(dashboardData.assets.assetsByStatus)
-        .map(([name, value]) => ({
-          name,
-          value: Number(value) || 0,
-        }))
-        .filter((item) => item.value > 0) // Only show statuses with assets
+      .map(([name, value]) => ({
+        name,
+        value: Number(value) || 0,
+      }))
+      .filter((item) => item.value > 0) // Only show statuses with assets
     : [];
 
   // Calculate max value for radial bar scale
-  const maxAssetValue = assetStatusData.length > 0 
-    ? Math.max(...assetStatusData.map(item => item.value)) 
+  const maxAssetValue = assetStatusData.length > 0
+    ? Math.max(...assetStatusData.map(item => item.value))
     : 100;
 
   // Transform data for multiple radial bars - create a single object with all statuses as fields
-  const radialBarData = assetStatusData.length > 0 
+  const radialBarData = assetStatusData.length > 0
     ? [assetStatusData.reduce((acc, item) => {
-        acc[item.name] = item.value;
-        return acc;
-      }, {} as Record<string, number>)]
+      acc[item.name] = item.value;
+      return acc;
+    }, {} as Record<string, number>)]
     : [];
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
@@ -176,6 +164,17 @@ const AdminDashboard = () => {
       Hired: { label: "Hired", color: "hsl(var(--chart-1))" },
       Rejected: { label: "Rejected", color: "hsl(var(--destructive))" },
     },
+  };
+
+  const handleDateRangeChange = (dates: any) => {
+    if (dates && dates[0] && dates[1]) {
+      setDateRange([
+        dates[0].format('YYYY-MM-DD'),
+        dates[1].format('YYYY-MM-DD')
+      ]);
+    } else {
+      setDateRange(null);
+    }
   };
 
   if (isLoading) {
@@ -213,30 +212,36 @@ const AdminDashboard = () => {
             <h1 className="text-3xl font-bold text-foreground">Admin Dashboard</h1>
             <p className="text-muted-foreground mt-1">Comprehensive analytics across all HRMS modules</p>
           </div>
+          <div className="flex flex-wrap gap-2">
+            <RangePicker
+              onChange={handleDateRangeChange}
+              format="YYYY-MM-DD"
+              placeholder={["Start Date", "End Date"]}
+            />
+            <Select
+              value={department}
+              onChange={setDepartment}
+              style={{ width: 200 }}
+              placeholder="Filter by Department"
+            >
+              <Select.Option value="all">All Departments</Select.Option>
+              {departmentData.map((dept) => (
+                <Select.Option key={dept.department} value={dept.department}>
+                  {dept.department}
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
         </div>
 
         {/* ============================================
             A. RECRUITMENT / INTERVIEW MODULE
             ============================================ */}
         <div className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <h2 className="text-2xl font-semibold flex items-center gap-2">
-              <Briefcase className="w-6 h-6" />
-              Recruitment & Interview Analytics
-            </h2>
-            <Select
-              value={status}
-              onChange={setStatus}
-              style={{ width: 200 }}
-              placeholder="Filter by Status"
-            >
-              {candidateStatuses.map((statusOption) => (
-                <Select.Option key={statusOption.value} value={statusOption.value}>
-                  {statusOption.label}
-                </Select.Option>
-              ))}
-            </Select>
-          </div>
+          <h2 className="text-2xl font-semibold flex items-center gap-2">
+            <Briefcase className="w-6 h-6" />
+            Recruitment & Interview Analytics
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -263,8 +268,8 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {dashboardData?.recruitment?.hiringConversionRate 
-                    ? dashboardData.recruitment.hiringConversionRate.toFixed(1) 
+                  {dashboardData?.recruitment?.hiringConversionRate
+                    ? dashboardData.recruitment.hiringConversionRate.toFixed(1)
                     : 0}%
                 </div>
               </CardContent>
@@ -306,11 +311,11 @@ const AdminDashboard = () => {
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <ChartTooltip 
+                        <ChartTooltip
                           content={<ChartTooltipContent />}
                         />
-                        <Legend 
-                          verticalAlign="bottom" 
+                        <Legend
+                          verticalAlign="bottom"
                           height={36}
                           formatter={(value: string, entry: any) => `${value} (${entry.payload.value})`}
                         />
@@ -345,9 +350,9 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {dashboardData?.recruitment?.upcomingInterviews && 
-                   Array.isArray(dashboardData.recruitment.upcomingInterviews) && 
-                   dashboardData.recruitment.upcomingInterviews.length > 0 ? (
+                  {dashboardData?.recruitment?.upcomingInterviews &&
+                    Array.isArray(dashboardData.recruitment.upcomingInterviews) &&
+                    dashboardData.recruitment.upcomingInterviews.length > 0 ? (
                     dashboardData.recruitment.upcomingInterviews.slice(0, 5).map((interview, idx) => (
                       <div key={`interview-${idx}-${interview.name || idx}`} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
                         <div className="flex-1">
@@ -373,25 +378,10 @@ const AdminDashboard = () => {
             B. STAFF MODULE
             ============================================ */}
         <div className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <h2 className="text-2xl font-semibold flex items-center gap-2">
-              <Users className="w-6 h-6" />
-              Staff Analytics
-            </h2>
-            <Select
-              value={department}
-              onChange={setDepartment}
-              style={{ width: 200 }}
-              placeholder="Filter by Department"
-            >
-              <Select.Option value="all">All Departments</Select.Option>
-              {departmentsData?.data?.departments?.map((dept) => (
-                <Select.Option key={dept._id} value={dept.name}>
-                  {dept.name}
-                </Select.Option>
-              ))}
-            </Select>
-          </div>
+          <h2 className="text-2xl font-semibold flex items-center gap-2">
+            <Users className="w-6 h-6" />
+            Staff Analytics
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -475,20 +465,20 @@ const AdminDashboard = () => {
                     <AreaChart data={roleData}>
                       <defs>
                         <linearGradient id="colorRole" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#82ca9d" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#82ca9d" stopOpacity={0.1}/>
+                          <stop offset="5%" stopColor="#82ca9d" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#82ca9d" stopOpacity={0.1} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="role" />
                       <YAxis />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area 
-                        type="monotone" 
-                        dataKey="count" 
-                        stroke="#82ca9d" 
-                        fillOpacity={1} 
-                        fill="url(#colorRole)" 
+                      <Area
+                        type="monotone"
+                        dataKey="count"
+                        stroke="#82ca9d"
+                        fillOpacity={1}
+                        fill="url(#colorRole)"
                       />
                     </AreaChart>
                   </ChartContainer>
@@ -527,8 +517,8 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {dashboardData?.performance?.goalProgress?.avgProgress 
-                    ? dashboardData.performance.goalProgress.avgProgress.toFixed(1) 
+                  {dashboardData?.performance?.goalProgress?.avgProgress
+                    ? dashboardData.performance.goalProgress.avgProgress.toFixed(1)
                     : 0}%
                 </div>
               </CardContent>
@@ -540,8 +530,8 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {dashboardData?.performance?.kraKpiCompletion 
-                    ? dashboardData.performance.kraKpiCompletion.toFixed(1) 
+                  {dashboardData?.performance?.kraKpiCompletion
+                    ? dashboardData.performance.kraKpiCompletion.toFixed(1)
                     : 0}%
                 </div>
               </CardContent>
@@ -553,8 +543,8 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {dashboardData?.performance?.complianceStatus?.complianceRate 
-                    ? parseFloat(dashboardData.performance.complianceStatus.complianceRate).toFixed(1) 
+                  {dashboardData?.performance?.complianceStatus?.complianceRate
+                    ? parseFloat(dashboardData.performance.complianceStatus.complianceRate).toFixed(1)
                     : 0}%
                 </div>
               </CardContent>
@@ -768,7 +758,7 @@ const AdminDashboard = () => {
             <BookOpen className="w-6 h-6" />
             Learning Management System (LMS) Analytics
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Total Courses</CardTitle>
@@ -794,26 +784,10 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {dashboardData?.lms?.courseCompletionRate 
-                    ? dashboardData.lms.courseCompletionRate.toFixed(1) 
+                  {dashboardData?.lms?.courseCompletionRate
+                    ? dashboardData.lms.courseCompletionRate.toFixed(1)
                     : 0}%
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Average Quiz Score</CardTitle>
-                <Award className="w-4 h-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {dashboardData?.lms?.quizStats?.averageScore 
-                    ? dashboardData.lms.quizStats.averageScore.toFixed(1) 
-                    : 0}%
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {dashboardData?.lms?.quizStats?.totalAttempts || 0} attempts
-                </p>
               </CardContent>
             </Card>
           </div>
@@ -875,52 +849,37 @@ const AdminDashboard = () => {
             </CardHeader>
             <CardContent>
               {assetStatusData.length > 0 && radialBarData.length > 0 ? (
-                <div>
-                  <ChartContainer config={{}} className="h-[300px]">
-                    <RadialBarChart
-                      cx="50%"
-                      cy="50%"
-                      innerRadius="30%"
-                      outerRadius="90%"
-                      barSize={Math.max(10, Math.min(30, 300 / assetStatusData.length))}
-                      data={radialBarData}
-                      startAngle={90}
-                      endAngle={-270}
-                    >
-                      <PolarGrid />
-                      <PolarAngleAxis
-                        type="number"
-                        domain={[0, maxAssetValue]}
-                        angle={90}
-                        tick={false}
-                      />
-                      <ChartTooltip 
-                        content={<ChartTooltipContent />}
-                      />
-                      {assetStatusData.map((entry, index) => (
-                        <RadialBar
-                          key={`radial-${index}`}
-                          dataKey={entry.name}
-                          cornerRadius={4}
-                          fill={COLORS[index % COLORS.length]}
-                          label={{ position: 'insideStart', fill: '#fff', fontSize: 11 }}
-                        />
-                      ))}
-                    </RadialBarChart>
-                  </ChartContainer>
-                  {/* Color Legend Below Chart */}
-                  <div className="mt-4 flex flex-wrap gap-4 justify-center">
+                <ChartContainer config={{}} className="h-[300px]">
+                  <RadialBarChart
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="30%"
+                    outerRadius="90%"
+                    barSize={Math.max(10, Math.min(30, 300 / assetStatusData.length))}
+                    data={radialBarData}
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    <PolarGrid />
+                    <PolarAngleAxis
+                      type="number"
+                      domain={[0, maxAssetValue]}
+                      tick={false}
+                    />
+                    <ChartTooltip
+                      content={<ChartTooltipContent />}
+                    />
                     {assetStatusData.map((entry, index) => (
-                      <div key={`legend-${index}`} className="flex items-center gap-2">
-                        <div 
-                          className="w-4 h-4 rounded"
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                        />
-                        <span className="text-sm text-muted-foreground">{entry.name}</span>
-                      </div>
+                      <RadialBar
+                        key={`radial-${index}`}
+                        dataKey={entry.name}
+                        cornerRadius={4}
+                        fill={COLORS[index % COLORS.length]}
+                        label={{ position: 'insideStart', fill: '#fff', fontSize: 11 }}
+                      />
                     ))}
-                  </div>
-                </div>
+                  </RadialBarChart>
+                </ChartContainer>
               ) : (
                 <div className="h-[300px] flex items-center justify-center text-muted-foreground">
                   No asset data available

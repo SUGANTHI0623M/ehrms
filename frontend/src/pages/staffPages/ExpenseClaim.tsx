@@ -28,9 +28,6 @@ import {
 } from "@/store/api/reimbursementApi";
 import { message } from "antd";
 import { Pagination } from "@/components/ui/Pagination";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 interface ExpenseClaimProps {
   employeeId?: string;
@@ -42,9 +39,6 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [approveConfirmId, setApproveConfirmId] = useState<string | null>(null);
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectReimbursementId, setRejectReimbursementId] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -96,18 +90,10 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
     }
   };
 
-  const handleReject = async () => {
-    if (!rejectReimbursementId) return;
-    if (!rejectionReason.trim()) {
-      message.error("Please provide a rejection reason");
-      return;
-    }
+  const handleReject = async (id: string, reason: string) => {
     try {
-      await rejectReimbursement({ id: rejectReimbursementId, reason: rejectionReason }).unwrap();
+      await rejectReimbursement({ id, reason }).unwrap();
       message.success("Expense claim rejected");
-      setRejectDialogOpen(false);
-      setRejectReimbursementId(null);
-      setRejectionReason("");
       refetch();
     } catch (error: any) {
       message.error(error?.data?.error?.message || "Failed to reject expense claim");
@@ -290,7 +276,7 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
                           {reimbursement.approvedBy?.name || "-"}
                         </TableCell>
                           <TableCell className="text-right">
-                            {reimbursement.status === "Pending" ? (
+                            {reimbursement.status === "Pending" && (
                               <div className="flex justify-end gap-2 flex-wrap">
                                 <Button
                                   size="sm"
@@ -307,8 +293,8 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => {
-                                    setRejectReimbursementId(reimbursement._id);
-                                    setRejectDialogOpen(true);
+                                    const reason = prompt("Enter rejection reason:");
+                                    if (reason) handleReject(reimbursement._id, reason);
                                   }}
                                   disabled={isRejecting}
                                   className="text-xs"
@@ -318,26 +304,7 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
                                   <span className="sm:hidden">X</span>
                                 </Button>
                               </div>
-                            ) : reimbursement.status === "Approved" || reimbursement.status === "Processed" || reimbursement.status === "Paid" ? (
-                              <div className="flex justify-end">
-                                <Badge variant="default" className="text-xs">
-                                  <CheckCircle className="w-3 h-3 mr-1" />
-                                  Approved
-                                </Badge>
-                              </div>
-                            ) : reimbursement.status === "Rejected" ? (
-                              <div className="flex justify-end flex-col items-end gap-1">
-                                <Badge variant="destructive" className="text-xs">
-                                  <XCircle className="w-3 h-3 mr-1" />
-                                  Rejected
-                                </Badge>
-                                {reimbursement.rejectedBy && (
-                                  <div className="text-xs text-muted-foreground">
-                                    by {reimbursement.rejectedBy.name || 'N/A'}
-                                  </div>
-                                )}
-                              </div>
-                            ) : null}
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
@@ -390,56 +357,6 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* REJECT DIALOG */}
-        <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
-          setRejectDialogOpen(open);
-          if (!open) {
-            setRejectReimbursementId(null);
-            setRejectionReason("");
-          }
-        }}>
-          <DialogContent className="w-[95%] sm:w-full max-w-md">
-            <DialogHeader>
-              <DialogTitle>Reject Expense Claim</DialogTitle>
-              <DialogDescription>
-                Please provide a reason for rejecting this expense claim. This will be visible to the employee.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="rejection-reason">Rejection Reason <span className="text-red-500">*</span></Label>
-                <Textarea
-                  id="rejection-reason"
-                  placeholder="Enter rejection reason..."
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  className="min-h-[100px]"
-                  required
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRejectDialogOpen(false);
-                  setRejectReimbursementId(null);
-                  setRejectionReason("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleReject}
-                disabled={!rejectionReason.trim() || isRejecting}
-              >
-                {isRejecting ? "Rejecting..." : "Reject Claim"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
     </div>
   );
 

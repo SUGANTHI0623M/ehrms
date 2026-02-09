@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Save, Phone, TestTube, ExternalLink, Info, CheckCircle2, XCircle, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Save, Phone, TestTube, ExternalLink, Info, CheckCircle2, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
 import { useGetExotelConfigQuery } from "@/store/api/exotelApi";
@@ -26,7 +26,6 @@ const VoiceConfig = () => {
     enableCallRecording: false,
     enableCallTranscription: false,
   });
-  const [showApiSecret, setShowApiSecret] = useState(false);
 
   // Fetch Exotel configuration status when Exotel is selected
   const { data: exotelConfig, isLoading: isLoadingExotel } = useGetExotelConfigQuery(undefined, {
@@ -225,30 +224,14 @@ const VoiceConfig = () => {
 
                   <div className="space-y-2">
                     <Label htmlFor="apiSecret">API Secret / Auth Token</Label>
-                    <div className="relative">
-                      <Input
-                        id="apiSecret"
-                        type={showApiSecret ? "text" : "password"}
-                        placeholder="Enter your API secret"
-                        value={formData.apiSecret}
-                        onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
-                        required
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0 h-full"
-                        onClick={() => setShowApiSecret(!showApiSecret)}
-                      >
-                        {showApiSecret ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
+                    <Input
+                      id="apiSecret"
+                      type="password"
+                      placeholder="Enter your API secret"
+                      value={formData.apiSecret}
+                      onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
+                      required
+                    />
                   </div>
 
                   <div className="space-y-2">

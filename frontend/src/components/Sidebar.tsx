@@ -3,7 +3,6 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useAppSelector } from "@/store/hooks";
 import { hasModuleAccess, getPermittedModules, getRoleDashboard } from "@/utils/roleUtils";
 import { canViewModule, getUserPermissions } from "@/utils/permissionUtils";
-import { useGetKRAStatsQuery } from "@/store/api/kraApi";
 import {
   LayoutDashboard,
   ClipboardList,
@@ -14,7 +13,6 @@ import {
   Settings as SettingsIcon,
   ChevronDown,
   ChevronRight,
-  ChevronLeft,
   CalendarCog,
   Building2,
   BadgeDollarSign,
@@ -58,50 +56,21 @@ import {
   Shield,
   Building,
   Download,
-  MapPin,
-  Navigation,
-  FileText as FileTextIcon,
-  ClipboardCheck,
-  UserCircle2,
-  ShoppingCart,
-  HelpCircle,
-  Map,
-  Activity,
-  BarChart,
-  List,
-  PlayCircle,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  Video,
-  FileQuestion,
 } from "lucide-react";
 
 import { Sheet, SheetContent } from "./ui/sheet";
 
 const Sidebar = ({
   mobileOpen = false,
-  collapsed = false,
   onClose = () => { },
-  onCollapse = () => { },
 }: {
   mobileOpen?: boolean;
-  collapsed?: boolean;
   onClose?: () => void;
-  onCollapse?: (collapsed: boolean) => void;
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [activeSubMenu, setActiveSubMenu] = useState<string | null>(null);
   const location = useLocation();
   const currentUser = useAppSelector((state) => state.auth.user);
-  
-  // Fetch KRA statistics for dynamic badge
-  const { data: kraStats } = useGetKRAStatsQuery(undefined, {
-    skip: !currentUser, // Skip if no user
-    pollingInterval: 30000, // Poll every 30 seconds for updates
-  });
-  
-  const kraPriorityCount = kraStats?.data?.priorityCount || 0;
 
   // Check if user is Super Admin
   const isSuperAdmin = useMemo(() => {
@@ -134,15 +103,15 @@ const Sidebar = ({
     const permissions = getUserPermissions(currentUser.role, roleId as any, currentUser.permissions || []);
 
     // Debug logging to help troubleshoot
-    // if (process.env.NODE_ENV === 'development') {
-    //   console.log('[Sidebar] User permissions:', {
-    //     role: currentUser.role,
-    //     hasRoleId: !!roleId,
-    //     hasDirectPermissions: !!(currentUser.permissions && currentUser.permissions.length > 0),
-    //     permissionsCount: permissions.length,
-    //     permissions: permissions
-    //   });
-    // }
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Sidebar] User permissions:', {
+        role: currentUser.role,
+        hasRoleId: !!roleId,
+        hasDirectPermissions: !!(currentUser.permissions && currentUser.permissions.length > 0),
+        permissionsCount: permissions.length,
+        permissions: permissions
+      });
+    }
 
     return permissions;
   }, [currentUser]);
@@ -198,12 +167,6 @@ const Sidebar = ({
       { icon: Users, label: "Staff", key: "staff", module: "staff" },
       { icon: DollarSign, label: "Payroll", path: "/payroll/management", module: "payroll" },
       {
-        icon: MapPin,
-        label: "HRMS Geo",
-        key: "hrms-geo",
-        module: "hrms-geo",
-      },
-      {
         icon: TrendingUp,
         label: "Performance",
         key: "performance",
@@ -237,33 +200,28 @@ const Sidebar = ({
         return true;
       }
 
-      // For HRMS Geo, always show for Admin and Manager roles
-      if (menu.module === "hrms-geo" && (userRole === "Admin" || userRole === "Manager")) {
-        return true;
-      }
-
       // Strict permission check
       // User must have explicit permission for the module or its sub-modules
       const hasAccess = canViewModule(userPermissions, menu.module);
 
       // Debug logging in development
-      // if (process.env.NODE_ENV === 'development') {
-      //   console.log(`[Sidebar] Checking access for ${menu.module}:`, hasAccess, 'Permissions:', userPermissions);
-      // }
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Sidebar] Checking access for ${menu.module}:`, hasAccess, 'Permissions:', userPermissions);
+      }
 
       return hasAccess;
     });
 
     // Debug logging in development
-    // if (process.env.NODE_ENV === 'development') {
-    //   console.log('[Sidebar] Menu filtering:', {
-    //     totalMenus: allMenus.length,
-    //     filteredCount: filteredMenus.length,
-    //     filteredModules: filteredMenus.map(m => m.module),
-    //     userPermissionsCount: userPermissions.length,
-    //     userPermissions: userPermissions
-    //   });
-    // }
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Sidebar] Menu filtering:', {
+        totalMenus: allMenus.length,
+        filteredCount: filteredMenus.length,
+        filteredModules: filteredMenus.map(m => m.module),
+        userPermissionsCount: userPermissions.length,
+        userPermissions: userPermissions
+      });
+    }
 
     return filteredMenus;
   }, [isSuperAdmin, userRole, userPermissions]);
@@ -462,14 +420,6 @@ const Sidebar = ({
         },
       ],
       performance: [
-        { icon: TrendingUp, label: "Performance Overview", path: "/performance" },
-        { icon: BarChart3, label: "Performance Analytics", path: "/performance/analytics" },
-        { icon: FileText, label: "Performance Reviews", path: "/performance/reviews" },
-        { icon: Calendar, label: "Review Cycles", path: "/performance/cycles" },
-
-        { icon: Users, label: "Manager Review", path: "/pms/manager-review" },
-        { icon: ShieldCheck, label: "HR Review", path: "/pms/hr-review" },
-        { icon: Target, label: "Goals Management", path: "/pms/goals" },
         { icon: Target, label: "My Goals", path: "/pms/my-goals" },
         { icon: BarChart3, label: "Goal Progress", path: "/pms/goal-progress" },
         {
@@ -477,12 +427,15 @@ const Sidebar = ({
           label: "Goal Approval",
           path: "/pms/goal-approval",
         },
-       
-        { icon: Award, label: "KRA / KPI", path: "/kra" },
+        { icon: LineChart, label: "Self Review", path: "/pms/self-review" },
+        { icon: Users, label: "Manager Review", path: "/pms/manager-review" },
+        { icon: ShieldCheck, label: "HR Review", path: "/pms/hr-review" },
         { icon: Notebook, label: "PMS Reports", path: "/pms/reports" },
         { icon: Target, label: "PMS Settings", path: "/pms/settings" },
-        // { icon: FileCheck, label: "Compliance", path: "/compliance" },
-        // { icon: FileText, label: "SOP", path: "/sop" },
+        { icon: Award, label: "KRA / KPI", path: "/kra" },
+        { icon: TrendingUp, label: "Performance", path: "/performance" },
+        { icon: FileCheck, label: "Compliance", path: "/compliance" },
+        { icon: FileText, label: "SOP", path: "/sop" },
       ],
       payroll: [
         // { icon: Home, label: "Payroll Hub", path: "/payroll" },
@@ -492,15 +445,6 @@ const Sidebar = ({
           path: "/payroll/management",
         },
       ],
-      "hrms-geo": [
-        { icon: LayoutDashboard, label: "Dashboard", path: "/hrms-geo/dashboard" },
-        { icon: Navigation, label: "Tracking", path: "/hrms-geo/tracking/live" },
-        { icon: FileTextIcon, label: "Forms", path: "/hrms-geo/forms/responses" },
-        { icon: ClipboardCheck, label: "Tasks", path: "/hrms-geo/tasks/dashboard" },
-        { icon: UserCircle2, label: "Customers", path: "/hrms-geo/customers/dashboard" },
-        // { icon: HelpCircle, label: "Help", path: "/hrms-geo/help/outage" }, // Hidden
-        { icon: Settings, label: "Geo Settings", path: "/hrms-geo/settings" },
-      ],
       "super-admin-settings": superAdminSettings,
       settings: baseSettings,
       assets: [
@@ -509,10 +453,10 @@ const Sidebar = ({
       ],
       lms: [
         { icon: Library, label: "Course Library", path: "/course-library" },
-        { icon: ListVideo, label: "Live Session", path: "/live-session" },
-        { icon: Wand2, label: "Auto Quiz Generator", path: "/quiz-generator" },
-        { icon: ListChecks, label: "Quiz / Assessment", path: "/assessment" },
-        { icon: BarChart2, label: "Score / Analytics", path: "/score" },
+        { icon: Users, label: "Learners", path: "/lms/learners" },
+        { icon: ListVideo, label: "Live Sessions", path: "/lms/live-sessions" },
+        { icon: ListChecks, label: "Assessment Management", path: "/assessment" },
+        { icon: BarChart3, label: "Scores & Analytics", path: "/lms/scores-analytics" },
       ],
       integrations: [
         { icon: Plug2, label: "All Integrations", path: "/integrations" },
@@ -536,55 +480,22 @@ const Sidebar = ({
       return { mainKey: "super-admin-settings", subKey: null };
     }
 
-    const pathWithoutQuery = location.pathname.split("?")[0];
-    const matches: Array<{ mainKey: string; subKey: string | null; isExact: boolean; pathLength: number }> = [];
-
-    // Collect all matches with their path lengths and exact match status
     for (const key in subMenus) {
       const menuItems = subMenus[key];
-      
       for (const sub of menuItems) {
-        // Check nested subItems first (more specific)
+        if (sub.path && location.pathname.startsWith(sub.path.split("?")[0])) {
+          return { mainKey: key, subKey: sub.key || null };
+        }
+        // Check nested subItems
         if (sub.subItems) {
           for (const subItem of sub.subItems) {
-            if (subItem.path) {
-              const subItemPath = subItem.path.split("?")[0];
-              // Exact match gets highest priority
-              if (pathWithoutQuery === subItemPath) {
-                matches.push({ mainKey: key, subKey: sub.key || null, isExact: true, pathLength: subItemPath.length });
-              } else if (pathWithoutQuery.startsWith(subItemPath + "/")) {
-                matches.push({ mainKey: key, subKey: sub.key || null, isExact: false, pathLength: subItemPath.length });
-              }
+            if (subItem.path && location.pathname.startsWith(subItem.path.split("?")[0])) {
+              return { mainKey: key, subKey: sub.key || null };
             }
-          }
-        }
-        
-        // Then check main submenu path
-        if (sub.path) {
-          const subPath = sub.path.split("?")[0];
-          // Exact match gets higher priority
-          if (pathWithoutQuery === subPath) {
-            matches.push({ mainKey: key, subKey: sub.key || null, isExact: true, pathLength: subPath.length });
-          } else if (pathWithoutQuery.startsWith(subPath + "/")) {
-            matches.push({ mainKey: key, subKey: sub.key || null, isExact: false, pathLength: subPath.length });
           }
         }
       }
     }
-    
-    // Return the most specific match
-    // Priority: 1) Exact matches, 2) Longest path length
-    if (matches.length > 0) {
-      matches.sort((a, b) => {
-        // Exact matches first
-        if (a.isExact && !b.isExact) return -1;
-        if (!a.isExact && b.isExact) return 1;
-        // Then by path length (descending)
-        return b.pathLength - a.pathLength;
-      });
-      return { mainKey: matches[0].mainKey, subKey: matches[0].subKey };
-    }
-    
     return { mainKey: null, subKey: null };
   };
 
@@ -614,20 +525,11 @@ const Sidebar = ({
   }, [location.pathname, location.search, isSuperAdmin]);
 
   const content = (
-    <aside className={`w-74 flex flex-col overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
-      <div className="p-6 flex items-center justify-between">
-        {!collapsed && (
-          <h1 className="text-2xl font-bold text-sidebar-foreground text-center flex-1">
-            AskEVA HRMS
-          </h1>
-        )}
-        <button
-          onClick={() => onCollapse(!collapsed)}
-          className="p-2 rounded-lg hover:bg-sidebar-accent/10 transition-colors"
-          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          <ChevronLeft className={`w-5 h-5 text-sidebar-foreground/80 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
-        </button>
+    <aside className=" w-74  flex flex-col overflow-y-auto">
+      <div className="p-6">
+        <h1 className="text-2xl font-bold text-sidebar-foreground text-center">
+          AskEVA HRMS
+        </h1>
       </div>
 
       <nav className="flex-1 p-4 space-y-1">
@@ -647,133 +549,60 @@ const Sidebar = ({
 
           return (
             <div key={item.label}>
-              {item.path && !item.key ? (
-                // Direct path items (Dashboard, Payroll) - make entire column clickable
-                <NavLink
-                  to={item.path}
-                  className={({ isActive }) =>
-                    `flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/10"
-                    }`
-                  }
-                  onClick={onClose}
-                >
-                  <div className="flex items-center gap-3">
-                    <item.icon className={`w-5 h-5 ${isActiveLink ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/80"}`} />
-                    {!collapsed && (
-                      <span className={isActiveLink ? "text-sidebar-accent-foreground" : ""}>
-                        {item.label}
-                      </span>
-                    )}
-                  </div>
-                </NavLink>
-              ) : (
-                // Items with submenus
-                <div
-                  onClick={() =>
-                    item.key
-                      ? setActiveMenu(isActiveParent ? null : item.key)
-                      : null
-                  }
-                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${isActiveParent || isActiveLink || hasActiveSubmenu
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/10"
-                    }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <item.icon className={`w-5 h-5 ${isActiveParent || isActiveLink || hasActiveSubmenu ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/80"}`} />
-                    {!collapsed && (
-                      item.path ? (
-                        <NavLink
-                          to={item.path}
-                          className={({ isActive }) => isActive ? "text-sidebar-accent-foreground" : ""}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {item.label}
-                        </NavLink>
-                      ) : (
-                        <span>{item.label}</span>
-                      )
-                    )}
-                  </div>
-
-                  {!collapsed && item.key &&
-                    (isActiveParent ? (
-                      <ChevronDown className="w-4 h-4 text-sidebar-accent-foreground/80" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-sidebar-foreground/60" />
-                    ))}
+              <div
+                onClick={() =>
+                  item.key
+                    ? setActiveMenu(isActiveParent ? null : item.key)
+                    : null
+                }
+                className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${isActiveParent || isActiveLink || hasActiveSubmenu
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/10"
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <item.icon className={`w-5 h-5 ${isActiveParent || isActiveLink || hasActiveSubmenu ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/80"}`} />
+                  {item.path ? (
+                    <NavLink
+                      to={item.path}
+                      className={({ isActive }) => isActive ? "text-sidebar-accent-foreground" : ""}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ) : (
+                    <span>{item.label}</span>
+                  )}
                 </div>
-              )}
 
-              {!collapsed && item.key === activeMenu && (() => {
-                const menuItems = subMenus[item.key] || [];
-                const pathWithoutQuery = location.pathname.split("?")[0];
-                
-                // First, find the most specific matching path from all menu items
-                // Check exact matches first, then prefix matches
-                const allMatches: Array<{ path: string; isExact: boolean; pathLength: number }> = [];
-                
-                for (const sub of menuItems) {
-                  if (!sub.path) continue;
-                  
-                  // Normalize paths by removing trailing slashes and query parameters
-                  const subPathBase = (sub.path.split("?")[0] || "").replace(/\/$/, "");
-                  const normalizedPath = pathWithoutQuery.replace(/\/$/, "");
-                  
-                  // Exact match gets highest priority
-                  if (normalizedPath === subPathBase) {
-                    allMatches.push({ path: sub.path, isExact: true, pathLength: subPathBase.length });
-                  }
-                  // Prefix match (current path is a child of this menu path)
-                  else if (normalizedPath.startsWith(subPathBase + "/")) {
-                    allMatches.push({ path: sub.path, isExact: false, pathLength: subPathBase.length });
-                  }
-                }
-                
-                // Find the most specific active path
-                // Priority: 1) Exact matches, 2) Longest path length
-                let mostSpecificActivePath: string | null = null;
-                if (allMatches.length > 0) {
-                  // Sort: exact matches first, then by path length (descending)
-                  allMatches.sort((a, b) => {
-                    if (a.isExact && !b.isExact) return -1;
-                    if (!a.isExact && b.isExact) return 1;
-                    return b.pathLength - a.pathLength;
-                  });
-                  mostSpecificActivePath = allMatches[0].path;
-                }
-                
-                return (
-                  <div className="ml-4 mt-0.5 mb-1 pl-3 border-l-2 border-sidebar-accent/20 bg-sidebar-accent/5 rounded-r-md py-1.5 space-y-0.5">
-                    {menuItems.map((sub: any) => {
-                      // Check if user has access to this submenu item
-                      // If module is defined, check explicit permission
-                      // Otherwise fall back to role checks (for legacy/settings items)
-                      const hasAccess = sub.module
-                        ? canViewModule(userPermissions, sub.module)
-                        : !sub.roles || sub.roles.includes(userRole);
+                {item.key &&
+                  (isActiveParent ? (
+                    <ChevronDown className="w-4 h-4 text-sidebar-accent-foreground/80" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-sidebar-foreground/60" />
+                  ))}
+              </div>
 
-                      if (!hasAccess) return null;
+              {item.key === activeMenu && (
+                <div className="ml-4 mt-0.5 mb-1 pl-3 border-l-2 border-sidebar-accent/20 bg-sidebar-accent/5 rounded-r-md py-1.5 space-y-0.5">
+                  {subMenus[item.key]?.map((sub: any) => {
+                    // Check if user has access to this submenu item
+                    // If module is defined, check explicit permission
+                    // Otherwise fall back to role checks (for legacy/settings items)
+                    const hasAccess = sub.module
+                      ? canViewModule(userPermissions, sub.module)
+                      : !sub.roles || sub.roles.includes(userRole);
 
-                      // Check if this submenu has nested items
-                      const hasSubItems = sub.subItems && sub.subItems.length > 0;
-                      const isSubMenuActive = activeSubMenu === sub.key;
-                      const subPathBase = sub.path?.split("?")[0] || "";
-                      const subPathQuery = sub.path?.includes("?") ? sub.path.split("?")[1] : null;
-                      
-                      // Check if this is the most specific active path
-                      // Compare paths without query parameters and trailing slashes for consistency
-                      const subPathForComparison = (sub.path?.split("?")[0] || "").replace(/\/$/, "");
-                      const mostSpecificPathForComparison = (mostSpecificActivePath?.split("?")[0] || "").replace(/\/$/, "");
-                      const isSubMenuPathActive = subPathForComparison === mostSpecificPathForComparison;
-                      
-                      // Also check query string if present
-                      let finalIsActive = isSubMenuPathActive;
-                      if (finalIsActive && subPathQuery && !location.search.includes(subPathQuery)) {
-                        finalIsActive = false;
-                      }
+                    if (!hasAccess) return null;
+
+                    // Check if this submenu has nested items
+                    const hasSubItems = sub.subItems && sub.subItems.length > 0;
+                    const isSubMenuActive = activeSubMenu === sub.key;
+                    const subPathBase = sub.path?.split("?")[0] || "";
+                    const subPathQuery = sub.path?.includes("?") ? sub.path.split("?")[1] : null;
+                    const isSubMenuPathActive =
+                      sub.path &&
+                      location.pathname.startsWith(subPathBase) &&
+                      (subPathQuery ? location.search.includes(subPathQuery) : true);
 
                     return (
                       <div key={sub.path || sub.key}>
@@ -785,13 +614,13 @@ const Sidebar = ({
                                   isSubMenuActive ? null : sub.key
                                 )
                               }
-                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm cursor-pointer transition-colors relative ${isSubMenuActive || finalIsActive
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm cursor-pointer transition-colors relative ${isSubMenuActive || isSubMenuPathActive
                                 ? "bg-sidebar-accent/30 text-sidebar-accent-foreground font-medium border-l-2 border-sidebar-accent"
                                 : "text-sidebar-foreground/70 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground/90"
                                 }`}
                             >
                               <div className="flex items-center gap-2">
-                                <sub.icon className={`w-3.5 h-3.5 ${isSubMenuActive || finalIsActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
+                                <sub.icon className={`w-3.5 h-3.5 ${isSubMenuActive || isSubMenuPathActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
                                 <span>{sub.label}</span>
                               </div>
                               {isSubMenuActive ? (
@@ -831,33 +660,22 @@ const Sidebar = ({
                           <NavLink
                             to={sub.path}
                             onClick={onClose}
-                            className={({ isActive }) => {
-                              // Use our custom finalIsActive logic for more precise matching
-                              const active = finalIsActive || isActive;
-                              return `flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm transition-colors relative ${active
+                            className={({ isActive }) =>
+                              `flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm transition-colors relative ${isActive
                                 ? "bg-sidebar-accent/30 text-sidebar-accent-foreground font-medium border-l-2 border-sidebar-accent"
                                 : "text-sidebar-foreground/70 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground/90"
-                              }`;
-                            }}
+                              }`
+                            }
                           >
-                            <div className="flex items-center gap-2">
-                              <sub.icon className={`w-3.5 h-3.5 ${finalIsActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
-                              {sub.label}
-                            </div>
-                            {/* Dynamic badge for KRA/KPI showing priority count */}
-                            {sub.path === "/kra" && kraPriorityCount > 0 && (
-                              <span className="bg-red-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex items-center justify-center">
-                                {kraPriorityCount > 99 ? "99+" : kraPriorityCount}
-                              </span>
-                            )}
+                            <sub.icon className={`w-3.5 h-3.5 ${isSubMenuPathActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
+                            {sub.label}
                           </NavLink>
                         )}
                       </div>
                     );
-                    })}
-                  </div>
-                );
-              })()}
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -868,7 +686,7 @@ const Sidebar = ({
   return (
     <>
       {/* Desktop Sidebar FIXED */}
-      <div className={`hidden lg:block fixed left-0 top-0 h-screen bg-sidebar shadow-lg z-50 overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
+      <div className="hidden lg:block fixed left-0 top-0 h-screen w-64 bg-sidebar shadow-lg z-50 overflow-y-auto">
         {content}
       </div>
 

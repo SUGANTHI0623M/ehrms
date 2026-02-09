@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:background_location_tracker/background_location_tracker.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
+import '../../services/geo/live_tracking_service.dart';
+import '../geo/live_tracking_screen.dart';
 import '../../services/request_service.dart';
 import '../../services/attendance_service.dart';
 import '../../services/auth_service.dart';
@@ -66,11 +70,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   int _activeLoansCount = 0;
 
   bool _isCandidate = false;
+  bool _liveTrackingActive = false;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _checkLiveTracking();
   }
 
   @override
@@ -79,7 +85,45 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     // When user opens/switches to Dashboard tab, refresh once
     if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
       _loadData();
+      _checkLiveTracking();
     }
+  }
+
+  Future<void> _checkLiveTracking() async {
+    final active = await LiveTrackingService().isActive();
+    // Sync: if user tapped "Stop tracking" in notification, native stopped but we had stale state
+    if (active) {
+      final isTracking = await BackgroundLocationTrackerManager.isTracking();
+      if (!isTracking) {
+        await LiveTrackingService().stopTracking();
+        if (mounted) setState(() => _liveTrackingActive = false);
+        return;
+      }
+    }
+    if (mounted) setState(() => _liveTrackingActive = active);
+  }
+
+  Future<void> _openLiveTracking() async {
+    final info = await LiveTrackingService().getActiveTaskInfo();
+    if (!mounted || info == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LiveTrackingScreen(
+          taskId: info['taskId'] as String,
+          taskMongoId: info['taskMongoId'] as String,
+          pickupLocation: LatLng(
+            info['pickupLat'] as double,
+            info['pickupLng'] as double,
+          ),
+          dropoffLocation: LatLng(
+            info['dropoffLat'] as double,
+            info['dropoffLng'] as double,
+          ),
+          task: null,
+        ),
+      ),
+    );
+    if (mounted) _checkLiveTracking();
   }
 
   Future<void> _loadData() async {
@@ -649,6 +693,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           ),
           centerTitle: true,
           elevation: 0,
+          actions: [
+            if (_liveTrackingActive)
+              IconButton(
+                icon: const Icon(Icons.gps_fixed),
+                tooltip: 'Live tracking in progress',
+                onPressed: _openLiveTracking,
+              ),
+          ],
         ),
         drawer: AppDrawer(
           currentIndex: widget.dashboardTabIndex ?? 0,
@@ -667,6 +719,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ),
         centerTitle: true,
         elevation: 0,
+        actions: [
+          if (_liveTrackingActive)
+            IconButton(
+              icon: const Icon(Icons.gps_fixed),
+              tooltip: 'Live tracking in progress',
+              onPressed: _openLiveTracking,
+            ),
+        ],
       ),
       drawer: const AppDrawer(),
       body: content,

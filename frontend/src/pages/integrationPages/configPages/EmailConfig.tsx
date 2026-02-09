@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Save, Mail, TestTube, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Save, Mail, TestTube } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
 
@@ -22,7 +22,6 @@ const EmailConfig = () => {
     fromEmail: "",
     fromName: "",
   });
-  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,30 +126,14 @@ const EmailConfig = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="smtpPassword">SMTP Password</Label>
-                <div className="relative">
-                  <Input
-                    id="smtpPassword"
-                    type={showSmtpPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={formData.smtpPassword}
-                    onChange={(e) => setFormData({ ...formData, smtpPassword: e.target.value })}
-                    required
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                  >
-                    {showSmtpPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  id="smtpPassword"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={formData.smtpPassword}
+                  onChange={(e) => setFormData({ ...formData, smtpPassword: e.target.value })}
+                  required
+                />
               </div>
 
               <div className="space-y-2">

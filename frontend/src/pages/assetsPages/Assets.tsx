@@ -181,7 +181,7 @@ const Assets = () => {
                        hostname === '[::1]';
         
         if (isLocal) {
-          return 'http://localhost:9000/api';
+          return 'http://localhost:8000/api';
         }
       }
       
@@ -193,7 +193,7 @@ const Assets = () => {
         return window.location.origin + '/api';
       }
       
-      return 'http://localhost:9000/api';
+      return 'http://localhost:8000/api';
     };
     
     const API_URL = getApiUrl();

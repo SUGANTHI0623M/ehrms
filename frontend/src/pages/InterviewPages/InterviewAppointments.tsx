@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -28,22 +29,22 @@ import {
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, Eye, Edit, Clock, X } from "lucide-react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown, Search, Eye, Edit, Plus, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MainLayout from "@/components/MainLayout";
-import dayjs, { Dayjs } from "dayjs";
-import { DatePicker, TimePicker } from "antd";
-import ClockTimePicker from "@/components/ui/clock-time-picker";
-import { format, isBefore, startOfDay } from "date-fns";
-import { Calendar as CalendarIcon } from "lucide-react";
 import {
   useGetInterviewAppointmentsStatsQuery,
   useGetInterviewAppointmentsQuery,
   useGetInterviewCalendarQuery,
 } from "@/store/api/interviewAppointmentsApi";
-import { useUpdateInterviewMutation, useDeleteInterviewMutation, useGetInterviewByIdQuery } from "@/store/api/interviewApi";
-import { useGetJobOpeningByIdQuery, useGetJobInterviewFlowQuery } from "@/store/api/jobOpeningApi";
-import { toast } from "sonner";
 import {
   formatInterviewStatus,
   getInterviewStatusColor,
@@ -54,7 +55,7 @@ import { useAppSelector } from "@/store/hooks";
 import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
 import { Pagination } from "@/components/ui/Pagination";
 import { useGetCandidatesQuery } from "@/store/api/candidateApi";
-import { useGetUsersQuery } from "@/store/api/userApi";
+import ScheduleInterviewModal from "@/components/candidate/ScheduleInterviewModal";
 
 // Helper function to format date as YYYY-MM-DD without timezone issues
 const formatDateKey = (date: Date): string => {
@@ -72,6 +73,7 @@ const InterviewAppointments = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10); // Default 10
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [visibleMonth, setVisibleMonth] = useState<Date>(new Date());
 
@@ -83,118 +85,23 @@ const InterviewAppointments = () => {
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
   };
+  
+  // Candidate selection state
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<{ id: string; name: string; position: string } | null>(null);
+  const [isCandidatePopoverOpen, setIsCandidatePopoverOpen] = useState(false);
+  
+  // Schedule Interview Modal State
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 
   const { data: statsData, isLoading: isLoadingStats } =
     useGetInterviewAppointmentsStatsQuery();
-  const { data: appointmentsData, isLoading: isLoadingAppointments, refetch: refetchAppointments } =
+  const { data: appointmentsData, isLoading: isLoadingAppointments } =
     useGetInterviewAppointmentsQuery({
       status: statusFilter !== "all" ? statusFilter : undefined,
       page,
       limit: pageSize,
     });
-  const [updateInterview, { isLoading: isUpdating }] = useUpdateInterviewMutation();
-  const [deleteInterview, { isLoading: isDeleting }] = useDeleteInterviewMutation();
-  
-  // State for reschedule modal
-  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
-  const [selectedInterviewForReschedule, setSelectedInterviewForReschedule] = useState<any>(null);
-  const [rescheduleDate, setRescheduleDate] = useState<Date | undefined>(undefined);
-  const [isReschedulePopoverOpen, setIsReschedulePopoverOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  
-  // Fetch company users (needed for reschedule interviewer lookup)
-  const { data: usersData, isLoading: isLoadingUsers } = useGetUsersQuery({
-    isActive: 'true',
-    limit: 1000,
-    companyId: currentUser?.companyId
-  }, { skip: !currentUser?.companyId });
-  
-  // Get interview details for reschedule
-  const interviewIdForReschedule = selectedInterviewForReschedule?._id;
-  const { data: interviewData } = useGetInterviewByIdQuery(interviewIdForReschedule || "", { 
-    skip: !interviewIdForReschedule 
-  });
-  
-  // Get job ID from interview (try multiple sources)
-  const jobIdForReschedule = useMemo(() => {
-    // First try from fetched interview data
-    if (interviewData?.data?.interview?.jobOpeningId) {
-      const jobId = interviewData.data.interview.jobOpeningId;
-      return typeof jobId === 'string' ? jobId : jobId?._id || null;
-    }
-    // Fallback to selected interview data
-    if (selectedInterviewForReschedule?.jobOpeningId) {
-      const jobId = selectedInterviewForReschedule.jobOpeningId;
-      return typeof jobId === 'string' ? jobId : jobId?._id || null;
-    }
-    return null;
-  }, [interviewData, selectedInterviewForReschedule]);
-  
-  // Fetch job and interview flow for reschedule
-  const { data: jobDataForReschedule } = useGetJobOpeningByIdQuery(jobIdForReschedule || "", { 
-    skip: !jobIdForReschedule 
-  });
-  const { data: flowDataForReschedule } = useGetJobInterviewFlowQuery(jobIdForReschedule || "", { 
-    skip: !jobIdForReschedule 
-  });
-  
-  // Get round details and assigned interviewer from flow
-  const rescheduleRoundDetails = useMemo(() => {
-    if (!flowDataForReschedule?.data?.job?.interviewRounds) return null;
-    
-    // Get round number from interview (jobStage or round)
-    const roundNumber = selectedInterviewForReschedule?.jobStage || selectedInterviewForReschedule?.round || 1;
-    const round = flowDataForReschedule.data.job.interviewRounds.find((r: any) => r.roundNumber === roundNumber);
-    
-    if (!round) return null;
-    
-    // Get assigned interviewer ID
-    const interviewerId = round.assignedInterviewers && round.assignedInterviewers.length > 0
-      ? (typeof round.assignedInterviewers[0] === 'object' 
-          ? round.assignedInterviewers[0]._id 
-          : round.assignedInterviewers[0])
-      : null;
-    
-    return {
-      roundNumber: round.roundNumber,
-      roundName: round.roundName,
-      assignedInterviewerId: interviewerId,
-      assignedRole: round.assignedRole
-    };
-  }, [flowDataForReschedule, selectedInterviewForReschedule]);
-  
-  // Get interviewer details for reschedule
-  const rescheduleInterviewer = useMemo(() => {
-    if (!rescheduleRoundDetails?.assignedInterviewerId || !usersData?.data?.users) return null;
-    return usersData.data.users.find((u: any) => u._id === rescheduleRoundDetails.assignedInterviewerId);
-  }, [rescheduleRoundDetails, usersData]);
-  
-  // Detect mobile screen
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Initialize reschedule date when interview is selected
-  useEffect(() => {
-    if (selectedInterviewForReschedule && selectedInterviewForReschedule.interviewDate && selectedInterviewForReschedule.interviewTime) {
-      try {
-        const interviewDate = new Date(selectedInterviewForReschedule.interviewDate);
-        const [hours, minutes] = selectedInterviewForReschedule.interviewTime.split(':').map(Number);
-        interviewDate.setHours(hours, minutes, 0, 0);
-        setRescheduleDate(interviewDate);
-      } catch (error) {
-        console.error('Error initializing reschedule date:', error);
-        setRescheduleDate(undefined);
-      }
-    } else {
-      setRescheduleDate(undefined);
-    }
-  }, [selectedInterviewForReschedule]);
 
   // Get current month and year from visible month for calendar data
   const currentMonth = visibleMonth.getMonth() + 1;
@@ -218,85 +125,14 @@ const InterviewAppointments = () => {
     }
   }, [selectedDate, calendarData]);
 
-  // Filter eligible interviewers: Admin, Manager, HR, Senior HR, Recruiter, and Employees with valid subRoles
-  // This matches the same logic used in JobInterviewFlowManagement
-  // Note: usersData is already declared above for reschedule functionality
-  const interviewerUsers = (usersData?.data?.users || []).filter((user: any) => {
-    // Only show active users
-    if (!user.isActive) {
-      return false;
-    }
-
-    // Check company match
-    const userCompanyId = typeof user.companyId === 'string' 
-      ? user.companyId 
-      : user.companyId?._id;
-    if (userCompanyId !== currentUser?.companyId) {
-      return false;
-    }
-
-    // Check if user has interview-related role
-    const interviewRoles = ['Super Admin', 'Admin', 'Manager', 'HR', 'Senior HR', 'Recruiter'];
-    const userRole = user.role || '';
-    const isInterviewerRole = interviewRoles.includes(userRole);
-    
-    // Check if Employee with valid subRole (Junior HR, Senior HR, or Manager)
-    const validSubRoles = ['Junior HR', 'Senior HR', 'Manager'];
-    const userSubRole = user.subRole || '';
-    const isEmployeeWithValidSubRole = userRole === 'Employee' && 
-      userSubRole && 
-      validSubRoles.includes(userSubRole);
-
-    return isInterviewerRole || isEmployeeWithValidSubRole;
+  // Fetch candidates for selection
+  const { data: candidatesData, isLoading: isLoadingCandidates } = useGetCandidatesQuery({
+    search: candidateSearch || undefined,
+    limit: 100, // Get more candidates for selection
+    page: 1,
   });
 
-  // Handle reschedule interview
-  const handleReschedule = async (interviewId: string, newDate: string, newTime: string) => {
-    try {
-      // Use assigned interviewer from flow (don't allow changing)
-      const interviewerId = rescheduleRoundDetails?.assignedInterviewerId;
-      const interviewer = rescheduleInterviewer;
-      
-      if (!interviewerId || !interviewer) {
-        toast.error("No interviewer assigned for this round in the interview flow. Please configure the interview flow first.");
-        return;
-      }
-      
-      const updateData: any = {
-        interviewDate: newDate,
-        interviewTime: newTime,
-        status: 'RESCHEDULED',
-        interviewerId: interviewerId,
-        interviewerName: interviewer.name || '',
-        interviewerEmail: interviewer.email || ''
-      };
-      
-      await updateInterview({
-        id: interviewId,
-        data: updateData
-      }).unwrap();
-      toast.success('Interview rescheduled successfully');
-      setIsRescheduleModalOpen(false);
-      setSelectedInterviewForReschedule(null);
-      refetchAppointments();
-    } catch (error: any) {
-      toast.error(error?.data?.error?.message || 'Failed to reschedule interview');
-    }
-  };
-
-  // Handle cancel interview
-  const handleCancel = async (interviewId: string) => {
-    if (!confirm('Are you sure you want to cancel this interview?')) {
-      return;
-    }
-    try {
-      await deleteInterview(interviewId).unwrap();
-      toast.success('Interview cancelled successfully');
-      refetchAppointments();
-    } catch (error: any) {
-      toast.error(error?.data?.error?.message || 'Failed to cancel interview');
-    }
-  };
+  const candidates = candidatesData?.data?.candidates || [];
 
   const stats = statsData?.data?.stats
     ? [
@@ -330,6 +166,36 @@ const InterviewAppointments = () => {
 
   const appointments = appointmentsData?.data?.interviews || [];
 
+  // Handle candidate selection
+  const handleCandidateSelect = (candidate: any) => {
+    setSelectedCandidate({
+      id: candidate._id,
+      name: `${candidate.firstName} ${candidate.lastName}`,
+      position: candidate.position || "N/A"
+    });
+    setIsCandidatePopoverOpen(false);
+    setCandidateSearch("");
+  };
+
+  // Handle schedule interview - open the ScheduleInterviewModal
+  const handleScheduleClick = () => {
+    if (!selectedCandidate) {
+      alert("Please select a candidate first");
+      return;
+    }
+    setIsAddDialogOpen(false);
+    setIsScheduleModalOpen(true);
+  };
+
+  // Reset form when dialog closes
+  const handleDialogClose = (open: boolean) => {
+    setIsAddDialogOpen(open);
+    if (!open) {
+      setSelectedCandidate(null);
+      setCandidateSearch("");
+    }
+  };
+
   const filteredAppointments = appointments.filter((apt) => {
     const candidate =
       typeof apt.candidateId === "object" ? apt.candidateId : null;
@@ -352,9 +218,114 @@ const InterviewAppointments = () => {
             <h1 className="text-3xl font-bold text-foreground">
               Interview Appointments
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Interviews are scheduled from the candidate progress page based on interview flow templates.
-            </p>
+
+            {hasAction(userPermissions, 'interview_appointments', 'schedule') && (
+              <Dialog open={isAddDialogOpen} onOpenChange={handleDialogClose}>
+                <DialogTrigger asChild>
+                  <Button className="w-full md:w-auto">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Schedule Interview
+                  </Button>
+                </DialogTrigger>
+
+                {/* RESPONSIVE DIALOG */}
+                <DialogContent className="max-w-2xl w-[95vw] sm:w-full sm:max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Schedule New Interview</DialogTitle>
+                    <DialogDescription>
+                      Select a candidate to schedule an interview
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="py-4">
+                    <div className="space-y-2">
+                      <Label>Select Candidate <span className="text-red-500">*</span></Label>
+                      <Popover open={isCandidatePopoverOpen} onOpenChange={setIsCandidatePopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={isCandidatePopoverOpen}
+                            className="w-full justify-between"
+                            disabled={isLoadingCandidates}
+                          >
+                            {selectedCandidate
+                              ? `${selectedCandidate.name} - ${selectedCandidate.position}`
+                              : "Search and select candidate..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command>
+                            <CommandInput
+                              placeholder="Search candidates by name, email, or position..."
+                              value={candidateSearch}
+                              onValueChange={setCandidateSearch}
+                            />
+                            <CommandList>
+                              <CommandEmpty>
+                                {isLoadingCandidates ? "Loading candidates..." : "No candidates found."}
+                              </CommandEmpty>
+                              <CommandGroup>
+                                {candidates.map((candidate) => (
+                                  <CommandItem
+                                    key={candidate._id}
+                                    value={`${candidate.firstName} ${candidate.lastName} ${candidate.email} ${candidate.position}`}
+                                    onSelect={() => handleCandidateSelect(candidate)}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedCandidate?.id === candidate._id
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">
+                                        {candidate.firstName} {candidate.lastName}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {candidate.position} • {candidate.email}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {selectedCandidate && (
+                      <div className="mt-4 p-4 bg-slate-50 rounded-md border">
+                        <h3 className="text-lg font-semibold mb-2">{selectedCandidate.name}</h3>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <span className="font-medium">Position:</span>
+                          <span>{selectedCandidate.position}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-3 mt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDialogClose(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleScheduleClick}
+                      disabled={!selectedCandidate}
+                    >
+                      Continue to Schedule
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
           </div>
 
           {/* STATS */}
@@ -469,22 +440,9 @@ const InterviewAppointments = () => {
                           const candidateName = candidate
                             ? `${candidate.firstName} ${candidate.lastName}`
                             : "N/A";
-                          // Get interviewer name - check multiple sources
-                          let interviewerName = apt.interviewerName || null;
-                          if (!interviewerName || interviewerName === "N/A") {
-                            if (interviewer && typeof interviewer === 'object') {
-                              // Check for name property (User model has 'name' field)
-                              if (interviewer.name) {
-                                interviewerName = interviewer.name;
-                              } else if (interviewer.email) {
-                                interviewerName = interviewer.email;
-                              }
-                            }
-                          }
-                          // Final fallback
-                          if (!interviewerName || interviewerName === "N/A") {
-                            interviewerName = apt.interviewerEmail || 'Not Assigned';
-                          }
+                          const interviewerName = interviewer
+                            ? interviewer.name
+                            : apt.interviewerName || "N/A";
                           const interviewDate = new Date(apt.interviewDate);
 
                           return (
@@ -525,15 +483,15 @@ const InterviewAppointments = () => {
                                   {formatInterviewStatus(apt.status)}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-center">
-                                <div className="flex justify-center gap-2">
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => {
                                       const candidateId = getCandidateIdFromInterview(apt);
                                       if (candidateId) {
-                                        navigate(`/interview/candidate/${candidateId}/progress`);
+                                        navigate(`/candidate/${candidateId}`);
                                       }
                                     }}
                                     disabled={!getCandidateIdFromInterview(apt)}
@@ -541,51 +499,23 @@ const InterviewAppointments = () => {
                                     <Eye className="w-4 h-4" />
                                   </Button>
                                   {hasAction(userPermissions, 'interview_appointments', 'edit') && (
-                                    <>
-                                      {apt.status === 'SCHEDULED' && (
-                                        <>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => {
-                                              setSelectedInterviewForReschedule(apt);
-                                              setIsRescheduleModalOpen(true);
-                                            }}
-                                            disabled={isUpdating}
-                                            title="Reschedule"
-                                          >
-                                            <Clock className="w-4 h-4" />
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleCancel(apt._id)}
-                                            disabled={isDeleting}
-                                            title="Cancel"
-                                          >
-                                            <X className="w-4 h-4 text-red-500" />
-                                          </Button>
-                                        </>
-                                      )}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => {
-                                          // Extract candidate ID safely (handles both string and object)
-                                          const candidateId = getCandidateIdFromInterview(apt);
-                                          if (candidateId) {
-                                            navigate(`/candidate/${candidateId}`);
-                                          } else {
-                                            console.error('Cannot navigate: Invalid candidateId for interview', apt._id);
-                                            // Optionally show a toast/alert here
-                                          }
-                                        }}
-                                        disabled={!getCandidateIdFromInterview(apt)}
-                                        title="Edit"
-                                      >
-                                        <Edit className="w-4 h-4" />
-                                      </Button>
-                                    </>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        // Extract candidate ID safely (handles both string and object)
+                                        const candidateId = getCandidateIdFromInterview(apt);
+                                        if (candidateId) {
+                                          navigate(`/interview/candidate/${candidateId}/progress`);
+                                        } else {
+                                          console.error('Cannot navigate: Invalid candidateId for interview', apt._id);
+                                          // Optionally show a toast/alert here
+                                        }
+                                      }}
+                                      disabled={!getCandidateIdFromInterview(apt)}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
                                   )}
                                 </div>
                               </TableCell>
@@ -745,32 +675,12 @@ const InterviewAppointments = () => {
 
                       return sortedInterviews.map((apt) => {
                         const candidate = typeof apt.candidateId === 'object' ? apt.candidateId : null;
-                        const interviewer = typeof apt.interviewerId === 'object' ? apt.interviewerId : null;
                         const candidateName = candidate 
                           ? `${candidate.firstName} ${candidate.lastName}` 
                           : 'N/A';
                         const position = candidate && typeof candidate === 'object' && 'position' in candidate 
                           ? String(candidate.position) 
                           : 'N/A';
-                        // Get interviewer name for calendar view - prioritize backend-provided interviewerName
-                        let interviewerName = apt.interviewerName || null;
-                        
-                        // If interviewerName is not set or is 'N/A', try to extract from populated interviewer object
-                        if (!interviewerName || interviewerName === 'N/A') {
-                          if (interviewer && typeof interviewer === 'object') {
-                            // User model has 'name' field, not firstName/lastName
-                            if (interviewer.name) {
-                              interviewerName = interviewer.name;
-                            } else if (interviewer.email) {
-                              interviewerName = interviewer.email;
-                            }
-                          }
-                        }
-                        
-                        // Final fallback
-                        if (!interviewerName || interviewerName === 'N/A') {
-                          interviewerName = apt.interviewerEmail || 'Not Assigned';
-                        }
 
                         return (
                           <div 
@@ -788,9 +698,6 @@ const InterviewAppointments = () => {
                               <p className="text-xs text-muted-foreground">
                                 {position}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                Interviewer: {interviewerName}
-                              </p>
                             </div>
                           </div>
                         );
@@ -803,251 +710,19 @@ const InterviewAppointments = () => {
           </div>
         </div>
 
-        {/* Reschedule Interview Modal */}
-        {selectedInterviewForReschedule && (
-          <Dialog 
-            open={isRescheduleModalOpen} 
-            onOpenChange={(open) => {
-              setIsRescheduleModalOpen(open);
-              if (!open) {
-                setSelectedInterviewForReschedule(null);
-                setRescheduleDate(undefined);
-              }
-            }}
-          >
-            <DialogContent className="w-[95%] sm:w-full max-w-[600px] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="text-base sm:text-lg">Reschedule Interview</DialogTitle>
-                <DialogDescription className="text-xs sm:text-sm">
-                  Update the date and time for this interview
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-2 sm:py-4">
-                {/* Mobile: Use Ant Design DatePicker and TimePicker */}
-                {isMobile ? (
-                  <>
-                    <div>
-                      <Label className="text-sm sm:text-base mb-2 block">New Interview Date *</Label>
-                      <DatePicker
-                        className="w-full text-sm"
-                        disabledDate={(current) => current && current < dayjs().startOf('day')}
-                        defaultValue={rescheduleDate ? dayjs(rescheduleDate) : undefined}
-                        format="YYYY-MM-DD"
-                        onChange={(date) => {
-                          if (date) {
-                            const newDate = new Date(rescheduleDate || selectedInterviewForReschedule.interviewDate || new Date());
-                            newDate.setFullYear(date.year(), date.month(), date.date());
-                            setRescheduleDate(newDate);
-                            setSelectedInterviewForReschedule({
-                              ...selectedInterviewForReschedule,
-                              newDate: date.format('YYYY-MM-DD')
-                            });
-                          }
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm sm:text-base mb-2 block">New Interview Time *</Label>
-                      <TimePicker
-                        className="w-full text-sm"
-                        format="HH:mm"
-                        defaultValue={rescheduleDate && selectedInterviewForReschedule.interviewTime 
-                          ? dayjs(selectedInterviewForReschedule.interviewTime, 'HH:mm') 
-                          : undefined}
-                        placeholder="Select time"
-                        onChange={(time) => {
-                          if (time && rescheduleDate) {
-                            const newDate = new Date(rescheduleDate);
-                            newDate.setHours(time.hour(), time.minute(), 0, 0);
-                            setRescheduleDate(newDate);
-                            setSelectedInterviewForReschedule({
-                              ...selectedInterviewForReschedule,
-                              newTime: time.format('HH:mm')
-                            });
-                          }
-                        }}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  /* Desktop: Use Clock Time Picker */
-                  <div>
-                    <Label className="text-sm sm:text-base mb-2 block">New Interview Date & Time *</Label>
-                    <Popover open={isReschedulePopoverOpen} onOpenChange={setIsReschedulePopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal h-10 px-2 sm:px-3 text-xs sm:text-sm",
-                            !rescheduleDate && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-                          <span className="truncate">
-                            {rescheduleDate ? (
-                              format(rescheduleDate, "MMM dd, yyyy - hh:mm a")
-                            ) : (
-                              "Pick a date and time"
-                            )}
-                          </span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent 
-                        className="w-[calc(100vw-2rem)] max-w-[600px] lg:max-w-[700px] p-0 z-[2000]" 
-                        align="start"
-                        sideOffset={4}
-                        side="left"
-                      >
-                        <div className="flex flex-row divide-x" style={{ maxHeight: '85vh' }}>
-                          <div className="p-3 md:p-4 flex-shrink-0 overflow-y-auto" style={{ maxHeight: '85vh' }}>
-                            <div className="mb-2 font-semibold text-sm md:text-base">Select Date</div>
-                            <div className="flex justify-center">
-                              <Calendar
-                                mode="single"
-                                selected={rescheduleDate}
-                                onSelect={(date) => {
-                                  if (date) {
-                                    const newDate = new Date(rescheduleDate || selectedInterviewForReschedule.interviewDate || new Date());
-                                    newDate.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                                    const now = new Date();
-                                    if (startOfDay(newDate).getTime() === startOfDay(now).getTime()) {
-                                      const minTime = new Date(now.getTime() + 60 * 60 * 1000);
-                                      if (newDate.getTime() < minTime.getTime()) {
-                                        newDate.setHours(minTime.getHours(), minTime.getMinutes(), 0, 0);
-                                      }
-                                    }
-                                    setRescheduleDate(newDate);
-                                  }
-                                }}
-                                disabled={(date) => isBefore(date, startOfDay(new Date()))}
-                                initialFocus
-                              />
-                            </div>
-                          </div>
-                          <div className="p-3 md:p-4 flex-shrink-0 flex flex-col" style={{ maxHeight: '85vh' }}>
-                            <div className="flex-1 overflow-y-auto overflow-x-auto pb-2">
-                              <ClockTimePicker
-                                date={rescheduleDate}
-                                setDate={(date) => { 
-                                  if (date) {
-                                    setRescheduleDate(date);
-                                    setSelectedInterviewForReschedule({
-                                      ...selectedInterviewForReschedule,
-                                      newDate: format(date, 'yyyy-MM-dd'),
-                                      newTime: format(date, 'HH:mm')
-                                    });
-                                  }
-                                }}
-                              />
-                            </div>
-                            <div className="mt-4 pt-3 pb-2 flex justify-end flex-shrink-0 bg-white">
-                              <Button 
-                                size="sm" 
-                                className="w-auto text-sm md:text-base" 
-                                onClick={() => setIsReschedulePopoverOpen(false)}
-                              >
-                                Set Time
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                )}
-                {/* Display round and assigned interviewer from flow (read-only) */}
-                <div>
-                  <Label className="text-sm sm:text-base">Round Details</Label>
-                  <div className="p-3 bg-slate-50 rounded-md border space-y-2">
-                    {rescheduleRoundDetails ? (
-                      <>
-                        <div>
-                          <span className="text-xs text-muted-foreground">Round:</span>
-                          <span className="ml-2 font-medium text-sm">
-                            {rescheduleRoundDetails.roundName || `Round ${rescheduleRoundDetails.roundNumber}`}
-                          </span>
-                        </div>
-                        {rescheduleInterviewer ? (
-                          <div>
-                            <span className="text-xs text-muted-foreground">Assigned Interviewer:</span>
-                            <div className="mt-1">
-                              <span className="font-medium text-sm">
-                                {rescheduleInterviewer.name}
-                              </span>
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                {rescheduleInterviewer.role === 'Employee' && rescheduleInterviewer.subRole 
-                                  ? `${rescheduleInterviewer.role} (${rescheduleInterviewer.subRole})` 
-                                  : rescheduleInterviewer.role}
-                                {rescheduleInterviewer.email && ` • ${rescheduleInterviewer.email}`}
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">
-                            No interviewer assigned for this round
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {flowDataForReschedule ? "Loading round details..." : "No interview flow configured for this job"}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Interviewer is assigned from the interview flow configuration. To change, update the interview flow for this job.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2 sm:pt-0">
-                <Button 
-                  variant="outline" 
-                  className="w-full sm:w-auto text-xs sm:text-sm md:text-base touch-manipulation"
-                  onClick={() => {
-                    setIsRescheduleModalOpen(false);
-                    setSelectedInterviewForReschedule(null);
-                    setRescheduleDate(undefined);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="w-full sm:w-auto text-xs sm:text-sm md:text-base touch-manipulation"
-                  onClick={() => {
-                    if (isMobile) {
-                      // For mobile, check if date and time are set in the state
-                      if (selectedInterviewForReschedule.newDate && selectedInterviewForReschedule.newTime) {
-                        handleReschedule(
-                          selectedInterviewForReschedule._id,
-                          selectedInterviewForReschedule.newDate,
-                          selectedInterviewForReschedule.newTime
-                        );
-                      } else {
-                        toast.error('Please select both date and time');
-                      }
-                    } else {
-                      // For desktop, use rescheduleDate
-                      if (rescheduleDate) {
-                        const newDate = format(rescheduleDate, 'yyyy-MM-dd');
-                        const newTime = format(rescheduleDate, 'HH:mm');
-                        handleReschedule(
-                          selectedInterviewForReschedule._id,
-                          newDate,
-                          newTime
-                        );
-                      } else {
-                        toast.error('Please select both date and time');
-                      }
-                    }
-                  }}
-                  disabled={isUpdating || (isMobile ? (!selectedInterviewForReschedule.newDate || !selectedInterviewForReschedule.newTime) : !rescheduleDate)}
-                >
-                  {isUpdating ? 'Rescheduling...' : 'Reschedule'}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
+        {/* Schedule Interview Modal */}
+        <ScheduleInterviewModal
+          isOpen={isScheduleModalOpen}
+          onClose={() => {
+            setIsScheduleModalOpen(false);
+            setSelectedCandidate(null);
+            setCandidateSearch("");
+            // Refetch appointments to show the newly scheduled interview
+            // The appointments query will automatically refetch
+          }}
+          candidateId={selectedCandidate?.id || null}
+          candidateName={selectedCandidate?.name || ""}
+        />
       </main>
     </MainLayout>
   );

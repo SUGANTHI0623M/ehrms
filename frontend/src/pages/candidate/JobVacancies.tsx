@@ -241,7 +241,7 @@ const JobVacancies = () => {
                             </>
                           ) : buttonState.disabled ? (
                             <>
-                              <CheckCircle2 className="w-3 h-4 mr-2" />
+                              <CheckCircle2 className="w-4 h-4 mr-2" />
                               {buttonState.text}
                             </>
                           ) : (

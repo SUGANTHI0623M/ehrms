@@ -1,15 +1,11 @@
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
+import MainLayout from "@/components/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, Clock, Users, Calendar, Briefcase, DollarSign, Building, Settings as SettingsIcon, LogOut, FilePlus, MapPin } from "lucide-react";
+import { Search, ChevronRight, Clock, Users, Calendar, Briefcase, DollarSign, Building, Settings as SettingsIcon, LogOut, FilePlus } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { useNavigate } from "react-router-dom";
 
 const Settings = () => {
-  const navigate = useNavigate();
-  
   const settingsGroups = [
     {
       title: "Attendance Settings",
@@ -64,13 +60,6 @@ const Settings = () => {
       ]
     },
     {
-      title: "HRMS Geo Settings",
-      icon: MapPin,
-      items: [
-        { name: "Staff Location Access", description: "Configure which staff members have location tracking activated" }
-      ]
-    },
-    {
       title: "Others",
       icon: SettingsIcon,
       items: [
@@ -82,11 +71,8 @@ const Settings = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <Header />
-      
-      <main className="ml-64 mt-16 p-8">
+    <MainLayout>
+      <div className="p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Settings</h1>
@@ -117,11 +103,6 @@ const Settings = () => {
                       {group.items.map((item, itemIndex) => (
                         <div
                           key={itemIndex}
-                          onClick={() => {
-                            if (item.name === "Staff Location Access") {
-                              navigate("/hrms-geo/settings");
-                            }
-                          }}
                           className="flex items-center justify-between p-4 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
                         >
                           <div className="flex-1">
@@ -151,8 +132,8 @@ const Settings = () => {
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
+      </div>
+    </MainLayout>
   );
 };
 

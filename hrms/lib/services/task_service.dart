@@ -403,4 +403,62 @@ class TaskService {
     if (data == null) throw Exception('Failed to end task');
     return Task.fromJson(data);
   }
+
+  // ─── Form (arrived screen) ───────────────────────────────────────────────
+
+  /// Get form templates assigned to staff. Used on arrived screen.
+  Future<List<Map<String, dynamic>>> getFormTemplatesForStaff(
+    String staffId,
+  ) async {
+    await _setToken();
+    final response = await _api.dio.get<Map<String, dynamic>>(
+      '/forms/templates/assigned',
+      queryParameters: {'staffId': staffId},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final list = data['data']?['templates'] as List?;
+    if (list == null) return [];
+    return list
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  /// Check if form response exists for task+staff.
+  Future<List<Map<String, dynamic>>> getFormResponsesForTask({
+    required String taskId,
+    required String staffId,
+  }) async {
+    await _setToken();
+    final response = await _api.dio.get<Map<String, dynamic>>(
+      '/forms/responses',
+      queryParameters: {'taskId': taskId, 'staffId': staffId},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final list = data['data']?['responses'] as List?;
+    if (list == null) return [];
+    return list
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  /// Submit form response. Returns created response.
+  Future<void> submitFormResponse({
+    required String templateId,
+    required String taskId,
+    required String staffId,
+    required Map<String, dynamic> responses,
+  }) async {
+    await _setToken();
+    await _api.dio.post<Map<String, dynamic>>(
+      '/forms/responses',
+      data: {
+        'templateId': templateId,
+        'taskId': taskId,
+        'staffId': staffId,
+        'responses': responses,
+      },
+    );
+  }
 }

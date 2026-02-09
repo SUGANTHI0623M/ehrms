@@ -28,7 +28,6 @@ import {
 } from "@/store/api/jobOpeningApi";
 import { useGetActiveBranchesQuery } from "@/store/api/branchApi";
 import { toast } from "sonner";
-import { formatErrorMessage } from "@/utils/errorFormatter";
 import {
   Command,
   CommandEmpty,
@@ -405,23 +404,7 @@ const JobOpeningForm = () => {
         navigate("/job-openings");
       }
     } catch (error: any) {
-      const errorMessage = error?.data?.error?.message || "Failed to save job opening";
-      
-      // Check if it's a validation error
-      if (errorMessage.includes("Validation failed") || 
-          errorMessage.includes("required") || 
-          errorMessage.includes("Missing required fields") ||
-          error?.status === 400) {
-        toast.error("Please fill all required fields", {
-          position: "top-right",
-        });
-      } else {
-        // Use formatted error message for other errors
-        const formattedError = formatErrorMessage(error);
-        toast.error(formattedError, {
-          position: "top-right",
-        });
-      }
+      toast.error(error?.data?.error?.message || "Failed to save job opening");
     }
   };
 
@@ -848,34 +831,22 @@ const JobOpeningForm = () => {
 
                   {/* Branch and Workplace Type */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {!isCreateMode && (
-                      <div className="space-y-2">
-                        <Label>Branch</Label>
-                        <Input
-                          value={branches.find(b => b._id === formData.branchId)?.branchName || "N/A"}
-                          disabled={true}
-                          className="bg-muted"
-                        />
-                      </div>
-                    )}
-                    {isCreateMode && (
-                      <div className="space-y-2">
-                        <Label>Branch *</Label>
-                        <Select
-                          value={formData.branchId || undefined}
-                          onValueChange={(v) => setFormData({ ...formData, branchId: v })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-                          <SelectContent>
-                            {branches.map(b => (
-                              <SelectItem key={b._id} value={b._id}>
-                                {b.branchName} {b.isHeadOffice && "(Head Office)"} - {b.address?.city || ""}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <Label>Branch *</Label>
+                      <Select
+                        value={formData.branchId || undefined}
+                        onValueChange={(v) => setFormData({ ...formData, branchId: v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+                        <SelectContent>
+                          {branches.map(b => (
+                            <SelectItem key={b._id} value={b._id}>
+                              {b.branchName} {b.isHeadOffice && "(Head Office)"} - {b.address?.city || ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="space-y-2">
                       <Label>Workplace Type *</Label>
                       <Select value={formData.workplaceType} onValueChange={(val: any) => setFormData({ ...formData, workplaceType: val })}>

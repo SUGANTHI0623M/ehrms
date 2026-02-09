@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
+import MainLayout from "@/components/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -13,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 const SalaryOverview = () => {
   const [expandedMonth, setExpandedMonth] = useState<string | null>("september");
@@ -53,15 +52,12 @@ const SalaryOverview = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <Header />
-
-      <main className="ml-64 mt-16 p-8">
+    <MainLayout>
+      <div className="p-8">
         <div className=" mx-auto space-y-6">
           <div className="flex items-center gap-4 justify-end">
             <Button onClick={() => navigate("/staff")}>
-             staff 
+              staff
             </Button>
           </div>
 
@@ -216,8 +212,8 @@ const SalaryOverview = () => {
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </MainLayout>
   );
 };
 

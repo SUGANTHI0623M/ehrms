@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const TaskDetails = require('../models/TaskDetails');
 const TaskSettings = require('../models/TaskSettings');
+const FormResponse = require('../models/FormResponse');
 
 /**
  * DATA MODEL – taskId / _id semantics:
@@ -33,14 +34,15 @@ const VALID_TRANSITIONS = {
   'serving today': ['in_progress', 'in progress', 'reopened', 'pending'],
   'delayed tasks': ['in_progress', 'in progress', 'pending', 'reopened'],
   'completed tasks': ['arrived', 'in_progress', 'in progress', 'serving today'],
-  completed: ['arrived', 'in_progress', 'in progress'],
+  completed: ['arrived', 'in_progress', 'in progress', 'holdOnArrival', 'reopenedOnArrival'],
   reopened: ['exited', 'completed', 'completed tasks', 'rejected'],
-  reopenedOnArrival: ['exitedOnArrival'],
+  reopenedOnArrival: ['exitOnArrival', 'exitedOnArrival'],
   hold: ['in_progress', 'in progress', 'pending', 'assigned'],
   exited: ['in_progress', 'in progress'],
+  exitOnArrival: ['arrived', 'holdOnArrival', 'reopenedOnArrival'],
   exitedOnArrival: ['arrived'],
   holdOnArrival: ['arrived'],
-  waiting_for_approval: ['arrived', 'in progress', 'in_progress'],
+  waiting_for_approval: ['arrived', 'in progress', 'in_progress', 'holdOnArrival', 'reopenedOnArrival'],
 };
 function normalizeStatusForTransition(s) {
   const v = String(s || '').toLowerCase().trim();
@@ -716,10 +718,15 @@ exports.getCompletionReport = async (req, res) => {
       return ta - tb;
     });
 
+    const formResponses = await FormResponse.find({ taskId: task._id })
+      .populate('templateId', 'templateName fields')
+      .lean();
+
     res.status(200).json({
       task: taskObj,
       timeline,
       routePoints,
+      formResponses: formResponses || [],
     });
   } catch (error) {
     console.error('[Tasks] getCompletionReport error:', error.message);
@@ -933,9 +940,19 @@ exports.endTask = async (req, res) => {
     const staffId = req.staff?._id;
     const task = await Task.findById(taskId).populate('assignedTo').populate('customerId');
     if (!task) return res.status(404).json({ message: 'Task not found' });
-    if (task.status !== 'arrived') {
+    const statusLower = String(task.status || '').toLowerCase().replace(/\s+/g, '');
+    const canComplete = ['arrived', 'holdonarrival', 'reopenedonarrival'].includes(statusLower);
+    const alreadyDone = ['completed', 'waiting_for_approval'].includes(statusLower);
+    if (alreadyDone) {
+      // Idempotent: already completed, return success
+      const companyId = getCompanyIdFromTask(task);
+      const merged = await mergeTaskWithDetails(task);
+      const finalMerged = await mergeTaskSettings(merged, companyId);
+      return res.status(200).json(finalMerged);
+    }
+    if (!canComplete) {
       return res.status(400).json({
-        message: `Invalid status for complete: task must be arrived, got ${task.status}`,
+        message: `Invalid status for complete: task must be arrived, holdOnArrival, or reopenedOnArrival, got ${task.status}`,
       });
     }
     const companyId = getCompanyIdFromTask(task);
@@ -956,7 +973,7 @@ exports.endTask = async (req, res) => {
     await Task.findByIdAndUpdate(taskId, {
       $set: { status: newStatus },
       $unset: exports.buildUnsetExtended(),
-    });
+    }, { runValidators: false });
     const details = await TaskDetails.findOne({ taskId: task._id }).lean();
     const fullDoc = {
       ...(details || {}),

@@ -14,7 +14,6 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
     const [mode, setMode] = useState<'hour' | 'minute'>('hour');
     const clockRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const [clockSize, setClockSize] = useState(200);
 
     useEffect(() => {
         if (date) {
@@ -22,48 +21,12 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
         }
     }, [date]);
 
-    // Update clock size based on container width and screen size
-    useEffect(() => {
-        const updateClockSize = () => {
-            if (clockRef.current) {
-                const width = clockRef.current.offsetWidth;
-                // Ensure minimum size for very small screens
-                const minSize = 140;
-                const maxSize = 220;
-                const calculatedSize = Math.max(minSize, Math.min(maxSize, width));
-                setClockSize(calculatedSize);
-            }
-        };
-        // Initial update
-        updateClockSize();
-        // Update on resize with debounce
-        let timeoutId: NodeJS.Timeout;
-        const handleResize = () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(updateClockSize, 100);
-        };
-        window.addEventListener('resize', handleResize);
-        // Also update when component mounts or when container might change
-        const observer = new ResizeObserver(updateClockSize);
-        if (clockRef.current) {
-            observer.observe(clockRef.current);
-        }
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            clearTimeout(timeoutId);
-            if (clockRef.current) {
-                observer.unobserve(clockRef.current);
-            }
-        };
-    }, []);
-
-    // Derived state for clock face - use fixed viewBox size for calculations
-    const viewBoxSize = 220; // Fixed viewBox size
-    const radius = viewBoxSize * 0.4; // 40% of viewBox size
-    const center = viewBoxSize / 2; // 110
+    // Derived state for clock face
+    const radius = 80;
+    const center = 100;
     const numbers = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
-    // Calculate hand position (for SVG viewBox)
+    // Calculate hand position
     let value = mode === 'hour' ? selectedDate.getHours() % 12 || 12 : selectedDate.getMinutes();
     const total = mode === 'hour' ? 12 : 60;
     const angle = (value / total) * 360;
@@ -72,9 +35,6 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
     const rad = (angle - 90) * (Math.PI / 180);
     const handX = center + radius * Math.cos(rad);
     const handY = center + radius * Math.sin(rad);
-    
-    // Scale factor for number positions based on actual clock size
-    const scaleFactor = clockSize / viewBoxSize;
 
     const handleTimeChange = (type: 'hour' | 'minute' | 'ampm', value: string | number) => {
         let newDate = new Date(selectedDate);
@@ -110,7 +70,6 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
     const calculateTimeFromAngle = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent, isFinal: boolean = false) => {
         if (!clockRef.current) return;
         const rect = clockRef.current.getBoundingClientRect();
-        const currentCenter = rect.width / 2;
         // @ts-ignore
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         // @ts-ignore
@@ -119,8 +78,8 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
         // If client coords are missing (e.g. touchend), we might need to skip or use changedTouches
         if (clientX === undefined || clientY === undefined) return;
 
-        const x = clientX - rect.left - currentCenter;
-        const y = clientY - rect.top - currentCenter;
+        const x = clientX - rect.left - center;
+        const y = clientY - rect.top - center;
 
         let angle = Math.atan2(y, x) * (180 / Math.PI) + 90;
         if (angle < 0) angle += 360;
@@ -180,28 +139,28 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
     }, [isDragging, mode, selectedDate]); // Add selectedDate to dependency to prevent stale closure if we didn't inline logic perfectly (but here we effectively are inside the component)
 
     return (
-        <div className="flex flex-col items-center bg-white p-2 sm:p-3 md:p-4 lg:p-4 rounded-lg select-none w-full min-w-[200px] sm:min-w-[260px] md:min-w-[280px] lg:min-w-[300px] max-w-full sm:max-w-[320px] mx-auto">
-            <div className="flex items-center justify-between w-full mb-2 sm:mb-3 md:mb-4 px-1">
-                <span className="text-xs sm:text-sm md:text-base lg:text-lg font-semibold text-slate-800">Set Time</span>
-                <div className="flex gap-1 sm:gap-1.5 md:gap-2">
+        <div className="flex flex-col items-center bg-white p-4 rounded-lg select-none">
+            <div className="flex items-center justify-between w-full mb-4">
+                <span className="text-lg font-semibold text-slate-800">Set Time</span>
+                <div className="flex gap-2">
                     <button
                         type="button"
                         onClick={() => setMode('hour')}
-                        className={cn("px-1.5 sm:px-2 md:px-2.5 py-0.5 sm:py-1 rounded text-xs sm:text-sm", mode === 'hour' ? "bg-primary/10 text-primary" : "text-slate-500")}
+                        className={cn("px-2 py-1 rounded text-sm", mode === 'hour' ? "bg-primary/10 text-primary" : "text-slate-500")}
                     >
                         Hour
                     </button>
                     <button
                         type="button"
                         onClick={() => setMode('minute')}
-                        className={cn("px-1.5 sm:px-2 md:px-2.5 py-0.5 sm:py-1 rounded text-xs sm:text-sm", mode === 'minute' ? "bg-primary/10 text-primary" : "text-slate-500")}
+                        className={cn("px-2 py-1 rounded text-sm", mode === 'minute' ? "bg-primary/10 text-primary" : "text-slate-500")}
                     >
                         Minute
                     </button>
                 </div>
             </div>
 
-            <div className="relative w-full max-w-[160px] h-[160px] sm:max-w-[180px] sm:h-[180px] md:max-w-[200px] md:h-[200px] lg:max-w-[220px] lg:h-[220px] mx-auto my-2 sm:my-3 md:my-4 touch-none aspect-square">
+            <div className="relative w-[200px] h-[200px] mx-auto my-4 touch-none">
                 <div
                     ref={clockRef}
                     className="absolute inset-0 rounded-full border-4 border-slate-100 bg-white shadow-inner flex items-center justify-center cursor-pointer"
@@ -209,19 +168,13 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                     onTouchStart={handleMouseDown}
                 >
                     {/* Clock Face SVG */}
-                    <svg 
-                        width="100%" 
-                        height="100%" 
-                        viewBox="0 0 220 220"
-                        className="absolute inset-0 pointer-events-none z-10 transition-all duration-75"
-                        preserveAspectRatio="xMidYMid meet"
-                    >
+                    <svg width="200" height="200" className="absolute inset-0 pointer-events-none z-10 transition-all duration-75">
                         {/* Center Dot */}
-                        <circle cx="110" cy="110" r="4" className="fill-primary" />
+                        <circle cx="100" cy="100" r="4" className="fill-primary" />
                         {/* Hand */}
                         <line
-                            x1="110"
-                            y1="110"
+                            x1="100"
+                            y1="100"
                             x2={handX}
                             y2={handY}
                             className="stroke-primary stroke-[3]"
@@ -233,22 +186,15 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                     {/* Numbers */}
                     {mode === 'hour' && numbers.map((num, i) => {
                         const numAngle = (i * 30 - 90) * (Math.PI / 180);
-                        const offset = clockSize < 180 ? 12 : clockSize < 200 ? 14 : 15;
-                        // Calculate position in viewBox coordinates, then scale to actual size
-                        const viewBoxX = center + (radius - offset) * Math.cos(numAngle);
-                        const viewBoxY = center + (radius - offset) * Math.sin(numAngle);
-                        const x = viewBoxX * scaleFactor;
-                        const y = viewBoxY * scaleFactor;
+                        const x = center + (radius - 15) * Math.cos(numAngle); // Offset for text
+                        const y = center + (radius - 15) * Math.sin(numAngle);
                         const isSelected = (selectedDate.getHours() % 12 || 12) === num;
 
                         return (
                             <div
                                 key={num}
                                 className={cn(
-                                    "absolute rounded-full flex items-center justify-center font-medium transition-colors z-20 pointer-events-none",
-                                    clockSize < 180 ? "w-5 h-5 -ml-2.5 -mt-2.5 text-[10px]" :
-                                    clockSize < 200 ? "w-6 h-6 sm:w-7 sm:h-7 -ml-3 sm:-ml-3.5 -mt-3 sm:-mt-3.5 text-xs sm:text-sm" :
-                                    "w-7 h-7 md:w-8 md:h-8 -ml-3.5 md:-ml-4 -mt-3.5 md:-mt-4 text-sm md:text-base",
+                                    "absolute w-8 h-8 -ml-4 -mt-4 rounded-full flex items-center justify-center text-sm font-medium transition-colors z-20 pointer-events-none",
                                     isSelected ? "bg-primary text-primary-foreground" : "text-slate-600"
                                 )}
                                 style={{ left: x, top: y }}
@@ -261,12 +207,8 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                     {/* Minute marks */}
                     {mode === 'minute' && [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((num, i) => {
                         const numAngle = (i * 30 - 90) * (Math.PI / 180);
-                        const offset = clockSize < 180 ? 12 : clockSize < 200 ? 14 : 15;
-                        // Calculate position in viewBox coordinates, then scale to actual size
-                        const viewBoxX = center + (radius - offset) * Math.cos(numAngle);
-                        const viewBoxY = center + (radius - offset) * Math.sin(numAngle);
-                        const x = viewBoxX * scaleFactor;
-                        const y = viewBoxY * scaleFactor;
+                        const x = center + (radius - 15) * Math.cos(numAngle);
+                        const y = center + (radius - 15) * Math.sin(numAngle);
                         const currentMin = selectedDate.getMinutes();
                         const isSelected = Math.abs(currentMin - num) < 2.5;
 
@@ -274,10 +216,7 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                             <div
                                 key={num}
                                 className={cn(
-                                    "absolute rounded-full flex items-center justify-center font-medium transition-colors z-20 pointer-events-none",
-                                    clockSize < 180 ? "w-5 h-5 -ml-2.5 -mt-2.5 text-[10px]" :
-                                    clockSize < 200 ? "w-6 h-6 sm:w-7 sm:h-7 -ml-3 sm:-ml-3.5 -mt-3 sm:-mt-3.5 text-xs sm:text-sm" :
-                                    "w-7 h-7 md:w-8 md:h-8 -ml-3.5 md:-ml-4 -mt-3.5 md:-mt-4 text-sm md:text-base",
+                                    "absolute w-8 h-8 -ml-4 -mt-4 rounded-full flex items-center justify-center text-sm font-medium transition-colors z-20 pointer-events-none",
                                     isSelected ? "bg-primary text-primary-foreground" : "text-slate-600"
                                 )}
                                 style={{ left: x, top: y }}
@@ -290,18 +229,18 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
             </div>
 
             {/* Digital Selectors */}
-            <div className="flex items-center justify-center gap-1 sm:gap-1.5 md:gap-2 lg:gap-2.5 mt-2 w-full flex-wrap">
+            <div className="flex items-center gap-2 mt-2">
                 {/* Hour */}
-                <div className="flex flex-col items-center p-1 sm:p-1.5 md:p-2 bg-slate-50 rounded-md border">
+                <div className="flex flex-col items-center p-2 bg-slate-50 rounded-md border">
                     <InputSpinner
                         value={format(selectedDate, 'hh')}
                         onChange={(v) => handleTimeChange('hour', parseInt(v))}
                         min={1} max={12}
                     />
                 </div>
-                <span className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-slate-300">:</span>
+                <span className="text-xl font-bold text-slate-300">:</span>
                 {/* Minute */}
-                <div className="flex flex-col items-center p-1 sm:p-1.5 md:p-2 bg-slate-50 rounded-md border">
+                <div className="flex flex-col items-center p-2 bg-slate-50 rounded-md border">
                     <InputSpinner
                         value={format(selectedDate, 'mm')}
                         onChange={(v) => handleTimeChange('minute', parseInt(v))}
@@ -309,12 +248,12 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                     />
                 </div>
                 {/* AM/PM */}
-                <div className="flex flex-col gap-0.5 sm:gap-1 ml-0.5 sm:ml-1 md:ml-2">
+                <div className="flex flex-col gap-1 ml-2">
                     <button
                         type="button"
                         onClick={() => handleTimeChange('ampm', 'AM')}
                         className={cn(
-                            "px-2 sm:px-2.5 md:px-3 lg:px-3.5 py-0.5 sm:py-1 md:py-1.5 text-xs sm:text-xs md:text-sm font-bold rounded border transition-colors touch-manipulation",
+                            "px-3 py-1 text-xs font-bold rounded border transition-colors",
                             format(selectedDate, 'a') === 'AM' ? "bg-primary text-white border-primary" : "bg-white text-slate-500 border-slate-200 hover:border-primary"
                         )}
                     >
@@ -324,7 +263,7 @@ const ClockTimePicker: React.FC<ClockTimePickerProps> = ({ date, setDate }) => {
                         type="button"
                         onClick={() => handleTimeChange('ampm', 'PM')}
                         className={cn(
-                            "px-2 sm:px-2.5 md:px-3 lg:px-3.5 py-0.5 sm:py-1 md:py-1.5 text-xs sm:text-xs md:text-sm font-bold rounded border transition-colors touch-manipulation",
+                            "px-3 py-1 text-xs font-bold rounded border transition-colors",
                             format(selectedDate, 'a') === 'PM' ? "bg-primary text-white border-primary" : "bg-white text-slate-500 border-slate-200 hover:border-primary"
                         )}
                     >
@@ -355,13 +294,9 @@ const InputSpinner = ({ value, onChange, min, max, pad }: { value: string, onCha
 
     return (
         <div className="flex flex-col items-center">
-            <button type="button" onClick={increment} className="text-slate-400 hover:text-primary active:text-primary p-0.5 sm:p-1 touch-manipulation">
-                <ChevronUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 md:h-4 md:w-4 lg:h-5 lg:w-5" />
-            </button>
-            <span className="text-base sm:text-lg md:text-xl lg:text-2xl font-mono font-semibold text-slate-700 my-0.5 sm:my-1 min-w-[24px] sm:min-w-[28px] md:min-w-[32px] text-center">{value}</span>
-            <button type="button" onClick={decrement} className="text-slate-400 hover:text-primary active:text-primary p-0.5 sm:p-1 touch-manipulation">
-                <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 md:h-4 md:w-4 lg:h-5 lg:w-5" />
-            </button>
+            <button type="button" onClick={increment} className="text-slate-400 hover:text-primary p-0.5"><ChevronUp className="h-4 w-4" /></button>
+            <span className="text-xl font-mono font-semibold text-slate-700 my-1 min-w-[32px] text-center">{value}</span>
+            <button type="button" onClick={decrement} className="text-slate-400 hover:text-primary p-0.5"><ChevronDown className="h-4 w-4" /></button>
         </div>
     );
 };

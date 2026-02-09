@@ -292,7 +292,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                             <TableHead>Designation</TableHead>
                             <TableHead>Department</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead className="text-center">Action</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>

@@ -124,7 +124,7 @@ const SuperAdminSettings = () => {
         const logo = settings.general.platformLogo;
         setLogoPreview(logo.startsWith('http') || logo.startsWith('/') 
           ? logo 
-          : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:9000'}${logo}`
+          : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}${logo}`
         );
       }
       setSubscriptionSettings({
@@ -318,7 +318,7 @@ const SuperAdminSettings = () => {
                                   setLogoPreview(settings?.general?.platformLogo 
                                     ? (settings.general.platformLogo.startsWith('http') || settings.general.platformLogo.startsWith('/') 
                                         ? settings.general.platformLogo 
-                                        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:9000'}${settings.general.platformLogo}`)
+                                        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}${settings.general.platformLogo}`)
                                     : null
                                   );
                                 }}

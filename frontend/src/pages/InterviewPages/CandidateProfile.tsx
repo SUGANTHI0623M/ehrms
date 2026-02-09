@@ -48,12 +48,6 @@ const CandidateProfile = () => {
   const [interviewForm] = Form.useForm();
   const [editContactForm] = Form.useForm();
   const currentUser = useAppSelector((state) => state.auth.user);
-
-  // Function to disable past dates in DatePicker
-  const disablePastDate = (current: any) => {
-    // Disable dates before today
-    return current && current < dayjs().startOf('day');
-  };
   const canEditCandidate = currentUser?.role === 'Admin';
   const countryOptions = getCountryOptions();
   const [selectedCountryCode, setSelectedCountryCode] = useState<string>("91");
@@ -581,117 +575,6 @@ const CandidateProfile = () => {
                       </CardContent>
                     </Card>
                   )}
-            {/* Courses Completed - Show for freshers or when experience is 0 */}
-            {((!candidate.totalYearsOfExperience || candidate.totalYearsOfExperience === 0) && candidate.courses && candidate.courses.length > 0) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="w-5 h-5" />
-                    Courses Completed
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {candidate.courses.map((course: any, index: number) => (
-                    <div key={index} className="border rounded-lg p-4 space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Course Name</label>
-                          <p className="text-base">{course.courseName || '-'}</p>
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Institution/Platform</label>
-                          <p className="text-base">{course.institution || '-'}</p>
-                        </div>
-                        {course.startDate && (
-                          <div>
-                            <label className="text-sm font-medium text-muted-foreground">Start Date</label>
-                            <p className="text-base">{new Date(course.startDate).toLocaleDateString()}</p>
-                          </div>
-                        )}
-                        {course.completionDate && (
-                          <div>
-                            <label className="text-sm font-medium text-muted-foreground">Completion Date</label>
-                            <p className="text-base">{new Date(course.completionDate).toLocaleDateString()}</p>
-                          </div>
-                        )}
-                        {course.duration && (
-                          <div>
-                            <label className="text-sm font-medium text-muted-foreground">Duration</label>
-                            <p className="text-base">{course.duration}</p>
-                          </div>
-                        )}
-                      </div>
-                      {course.description && (
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Description</label>
-                          <p className="text-base whitespace-pre-wrap">{course.description}</p>
-                        </div>
-                      )}
-                      {course.certificateUrl && (
-                        <div>
-                          <a href={course.certificateUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">
-                            View Certificate
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-            {/* Internships - Show for freshers or when experience is 0 */}
-            {((!candidate.totalYearsOfExperience || candidate.totalYearsOfExperience === 0) && candidate.internships && candidate.internships.length > 0) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="w-5 h-5" />
-                    Internships
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {candidate.internships.map((internship: any, index: number) => (
-                    <div key={index} className="border rounded-lg p-4 space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Company</label>
-                          <p className="text-base">{internship.company || '-'}</p>
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Role</label>
-                          <p className="text-base">{internship.role || '-'}</p>
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Duration</label>
-                          <p className="text-base">
-                            {internship.durationFrom
-                              ? `${new Date(internship.durationFrom).toLocaleDateString()} - ${internship.durationTo ? new Date(internship.durationTo).toLocaleDateString() : 'Present'}`
-                              : '-'}
-                          </p>
-                        </div>
-                        {internship.mentorName && (
-                          <div>
-                            <label className="text-sm font-medium text-muted-foreground">Mentor Name</label>
-                            <p className="text-base">{internship.mentorName}</p>
-                          </div>
-                        )}
-                      </div>
-                      {internship.keyResponsibilities && (
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Key Responsibilities</label>
-                          <p className="text-base whitespace-pre-wrap">{internship.keyResponsibilities}</p>
-                        </div>
-                      )}
-                      {internship.skillsLearned && (
-                        <div>
-                          <label className="text-sm font-medium text-muted-foreground">Skills Learned</label>
-                          <p className="text-base whitespace-pre-wrap">{internship.skillsLearned}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
             {/* Application Details */}
             {candidate && (
               <InterviewStatusTimelineContainer
@@ -924,40 +807,19 @@ const CandidateProfile = () => {
             <Form.Item
               name="phone"
               label="Mobile Number"
-              rules={[
-                { required: true, message: 'Phone number is required' },
-                {
-                  pattern: /^[0-9]{10}$/,
-                  message: 'Mobile number must be exactly 10 digits'
-                }
-              ]}
+              rules={[{ required: true, message: 'Phone number is required' }]}
             >
-              <Input 
-                placeholder="Enter phone number"
-                maxLength={10}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  editContactForm.setFieldsValue({ phone: value });
-                }}
-              />
+              <Input placeholder="Enter phone number" />
             </Form.Item>
             <Form.Item>
               <div className="flex justify-end gap-2">
-                <AntButton 
-                  onClick={() => {
-                    setEditContactModalOpen(false);
-                    editContactForm.resetFields();
-                  }}
-                  style={{ height: '32px' }}
-                >
+                <Button onClick={() => {
+                  setEditContactModalOpen(false);
+                  editContactForm.resetFields();
+                }}>
                   Cancel
-                </AntButton>
-                <AntButton 
-                  type="primary" 
-                  htmlType="submit" 
-                  loading={isUpdatingCandidate}
-                  style={{ height: '32px' }}
-                >
+                </Button>
+                <AntButton type="primary" htmlType="submit" loading={isUpdatingCandidate}>
                   Save Changes
                 </AntButton>
               </div>
@@ -997,10 +859,7 @@ const CandidateProfile = () => {
               label="Interview Date"
               rules={[{ required: true, message: 'Please select interview date' }]}
             >
-              <DatePicker 
-                className="w-full" 
-                disabledDate={disablePastDate}
-              />
+              <DatePicker className="w-full" />
             </Form.Item>
 
             <Form.Item
@@ -1083,10 +942,7 @@ const CandidateProfile = () => {
               label="Interview Date"
               rules={[{ required: true, message: 'Please select interview date' }]}
             >
-              <DatePicker 
-                className="w-full" 
-                disabledDate={disablePastDate}
-              />
+              <DatePicker className="w-full" />
             </Form.Item>
 
             <Form.Item

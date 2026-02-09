@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,8 +12,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Eye, Check, X } from "lucide-react";
 import { useGetLeavesQuery, useApproveLeaveMutation, useRejectLeaveMutation } from "@/store/api/leaveApi";
 import { message } from "antd";
@@ -27,9 +25,6 @@ interface LeavesPendingApprovalProps {
 const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) => {
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [approveConfirmId, setApproveConfirmId] = useState<string | null>(null);
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectLeaveId, setRejectLeaveId] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
@@ -55,18 +50,10 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
     }
   };
 
-  const handleReject = async () => {
-    if (!rejectLeaveId) return;
-    if (!rejectionReason.trim()) {
-      message.error("Please provide a rejection reason");
-      return;
-    }
+  const handleReject = async (id: string, reason: string) => {
     try {
-      await rejectLeave({ id: rejectLeaveId, reason: rejectionReason }).unwrap();
+      await rejectLeave({ id, reason }).unwrap();
       message.success("Leave rejected");
-      setRejectDialogOpen(false);
-      setRejectLeaveId(null);
-      setRejectionReason("");
     } catch (error: any) {
       message.error(error?.data?.error?.message || "Failed to reject leave");
     }
@@ -134,38 +121,26 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                                 >
                                   <Eye size={14} className="mr-1" /> View
                                 </Button>
-                                {leave.status === "Pending" ? (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      className="bg-green-600 hover:bg-green-700 text-xs"
-                                      onClick={() => setApproveConfirmId(leave._id)}
-                                      disabled={isApproving}
-                                    >
-                                      <Check size={14} className="mr-1" /> Approve
-                                    </Button>
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="bg-green-600 hover:bg-green-700 text-xs"
+                                  onClick={() => setApproveConfirmId(leave._id)}
+                                  disabled={isApproving}
+                                >
+                                  <Check size={14} className="mr-1" /> Approve
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="destructive"
                                   onClick={() => {
-                                    setRejectLeaveId(leave._id);
-                                    setRejectDialogOpen(true);
+                                    const reason = prompt("Enter rejection reason:");
+                                    if (reason) handleReject(leave._id, reason);
                                   }}
                                   className="text-xs"
                                 >
                                   <X size={14} className="mr-1" /> Reject
                                 </Button>
-                                  </>
-                                ) : leave.status === "Approved" ? (
-                                  <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap inline-flex items-center">
-                                    <Check size={12} className="mr-1" /> Approved
-                                  </span>
-                                ) : leave.status === "Rejected" ? (
-                                  <span className="bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap inline-flex items-center">
-                                    <X size={12} className="mr-1" /> Rejected
-                                  </span>
-                                ) : null}
                               </div>
                             </td>
                           </tr>
@@ -254,56 +229,6 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* REJECT DIALOG */}
-        <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
-          setRejectDialogOpen(open);
-          if (!open) {
-            setRejectLeaveId(null);
-            setRejectionReason("");
-          }
-        }}>
-          <DialogContent className="w-[95%] sm:w-full max-w-md">
-            <DialogHeader>
-              <DialogTitle>Reject Leave Request</DialogTitle>
-              <DialogDescription>
-                Please provide a reason for rejecting this leave request. This will be visible to the employee.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="rejection-reason">Rejection Reason <span className="text-red-500">*</span></Label>
-                <Textarea
-                  id="rejection-reason"
-                  placeholder="Enter rejection reason..."
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  className="min-h-[100px]"
-                  required
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRejectDialogOpen(false);
-                  setRejectLeaveId(null);
-                  setRejectionReason("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleReject}
-                disabled={!rejectionReason.trim()}
-              >
-                Reject Leave
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
     </div>
   );
 

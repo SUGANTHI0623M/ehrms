@@ -54,7 +54,6 @@ const EmployeeRequests = () => {
     startDate: "",
     endDate: "",
     reason: "",
-    halfDayType: "" as "First Half Day" | "Second Half Day" | "", // For Half Day leave
   });
 
   // Loan state
@@ -278,18 +277,6 @@ const EmployeeRequests = () => {
 
   const handleCreateLeave = async () => {
     try {
-      // Validate leave type
-      if (!leaveFormData.leaveType) {
-        message.error("Please select a leave type");
-        return;
-      }
-
-      // For Half Day, validate halfDayType
-      if (leaveFormData.leaveType === "Half Day" && !leaveFormData.halfDayType) {
-        message.error("Please select Half Day Type (First Half Day or Second Half Day)");
-        return;
-      }
-
       // Validate dates
       if (!leaveFormData.startDate || !leaveFormData.endDate) {
         message.error("Please select both start and end dates");
@@ -304,17 +291,10 @@ const EmployeeRequests = () => {
         return;
       }
 
-      // For Half Day, start and end date should be the same
-      if (leaveFormData.leaveType === "Half Day" && leaveFormData.startDate !== leaveFormData.endDate) {
-        message.error("For Half Day leave, start date and end date must be the same");
-        return;
-      }
-
-      // Calculate days - Half Day is always 0.5 days
-      const days = leaveFormData.leaveType === "Half Day" ? 0.5 : calculateDays(leaveFormData.startDate, leaveFormData.endDate);
+      const days = calculateDays(leaveFormData.startDate, leaveFormData.endDate);
       
-      // Validate against available leave types from template (skip for Unpaid Leave and Half Day)
-      if (leaveFormData.leaveType !== "Unpaid Leave" && leaveFormData.leaveType !== "Half Day" && availableLeaveTypes.length > 0) {
+      // Validate against available leave types from template
+      if (availableLeaveTypes.length > 0) {
         const selectedLeaveType = availableLeaveTypes.find(
           (lt: any) => lt.type === leaveFormData.leaveType
         );
@@ -333,7 +313,6 @@ const EmployeeRequests = () => {
       await createLeave({
         ...leaveFormData,
         days,
-        halfDayType: leaveFormData.leaveType === "Half Day" ? leaveFormData.halfDayType : undefined,
       }).unwrap();
       message.success("Leave request submitted successfully!");
       setIsLeaveDialogOpen(false);
@@ -342,7 +321,6 @@ const EmployeeRequests = () => {
         startDate: "",
         endDate: "",
         reason: "",
-        halfDayType: "",
       });
     } catch (error: any) {
       message.error(error?.data?.error?.message || "Failed to submit leave request");
@@ -351,23 +329,18 @@ const EmployeeRequests = () => {
 
   const handleCreateLoan = async () => {
     try {
-      const amount = Number(loanFormData.amount);
-      if (!amount || amount <= 0) {
-        message.error("Loan amount must be a positive number");
-        return;
-      }
       const emi = calculateEMI(
-        amount,
+        Number(loanFormData.amount),
         Number(loanFormData.tenure),
         Number(loanFormData.interestRate)
       );
       await createLoan({
         ...loanFormData,
-        amount: amount,
+        amount: Number(loanFormData.amount),
         tenure: Number(loanFormData.tenure),
         interestRate: Number(loanFormData.interestRate),
         emi: Math.round(emi),
-        remainingAmount: amount,
+        remainingAmount: Number(loanFormData.amount),
       }).unwrap();
       message.success("Loan request submitted successfully!");
       setIsLoanDialogOpen(false);
@@ -384,7 +357,7 @@ const EmployeeRequests = () => {
   };
 
   // Get API URL using same logic as apiSlice
-  // This ensures local uses localhost:9000/api and production uses VITE_API_URL
+  // This ensures local uses localhost:8000/api and production uses VITE_API_URL
   const getApiUrl = () => {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
@@ -400,7 +373,7 @@ const EmployeeRequests = () => {
       
       if (isLocal) {
         // Use localhost for local development
-        return 'http://localhost:9000/api';
+        return 'http://localhost:8000/api';
       }
     }
     
@@ -427,17 +400,11 @@ const EmployeeRequests = () => {
     }
     
     // Default fallback for SSR or other cases
-    return 'http://localhost:9000/api';
+    return 'http://localhost:8000/api';
   };
 
   const handleCreateExpense = async () => {
     try {
-      const amount = Number(expenseFormData.amount);
-      if (!amount || amount <= 0) {
-        message.error("Expense amount must be a positive number");
-        return;
-      }
-
       // Upload proof files first if any
       let proofFileUrls: string[] = [];
       if (expenseProofFiles.length > 0) {
@@ -473,7 +440,7 @@ const EmployeeRequests = () => {
       // Create reimbursement with proof file URLs
       await createExpense({
         ...expenseFormData,
-        amount: amount,
+        amount: Number(expenseFormData.amount),
         proofFiles: proofFileUrls,
       }).unwrap();
       message.success("Expense claim submitted successfully!");
@@ -602,52 +569,37 @@ const EmployeeRequests = () => {
                           <div className="space-y-4 py-4">
                             <div>
                               <Label>Leave Type</Label>
-                              <Select
-                                value={leaveFormData.leaveType || ""}
-                                onValueChange={(value: any) => {
-                                  setLeaveFormData({ 
-                                    ...leaveFormData, 
-                                    leaveType: value,
-                                    halfDayType: value === "Half Day" ? leaveFormData.halfDayType || "" : ""
-                                  });
-                                }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select leave type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {/* Default leave types - always available */}
-                                  <SelectItem value="Unpaid Leave">Unpaid Leave</SelectItem>
-                                  <SelectItem value="Half Day">Half Day</SelectItem>
-                                  {/* Template-based leave types */}
-                                  {availableLeaveTypes.map((leaveType: any) => (
-                                    <SelectItem key={leaveType.type} value={leaveType.type}>
-                                      {leaveType.type} - {leaveType.days} {leaveType.days === 1 ? 'day' : 'days'} per month
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            {/* Half Day Type Selection - only show when Half Day is selected */}
-                            {leaveFormData.leaveType === "Half Day" && (
-                              <div>
-                                <Label>Half Day Type</Label>
+                              {availableLeaveTypes.length > 0 ? (
                                 <Select
-                                  value={leaveFormData.halfDayType || ""}
+                                  value={leaveFormData.leaveType || availableLeaveTypes[0]?.type}
                                   onValueChange={(value: any) =>
-                                    setLeaveFormData({ ...leaveFormData, halfDayType: value })
+                                    setLeaveFormData({ ...leaveFormData, leaveType: value })
                                   }
                                 >
                                   <SelectTrigger>
-                                    <SelectValue placeholder="Select half day type" />
+                                    <SelectValue placeholder="Select leave type" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="First Half Day">First Half Day</SelectItem>
-                                    <SelectItem value="Second Half Day">Second Half Day</SelectItem>
+                                    {availableLeaveTypes.map((leaveType: any) => (
+                                      <SelectItem key={leaveType.type} value={leaveType.type}>
+                                        {leaveType.type} - {leaveType.days} {leaveType.days === 1 ? 'day' : 'days'} per month
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
-                              </div>
-                            )}
+                              ) : (
+                                <div>
+                                  <Select disabled>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="No leave template assigned" />
+                                    </SelectTrigger>
+                                  </Select>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    No leave template assigned. Please contact HR.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                             <div>
                               <Label>Start Date</Label>
                               <Input
@@ -657,7 +609,6 @@ const EmployeeRequests = () => {
                                   setLeaveFormData({ ...leaveFormData, startDate: e.target.value })
                                 }
                                 required
-                                min={new Date().toISOString().split('T')[0]}
                               />
                             </div>
                             <div>
@@ -669,16 +620,14 @@ const EmployeeRequests = () => {
                                   setLeaveFormData({ ...leaveFormData, endDate: e.target.value })
                                 }
                                 required
-                                min={leaveFormData.startDate || new Date().toISOString().split('T')[0]}
                               />
                             </div>
                             {leaveFormData.startDate && leaveFormData.endDate && (
                               <div className="space-y-1">
                                 <div className="text-sm text-muted-foreground">
-                                  Total Days: {leaveFormData.leaveType === "Half Day" ? "0.5" : calculateDays(leaveFormData.startDate, leaveFormData.endDate)}
+                                  Total Days: {calculateDays(leaveFormData.startDate, leaveFormData.endDate)}
                                 </div>
-                                {/* Only show monthly limit for template-based leave types, not for Unpaid Leave or Half Day */}
-                                {leaveFormData.leaveType !== "Unpaid Leave" && leaveFormData.leaveType !== "Half Day" && availableLeaveTypes.length > 0 && (() => {
+                                {availableLeaveTypes.length > 0 && (() => {
                                   const selectedLeaveType = availableLeaveTypes.find(
                                     (lt: any) => lt.type === leaveFormData.leaveType
                                   );
@@ -696,12 +645,6 @@ const EmployeeRequests = () => {
                                   }
                                   return null;
                                 })()}
-                                {/* Show info for Half Day */}
-                                {leaveFormData.leaveType === "Half Day" && !leaveFormData.halfDayType && (
-                                  <div className="text-xs text-yellow-600">
-                                    Please select Half Day Type (First Half Day or Second Half Day)
-                                  </div>
-                                )}
                               </div>
                             )}
                             <div>
@@ -742,20 +685,19 @@ const EmployeeRequests = () => {
                         <TableHead>End Date</TableHead>
                         <TableHead>Days</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Reason</TableHead>
-                        <TableHead>Action</TableHead>
+                        <TableHead>Approved By</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {isLoadingLeaves ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             Loading...
                           </TableCell>
                         </TableRow>
                       ) : leaves.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             No leave requests found
                           </TableCell>
                         </TableRow>
@@ -768,32 +710,12 @@ const EmployeeRequests = () => {
                             <TableCell>{leave.days}</TableCell>
                             <TableCell>{getStatusBadge(leave.status)}</TableCell>
                             <TableCell>
-                              {leave.status === "Rejected" && leave.rejectionReason ? (
-                                <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{leave.rejectionReason}</span>
-                                </div>
-                              ) : leave.status === "Approved" ? (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {leave.status === "Approved" && leave.approvedBy ? (
+                              {leave.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {leave.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium">{leave.approvedBy.name || 'N/A'}</div>
                                   {leave.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(leave.approvedAt)}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : leave.status === "Rejected" && leave.rejectedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {leave.rejectedBy.name || 'N/A'}</div>
-                                  {leave.rejectedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(leave.rejectedAt)}
                                     </div>
                                   )}
                                 </div>
@@ -920,22 +842,11 @@ const EmployeeRequests = () => {
                               <Input
                                 type="number"
                                 value={loanFormData.amount}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // Only allow positive numbers
-                                  if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
-                                    setLoanFormData({ ...loanFormData, amount: value });
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  // Prevent negative sign, 'e', 'E', '+'
-                                  if (['-', 'e', 'E', '+'].includes(e.key)) {
-                                    e.preventDefault();
-                                  }
-                                }}
+                                onChange={(e) =>
+                                  setLoanFormData({ ...loanFormData, amount: e.target.value })
+                                }
                                 placeholder="Enter loan amount"
                                 required
-                                min="0"
                               />
                             </div>
                             <div>
@@ -943,22 +854,11 @@ const EmployeeRequests = () => {
                               <Input
                                 type="number"
                                 value={loanFormData.tenure}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // Only allow positive numbers
-                                  if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
-                                    setLoanFormData({ ...loanFormData, tenure: value });
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  // Prevent negative sign, 'e', 'E', '+'
-                                  if (['-', 'e', 'E', '+'].includes(e.key)) {
-                                    e.preventDefault();
-                                  }
-                                }}
+                                onChange={(e) =>
+                                  setLoanFormData({ ...loanFormData, tenure: e.target.value })
+                                }
                                 placeholder="Enter tenure in months"
                                 required
-                                min="0"
                               />
                             </div>
                             <div>
@@ -966,22 +866,11 @@ const EmployeeRequests = () => {
                               <Input
                                 type="number"
                                 value={loanFormData.interestRate}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // Only allow positive numbers
-                                  if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
-                                    setLoanFormData({ ...loanFormData, interestRate: value });
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  // Prevent negative sign, 'e', 'E', '+'
-                                  if (['-', 'e', 'E', '+'].includes(e.key)) {
-                                    e.preventDefault();
-                                  }
-                                }}
+                                onChange={(e) =>
+                                  setLoanFormData({ ...loanFormData, interestRate: e.target.value })
+                                }
                                 placeholder="Enter interest rate"
                                 step="0.1"
-                                min="0"
                               />
                             </div>
                             {loanFormData.amount &&
@@ -1037,20 +926,19 @@ const EmployeeRequests = () => {
                         <TableHead>Tenure</TableHead>
                         <TableHead>EMI</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Reason</TableHead>
-                        <TableHead>Action</TableHead>
+                        <TableHead>Approved By</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {isLoadingLoans ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             Loading...
                           </TableCell>
                         </TableRow>
                       ) : loans.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             No loan requests found
                           </TableCell>
                         </TableRow>
@@ -1063,32 +951,12 @@ const EmployeeRequests = () => {
                             <TableCell>₹{loan.emi.toLocaleString()}</TableCell>
                             <TableCell>{getStatusBadge(loan.status)}</TableCell>
                             <TableCell>
-                              {loan.status === "Rejected" && loan.rejectionReason ? (
-                                <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{loan.rejectionReason}</span>
-                                </div>
-                              ) : loan.status === "Approved" || loan.status === "Active" ? (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {loan.status === "Approved" && loan.approvedBy ? (
+                              {loan.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {loan.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium">{loan.approvedBy.name || 'N/A'}</div>
                                   {loan.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(loan.approvedAt)}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : loan.status === "Rejected" && loan.rejectedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {loan.rejectedBy.name || 'N/A'}</div>
-                                  {loan.rejectedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(loan.rejectedAt)}
                                     </div>
                                   )}
                                 </div>
@@ -1216,22 +1084,11 @@ const EmployeeRequests = () => {
                               <Input
                                 type="number"
                                 value={expenseFormData.amount}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // Only allow positive numbers
-                                  if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
-                                    setExpenseFormData({ ...expenseFormData, amount: value });
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  // Prevent negative sign, 'e', 'E', '+'
-                                  if (['-', 'e', 'E', '+'].includes(e.key)) {
-                                    e.preventDefault();
-                                  }
-                                }}
+                                onChange={(e) =>
+                                  setExpenseFormData({ ...expenseFormData, amount: e.target.value })
+                                }
                                 placeholder="Enter expense amount"
                                 required
-                                min="0"
                               />
                             </div>
                             <div>
@@ -1243,7 +1100,6 @@ const EmployeeRequests = () => {
                                   setExpenseFormData({ ...expenseFormData, date: e.target.value })
                                 }
                                 required
-                                max={new Date().toISOString().split('T')[0]}
                               />
                             </div>
                             <div>
@@ -1343,8 +1199,7 @@ const EmployeeRequests = () => {
                         <TableHead>Description</TableHead>
                         <TableHead>Proof Files</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Reason</TableHead>
-                        <TableHead>Action</TableHead>
+                        <TableHead>Approved By</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1389,32 +1244,12 @@ const EmployeeRequests = () => {
                             </TableCell>
                             <TableCell>{getStatusBadge(expense.status)}</TableCell>
                             <TableCell>
-                              {expense.status === "Rejected" && expense.rejectionReason ? (
-                                <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{expense.rejectionReason}</span>
-                                </div>
-                              ) : expense.status === "Approved" || expense.status === "Paid" || expense.status === "Processed" ? (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {expense.status === "Approved" && expense.approvedBy ? (
+                              {expense.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {expense.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium">{expense.approvedBy.name || 'N/A'}</div>
                                   {expense.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(expense.approvedAt)}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : expense.status === "Rejected" && expense.rejectedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {expense.rejectedBy.name || 'N/A'}</div>
-                                  {expense.rejectedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(expense.rejectedAt)}
                                     </div>
                                   )}
                                 </div>
@@ -1594,10 +1429,10 @@ const EmployeeRequests = () => {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Month/Year</TableHead>
-                        <TableHead>Request Reason</TableHead>
+                        <TableHead>Reason</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Rejection Reason</TableHead>
-                        <TableHead>Action</TableHead>
+                        <TableHead>Approved By</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1625,30 +1460,12 @@ const EmployeeRequests = () => {
                             <TableCell>{request.reason || "N/A"}</TableCell>
                             <TableCell>{getStatusBadge(request.status)}</TableCell>
                             <TableCell>
-                              {request.status === "Rejected" && request.rejectionReason ? (
-                                <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{request.rejectionReason}</span>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {request.status === "Approved" && request.approvedBy ? (
+                              {request.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {request.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium">{request.approvedBy.name || 'N/A'}</div>
                                   {request.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(request.approvedAt)}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : request.status === "Rejected" && request.rejectedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {request.rejectedBy.name || 'N/A'}</div>
-                                  {request.rejectedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(request.rejectedAt)}
                                     </div>
                                   )}
                                 </div>

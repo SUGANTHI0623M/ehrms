@@ -20,35 +20,35 @@ const getApiUrl = () => {
   // Check if we're in browser environment
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    
+
     // Check if hostname is local (localhost, 127.0.0.1, or any local IP)
-    const isLocal = hostname === 'localhost' || 
-                   hostname === '127.0.0.1' || 
-                   hostname === '0.0.0.0' ||
-                   hostname.startsWith('192.168.') ||
-                   hostname.startsWith('10.') ||
-                   hostname.startsWith('172.16.') ||
-                   hostname === '[::1]';
-    
+    const isLocal = hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.16.') ||
+      hostname === '[::1]';
+
     if (isLocal) {
       // Use localhost for local development
-      return 'http://localhost:9000/api';
+      return 'http://localhost:8000/api';
     }
   }
-  
+
   // For production/non-local environments, use VITE_API_URL from environment
   // This will be set in .env.production for production builds
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  
+
   // Fallback: if no VITE_API_URL is set and not local, use current origin
   if (typeof window !== 'undefined') {
     return window.location.origin + '/api';
   }
-  
+
   // Default fallback for SSR or other cases
-  return 'http://localhost:9000/api';
+  return 'http://localhost:8000/api';
 };
 
 const baseQuery = fetchBaseQuery({
@@ -112,7 +112,7 @@ const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
       // If already refreshing, queue this request
       if (isRefreshing) {
         return new Promise<any>((resolve, reject) => {
-          failedQueue.push({ 
+          failedQueue.push({
             resolve: async () => {
               // Retry the original request after refresh completes
               try {
@@ -121,8 +121,8 @@ const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
               } catch (error) {
                 reject(error);
               }
-            }, 
-            reject 
+            },
+            reject
           });
         });
       }
@@ -247,8 +247,6 @@ export const apiSlice = createApi({
     'Attendance',
     'Dashboard',
     'Performance',
-    'PerformanceReview',
-    'ReviewCycle',
     'PMS',
     'LMS',
     'Assets',
@@ -269,11 +267,7 @@ export const apiSlice = createApi({
     'Onboarding',
     'DocumentRequirements',
     'Holiday',
-    'Customer',
-    'CustomerDataFields',
-    'FormTemplate',
-    'FormResponse',
-    'Task',
+    'Notifications',
   ],
   endpoints: () => ({}),
 });

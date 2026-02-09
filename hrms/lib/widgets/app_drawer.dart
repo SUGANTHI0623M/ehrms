@@ -12,6 +12,7 @@ import '../screens/assets/assets_listing_screen.dart';
 import '../screens/geo/my_tasks_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
+import '../screens/lms/lms_shell_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   /// Current tab index when used from Dashboard (0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance).
@@ -164,6 +165,26 @@ class _AppDrawerState extends State<AppDrawer> {
                       () => _navigateAndClearStack(
                         const PerformanceModuleScreen(),
                       ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.school_rounded,
+                  title: 'My Learning',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 0)),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.video_call_rounded,
+                  title: 'Live Sessions',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 1)),
                     );
                   },
                 ),

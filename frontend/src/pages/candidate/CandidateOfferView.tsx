@@ -13,7 +13,7 @@ import {
 import {
   FileText,
   Calendar,
-  Wallet as DollarSign,
+  DollarSign,
   CheckCircle,
   XCircle,
   Download,

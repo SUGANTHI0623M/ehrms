@@ -74,13 +74,13 @@ class TaskCard extends StatelessWidget {
         statusColor = Colors.teal;
         statusText = 'Reopened';
         break;
+      case TaskStatus.hold:
+        statusColor = Colors.amber;
+        statusText = 'Hold';
+        break;
       case TaskStatus.onlineReady:
         statusColor = Colors.grey;
         statusText = 'Ready';
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusText = 'Unknown';
         break;
     }
 

@@ -1729,6 +1729,22 @@ class _ProfileScreenState extends State<ProfileScreen>
           _cachedAvatarUrl = null;
           _profileImageError = false;
         });
+        // Clear avatar from stored user so drawer and other screens show updated state
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final userStr = prefs.getString('user');
+          if (userStr != null) {
+            final user = jsonDecode(userStr) as Map<String, dynamic>;
+            user['avatar'] = null;
+            user['photoUrl'] = null;
+            user['profilePic'] = null;
+            if (user['profile'] is Map) {
+              (user['profile'] as Map)['avatar'] = null;
+              (user['profile'] as Map)['photoUrl'] = null;
+            }
+            await prefs.setString('user', jsonEncode(user));
+          }
+        } catch (_) {}
         SnackBarUtils.showSnackBar(
           context,
           'Profile photo removed',

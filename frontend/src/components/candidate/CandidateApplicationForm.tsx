@@ -3,7 +3,7 @@ import { Form, Input, Select, DatePicker, Button, Upload, Steps, Card, message }
 import { PlusOutlined, DeleteOutlined, UploadOutlined, FileTextOutlined, EyeOutlined } from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
 import dayjs, { Dayjs } from "dayjs";
-import { CandidateFormData, useCheckCandidateDuplicateMutation, useParseResumeMutation } from "@/store/api/candidateFormApi";
+import { CandidateFormData, useCheckCandidateDuplicateMutation } from "@/store/api/candidateFormApi";
 import { useGetJobOpeningsQuery } from "@/store/api/jobOpeningApi";
 import { getCountryOptions, phoneUtils } from "@/utils/countryCodeUtils";
 import { uploadResume } from "@/utils/cloudinaryUpload";
@@ -107,16 +107,9 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
   );
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [parsingProgress, setParsingProgress] = useState<{
-    stage: 'idle' | 'uploading' | 'extracting' | 'parsing' | 'filling' | 'complete';
-    message: string;
-  }>({ stage: 'idle', message: '' });
   
   // Duplicate check mutation
   const [checkDuplicate, { isLoading: isCheckingDuplicate }] = useCheckCandidateDuplicateMutation();
-  
-  // Parse resume mutation
-  const [parseResume, { isLoading: isParsingResume }] = useParseResumeMutation();
 
   // Fetch active job openings for manual add - Skip if job selection is hidden (applying from profile)
   const { data: jobOpeningsData, isLoading: isLoadingJobs } = useGetJobOpeningsQuery(
@@ -129,9 +122,9 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
     ? availableJobOpenings 
     : (jobOpeningsData?.data?.jobOpenings || []);
 
-  // Sync form with formData when it changes (especially when pre-filled from profile or navigating between steps)
+  // Sync form with formData when it changes (especially when pre-filled from profile)
   useEffect(() => {
-    if (formData) {
+    if (formData && formData.jobOpeningId) {
       const formValues: any = {
         jobOpeningId: formData.jobOpeningId,
         firstName: formData.firstName,
@@ -146,7 +139,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
         currentCompany: formData.currentCompany,
         currentJobTitle: formData.currentJobTitle,
         employmentType: formData.employmentType,
-        primarySkill: formData.primarySkill,
       };
       
       if (formData.dateOfBirth) {
@@ -168,15 +160,11 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
         }));
       }
       
-      // Always sync courses and internships when navigating to step 2 (Experience)
       if (formData.courses && formData.courses.length > 0) {
         formValues.courses = formData.courses.map(course => ({
           ...course,
-          startDate: course.startDate ? dayjs(course.startDate) : undefined,
           completionDate: course.completionDate ? dayjs(course.completionDate) : undefined,
         }));
-      } else {
-        formValues.courses = [];
       }
       
       if (formData.internships && formData.internships.length > 0) {
@@ -185,8 +173,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
           durationFrom: internship.durationFrom ? dayjs(internship.durationFrom) : undefined,
           durationTo: internship.durationTo ? dayjs(internship.durationTo) : undefined,
         }));
-      } else {
-        formValues.internships = [];
       }
       
       if (formData.resume) {
@@ -199,7 +185,7 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
         setSelectedCountryCode(formData.countryCode);
       }
     }
-  }, [formData.jobOpeningId, currentStep, formData.courses, formData.internships]);
+  }, [formData.jobOpeningId]);
 
   const steps = [
     { title: "Personal Details", key: "personal" },
@@ -461,9 +447,7 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
         ...formData, 
         ...values,
         experience: formData.experience || values.experience || [],
-        education: formData.education || values.education || [],
-        courses: formData.courses || values.courses || [],
-        internships: formData.internships || values.internships || []
+        education: formData.education || values.education || []
       };
       setFormData(mergedData);
       setCurrentStep(currentStep + 1);
@@ -478,17 +462,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
   };
 
   const handlePrev = () => {
-    // Save current form values before going back
-    const values = form.getFieldsValue();
-    const mergedData = { 
-      ...formData, 
-      ...values,
-      experience: formData.experience || values.experience || [],
-      education: formData.education || values.education || [],
-      courses: formData.courses || values.courses || [],
-      internships: formData.internships || values.internships || []
-    };
-    setFormData(mergedData);
     setCurrentStep(currentStep - 1);
   };
 
@@ -824,6 +797,12 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
       name: fileObj.name || "resume.pdf",
     };
     
+    console.log('[handleResumeUpload] Setting resume data', {
+      resumeName: resumeData.name,
+      resumeUrl: tempUrl.substring(0, 50) + '...',
+      currentFormDataResume: formData.resume ? formData.resume.name : 'none'
+    });
+    
     // Update formData immediately - use current formData to ensure we have latest state
     setFormData({
       ...formData,
@@ -836,220 +815,14 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
     // Set form field value so Ant Design validation passes
     form.setFieldsValue({ resume: resumeData });
     
-    // Parse resume using Gemini AI
-    setIsUploadingResume(true);
-    setParsingProgress({ stage: 'uploading', message: 'Uploading resume file...' });
+    console.log('[handleResumeUpload] Resume file stored successfully', {
+      resumeFileSet: true,
+      resumeFileName: fileObj.name,
+      resumeFileType: fileObj instanceof File ? 'File' : typeof fileObj,
+      formFieldSet: true
+    });
     
-    try {
-      // Step 1: Uploading
-      setParsingProgress({ stage: 'uploading', message: 'Uploading resume file...' });
-      await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
-      
-      // Step 2: Extracting text
-      setParsingProgress({ stage: 'extracting', message: 'Extracting text from resume...' });
-      
-      const result = await parseResume(fileObj).unwrap();
-      
-      // Step 3: Parsing with AI
-      setParsingProgress({ stage: 'parsing', message: 'Analyzing resume with AI...' });
-      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for UX
-      
-      // Step 4: Filling form
-      setParsingProgress({ stage: 'filling', message: 'Filling form with extracted data...' });
-      
-      if (result.success && result.data.parsedData) {
-        const parsed = result.data.parsedData;
-        
-        // Pre-fill form with parsed data
-        const updatedFormData: CandidateFormData = { ...formData };
-        
-        // Personal Details
-        if (parsed.personalDetails) {
-          const pd = parsed.personalDetails;
-          if (pd.firstName) updatedFormData.firstName = pd.firstName;
-          if (pd.lastName) updatedFormData.lastName = pd.lastName;
-          if (pd.email) updatedFormData.email = pd.email;
-          if (pd.phone) {
-            // Extract only digits for phone
-            const phoneDigits = pd.phone.replace(/\D/g, '').slice(-10);
-            if (phoneDigits.length === 10) {
-              updatedFormData.phone = phoneDigits;
-            }
-          }
-          if (pd.dateOfBirth) updatedFormData.dateOfBirth = pd.dateOfBirth;
-          if (pd.gender) updatedFormData.gender = pd.gender;
-          if (pd.currentCity) updatedFormData.currentCity = pd.currentCity;
-          if (pd.preferredJobLocation) updatedFormData.preferredJobLocation = pd.preferredJobLocation;
-        }
-        
-        // Education
-        if (parsed.education && Array.isArray(parsed.education) && parsed.education.length > 0) {
-          updatedFormData.education = parsed.education.map((edu: any) => ({
-            qualification: edu.qualification || '',
-            courseName: edu.courseName || '',
-            institution: edu.institution || '',
-            university: edu.university || '',
-            yearOfPassing: edu.yearOfPassing || '',
-            percentage: edu.percentage || undefined,
-            cgpa: edu.cgpa || undefined,
-          }));
-        }
-        
-        // Experience
-        if (parsed.experience && Array.isArray(parsed.experience) && parsed.experience.length > 0) {
-          updatedFormData.experience = parsed.experience.map((exp: any) => ({
-            company: exp.company || '',
-            role: exp.role || '',
-            designation: exp.designation || '',
-            durationFrom: exp.durationFrom || '',
-            durationTo: exp.durationTo || '',
-            keyResponsibilities: exp.keyResponsibilities || undefined,
-            reasonForLeaving: exp.reasonForLeaving || undefined,
-          }));
-        }
-        
-        // Courses (for freshers)
-        if (parsed.courses && Array.isArray(parsed.courses) && parsed.courses.length > 0) {
-          updatedFormData.courses = parsed.courses.map((course: any) => ({
-            courseName: course.courseName || '',
-            institution: course.institution || '',
-            startDate: course.startDate || undefined,
-            completionDate: course.completionDate || undefined,
-            duration: course.duration || undefined,
-            description: course.description || undefined,
-            certificateUrl: course.certificateUrl || undefined,
-          }));
-        }
-        
-        // Internships (for freshers)
-        if (parsed.internships && Array.isArray(parsed.internships) && parsed.internships.length > 0) {
-          updatedFormData.internships = parsed.internships.map((internship: any) => ({
-            company: internship.company || '',
-            role: internship.role || '',
-            durationFrom: internship.durationFrom || '',
-            durationTo: internship.durationTo || undefined,
-            keyResponsibilities: internship.keyResponsibilities || undefined,
-            skillsLearned: internship.skillsLearned || undefined,
-            mentorName: internship.mentorName || undefined,
-          }));
-        }
-        
-        // Skills
-        if (parsed.skills) {
-          if (parsed.skills.primarySkill) {
-            updatedFormData.primarySkill = parsed.skills.primarySkill;
-          }
-          if (parsed.skills.otherSkills && Array.isArray(parsed.skills.otherSkills)) {
-            updatedFormData.skills = parsed.skills.otherSkills;
-          }
-        }
-        
-        // Summary
-        if (parsed.summary) {
-          if (parsed.summary.totalYearsOfExperience !== null && parsed.summary.totalYearsOfExperience !== undefined) {
-            updatedFormData.totalYearsOfExperience = parsed.summary.totalYearsOfExperience;
-          }
-          if (parsed.summary.currentCompany) {
-            updatedFormData.currentCompany = parsed.summary.currentCompany;
-          }
-          if (parsed.summary.currentJobTitle) {
-            updatedFormData.currentJobTitle = parsed.summary.currentJobTitle;
-          }
-          if (parsed.summary.employmentType) {
-            updatedFormData.employmentType = parsed.summary.employmentType as 'Full-time' | 'Contract' | 'Internship';
-          }
-        }
-        
-        // Update resume data
-        updatedFormData.resume = resumeData;
-        
-        // Update form data
-        setFormData(updatedFormData);
-        
-        // Update form fields
-        const formValues: any = {
-          firstName: updatedFormData.firstName,
-          lastName: updatedFormData.lastName,
-          email: updatedFormData.email,
-          phone: updatedFormData.phone,
-          countryCode: updatedFormData.countryCode || selectedCountryCode,
-          dateOfBirth: updatedFormData.dateOfBirth ? dayjs(updatedFormData.dateOfBirth) : undefined,
-          gender: updatedFormData.gender,
-          currentCity: updatedFormData.currentCity,
-          preferredJobLocation: updatedFormData.preferredJobLocation,
-          primarySkill: updatedFormData.primarySkill,
-          totalYearsOfExperience: updatedFormData.totalYearsOfExperience,
-          currentCompany: updatedFormData.currentCompany,
-          currentJobTitle: updatedFormData.currentJobTitle,
-          employmentType: updatedFormData.employmentType,
-          resume: resumeData,
-        };
-        
-        if (updatedFormData.education && updatedFormData.education.length > 0) {
-          formValues.education = updatedFormData.education.map(edu => ({
-            ...edu,
-            yearOfPassing: edu.yearOfPassing ? dayjs(edu.yearOfPassing, 'YYYY') : undefined,
-          }));
-        }
-        
-        if (updatedFormData.experience && updatedFormData.experience.length > 0) {
-          formValues.experience = updatedFormData.experience.map(exp => ({
-            ...exp,
-            durationFrom: exp.durationFrom ? dayjs(exp.durationFrom) : undefined,
-            durationTo: exp.durationTo ? dayjs(exp.durationTo) : undefined,
-          }));
-        }
-        
-        if (updatedFormData.courses && updatedFormData.courses.length > 0) {
-          formValues.courses = updatedFormData.courses.map(course => ({
-            ...course,
-            startDate: course.startDate ? dayjs(course.startDate) : undefined,
-            completionDate: course.completionDate ? dayjs(course.completionDate) : undefined,
-          }));
-        }
-        
-        if (updatedFormData.internships && updatedFormData.internships.length > 0) {
-          formValues.internships = updatedFormData.internships.map(internship => ({
-            ...internship,
-            durationFrom: internship.durationFrom ? dayjs(internship.durationFrom) : undefined,
-            durationTo: internship.durationTo ? dayjs(internship.durationTo) : undefined,
-          }));
-        }
-        
-        form.setFieldsValue(formValues);
-        
-        // Step 5: Complete
-        setParsingProgress({ stage: 'complete', message: 'Resume parsed successfully!' });
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        message.success({ 
-          content: 'Resume parsed successfully! Please review and correct any information as needed.', 
-          key: 'parseResume',
-          duration: 5 
-        });
-      } else {
-        setParsingProgress({ stage: 'idle', message: '' });
-        message.warning({ 
-          content: 'Resume uploaded but could not parse details. Please fill the form manually.', 
-          key: 'parseResume',
-          duration: 5 
-        });
-      }
-    } catch (error: any) {
-      console.error('[handleResumeUpload] Error parsing resume:', error);
-      setParsingProgress({ stage: 'idle', message: '' });
-      message.error({ 
-        content: error?.data?.error?.message || 'Failed to parse resume. Please fill the form manually.', 
-        key: 'parseResume',
-        duration: 5 
-      });
-    } finally {
-      setIsUploadingResume(false);
-      // Reset progress after a delay
-      setTimeout(() => {
-        setParsingProgress({ stage: 'idle', message: '' });
-      }, 2000);
-    }
+    message.success('Resume file selected. It will be uploaded when you submit the form.');
 
     return false; // Prevent auto upload
   };
@@ -1069,114 +842,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
         {currentStep === 0 && (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Personal Details</h3>
-            
-            {/* Resume Upload - First and Prominent */}
-            <div className="mb-6">
-              <Form.Item 
-                name="resume" 
-                label={
-                  <span className="text-base font-semibold">
-                    📄 Upload Your Resume <span className="text-red-500">*</span>
-                  </span>
-                }
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      const hasResume = formData.resume && formData.resume.name;
-                      const hasResumeFile = resumeFile !== null;
-                      if (hasResume || hasResumeFile) {
-                        return Promise.resolve();
-                      }
-                      return Promise.reject(new Error('Resume is required'));
-                    }
-                  }
-                ]}
-              >
-                <div className="space-y-3">
-                  <Upload
-                    beforeUpload={handleResumeUpload}
-                    maxCount={1}
-                    accept=".pdf,.doc,.docx"
-                    fileList={formData.resume ? [{
-                      uid: '-1',
-                      name: formData.resume.name,
-                      status: isParsingResume || isUploadingResume ? 'uploading' : 'done',
-                      url: formData.resume.url,
-                    }] : []}
-                    onRemove={() => {
-                      setFormData({ ...formData, resume: undefined });
-                      setResumeFile(null);
-                      setParsingProgress({ stage: 'idle', message: '' });
-                      return true;
-                    }}
-                    disabled={isParsingResume || isUploadingResume}
-                    className="w-full"
-                  >
-                    <Button 
-                      icon={<UploadOutlined />} 
-                      loading={isParsingResume || isUploadingResume}
-                      disabled={isParsingResume || isUploadingResume}
-                      size="large"
-                      className="w-full sm:w-auto"
-                      type="primary"
-                    >
-                      {isParsingResume || isUploadingResume ? 'Processing...' : formData.resume ? 'Replace Resume' : 'Upload Resume'}
-                    </Button>
-                  </Upload>
-                  
-                  {/* Progress Indicator */}
-                  {(isParsingResume || isUploadingResume || parsingProgress.stage !== 'idle') && (
-                    <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 shadow-sm">
-                      <div className="flex items-center gap-4">
-                        <div className="flex-shrink-0">
-                          {parsingProgress.stage === 'complete' ? (
-                            <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                              <span className="text-2xl">✓</span>
-                            </div>
-                          ) : (
-                            <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                              <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 mb-1">
-                            {parsingProgress.stage === 'uploading' && '📤 Uploading Resume'}
-                            {parsingProgress.stage === 'extracting' && '📄 Extracting Text'}
-                            {parsingProgress.stage === 'parsing' && '🤖 Analyzing with AI'}
-                            {parsingProgress.stage === 'filling' && '✍️ Filling Form'}
-                            {parsingProgress.stage === 'complete' && '✅ Complete!'}
-                            {parsingProgress.stage === 'idle' && 'Processing...'}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            {parsingProgress.message || 'Please wait while we process your resume...'}
-                          </p>
-                          {parsingProgress.stage !== 'complete' && parsingProgress.stage !== 'idle' && (
-                            <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                              <div 
-                                className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
-                                style={{
-                                  width: parsingProgress.stage === 'uploading' ? '25%' :
-                                         parsingProgress.stage === 'extracting' ? '50%' :
-                                         parsingProgress.stage === 'parsing' ? '75%' :
-                                         parsingProgress.stage === 'filling' ? '90%' : '0%'
-                                }}
-                              ></div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  )}
-                  
-                  <p className="text-xs text-gray-500 mt-2">
-                    💡 <strong>Tip:</strong> Upload your resume first and we'll automatically fill the form for you! 
-                    Accepted formats: PDF, DOC, DOCX (Max 10MB)
-                  </p>
-                </div>
-              </Form.Item>
-            </div>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Job Opening Selection - Hide when applying from profile */}
               {!hideJobSelection ? (
@@ -1275,19 +940,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 />
               </Form.Item>
               <Form.Item
-                name="primarySkill"
-                label="Primary Skill / Competency"
-                rules={[{ required: true, message: "Primary skill is required" }]}
-              >
-                <Input
-                  value={formData.primarySkill}
-                  onChange={(e) =>
-                    setFormData({ ...formData, primarySkill: e.target.value })
-                  }
-                  placeholder="e.g., React, Python, Marketing"
-                />
-              </Form.Item>
-              <Form.Item
                 name="countryCode"
                 label="Country Code"
                 rules={[{ required: true, message: "Country code is required" }]}
@@ -1297,38 +949,11 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                   onChange={(value) => {
                     setSelectedCountryCode(value);
                     setFormData({ ...formData, countryCode: value });
-                    // Also update form field value
-                    form.setFieldsValue({ countryCode: value });
                   }}
                   showSearch
                   filterOption={(input, option) => {
                     const label = typeof option?.label === 'string' ? option.label : String(option?.label || '');
                     return label.toLowerCase().includes(input.toLowerCase());
-                  }}
-                  dropdownMatchSelectWidth={false}
-                  getPopupContainer={(trigger) => {
-                    // Find the closest scrollable container or use body
-                    let parent = trigger.parentElement;
-                    while (parent && parent !== document.body) {
-                      const overflow = window.getComputedStyle(parent).overflow;
-                      if (overflow === 'auto' || overflow === 'scroll' || overflow === 'hidden') {
-                        return parent;
-                      }
-                      parent = parent.parentElement;
-                    }
-                    return document.body;
-                  }}
-                  onDropdownVisibleChange={(open) => {
-                    // Ensure dropdown stays open when clicking the icon
-                    if (open) {
-                      // Small delay to ensure dropdown is fully rendered
-                      setTimeout(() => {
-                        const selectElement = document.querySelector('.ant-select-dropdown');
-                        if (selectElement) {
-                          (selectElement as HTMLElement).style.zIndex = '2000';
-                        }
-                      }, 0);
-                    }
                   }}
                 >
                   {countryOptions.map((country) => (
@@ -1344,41 +969,32 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 rules={[
                   { required: true, message: "Mobile number is required" },
                   {
-                    pattern: /^[0-9]{10}$/,
-                    message: "Mobile number must be exactly 10 digits"
-                  }
+                    validator: (_, value) => {
+                      // if (!value) {
+                      //   return Promise.reject(new Error("Mobile number is required"));
+                      // }
+                      const cleanNumber = value.replace(/\D/g, "");
+                      const limits = phoneUtils.getLimits(selectedCountryCode);
+                      if (limits) {
+                        if (cleanNumber.length < limits.min || cleanNumber.length > limits.max) {
+                          return Promise.reject(
+                            new Error(`Mobile number must be ${limits.min}-${limits.max} digits for this country`)
+                          );
+                        }
+                      }
+                      return Promise.resolve();
+                    },
+                  },
                 ]}
                 className="md:col-span-1"
               >
                 <Input
                   value={formData.phone}
                   onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                    const value = e.target.value.replace(/\D/g, "");
                     setFormData({ ...formData, phone: value });
                   }}
                   placeholder="Enter mobile number"
-                  maxLength={10}
-                />
-              </Form.Item>
-              <Form.Item
-                name="alternativePhone"
-                label="Alternative Mobile Number (Optional)"
-                rules={[
-                  {
-                    pattern: /^[0-9]{10}$/,
-                    message: "Alternative mobile number must be exactly 10 digits"
-                  }
-                ]}
-                className="md:col-span-1"
-              >
-                <Input
-                  value={formData.alternativePhone || ""}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
-                    setFormData({ ...formData, alternativePhone: value || undefined });
-                  }}
-                  placeholder="Enter alternative mobile number"
-                  maxLength={10}
                 />
               </Form.Item>
               <Form.Item name="dateOfBirth" label="Date of Birth">
@@ -1391,10 +1007,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                       dateOfBirth: date ? date.format("YYYY-MM-DD") : undefined,
                     })
                   }
-                  disabledDate={(current) => {
-                    // Disable future dates
-                    return current && current > dayjs().endOf('day');
-                  }}
                 />
               </Form.Item>
               <Form.Item name="gender" label="Gender">
@@ -1429,6 +1041,48 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 />
               </Form.Item>
             </div>
+            <Form.Item 
+              name="resume" 
+              label={
+                <span>
+                  Resume Upload <span className="text-red-500">*</span>
+                </span>
+              }
+              rules={[
+                {
+                  validator: (_, value) => {
+                    // Custom validator that checks both formData.resume and resumeFile
+                    const hasResume = formData.resume && formData.resume.name;
+                    const hasResumeFile = resumeFile !== null;
+                    if (hasResume || hasResumeFile) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(new Error('Resume is required'));
+                  }
+                }
+              ]}
+            >
+              <Upload
+                beforeUpload={handleResumeUpload}
+                maxCount={1}
+                accept=".pdf,.doc,.docx"
+                fileList={formData.resume ? [{
+                  uid: '-1',
+                  name: formData.resume.name,
+                  status: 'done',
+                  url: formData.resume.url,
+                }] : []}
+                onRemove={() => {
+                  setFormData({ ...formData, resume: undefined });
+                  return true;
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Upload Resume</Button>
+              </Upload>
+              <p className="text-xs text-muted-foreground mt-1">
+                Accepted formats: PDF, DOC, DOCX (Required)
+              </p>
+            </Form.Item>
           </div>
         )}
 
@@ -1699,13 +1353,12 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                       </Form.Item>
                       <Form.Item
                         name={["experience", index, "durationFrom"]}
-                        label="Duration From (Year)"
+                        label="Duration From"
                         rules={[{ required: true }]}
                       >
                         <DatePicker
                           style={{ width: "100%" }}
-                          picker="year"
-                          value={exp.durationFrom ? dayjs(exp.durationFrom, 'YYYY') : undefined}
+                          value={exp.durationFrom ? dayjs(exp.durationFrom) : undefined}
                           onChange={(date: Dayjs | null) => {
                             const newExperience = [...(formData.experience || [])];
                             newExperience[index].durationFrom = date
@@ -1717,12 +1370,11 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                       </Form.Item>
                       <Form.Item
                         name={["experience", index, "durationTo"]}
-                        label="Duration To (Year)"
+                        label="Duration To"
                       >
                         <DatePicker
                           style={{ width: "100%" }}
-                          picker="year"
-                          value={exp.durationTo ? dayjs(exp.durationTo, 'YYYY') : undefined}
+                          value={exp.durationTo ? dayjs(exp.durationTo) : undefined}
                           onChange={(date: Dayjs | null) => {
                             const newExperience = [...(formData.experience || [])];
                             newExperience[index].durationTo = date
@@ -1818,22 +1470,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                               setFormData({ ...formData, courses: newCourses });
                             }}
                             placeholder="e.g., Udemy, Coursera, University Name"
-                          />
-                        </Form.Item>
-                        <Form.Item
-                          name={["courses", index, "startDate"]}
-                          label="Start Date"
-                        >
-                          <DatePicker
-                            style={{ width: "100%" }}
-                            value={course.startDate ? dayjs(course.startDate) : undefined}
-                            onChange={(date: Dayjs | null) => {
-                              const newCourses = [...(formData.courses || [])];
-                              newCourses[index].startDate = date
-                                ? date.format("YYYY-MM-DD")
-                                : "";
-                              setFormData({ ...formData, courses: newCourses });
-                            }}
                           />
                         </Form.Item>
                         <Form.Item
@@ -1960,13 +1596,12 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                         </Form.Item>
                         <Form.Item
                           name={["internships", index, "durationFrom"]}
-                          label="Start Date (Year)"
+                          label="Start Date"
                           rules={[{ required: true, message: "Start date is required" }]}
                         >
                           <DatePicker
                             style={{ width: "100%" }}
-                            picker="year"
-                            value={internship.durationFrom ? dayjs(internship.durationFrom, 'YYYY') : undefined}
+                            value={internship.durationFrom ? dayjs(internship.durationFrom) : undefined}
                             onChange={(date: Dayjs | null) => {
                               const newInternships = [...(formData.internships || [])];
                               newInternships[index].durationFrom = date
@@ -1978,12 +1613,11 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                         </Form.Item>
                         <Form.Item
                           name={["internships", index, "durationTo"]}
-                          label="End Date (Year)"
+                          label="End Date"
                         >
                           <DatePicker
                             style={{ width: "100%" }}
-                            picker="year"
-                            value={internship.durationTo ? dayjs(internship.durationTo, 'YYYY') : undefined}
+                            value={internship.durationTo ? dayjs(internship.durationTo) : undefined}
                             onChange={(date: Dayjs | null) => {
                               const newInternships = [...(formData.internships || [])];
                               newInternships[index].durationTo = date
@@ -2116,73 +1750,53 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 </div>
               ))}
             </Card>
-            {/* Courses Completed - Show when experience is 0 or undefined AND courses exist */}
-            {(() => {
-              const hasZeroExperience = !formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0;
-              const hasCourses = formData.courses && Array.isArray(formData.courses) && formData.courses.length > 0;
-              
-              if (hasZeroExperience && hasCourses) {
-                return (
-                  <Card>
-                    <h4 className="font-semibold mb-2">Courses Completed</h4>
-                    {formData.courses.map((course, i) => (
-                      <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
-                        <p className="font-medium">{course.courseName || 'Course'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {course.institution && `${course.institution}`}
-                          {course.startDate && ` • Started: ${typeof course.startDate === 'string' ? course.startDate : dayjs(course.startDate).format('MMM YYYY')}`}
-                          {course.completionDate && ` • Completed: ${typeof course.completionDate === 'string' ? course.completionDate : dayjs(course.completionDate).format('MMM YYYY')}`}
-                          {course.duration && ` • Duration: ${course.duration}`}
-                        </p>
-                        {course.description && (
-                          <p className="text-sm mt-1">{course.description}</p>
-                        )}
-                        {course.certificateUrl && (
-                          <a href={course.certificateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                            View Certificate
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </Card>
-                );
-              }
-              return null;
-            })()}
-            {/* Internships - Show when experience is 0 or undefined AND internships exist */}
-            {(() => {
-              const hasZeroExperience = !formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0;
-              const hasInternships = formData.internships && Array.isArray(formData.internships) && formData.internships.length > 0;
-              
-              if (hasZeroExperience && hasInternships) {
-                return (
-                  <Card>
-                    <h4 className="font-semibold mb-2">Internships</h4>
-                    {formData.internships.map((internship, i) => (
-                      <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
-                        <p className="font-medium">{internship.role || 'Role'} at {internship.company || 'Company'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {internship.durationFrom && `From: ${typeof internship.durationFrom === 'string' ? dayjs(internship.durationFrom).format('YYYY') : dayjs(internship.durationFrom).format('YYYY')}`}
-                          {internship.durationTo && ` To: ${typeof internship.durationTo === 'string' ? dayjs(internship.durationTo).format('YYYY') : dayjs(internship.durationTo).format('YYYY')}`}
-                        </p>
-                        {internship.keyResponsibilities && (
-                          <p className="text-sm mt-1"><strong>Responsibilities:</strong> {internship.keyResponsibilities}</p>
-                        )}
-                        {internship.skillsLearned && (
-                          <p className="text-sm mt-1"><strong>Skills Learned:</strong> {internship.skillsLearned}</p>
-                        )}
-                        {internship.mentorName && (
-                          <p className="text-sm mt-1"><strong>Mentor:</strong> {internship.mentorName}</p>
-                        )}
-                      </div>
-                    ))}
-                  </Card>
-                );
-              }
-              return null;
-            })()}
-            {/* Experience Card - Show when experience is greater than 0 */}
-            {formData.totalYearsOfExperience && formData.totalYearsOfExperience > 0 && (
+            {isFresher && formData.courses && formData.courses.length > 0 && (
+              <Card>
+                <h4 className="font-semibold mb-2">Courses Completed</h4>
+                {formData.courses.map((course, i) => (
+                  <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
+                    <p className="font-medium">{course.courseName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {course.institution}
+                      {course.completionDate && ` • Completed: ${course.completionDate}`}
+                      {course.duration && ` • Duration: ${course.duration}`}
+                    </p>
+                    {course.description && (
+                      <p className="text-sm mt-1">{course.description}</p>
+                    )}
+                    {course.certificateUrl && (
+                      <a href={course.certificateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                        View Certificate
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </Card>
+            )}
+            {isFresher && formData.internships && formData.internships.length > 0 && (
+              <Card>
+                <h4 className="font-semibold mb-2">Internships</h4>
+                {formData.internships.map((internship, i) => (
+                  <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
+                    <p className="font-medium">{internship.role} at {internship.company}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {internship.durationFrom && `From: ${internship.durationFrom}`}
+                      {internship.durationTo && ` To: ${internship.durationTo}`}
+                    </p>
+                    {internship.keyResponsibilities && (
+                      <p className="text-sm mt-1"><strong>Responsibilities:</strong> {internship.keyResponsibilities}</p>
+                    )}
+                    {internship.skillsLearned && (
+                      <p className="text-sm mt-1"><strong>Skills Learned:</strong> {internship.skillsLearned}</p>
+                    )}
+                    {internship.mentorName && (
+                      <p className="text-sm mt-1"><strong>Mentor:</strong> {internship.mentorName}</p>
+                    )}
+                  </div>
+                ))}
+              </Card>
+            )}
+            {!isFresher && (
               <Card>
                 <h4 className="font-semibold mb-2">Experience</h4>
                 <p className="mb-3">Total: {formData.totalYearsOfExperience} years</p>
@@ -2219,7 +1833,7 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                           <p className="text-sm text-muted-foreground">Designation: {exp.designation}</p>
                         )}
                         <p className="text-sm text-muted-foreground">
-                          Duration: {exp.durationFrom ? (typeof exp.durationFrom === 'string' ? dayjs(exp.durationFrom).format('YYYY') : dayjs(exp.durationFrom).format('YYYY')) : 'N/A'} to {exp.durationTo ? (typeof exp.durationTo === 'string' ? dayjs(exp.durationTo).format('YYYY') : dayjs(exp.durationTo).format('YYYY')) : 'Present'}
+                          Duration: {exp.durationFrom ? (typeof exp.durationFrom === 'string' ? dayjs(exp.durationFrom).format('MMM YYYY') : dayjs(exp.durationFrom).format('MMM YYYY')) : 'N/A'} to {exp.durationTo ? (typeof exp.durationTo === 'string' ? dayjs(exp.durationTo).format('MMM YYYY') : dayjs(exp.durationTo).format('MMM YYYY')) : 'Present'}
                         </p>
                         {exp.keyResponsibilities && (
                           <div className="mt-2">
@@ -2239,14 +1853,6 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 ) : (
                   <p className="text-sm text-muted-foreground">No previous work experience added</p>
                 )}
-              </Card>
-            )}
-            {/* Experience Summary for Freshers (0 years) */}
-            {(!formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0) && (
-              <Card>
-                <h4 className="font-semibold mb-2">Experience</h4>
-                <p className="mb-3">Total: {formData.totalYearsOfExperience || 0} years</p>
-                <p className="text-sm text-muted-foreground">No previous work experience added</p>
               </Card>
             )}
           </div>

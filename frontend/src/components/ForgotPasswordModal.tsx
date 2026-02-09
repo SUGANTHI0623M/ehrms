@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/input-otp";
 import { message } from "antd";
 import { useForgotPasswordMutation, useVerifyOTPMutation, useResetPasswordMutation } from "@/store/api/authApi";
-import { Eye, EyeOff } from "lucide-react";
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -32,10 +31,6 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPasswords, setShowPasswords] = useState({
-    newPassword: false,
-    confirmPassword: false,
-  });
 
   const [sendOTP, { isLoading: isSendingOTP }] = useForgotPasswordMutation();
   const [verifyOTP, { isLoading: isVerifyingOTP }] = useVerifyOTPMutation();
@@ -200,60 +195,28 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <>
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
-                <div className="relative">
-                  <Input
-                    id="newPassword"
-                    type={showPasswords.newPassword ? "text" : "password"}
-                    placeholder="Enter new password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowPasswords({ ...showPasswords, newPassword: !showPasswords.newPassword })}
-                  >
-                    {showPasswords.newPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  placeholder="Enter new password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showPasswords.confirmPassword ? "text" : "password"}
-                    placeholder="Confirm new password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleResetPassword();
-                      }
-                    }}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowPasswords({ ...showPasswords, confirmPassword: !showPasswords.confirmPassword })}
-                  >
-                    {showPasswords.confirmPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleResetPassword();
+                    }
+                  }}
+                />
               </div>
               <div className="flex gap-2">
                 <Button

@@ -23,18 +23,6 @@ export interface KRA {
     achieved: boolean;
     achievedAt?: string;
   }>;
-  goalIds?: string[] | Array<{
-    _id: string;
-    title: string;
-    kpi: string;
-    target: string;
-    progress: number;
-    status: string;
-    employeeId?: {
-      _id: string;
-      name: string;
-    };
-  }>; // Linked goals that contribute to this KRA
 }
 
 export const kraApi = apiSlice.injectEndpoints({
@@ -58,24 +46,6 @@ export const kraApi = apiSlice.injectEndpoints({
         url: '/performance/kra',
         params,
       }),
-      providesTags: ['Performance'],
-    }),
-    getKRAStats: builder.query<
-      {
-        success: boolean;
-        data: {
-          total: number;
-          pending: number;
-          atRisk: number;
-          needsAttention: number;
-          onTrack: number;
-          closed: number;
-          priorityCount: number;
-        };
-      },
-      void
-    >({
-      query: () => '/performance/kra/stats',
       providesTags: ['Performance'],
     }),
     createKRA: builder.mutation<
@@ -105,7 +75,6 @@ export const kraApi = apiSlice.injectEndpoints({
 
 export const {
   useGetKRAsQuery,
-  useGetKRAStatsQuery,
   useCreateKRAMutation,
   useUpdateKRAMutation,
 } = kraApi;

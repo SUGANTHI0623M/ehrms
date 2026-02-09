@@ -1,26 +1,16 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Download, TrendingUp, TrendingDown, Users, Award, DollarSign, AlertCircle, Star, Edit } from "lucide-react";
+import { ArrowLeft, Download, TrendingUp, TrendingDown, Users, Award, DollarSign, AlertCircle, Star } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
-import { useGetPerformanceReviewsQuery, useUpdatePerformanceReviewMutation } from "@/store/api/performanceReviewApi";
-import { useGetReviewCyclesQuery } from "@/store/api/reviewCycleApi";
-import { useGetStaffQuery } from "@/store/api/staffApi";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
+import { useGetGoalsQuery } from "@/store/api/pmsApi";
 
 interface PMSOutput {
   id: string;
-  reviewId: string;
   employeeName: string;
   employeeId: string;
   department: string;
@@ -34,87 +24,75 @@ interface PMSOutput {
 
 export default function PMSReports() {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [selectedDepartment, setSelectedDepartment] = useState("all");
-  const [selectedCycle, setSelectedCycle] = useState<string>("all");
-  const [editingReview, setEditingReview] = useState<PMSOutput | null>(null);
-  const [editForm, setEditForm] = useState({
-    incrementPercent: 0,
-    bonusAmount: 0,
-    promotionFlag: false,
-    pipFlag: false,
-    trainingNeeds: [] as string[],
-    trainingNeedsText: ""
-  });
-  
-  const [updateReview, { isLoading: isUpdating }] = useUpdatePerformanceReviewMutation();
+  const [selectedCycle, setSelectedCycle] = useState("Q1 2024");
 
-  // Fetch all review cycles for filter
-  const { data: cyclesData } = useGetReviewCyclesQuery({ page: 1, limit: 100 });
-  const cycles = cyclesData?.data?.cycles || [];
-  
-  // Fetch all staff to get all departments
-  const { data: staffData } = useGetStaffQuery({ page: 1, limit: 1000 });
-  const staff = staffData?.data?.staff || [];
-
-  // Get unique cycle names from all cycles
-  const cycleNames = useMemo(() => {
-    return cycles.map((c: any) => c.name).filter(Boolean);
-  }, [cycles]);
-  
-  // Get all departments from staff API (all available departments)
-  const departments = useMemo(() => {
-    const depts = new Set<string>();
-    staff.forEach((s: any) => {
-      if (s.department) depts.add(s.department);
-    });
-    return Array.from(depts).sort();
-  }, [staff]);
-
-  // Fetch completed performance reviews
-  const { data: reviewsData, isLoading } = useGetPerformanceReviewsQuery({
+  const { data: goalsData, isLoading } = useGetGoalsQuery({
+    cycle: selectedCycle,
     status: "completed",
-    reviewCycle: selectedCycle !== "all" ? selectedCycle : undefined,
     page: 1,
-    limit: 1000
+    limit: 100
   });
 
-  const reviews = reviewsData?.data?.reviews || [];
+  const goals = goalsData?.data?.goals || [];
 
-  // Get outputs from completed performance reviews (use stored values, no auto-calculation)
-  const outputs: PMSOutput[] = useMemo(() => {
-    return reviews
-      .filter((review: any) => review.finalRating && review.status === "completed")
-      .map((review: any) => {
-        const employee = review.employeeId as any;
-        const finalRating = review.finalRating || 0;
-        
-        // Use stored values from review (admin sets these manually)
-        const incrementPercent = review.incrementPercent ?? 0;
-        const bonusAmount = review.bonusAmount ?? 0;
-        const promotionFlag = review.promotionFlag ?? false;
-        const pipFlag = review.pipFlag ?? false;
-        const trainingNeeds = review.trainingNeeds || [];
-        
-        return {
-          id: review._id,
-          reviewId: review._id, // Store for update
-          employeeName: employee?.name || "N/A",
-          employeeId: employee?.employeeId || "N/A",
-          department: employee?.department || "N/A",
-          finalRating,
-          incrementPercent,
-          bonusAmount,
-          promotionFlag,
-          pipFlag,
-          trainingNeeds
-        };
-      });
-  }, [reviews]);
+  // Calculate outputs from goals with HR reviews
+  const outputs: PMSOutput[] = goals
+    .filter(goal => goal.hrReview) // Only goals with HR review
+    .map(goal => {
+      const employee = goal.employeeId as any;
+      const finalRating = goal.hrReview?.rating || goal.managerReview?.rating || 0;
+      
+      // Calculate recommendations
+      let incrementPercent = 0;
+      let bonusAmount = 0;
+      let promotionFlag = false;
+      let pipFlag = false;
+      
+      if (finalRating >= 4.5) {
+        incrementPercent = 20;
+        bonusAmount = 75000;
+        promotionFlag = true;
+      } else if (finalRating >= 4.0) {
+        incrementPercent = 15;
+        bonusAmount = 50000;
+      } else if (finalRating >= 3.5) {
+        incrementPercent = 8;
+        bonusAmount = 25000;
+      } else if (finalRating < 2.5) {
+        incrementPercent = 0;
+        bonusAmount = 0;
+        pipFlag = true;
+      }
+      
+      // Extract training needs from challenges or comments
+      const trainingNeeds: string[] = [];
+      if (goal.challenges) {
+        trainingNeeds.push(goal.challenges);
+      }
+      if (goal.hrReview?.comments?.includes("training") || goal.hrReview?.comments?.includes("skill")) {
+        trainingNeeds.push("Skill Development");
+      }
+      
+      return {
+        id: goal._id,
+        employeeName: employee?.name || "N/A",
+        employeeId: employee?.employeeId || "N/A",
+        department: employee?.department || "N/A",
+        finalRating,
+        incrementPercent,
+        bonusAmount,
+        promotionFlag,
+        pipFlag,
+        trainingNeeds
+      };
+    });
 
   const filteredOutputs = selectedDepartment === "all" 
     ? outputs 
     : outputs.filter(o => o.department === selectedDepartment);
+
+  const departments = [...new Set(outputs.map(o => o.department))];
 
   const stats = {
     avgRating: filteredOutputs.length > 0 
@@ -150,45 +128,7 @@ export default function PMSReports() {
               </p>
             </div>
           </div>
-          <Button 
-            variant="outline" 
-            className="gap-2"
-            onClick={() => {
-              // Export to CSV
-              const headers = ["Employee Name", "Employee ID", "Department", "Final Rating", "Increment %", "Bonus (₹)", "Promotion", "PIP", "Training Needs"];
-              const rows = filteredOutputs.map(o => [
-                o.employeeName,
-                o.employeeId,
-                o.department,
-                o.finalRating.toFixed(1),
-                o.incrementPercent,
-                o.bonusAmount,
-                o.promotionFlag ? "Yes" : "No",
-                o.pipFlag ? "Yes" : "No",
-                o.trainingNeeds.join("; ")
-              ]);
-              
-              const csvContent = [
-                headers.join(","),
-                ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-              ].join("\n");
-              
-              const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-              const link = document.createElement("a");
-              const url = URL.createObjectURL(blob);
-              link.setAttribute("href", url);
-              link.setAttribute("download", `PMS_Report_${selectedCycle}_${new Date().toISOString().split('T')[0]}.csv`);
-              link.style.visibility = "hidden";
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              
-              toast({
-                title: "Report Exported",
-                description: "PMS report has been exported successfully.",
-              });
-            }}
-          >
+          <Button variant="outline" className="gap-2">
             <Download className="w-4 h-4" />
             Export Report
           </Button>
@@ -197,16 +137,14 @@ export default function PMSReports() {
         {/* Filters */}
         <div className="flex flex-wrap gap-4">
           <Select value={selectedCycle} onValueChange={setSelectedCycle}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Select review cycle" />
+            <SelectTrigger className="w-40">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Cycles</SelectItem>
-              {cycleNames.map((cycle: string) => (
-                <SelectItem key={cycle} value={cycle}>
-                  {cycle}
-                </SelectItem>
-              ))}
+              <SelectItem value="Q1 2024">Q1 2024</SelectItem>
+              <SelectItem value="Q4 2023">Q4 2023</SelectItem>
+              <SelectItem value="Q3 2023">Q3 2023</SelectItem>
+              <SelectItem value="Q2 2023">Q2 2023</SelectItem>
             </SelectContent>
           </Select>
           <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
@@ -288,23 +226,9 @@ export default function PMSReports() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <Skeleton className="h-12 w-12 rounded-full" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-48" />
-                      <Skeleton className="h-3 w-32" />
-                    </div>
-                    <Skeleton className="h-8 w-20" />
-                  </div>
-                ))}
-              </div>
+              <div className="text-center py-8 text-muted-foreground">Loading reports...</div>
             ) : filteredOutputs.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No completed performance reviews found for the selected cycle.
-                <p className="text-xs mt-2">Complete reviews will appear here once HR reviews are submitted.</p>
-              </div>
+              <div className="text-center py-8 text-muted-foreground">No completed reviews found for this cycle</div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -316,7 +240,6 @@ export default function PMSReports() {
                       <TableHead className="text-center">Bonus</TableHead>
                       <TableHead className="text-center">Status</TableHead>
                       <TableHead>Training Needs</TableHead>
-                      <TableHead className="text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -375,26 +298,6 @@ export default function PMSReports() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-center">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEditingReview(output);
-                            setEditForm({
-                              incrementPercent: output.incrementPercent,
-                              bonusAmount: output.bonusAmount,
-                              promotionFlag: output.promotionFlag,
-                              pipFlag: output.pipFlag,
-                              trainingNeeds: output.trainingNeeds,
-                              trainingNeedsText: output.trainingNeeds.join(", ")
-                            });
-                          }}
-                        >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
-                      </TableCell>
                     </TableRow>
                     ))}
                   </TableBody>
@@ -422,118 +325,6 @@ export default function PMSReports() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Edit Dialog */}
-        <Dialog open={!!editingReview} onOpenChange={(open) => !open && setEditingReview(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit PMS Outcomes - {editingReview?.employeeName}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="increment">Increment Percentage (%)</Label>
-                  <Input
-                    id="increment"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={editForm.incrementPercent}
-                    onChange={(e) => setEditForm({ ...editForm, incrementPercent: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="bonus">Bonus Amount (₹)</Label>
-                  <Input
-                    id="bonus"
-                    type="number"
-                    min="0"
-                    step="1000"
-                    value={editForm.bonusAmount}
-                    onChange={(e) => setEditForm({ ...editForm, bonusAmount: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-6">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="promotion"
-                    checked={editForm.promotionFlag}
-                    onCheckedChange={(checked) => setEditForm({ ...editForm, promotionFlag: !!checked })}
-                  />
-                  <Label htmlFor="promotion" className="cursor-pointer">Promotion Recommended</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="pip"
-                    checked={editForm.pipFlag}
-                    onCheckedChange={(checked) => setEditForm({ ...editForm, pipFlag: !!checked })}
-                  />
-                  <Label htmlFor="pip" className="cursor-pointer">Performance Improvement Plan (PIP)</Label>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="training">Training Needs (comma-separated)</Label>
-                <Textarea
-                  id="training"
-                  placeholder="e.g., Skill Development, Leadership Training, Technical Certification"
-                  value={editForm.trainingNeedsText}
-                  onChange={(e) => setEditForm({ ...editForm, trainingNeedsText: e.target.value })}
-                  rows={3}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter training needs separated by commas
-                </p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingReview(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={async () => {
-                  if (!editingReview) return;
-                  
-                  try {
-                    const trainingNeeds = editForm.trainingNeedsText
-                      .split(",")
-                      .map(t => t.trim())
-                      .filter(t => t.length > 0);
-
-                    await updateReview({
-                      id: editingReview.reviewId,
-                      data: {
-                        incrementPercent: editForm.incrementPercent,
-                        bonusAmount: editForm.bonusAmount,
-                        promotionFlag: editForm.promotionFlag,
-                        pipFlag: editForm.pipFlag,
-                        trainingNeeds: trainingNeeds
-                      }
-                    }).unwrap();
-
-                    toast({
-                      title: "PMS Outcomes Updated",
-                      description: `Outcomes for ${editingReview.employeeName} have been updated successfully.`,
-                    });
-                    setEditingReview(null);
-                  } catch (error: any) {
-                    toast({
-                      title: "Error",
-                      description: error?.data?.error?.message || "Failed to update PMS outcomes",
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                disabled={isUpdating}
-              >
-                {isUpdating ? "Saving..." : "Save Changes"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </main>
     </MainLayout>
   );

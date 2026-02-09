@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowLeft, Save, Mail, TestTube, CheckCircle2, XCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Save, Mail, TestTube, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
 import {
@@ -33,7 +33,6 @@ const SendGridConfig = () => {
     replyToEmail: "",
     isEnabled: false,
   });
-  const [showApiKey, setShowApiKey] = useState(false);
 
   const [testEmailData, setTestEmailData] = useState({
     to: "",
@@ -215,33 +214,17 @@ const SendGridConfig = () => {
                 <Label htmlFor="apiKey">
                   API Key <span className="text-red-500">*</span>
                 </Label>
-                <div className="relative">
-                  <Input
-                    id="apiKey"
-                    type={showApiKey ? "text" : "password"}
-                    placeholder={config ? "Enter new API key to update" : "SG.xxxxxxxxxxxxxxxx"}
-                    value={formData.apiKey}
-                    onChange={(e) => {
-                      setFormData({ ...formData, apiKey: e.target.value });
-                      if (errors.apiKey) setErrors({ ...errors, apiKey: "" });
-                    }}
-                    required={!config}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                  >
-                    {showApiKey ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  placeholder={config ? "Enter new API key to update" : "SG.xxxxxxxxxxxxxxxx"}
+                  value={formData.apiKey}
+                  onChange={(e) => {
+                    setFormData({ ...formData, apiKey: e.target.value });
+                    if (errors.apiKey) setErrors({ ...errors, apiKey: "" });
+                  }}
+                  required={!config}
+                />
                 {errors.apiKey && (
                   <p className="text-sm text-red-500">{errors.apiKey}</p>
                 )}

@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
+import MainLayout from "@/components/MainLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -143,11 +142,8 @@ const AttendanceDetail = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <Header />
-      
-      <main className="ml-64 mt-16 p-8">
+    <MainLayout>
+      <div className="p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -276,8 +272,8 @@ const AttendanceDetail = () => {
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
+      </div>
+    </MainLayout>
   );
 };
 

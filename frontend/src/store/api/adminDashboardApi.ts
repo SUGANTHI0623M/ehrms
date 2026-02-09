@@ -91,11 +91,6 @@ export interface LMSAnalytics {
   activeLearners: number;
   courseCompletionRate: number;
   liveSessionsScheduled: number;
-  quizStats: {
-    totalQuizzes: number;
-    totalAttempts: number;
-    averageScore: number;
-  };
 }
 
 export interface AssetsAnalytics {
@@ -129,8 +124,9 @@ export interface AdminDashboardData {
 }
 
 export interface AdminDashboardParams {
+  startDate?: string;
+  endDate?: string;
   department?: string;
-  status?: string;
 }
 
 export const adminDashboardApi = apiSlice.injectEndpoints({
@@ -146,17 +142,18 @@ export const adminDashboardApi = apiSlice.injectEndpoints({
         // Normalize params to ensure consistent cache keys
         // Only include defined, non-empty values
         const normalizedParams: AdminDashboardParams = {};
-        if (params?.department && params.department !== 'all') {
-          normalizedParams.department = params.department;
+        const p = params as AdminDashboardParams;
+        if (p?.startDate) normalizedParams.startDate = p.startDate;
+        if (p?.endDate) normalizedParams.endDate = p.endDate;
+        if (p?.department && p.department !== 'all') {
+          normalizedParams.department = p.department;
         }
-        if (params?.status && params.status !== 'all') {
-          normalizedParams.status = params.status;
-        }
-        
+
         const queryParams = new URLSearchParams();
+        if (normalizedParams.startDate) queryParams.append('startDate', normalizedParams.startDate);
+        if (normalizedParams.endDate) queryParams.append('endDate', normalizedParams.endDate);
         if (normalizedParams.department) queryParams.append('department', normalizedParams.department);
-        if (normalizedParams.status) queryParams.append('status', normalizedParams.status);
-        
+
         const queryString = queryParams.toString();
         return `/admin/dashboard${queryString ? `?${queryString}` : ''}`;
       },
@@ -164,11 +161,11 @@ export const adminDashboardApi = apiSlice.injectEndpoints({
       serializeQueryArgs: ({ endpointName, queryArgs }) => {
         // Always serialize to the same format regardless of undefined values
         const normalized: any = {};
-        if (queryArgs?.department && queryArgs.department !== 'all') {
-          normalized.department = queryArgs.department;
-        }
-        if (queryArgs?.status && queryArgs.status !== 'all') {
-          normalized.status = queryArgs.status;
+        const args = queryArgs as AdminDashboardParams;
+        if (args?.startDate) normalized.startDate = args.startDate;
+        if (args?.endDate) normalized.endDate = args.endDate;
+        if (args?.department && args.department !== 'all') {
+          normalized.department = args.department;
         }
         // Use a consistent key format - empty object for no params
         return `${endpointName}(${JSON.stringify(normalized)})`;

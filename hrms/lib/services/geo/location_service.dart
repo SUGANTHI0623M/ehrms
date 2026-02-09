@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:hrms/models/location_data.dart';
+import 'package:hrms/services/geo/live_tracking_service.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -42,7 +43,9 @@ class LocationService {
   /// Update geofence center when destination changes (single source of truth).
   void updateGeofenceCenter(LatLng center) {
     _geofenceCenter = center;
-    debugPrint('[Geofence] Center updated: ${center.latitude}, ${center.longitude}');
+    debugPrint(
+      '[Geofence] Center updated: ${center.latitude}, ${center.longitude}',
+    );
   }
 
   Future<void> initLocationService({required LatLng customerLocation}) async {
@@ -78,7 +81,23 @@ class LocationService {
         });
 
     // Keep background tracker for when app goes to background.
-    await BackgroundLocationTrackerManager.startTracking();
+    // Uses foreground service with persistent notification; app can go background or be swiped away.
+    debugPrint(
+      '[LiveTracking] LocationService: starting BackgroundLocationTrackerManager',
+    );
+    const liveTrackingConfig = AndroidConfig(
+      notificationIcon: 'explore',
+      notificationBody: 'Live tracking in progress. Tap to open.',
+      channelName: 'Live Tracking',
+      cancelTrackingActionText: 'Stop tracking',
+      enableCancelTrackingAction: true,
+      trackingInterval: Duration(seconds: 5),
+      // null = time-based updates every 5s even when stationary. Critical for background.
+      distanceFilterMeters: null,
+    );
+    await BackgroundLocationTrackerManager.startTracking(
+      config: liveTrackingConfig,
+    );
     BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
       final Location currentLocation = Location.fromBackgroundData(data);
       if (currentLocation.latitude != null &&
@@ -86,6 +105,18 @@ class LocationService {
         _locationController.add(currentLocation);
         _classifyMovement(currentLocation.speed ?? 0);
         _checkGeofence(currentLocation);
+        // Send to backend when app is in background (main isolate still alive)
+        final speed = currentLocation.speed ?? 0.0;
+        String movementType = 'stop';
+        if (speed >= 10 / 3.6)
+          movementType = 'drive';
+        else if (speed >= 0.5)
+          movementType = 'walk';
+        await LiveTrackingService.sendTrackingFromBackground(
+          currentLocation.latitude!,
+          currentLocation.longitude!,
+          movementType: movementType,
+        );
       }
     });
   }
@@ -106,8 +137,8 @@ class LocationService {
     );
 
     // Treat null/negative accuracy as poor (avoid false "outside" warnings).
-    final accuracy = (currentLocation.accuracy != null &&
-            currentLocation.accuracy! >= 0)
+    final accuracy =
+        (currentLocation.accuracy != null && currentLocation.accuracy! >= 0)
         ? currentLocation.accuracy!
         : 999.0;
 
@@ -166,6 +197,9 @@ class LocationService {
   }
 
   void dispose() {
+    debugPrint(
+      '[LiveTracking] LocationService: stopping BackgroundLocationTrackerManager',
+    );
     _geolocatorSubscription?.cancel();
     _geolocatorSubscription = null;
     _locationController.close();

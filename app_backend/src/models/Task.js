@@ -15,7 +15,7 @@ const taskSchema = new mongoose.Schema({
     enum: [
       'Not yet Started', 'Pending', 'In progress', 'Serving Today', 'Delayed Tasks', 'Completed Tasks', 'Reopened', 'Rejected', 'Hold', 'exited',
       'assigned', 'approved', 'staffapproved', 'pending', 'scheduled', 'in_progress', 'arrived', 'completed', 'rejected', 'reopened', 'waiting_for_approval',
-      'exitedOnArrival', 'holdOnArrival', 'reopenedOnArrival',
+      'exitOnArrival', 'exitedOnArrival', 'holdOnArrival', 'reopenedOnArrival',
     ],
     default: 'assigned',
   },

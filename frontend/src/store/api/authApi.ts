@@ -58,8 +58,6 @@ export interface User {
     }>;
     isSystemRole?: boolean;
   };
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager';
-  sidebarPermissions?: string[];
   createdAt?: string;
   updatedAt?: string;
   lastLogin?: string;

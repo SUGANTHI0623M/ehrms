@@ -22,12 +22,6 @@ export interface Reimbursement {
     role?: string;
   };
   approvedAt?: string;
-  rejectedBy?: {
-    _id: string;
-    name: string;
-    email?: string;
-  };
-  rejectedAt?: string;
   rejectionReason?: string;
   paidAt?: string;
   processedInPayroll?: string;

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
+import 'config/app_route_observer.dart';
+import 'services/geo/live_tracking_service.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash/splash_screen.dart';
 import 'bloc/auth/auth_bloc.dart';
@@ -11,10 +13,30 @@ import 'bloc/attendance/attendance_bloc.dart';
 
 @pragma('vm:entry-point')
 void backgroundCallback() {
-  // This function must be a top-level function. It will be called on a separate isolate
-  // when a location update is received in the background.
-  // For now, we don't need to do anything specific here, as LocationService
-  // will handle the background updates directly.
+  // Log: background isolate started (app killed or in background)
+  debugPrint('[LiveTracking:BG] Background callback isolate started');
+  BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
+    final lat = data.lat;
+    final lon = data.lon;
+    debugPrint(
+      '[LiveTracking:BG] Location received: lat=$lat lon=$lon speed=${data.speed}',
+    );
+    if (lat == null || lon == null) {
+      debugPrint('[LiveTracking:BG] Skipped: null lat/lon');
+      return;
+    }
+    final speed = data.speed ?? 0.0;
+    String movementType = 'stop';
+    if (speed >= 10 / 3.6)
+      movementType = 'drive';
+    else if (speed >= 0.5)
+      movementType = 'walk';
+    await LiveTrackingService.sendTrackingFromBackground(
+      lat,
+      lon,
+      movementType: movementType,
+    );
+  });
 }
 
 void main() async {
@@ -27,8 +49,13 @@ void main() async {
       loggingEnabled: true,
       androidConfig: AndroidConfig(
         notificationIcon: 'explore',
+        notificationBody: 'Live tracking in progress. Tap to open.',
+        channelName: 'Live Tracking',
+        cancelTrackingActionText: 'Stop tracking',
+        enableCancelTrackingAction: true,
         trackingInterval: Duration(seconds: 5),
-        distanceFilterMeters: 40, // 30-50m for accurate GPS trail
+        // null = time-based updates only (every 5s). 40m filter = no updates when stationary.
+        distanceFilterMeters: null,
       ),
       iOSConfig: IOSConfig(
         activityType: ActivityType.FITNESS,
@@ -59,6 +86,7 @@ class MyApp extends StatelessWidget {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
         return MaterialApp(
+          navigatorObservers: [appRouteObserver],
           title: 'HRMS',
           debugShowCheckedModeBanner: false,
           theme: themeProvider.getThemeData().copyWith(

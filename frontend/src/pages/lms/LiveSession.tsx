@@ -1,130 +1,390 @@
-import { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import MainLayout from "@/components/MainLayout";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Send, FileText, Users, Clock, Calendar, MessageSquare } from "lucide-react";
+import {
+    Button, Input, Card, Badge, Avatar, Tabs, List,
+    Tooltip, message, Typography, Layout, Space, Tag, Empty, Divider
+} from "antd";
+import {
+    AudioOutlined, AudioMutedOutlined, VideoCameraOutlined, VideoCameraAddOutlined,
+    PhoneOutlined, DesktopOutlined, MessageOutlined, TeamOutlined, SettingOutlined,
+    UserOutlined, SendOutlined, ClockCircleOutlined
+} from "@ant-design/icons";
+import { useParams, useNavigate } from "react-router-dom";
+import { io, Socket } from "socket.io-client";
+import { lmsService } from "@/services/lmsService";
 
-const LiveSession = () => {
-    const [messages, setMessages] = useState<{ text: string; user: string }[]>([]);
-    const [chatInput, setChatInput] = useState("");
+const { Title, Text, Paragraph } = Typography;
+const { Content, Sider } = Layout;
 
-    const handleSend = () => {
-        if (!chatInput.trim()) return;
-        setMessages([...messages, { text: chatInput, user: "You" }]);
-        setChatInput("");
+// URLs
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:8000';
+
+interface Message {
+    sender: string;
+    text: string;
+    time: string;
+    isSystem?: boolean;
+}
+
+interface Participant {
+    id: string;
+    name: string;
+    role: string;
+    isMuted: boolean;
+    isVideoOff: boolean;
+}
+
+const LiveRoom: React.FC = () => {
+    const { sessionId } = useParams<{ sessionId: string }>();
+    const navigate = useNavigate();
+    const [role] = useState<string>('Employee');
+
+    // Media States
+    const [stream, setStream] = useState<MediaStream | null>(null);
+    const [isMuted, setIsMuted] = useState(false);
+    const [isVideoOff, setIsVideoOff] = useState(false);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+
+    // UI States
+    const [activeTab, setActiveTab] = useState<string>('chat');
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [inputMsg, setInputMsg] = useState("");
+    const [participants, setParticipants] = useState<Participant[]>([]);
+    const [sessionDetails, setSessionDetails] = useState<any>(null);
+
+    // Refs
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const socketRef = useRef<Socket | null>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    const token = localStorage.getItem('token');
+
+    useEffect(() => {
+        const init = async () => {
+            if (!token) {
+                navigate('/login');
+                return;
+            }
+
+            try {
+                let session = null;
+                try {
+                    const resEmp = await lmsService.getMyLiveSessions();
+                    session = resEmp.data.find((s: any) => s._id === sessionId);
+                } catch (e) { /* ignore */ }
+
+                if (session) {
+                    setSessionDetails(session);
+                } else {
+                    message.warning("Session info not available locally.");
+                }
+
+            } catch (err) {
+                console.error("Failed to init", err);
+            }
+        };
+        init();
+
+        return () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (socketRef.current) {
+                socketRef.current.disconnect();
+            }
+        };
+    }, [sessionId]);
+
+    useEffect(() => {
+        if (!sessionId || !token) return;
+
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then((currentStream) => {
+                setStream(currentStream);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = currentStream;
+                }
+            })
+            .catch((err) => {
+                console.error("Media Error:", err);
+                message.error("Camera/Mic access required for classroom participation.");
+            });
+
+        const socket = io(SOCKET_URL, {
+            auth: { token },
+            query: { sessionId }
+        });
+
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            socket.emit('join-live-session', { sessionId });
+        });
+
+        socket.on('chat-message', (msg: Message) => {
+            setMessages((prev) => [...prev, msg]);
+            setTimeout(() => {
+                if (scrollRef.current) {
+                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+            }, 100);
+        });
+
+        socket.on('participant-update', (updatedParticipants: Participant[]) => {
+            setParticipants(updatedParticipants);
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [sessionId, token]);
+
+    const toggleMute = () => {
+        if (stream) {
+            stream.getAudioTracks().forEach(track => track.enabled = !track.enabled);
+            setIsMuted(!isMuted);
+            socketRef.current?.emit('toggle-media', { sessionId, isMuted: !isMuted, isVideoOff });
+        }
     };
+
+    const toggleVideo = () => {
+        if (stream) {
+            stream.getVideoTracks().forEach(track => track.enabled = !track.enabled);
+            setIsVideoOff(!isVideoOff);
+            socketRef.current?.emit('toggle-media', { sessionId, isMuted, isVideoOff: !isVideoOff });
+        }
+    };
+
+    const toggleScreenShare = async () => {
+        if (isScreenSharing) {
+            const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setStream(cameraStream);
+            if (videoRef.current) videoRef.current.srcObject = cameraStream;
+            setIsScreenSharing(false);
+        } else {
+            try {
+                const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                setStream(displayStream);
+                if (videoRef.current) videoRef.current.srcObject = displayStream;
+                setIsScreenSharing(true);
+                displayStream.getVideoTracks()[0].onended = () => {
+                    setIsScreenSharing(false);
+                };
+            } catch (err) {
+                console.error("Screen Share Error", err);
+            }
+        }
+    };
+
+    const sendMessage = () => {
+        if (!inputMsg.trim() || !socketRef.current) return;
+        const msgPayload = {
+            sender: "Me",
+            text: inputMsg,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, msgPayload]);
+        socketRef.current.emit('send-chat-message', { sessionId, message: inputMsg });
+        setInputMsg("");
+    };
+
+    const leaveSession = () => {
+        navigate('/lms/employee/live-sessions');
+    };
+
+    const tabItems = [
+        {
+            key: 'chat',
+            label: 'Discussion',
+            icon: <MessageOutlined />,
+            children: (
+                <div className="flex flex-col h-full bg-white">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
+                        {messages.map((msg, idx) => (
+                            <div key={idx} className={`flex flex-col ${msg.sender === 'Me' ? 'items-end' : 'items-start'}`}>
+                                <div className={`max-w-[90%] rounded-xl p-3 text-sm ${msg.sender === 'Me' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-800'}`}>
+                                    {msg.sender !== 'Me' && <Text strong className="block text-[10px] uppercase mb-1 opacity-60">{msg.sender}</Text>}
+                                    <p className="m-0 leading-relaxed">{msg.text}</p>
+                                </div>
+                                <Text type="secondary" className="text-[9px] mt-1">{msg.time}</Text>
+                            </div>
+                        ))}
+                        {messages.length === 0 && (
+                            <Empty className="mt-20" description="No chat messages yet." />
+                        )}
+                    </div>
+                    <div className="p-4 border-t bg-gray-50">
+                        <Space.Compact className="w-full">
+                            <Input
+                                placeholder="Say something..."
+                                value={inputMsg}
+                                onChange={(e) => setInputMsg(e.target.value)}
+                                onPressEnter={sendMessage}
+                                className="rounded-l-lg border-none h-10 shadow-sm"
+                            />
+                            <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} className="h-10 px-6 rounded-r-lg" />
+                        </Space.Compact>
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'participants',
+            label: 'Attendees',
+            icon: <TeamOutlined />,
+            children: (
+                <div className="h-full overflow-y-auto p-4 bg-white">
+                    <List
+                        itemLayout="horizontal"
+                        dataSource={[{ id: 'me', name: 'You', role: role, isMuted, isVideoOff }, ...participants]}
+                        renderItem={(item) => (
+                            <List.Item className="border-none px-2 rounded-lg hover:bg-gray-50 transition-colors">
+                                <List.Item.Meta
+                                    avatar={<Avatar size="small" style={{ backgroundColor: item.id === 'me' ? '#10b981' : '#f0f2f5', color: item.id === 'me' ? '#fff' : '#8c8c8c' }} icon={<UserOutlined />} />}
+                                    title={<Text strong className="text-sm">{item.name}</Text>}
+                                    description={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">{item.role}</Text>}
+                                />
+                                <Space>
+                                    {item.isMuted && <AudioMutedOutlined className="text-red-500 text-xs" />}
+                                    {item.isVideoOff && <VideoCameraAddOutlined className="text-red-500 text-xs" />}
+                                </Space>
+                            </List.Item>
+                        )}
+                    />
+                </div>
+            )
+        }
+    ];
 
     return (
         <MainLayout>
-            <main className="p-6 space-y-6">
-                {/* HEADER */}
-                <div className="flex flex-col gap-2 mb-4">
-                    <h2 className="text-3xl font-bold tracking-tight">Live Session</h2>
-                </div>
-
-                {/* MAIN GRID */}
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    {/* LEFT – LIVE PLAYER + DETAILS */}
-                    <div className="xl:col-span-2 space-y-6">
-                        {/* LIVE PLAYER */}
-                        <div className="rounded-lg overflow-hidden bg-black aspect-video">
-                            {/* Embed links (Zoom/YouTube/RTMP) */}
-                            <iframe
-                                className="w-full h-full"
-                                src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0"
-                                allow="autoplay"
-                            />
-                        </div>
-
-                        {/* SESSION DETAILS */}
-                        <Card className="p-6 space-y-3">
-                            <h3 className="text-xl font-bold">Organic Skincare – Live Workshop</h3>
-                            <div className="flex flex-wrap items-center gap-4 text-sm">
-                                <span className="flex items-center gap-1">
-                                    <Users size={16} /> Trainer: <strong>Dr. Maya</strong>
-                                </span>
-                                <span className="flex items-center gap-1">
-                                    <Calendar size={16} /> 10th Dec 2025
-                                </span>
-                                <span className="flex items-center gap-1">
-                                    <Clock size={16} /> 6:00 PM – 7:30 PM (IST)
-                                </span>
-                                <Badge className="bg-red-500">LIVE</Badge>
-                            </div>
-                            <Button size="lg" className="mt-3 gradient-primary w-full sm:w-auto">
-                                Join Live Session
-                            </Button>
-                        </Card>
-
-                        {/* RESOURCES + NOTES in same row */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Resources */}
-                            <Card className="p-6 space-y-4">
-                                <h3 className="font-semibold text-lg">Resources</h3>
-                                <div className="space-y-2">
-                                    {["Skincare_formula.pdf", "Ingredients_list.pdf", "Worksheet.pdf"].map((pdf) => (
-                                        <div key={pdf} className="flex items-center justify-between border rounded p-3">
-                                            <div className="flex items-center gap-2">
-                                                <FileText size={18} />
-                                                {pdf}
-                                            </div>
-                                            <Button size="sm" variant="outline">Download</Button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </Card>
-
-                            {/* My Notes */}
-                            <Card className="p-6">
-                                <h3 className="font-semibold text-lg mb-2">My Notes</h3>
-                                <Textarea placeholder="Write your notes here..." className="h-40" />
-                                <Button className="mt-3 gradient-primary">Save Notes</Button>
-                            </Card>
+            <Layout className="h-[calc(100vh-64px)] overflow-hidden bg-gray-950">
+                {/* Main Classroom Area */}
+                <Content className="relative flex flex-col">
+                    {/* Header Info Layer */}
+                    <div className="absolute top-0 left-0 right-0 p-6 z-10 flex justify-between items-start pointer-events-none">
+                        <div className="pointer-events-auto">
+                            <Tag color="error" className="animate-pulse rounded-full px-3 mb-2 border-none font-bold uppercase tracking-wider text-[10px]">Live Session</Tag>
+                            <Title level={4} className="!text-white !m-0 shadow-sm">{sessionDetails?.title || "Virtual Classroom"}</Title>
+                            <Space className="text-white/60 text-xs mt-1">
+                                <ClockCircleOutlined />
+                                <span>Session duration: {sessionDetails?.duration || 0} min</span>
+                                <Divider type="vertical" className="bg-white/20" />
+                                <TeamOutlined />
+                                <span>{participants.length + 1} participating</span>
+                            </Space>
                         </div>
                     </div>
 
-                    {/* RIGHT – LIVE CHAT */}
-                    <Card className="p-0 overflow-hidden flex flex-col h-[790px]">
-                        <div className="p-4 flex items-center gap-2 font-semibold border-b">
-                            <MessageSquare size={18} /> Live Chat
-                        </div>
+                    {/* Stage (Video) */}
+                    <div className="flex-1 flex items-center justify-center p-6 pb-24">
+                        <div className="relative w-full max-w-5xl aspect-video bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-white/5 ring-1 ring-white/10">
+                            <video
+                                ref={videoRef}
+                                autoPlay
+                                muted
+                                playsInline
+                                className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''} ${isScreenSharing ? 'object-contain bg-black' : ''}`}
+                            />
 
-                        {/* CHAT BOX */}
-                        <div className="p-4 flex-1 overflow-y-auto space-y-3 bg-muted/30">
-                            {messages.length === 0 && (
-                                <p className="text-center text-muted-foreground text-sm mt-20">
-                                    Be the first to send a message…
-                                </p>
+                            {isVideoOff && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-[#141414]">
+                                    <Avatar size={120} icon={<UserOutlined />} className="bg-gray-800 text-gray-500" />
+                                </div>
                             )}
 
-                            {messages.map((m, i) => (
-                                <div key={i} className={`p-3 rounded-lg w-fit max-w-[85%] ${m.user === "You" ? "ml-auto bg-primary text-primary-foreground" : "bg-white border"}`}>
-                                    <p className="text-xs opacity-70">{m.user}</p>
-                                    <p className="text-sm">{m.text}</p>
-                                </div>
-                            ))}
+                            <div className="absolute bottom-6 left-6 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/5">
+                                <Text className="text-white text-xs font-medium">You</Text>
+                                {isMuted && <AudioMutedOutlined className="text-red-500 text-xs" />}
+                            </div>
                         </div>
+                    </div>
 
-                        {/* INPUT */}
-                        <div className="border-t p-4 flex gap-2">
-                            <Input
-                                placeholder="Type your message..."
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                    {/* Bottom Toolbar */}
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl z-20">
+                        <Tooltip title={isMuted ? "Unmute" : "Mute"}>
+                            <Button
+                                type={isMuted ? "default" : "primary"}
+                                danger={isMuted}
+                                shape="circle"
+                                size="large"
+                                onClick={toggleMute}
+                                icon={isMuted ? <AudioMutedOutlined /> : <AudioOutlined />}
+                                className="shadow-lg border-none h-12 w-12 flex items-center justify-center"
                             />
-                            <Button onClick={handleSend}>
-                                <Send size={18} />
-                            </Button>
-                        </div>
-                    </Card>
-                </div>
-            </main>
+                        </Tooltip>
+
+                        <Tooltip title={isVideoOff ? "Start Video" : "Stop Video"}>
+                            <Button
+                                type={isVideoOff ? "default" : "primary"}
+                                danger={isVideoOff}
+                                shape="circle"
+                                size="large"
+                                onClick={toggleVideo}
+                                icon={isVideoOff ? <VideoCameraAddOutlined /> : <VideoCameraOutlined />}
+                                className="shadow-lg border-none h-12 w-12 flex items-center justify-center"
+                            />
+                        </Tooltip>
+
+                        <Tooltip title="Share Screen">
+                            <Button
+                                type={isScreenSharing ? "primary" : "default"}
+                                shape="circle"
+                                size="large"
+                                onClick={toggleScreenShare}
+                                icon={<DesktopOutlined />}
+                                className={`shadow-lg border-none h-12 w-12 flex items-center justify-center ${isScreenSharing ? 'bg-emerald-600' : 'bg-white/20 text-white'}`}
+                            />
+                        </Tooltip>
+
+                        <Divider type="vertical" className="bg-white/10 h-8 mx-2" />
+
+                        <Button
+                            type="primary"
+                            danger
+                            shape="round"
+                            size="large"
+                            onClick={leaveSession}
+                            icon={<PhoneOutlined />}
+                            className="shadow-lg h-12 px-8 font-bold border-none"
+                        >
+                            Leave Room
+                        </Button>
+                    </div>
+                </Content>
+
+                {/* Sidebar (Utility: Chat/Participants) */}
+                <Sider
+                    width={350}
+                    theme="light"
+                    className="border-l border-gray-100 hidden lg:block"
+                >
+                    <Tabs
+                        activeKey={activeTab}
+                        onChange={setActiveTab}
+                        centered
+                        className="live-tabs h-full"
+                        items={tabItems}
+                    />
+                </Sider>
+            </Layout>
+
+            <style>{`
+                .live-tabs .ant-tabs-nav {
+                    padding: 8px 16px;
+                    margin: 0 !important;
+                    background: #fff;
+                    border-bottom: 1px solid #f0f0f0;
+                }
+                .live-tabs .ant-tabs-content-holder {
+                    height: calc(100% - 46px);
+                }
+                .live-tabs .ant-tabs-tabpane {
+                    height: 100%;
+                }
+            `}</style>
         </MainLayout>
     );
 };
 
-export default LiveSession;
+export default LiveRoom;

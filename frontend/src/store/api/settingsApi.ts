@@ -195,36 +195,6 @@ export interface StaffCustomField {
   updatedAt: string;
 }
 
-export interface CustomerDataField {
-  _id: string;
-  name: string;
-  type: 'text' | 'number' | 'date' | 'email' | 'phone' | 'dropdown' | 'textarea' | 'boolean';
-  label: string;
-  placeholder?: string;
-  required: boolean;
-  options?: string[];
-  businessId: string;
-  order: number;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TaskCustomField {
-  _id: string;
-  name: string;
-  type: 'text' | 'number' | 'date' | 'email' | 'phone' | 'dropdown' | 'textarea' | 'boolean';
-  label: string;
-  placeholder?: string;
-  required: boolean;
-  options?: string[];
-  businessId: string;
-  order: number;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface BusinessUser {
   _id: string;
   name: string;
@@ -572,86 +542,6 @@ export const settingsApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['StaffCustomFields'],
     }),
-    // Customer Data Fields
-    getCustomerDataFields: builder.query<
-      { success: boolean; data: { fields: CustomerDataField[] } },
-      void
-    >({
-      query: () => '/settings/customer-data-fields',
-      providesTags: ['CustomerDataFields'],
-    }),
-    createCustomerDataField: builder.mutation<
-      { success: boolean; data: { field: CustomerDataField } },
-      Partial<CustomerDataField>
-    >({
-      query: (fieldData) => ({
-        url: '/settings/customer-data-fields',
-        method: 'POST',
-        body: fieldData,
-      }),
-      invalidatesTags: ['CustomerDataFields'],
-    }),
-    updateCustomerDataField: builder.mutation<
-      { success: boolean; data: { field: CustomerDataField } },
-      { id: string; data: Partial<CustomerDataField> }
-    >({
-      query: ({ id, data }) => ({
-        url: `/settings/customer-data-fields/${id}`,
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: ['CustomerDataFields'],
-    }),
-    deleteCustomerDataField: builder.mutation<
-      { success: boolean; data: { message: string } },
-      string
-    >({
-      query: (id) => ({
-        url: `/settings/customer-data-fields/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['CustomerDataFields'],
-    }),
-    // Task Custom Fields
-    getTaskCustomFields: builder.query<
-      { success: boolean; data: { fields: TaskCustomField[] } },
-      void
-    >({
-      query: () => '/settings/task-custom-fields',
-      providesTags: ['TaskCustomFields'],
-    }),
-    createTaskCustomField: builder.mutation<
-      { success: boolean; data: { field: TaskCustomField } },
-      Partial<TaskCustomField>
-    >({
-      query: (fieldData) => ({
-        url: '/settings/task-custom-fields',
-        method: 'POST',
-        body: fieldData,
-      }),
-      invalidatesTags: ['TaskCustomFields'],
-    }),
-    updateTaskCustomField: builder.mutation<
-      { success: boolean; data: { field: TaskCustomField } },
-      { id: string; data: Partial<TaskCustomField> }
-    >({
-      query: ({ id, data }) => ({
-        url: `/settings/task-custom-fields/${id}`,
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: ['TaskCustomFields'],
-    }),
-    deleteTaskCustomField: builder.mutation<
-      { success: boolean; data: { message: string } },
-      string
-    >({
-      query: (id) => ({
-        url: `/settings/task-custom-fields/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['TaskCustomFields'],
-    }),
     // Manage Users
     getBusinessUsers: builder.query<
       { success: boolean; data: { users: BusinessUser[] } },
@@ -662,48 +552,6 @@ export const settingsApi = apiSlice.injectEndpoints({
         params,
       }),
       providesTags: ['BusinessUsers'],
-    }),
-
-    // Task Settings
-    getTaskSettings: builder.query<
-      { success: boolean; data: { settings: { autoApprove: boolean; requireApprovalOnComplete: boolean; enableOtpVerification: boolean; staffWhoCanSchedule: string[] } } },
-      void
-    >({
-      query: () => '/settings/task-settings',
-      providesTags: ['TaskSettings'],
-    }),
-
-    updateTaskSettings: builder.mutation<
-      { success: boolean; data: { settings: any } },
-      { autoApprove?: boolean; requireApprovalOnComplete?: boolean; enableOtpVerification?: boolean; staffWhoCanSchedule?: string[] }
-    >({
-      query: (data) => ({
-        url: '/settings/task-settings',
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: ['TaskSettings'],
-    }),
-
-    // Geo Settings
-    getGeoSettings: builder.query<
-      { success: boolean; data: { enabled: boolean } },
-      void
-    >({
-      query: () => '/settings/geo-settings',
-      providesTags: ['GeoSettings'],
-    }),
-
-    updateGeoSettings: builder.mutation<
-      { success: boolean; data: { enabled: boolean } },
-      { enabled: boolean }
-    >({
-      query: (data) => ({
-        url: '/settings/geo-settings',
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: ['GeoSettings'],
     }),
   }),
 });
@@ -744,18 +592,6 @@ export const {
   useCreateStaffCustomFieldMutation,
   useUpdateStaffCustomFieldMutation,
   useDeleteStaffCustomFieldMutation,
-  useGetCustomerDataFieldsQuery,
-  useCreateCustomerDataFieldMutation,
-  useUpdateCustomerDataFieldMutation,
-  useDeleteCustomerDataFieldMutation,
-  useGetTaskCustomFieldsQuery,
-  useCreateTaskCustomFieldMutation,
-  useUpdateTaskCustomFieldMutation,
-  useDeleteTaskCustomFieldMutation,
   useGetBusinessUsersQuery,
-  useGetTaskSettingsQuery,
-  useUpdateTaskSettingsMutation,
-  useGetGeoSettingsQuery,
-  useUpdateGeoSettingsMutation,
 } = settingsApi;
 

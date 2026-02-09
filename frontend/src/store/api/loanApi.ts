@@ -18,16 +18,9 @@ export interface Loan {
   approvedBy?: {
     _id: string;
     name: string;
-    email?: string;
+    employeeId: string;
   };
   approvedAt?: string;
-  rejectedBy?: {
-    _id: string;
-    name: string;
-    email?: string;
-  };
-  rejectedAt?: string;
-  rejectionReason?: string;
   startDate?: string;
   endDate?: string;
   remainingAmount: number;
@@ -87,17 +80,6 @@ export const loanApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, id) => [{ type: 'Payroll', id }, 'Payroll'],
     }),
-    rejectLoan: builder.mutation<
-      { success: boolean; data: { loan: Loan } },
-      { id: string; reason: string }
-    >({
-      query: ({ id, reason }) => ({
-        url: `/loans/${id}/reject`,
-        method: 'PATCH',
-        body: { reason },
-      }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'Payroll', id }, 'Payroll'],
-    }),
   }),
 });
 
@@ -106,6 +88,5 @@ export const {
   useGetLoanByIdQuery,
   useCreateLoanMutation,
   useApproveLoanMutation,
-  useRejectLoanMutation,
 } = loanApi;
 

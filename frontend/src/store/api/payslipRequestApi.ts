@@ -15,15 +15,9 @@ export interface PayslipRequest {
   approvedBy?: {
     _id: string;
     name: string;
-    email?: string;
+    employeeId: string;
   };
   approvedAt?: string;
-  rejectedBy?: {
-    _id: string;
-    name: string;
-    email?: string;
-  };
-  rejectedAt?: string;
   rejectionReason?: string;
   payrollId?: {
     _id: string;

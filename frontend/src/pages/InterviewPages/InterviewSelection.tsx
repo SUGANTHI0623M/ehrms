@@ -193,7 +193,7 @@ const InterviewSelection = ({ type, roundNumber }: InterviewSelectionProps) => {
           {type !== 'selected' && <TableHead>Status</TableHead>}
           {type === 'selected' && <TableHead>{activeTab === 'selected' ? 'Selected On' : 'Rejected On'}</TableHead>}
           {type === "round" && <TableHead>Interview Schedules</TableHead>}
-          <TableHead className="text-center">Action</TableHead>
+          <TableHead className="text-right">Action</TableHead>
         </TableRow>
       </TableHeader>
     );
@@ -253,14 +253,14 @@ const InterviewSelection = ({ type, roundNumber }: InterviewSelectionProps) => {
               </TableCell>
             )}
 
-            <TableCell className="text-center">
+            <TableCell className="text-right">
               {type === 'selected' ? (
                 // Custom Actions for Selected / Rejected Module
                 activeTab === 'selected' ? (
                   // Show Select/Reject buttons for INTERVIEW_COMPLETED candidates
                   // Show Onboarding button for already SELECTED candidates
                   candidate.status === 'INTERVIEW_COMPLETED' ? (
-                    <div className="flex gap-2 justify-center">
+                    <div className="flex gap-2 justify-end">
                       <Button
                         size="sm"
                         variant="outline"

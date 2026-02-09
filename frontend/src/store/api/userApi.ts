@@ -33,8 +33,6 @@ export interface User {
   };
   departmentId?: string;
   teamId?: string;
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager'; // Optional designation for Employee role
-  sidebarPermissions?: string[]; // Admin menu items employee can access
   createdAt: string;
   updatedAt: string;
 }
@@ -65,8 +63,6 @@ export interface CreateUserRequest {
     module: string;
     actions: string[];
   }>;
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager';
-  sidebarPermissions?: string[];
 }
 
 export interface UpdateUserRequest {
@@ -85,8 +81,6 @@ export interface UpdateUserRequest {
     module: string;
     actions: string[];
   }>;
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager';
-  sidebarPermissions?: string[];
 }
 
 export interface GetUsersParams {

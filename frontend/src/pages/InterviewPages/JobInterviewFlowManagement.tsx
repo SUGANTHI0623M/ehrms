@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,10 +59,7 @@ const JobInterviewFlowManagement = () => {
   const { data: flowData, isLoading: isLoadingFlow } = useGetJobInterviewFlowQuery(jobId || "", {
     skip: !jobId,
   });
-  const { data: usersData } = useGetUsersQuery({ 
-    limit: 1000,
-    isActive: 'true' // Only fetch active users
-  });
+  const { data: usersData } = useGetUsersQuery({ limit: 1000 });
   const { data: branchesData } = useGetActiveBranchesQuery();
   const [saveFlow, { isLoading: isSaving }] = useSaveJobInterviewFlowMutation();
 
@@ -70,28 +67,6 @@ const JobInterviewFlowManagement = () => {
   const existingRounds = flowData?.data?.job?.interviewRounds || [];
   const users = usersData?.data?.users || [];
   const branches = branchesData?.data?.branches || [];
-
-  // Debug: Log users to see what we're getting
-  useEffect(() => {
-    if (users.length > 0) {
-      console.log('📋 All users loaded:', users.length);
-      console.log('Users with roles:', users.map(u => ({
-        name: u.name,
-        role: u.role,
-        subRole: u.subRole,
-        isActive: u.isActive
-      })));
-      
-      // Log users with Employee role
-      const employeeUsers = users.filter(u => u.role === 'Employee');
-      console.log('👤 Employee users:', employeeUsers.length, employeeUsers.map(u => ({
-        name: u.name,
-        role: u.role,
-        subRole: u.subRole,
-        isActive: u.isActive
-      })));
-    }
-  }, [users]);
 
   const [rounds, setRounds] = useState<InterviewRound[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -172,72 +147,26 @@ const JobInterviewFlowManagement = () => {
   const deriveRoleFromInterviewers = (interviewerIds: string[]): 'HR' | 'Senior HR' | 'Recruiter' | 'Manager' | 'Admin' | undefined => {
     if (interviewerIds.length === 0) return undefined;
 
-    // Get roles and subRoles of all selected interviewers
-    const effectiveRoles = interviewerIds
+    // Get roles of all selected interviewers
+    const roles = interviewerIds
       .map(id => {
         const user = users.find(u => u._id === id);
-        if (!user) return null;
-        
-        // For Employee role, use subRole if available, otherwise use role
-        if (user.role === 'Employee' && user.subRole) {
-          return user.subRole; // 'Senior HR', 'Junior HR', or 'Manager'
-        }
-        
-        // For other roles, use the role directly
-        return user.role;
+        return user?.role;
       })
       .filter(Boolean) as string[];
 
-    if (effectiveRoles.length === 0) return undefined;
+    if (roles.length === 0) return undefined;
 
     // Priority order: Admin > Manager > Senior HR > HR > Recruiter
     // If multiple roles, use the highest priority role
-    if (effectiveRoles.some(r => r === 'Admin' || r === 'Super Admin')) return 'Admin';
-    if (effectiveRoles.some(r => r === 'Manager')) return 'Manager';
-    if (effectiveRoles.some(r => r === 'Senior HR')) return 'Senior HR';
-    if (effectiveRoles.some(r => r === 'HR' || r === 'Junior HR')) return 'HR';
-    if (effectiveRoles.some(r => r === 'Recruiter')) return 'Recruiter';
+    if (roles.some(r => r === 'Admin' || r === 'Super Admin')) return 'Admin';
+    if (roles.some(r => r === 'Manager')) return 'Manager';
+    if (roles.some(r => r === 'Senior HR')) return 'Senior HR';
+    if (roles.some(r => r === 'HR')) return 'HR';
+    if (roles.some(r => r === 'Recruiter')) return 'Recruiter';
 
     // Default fallback
     return 'HR';
-  };
-
-  // Get available interviewers for a specific round (all eligible users are available for all rounds)
-  const getAvailableInterviewers = (roundIndex: number) => {
-    const availableUsers = users.filter((u) => {
-      // Only show active users
-      if (!u.isActive) {
-        return false;
-      }
-
-      // Check if user has interview-related role or is Employee with valid subRole
-      const interviewRoles = ['Super Admin', 'Admin', 'Manager', 'HR', 'Senior HR', 'Recruiter'];
-      const userRole = u.role || '';
-      const isInterviewerRole = interviewRoles.includes(userRole);
-      
-      // Check if Employee with valid subRole (Junior HR, Senior HR, or Manager)
-      const validSubRoles = ['Junior HR', 'Senior HR', 'Manager'];
-      const userSubRole = u.subRole || '';
-      const isEmployeeWithValidSubRole = userRole === 'Employee' && 
-        userSubRole && 
-        validSubRoles.includes(userSubRole);
-
-      const hasValidInterviewerRole = isInterviewerRole || isEmployeeWithValidSubRole;
-
-      return hasValidInterviewerRole;
-    });
-
-    // Debug logging
-    console.log(`🔍 Available interviewers for round ${roundIndex}:`, availableUsers.length);
-    console.log('Available users:', availableUsers.map(u => ({
-      name: u.name,
-      role: u.role,
-      subRole: u.subRole,
-      isActive: u.isActive,
-      _id: u._id
-    })));
-
-    return availableUsers;
   };
 
   const handleRoundChange = (index: number, field: keyof InterviewRound, value: any) => {
@@ -503,8 +432,16 @@ const JobInterviewFlowManagement = () => {
                     <Select
                       value={round.assignedInterviewers[0] || ""}
                       onValueChange={(userId) => {
-                        // Allow same interviewer to be selected in multiple rounds
-                        // Update the round with the selected interviewer
+                        // Check if user is assigned to another round
+                        const isAssignedElsewhere = rounds.some((r, rIndex) =>
+                          rIndex !== index && r.assignedInterviewers.includes(userId)
+                        );
+
+                        if (isAssignedElsewhere) {
+                          toast.error("This interviewer is already assigned to another round");
+                          return;
+                        }
+
                         handleRoundChange(index, "assignedInterviewers", [userId]);
                       }}
                     >
@@ -512,32 +449,24 @@ const JobInterviewFlowManagement = () => {
                         <SelectValue placeholder="Select interviewer..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {(() => {
-                          const availableInterviewers = getAvailableInterviewers(index);
-                          
-                          // If no interviewers available, show a message
-                          if (availableInterviewers.length === 0) {
-                            return (
-                              <div className="px-2 py-4 text-sm text-muted-foreground text-center">
-                                No available interviewers. Make sure you have users with roles: Admin, Manager, HR, Senior HR, Recruiter, or Employee with subRole (Junior HR, Senior HR, Manager).
-                              </div>
+                        {users
+                          .filter((u) => {
+                            // Only show users with interview-related roles
+                            const interviewRoles = ['Admin', 'Manager', 'HR', 'Senior HR', 'Recruiter'];
+                            const isInterviewerRole = interviewRoles.includes(u.role || '');
+
+                            // Check if assigned to ANY OTHER round
+                            const isAssignedToOtherRound = rounds.some((r, rIndex) =>
+                              rIndex !== index && r.assignedInterviewers.includes(u._id)
                             );
-                          }
-                          
-                          return availableInterviewers.map((user) => {
-                            // Display name and role/subRole
-                            const displayName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim();
-                            const displayRole = user.role === 'Employee' && user.subRole 
-                              ? `${user.role} (${user.subRole})` 
-                              : user.role;
-                            
-                            return (
-                              <SelectItem key={user._id} value={user._id}>
-                                {displayName} ({displayRole})
-                              </SelectItem>
-                            );
-                          });
-                        })()}
+
+                            return isInterviewerRole && !isAssignedToOtherRound;
+                          })
+                          .map((user) => (
+                            <SelectItem key={user._id} value={user._id}>
+                              {user.name || `${user.firstName} ${user.lastName}`} ({user.role})
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                     {errors[`round-${index}-assignedInterviewers`] && (

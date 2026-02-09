@@ -22,27 +22,14 @@ class SocketService {
       return;
     }
 
-    // Determine socket URL based on environment
+    // Simple check: if localhost, use localhost, else use production
     const hostname = window.location.hostname;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
     
-    let socketUrl: string;
-    if (isLocal) {
-      // Local development: backend is on port 9000
-      socketUrl = 'localhost:9000';
-    } else {
-      // Production: extract backend URL from VITE_API_URL or use current hostname
-      if (import.meta.env.VITE_API_URL) {
-        // Extract hostname:port from VITE_API_URL (e.g., "http://hrms.askeva.net/api" -> "hrms.askeva.net")
-        const apiUrl = import.meta.env.VITE_API_URL.replace(/^https?:\/\//, '').split('/')[0];
-        socketUrl = apiUrl || hostname;
-      } else {
-        // Fallback: use current hostname (backend should be on same domain)
-        socketUrl = hostname;
-      }
-    }
+    const socketUrl = isLocal 
+      ? 'localhost:8000'  // Local development
+      : (import.meta.env.VITE_API_URL?.replace(/^https?:\/\//, '').split('/')[0] || hostname);  // Production
     
-    // Use ws for local, wss for https, ws for http in production
     const protocol = isLocal ? 'ws' : (window.location.protocol === 'https:' ? 'wss' : 'ws');
     const fullUrl = `${protocol}://${socketUrl}`;
 

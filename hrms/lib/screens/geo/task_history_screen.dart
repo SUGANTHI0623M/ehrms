@@ -1,4 +1,5 @@
 // Full ride history: exits, restarts, destination changes – fetched from task_details.
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
@@ -69,6 +70,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
         _displayTask.startTime != null ||
         _displayTask.arrivalTime != null ||
         _displayTask.photoProofUploadedAt != null ||
+        (_displayTask.formFilled == true) ||
         _displayTask.otpVerifiedAt != null ||
         exits.isNotEmpty ||
         restarts.isNotEmpty ||
@@ -185,6 +187,22 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                         ),
                         const SizedBox(height: 24),
                       ],
+                      if (_displayTask.formFilled == true) ...[
+                        _sectionTitle(
+                          'Form Submitted',
+                          Icons.description_rounded,
+                          Colors.teal,
+                        ),
+                        const SizedBox(height: 8),
+                        _formSubmittedTile(
+                          task: _displayTask,
+                          time:
+                              _displayTask.arrivalTime ??
+                              _displayTask.completedDate ??
+                              DateTime.now(),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                       if (_displayTask.otpVerifiedAt != null) ...[
                         _sectionTitle(
                           'OTP Verified',
@@ -291,6 +309,106 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _formSubmittedTile({required Task task, required DateTime time}) {
+    return InkWell(
+      onTap: () => _showFormDetailsBottomSheet(context, task),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.teal.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.description_rounded,
+                size: 26,
+                color: Colors.teal,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Form submitted',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateDisplayUtil.formatTimeline(time),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tap to view form details',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.teal.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.grey.shade400,
+              size: 24,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showFormDetailsBottomSheet(
+    BuildContext context,
+    Task task,
+  ) async {
+    if (task.id == null || task.id!.isEmpty || task.assignedTo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to load form details')),
+      );
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _FormDetailsSheet(
+        taskId: task.id!,
+        staffId: task.assignedTo,
+        taskTitle: task.taskTitle,
+      ),
     );
   }
 
@@ -749,5 +867,310 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
         ],
       ),
     );
+  }
+}
+
+/// Bottom sheet that shows filled form details with photos.
+class _FormDetailsSheet extends StatefulWidget {
+  final String taskId;
+  final String staffId;
+  final String taskTitle;
+
+  const _FormDetailsSheet({
+    required this.taskId,
+    required this.staffId,
+    required this.taskTitle,
+  });
+
+  @override
+  State<_FormDetailsSheet> createState() => _FormDetailsSheetState();
+}
+
+class _FormDetailsSheetState extends State<_FormDetailsSheet> {
+  List<FormResponseData> _forms = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchFormResponses();
+  }
+
+  Future<void> _fetchFormResponses() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final raw = await TaskService().getFormResponsesForTask(
+        taskId: widget.taskId,
+        staffId: widget.staffId,
+      );
+      if (mounted) {
+        setState(() {
+          _forms = raw.map((r) => FormResponseData.fromJson(r)).toList();
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.description_rounded,
+                    color: Colors.teal,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Form Details',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                        Text(
+                          widget.taskTitle,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              size: 48,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _forms.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No form data found',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _fetchFormResponses,
+                      child: ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(20),
+                        itemCount: _forms.length,
+                        itemBuilder: (context, i) {
+                          return _buildFormCard(_forms[i]);
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFormCard(FormResponseData form) {
+    final templateName = form.templateName ?? 'Form';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            templateName,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...form.responses.entries.map((e) {
+            final key = e.key;
+            final val = e.value;
+            if (val is String && val.startsWith('data:image')) {
+              try {
+                final base64 = val.split(',').last;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _formRow(key, null),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 12),
+                      child: GestureDetector(
+                        onTap: () => _showFullImage(context, base64),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.memory(
+                            base64Decode(base64),
+                            height: 150,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              } catch (_) {
+                return _formRow(key, '—');
+              }
+            }
+            return _formRow(key, val?.toString() ?? '—');
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _formRow(String label, String? value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ),
+          if (value != null) ...[
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(fontSize: 13, color: Colors.black),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showFullImage(BuildContext context, String base64) {
+    try {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+              Flexible(
+                child: InteractiveViewer(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      base64Decode(base64),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (_) {}
   }
 }

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Save, MessageCircle, TestTube, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Save, MessageCircle, TestTube } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
 
@@ -21,7 +21,6 @@ const RCSConfig = () => {
     enableRichMessages: true,
     enableInteractiveMessages: true,
   });
-  const [showApiSecret, setShowApiSecret] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,30 +81,14 @@ const RCSConfig = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="apiSecret">API Secret</Label>
-                <div className="relative">
-                  <Input
-                    id="apiSecret"
-                    type={showApiSecret ? "text" : "password"}
-                    placeholder="Enter your API secret"
-                    value={formData.apiSecret}
-                    onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
-                    required
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowApiSecret(!showApiSecret)}
-                  >
-                    {showApiSecret ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  id="apiSecret"
+                  type="password"
+                  placeholder="Enter your API secret"
+                  value={formData.apiSecret}
+                  onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
+                  required
+                />
               </div>
 
               <div className="space-y-2">

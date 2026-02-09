@@ -6,7 +6,6 @@ export interface CandidateFormData {
   lastName: string;
   email: string;
   phone: string;
-  alternativePhone?: string;
   countryCode?: string;
   dateOfBirth?: string;
   gender?: string;
@@ -47,7 +46,6 @@ export interface CandidateFormData {
   courses?: Array<{
     courseName: string;
     institution: string;
-    startDate?: string;
     completionDate?: string;
     duration?: string;
     description?: string;
@@ -185,29 +183,6 @@ export const candidateFormApi = apiSlice.injectEndpoints({
       },
     }),
 
-    // Parse resume using Gemini AI (public, no auth required)
-    parseResume: builder.mutation<
-      { 
-        success: boolean; 
-        data: { 
-          parsedData: any; 
-          fileName: string;
-        }; 
-        message: string 
-      },
-      File
-    >({
-      query: (file) => {
-        const formData = new FormData();
-        formData.append('resume', file);
-        return {
-          url: '/candidate-form/public/parse-resume',
-          method: 'POST',
-          body: formData,
-        };
-      },
-    }),
-
     // Check if candidate with email or phone already exists
     checkCandidateDuplicate: builder.query<
       { success: boolean; data: { exists: boolean; duplicateFields?: string[]; message?: string } },
@@ -267,7 +242,6 @@ export const {
   useGetFormLinksQuery,
   useDeactivateFormLinkMutation,
   useUploadPublicResumeMutation,
-  useParseResumeMutation,
   useCheckCandidateDuplicateQuery,
   useCheckCandidateDuplicateMutationMutation: useCheckCandidateDuplicateMutation,
   useSendCandidateCredentialsMutation,

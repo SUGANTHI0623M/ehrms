@@ -362,10 +362,10 @@ const JobDetailView = ({ job, branchName, branchCity, createdByName }: JobDetail
                 <p className="font-medium">{format(new Date(job.updatedAt), "PPP")}</p>
               </div>
             )}
-            {(job.minExperience !== undefined || job.maxExperience !== undefined) && (
+            {job.experienceLevel && (
               <div>
-                <p className="text-sm text-muted-foreground">Experience Range</p>
-                <p className="font-medium">{formatExperience()}</p>
+                <p className="text-sm text-muted-foreground">Experience Level</p>
+                <p className="font-medium">{job.experienceLevel}</p>
               </div>
             )}
           </div>

@@ -21,8 +21,6 @@ export interface Goal {
   cycle: string;
   achievements?: string;
   challenges?: string;
-  managerNotes?: string;
-  hrNotes?: string;
   selfReview?: {
     rating: number;
     comments: string;
@@ -38,28 +36,6 @@ export interface Goal {
     comments: string;
     submittedAt?: string;
   };
-  createdBy?: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  assignedBy?: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  kraId?: string | {
-    _id: string;
-    title: string;
-    kpi: string;
-    target: string;
-  };
-  completedAt?: string;
-  completedBy?: string;
-  completedApprovedAt?: string;
-  completedApprovedBy?: string;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export interface CreateGoalRequest {
@@ -89,7 +65,7 @@ export const pmsApi = apiSlice.injectEndpoints({
           };
         };
       },
-      { employeeId?: string; status?: string; cycle?: string; search?: string; page?: number; limit?: number; myGoals?: boolean }
+      { employeeId?: string; status?: string; cycle?: string; page?: number; limit?: number }
     >({
       query: (params) => ({
         url: '/pms',
@@ -132,11 +108,7 @@ export const pmsApi = apiSlice.injectEndpoints({
         method: 'PATCH',
         body: { notes },
       }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'PMS', id }, 
-        'PMS',
-        'Performance' // Invalidate KRA cache since KRA progress may have changed
-      ],
+      invalidatesTags: (result, error, { id }) => [{ type: 'PMS', id }, 'PMS'],
     }),
     rejectGoal: builder.mutation<
       { success: boolean; data: { goal: Goal } },
@@ -148,62 +120,6 @@ export const pmsApi = apiSlice.injectEndpoints({
         body: { notes },
       }),
       invalidatesTags: (result, error, { id }) => [{ type: 'PMS', id }, 'PMS'],
-    }),
-    modifyGoal: builder.mutation<
-      { success: boolean; data: { goal: Goal } },
-      { id: string; notes: string }
-    >({
-      query: ({ id, notes }) => ({
-        url: `/pms/${id}/modify`,
-        method: 'PATCH',
-        body: { notes },
-      }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'PMS', id }, 'PMS'],
-    }),
-    completeGoal: builder.mutation<
-      { success: boolean; data: { goal: Goal } },
-      { id: string; completionNotes?: string }
-    >({
-      query: ({ id, completionNotes }) => ({
-        url: `/pms/${id}/complete`,
-        method: 'PATCH',
-        body: { completionNotes },
-      }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'PMS', id }, 
-        'PMS',
-        'Performance' // Invalidate KRA cache
-      ],
-    }),
-    approveGoalCompletion: builder.mutation<
-      { success: boolean; data: { goal: Goal } },
-      { id: string; approvalNotes?: string }
-    >({
-      query: ({ id, approvalNotes }) => ({
-        url: `/pms/${id}/approve-completion`,
-        method: 'PATCH',
-        body: { approvalNotes },
-      }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'PMS', id }, 
-        'PMS',
-        'Performance' // Invalidate KRA cache
-      ],
-    }),
-    reopenGoal: builder.mutation<
-      { success: boolean; data: { goal: Goal } },
-      { id: string; reopenNotes?: string }
-    >({
-      query: ({ id, reopenNotes }) => ({
-        url: `/pms/${id}/reopen`,
-        method: 'PATCH',
-        body: { reopenNotes },
-      }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'PMS', id }, 
-        'PMS',
-        'Performance' // Invalidate KRA cache
-      ],
     }),
     submitReview: builder.mutation<
       { success: boolean; data: { goal: Goal } },
@@ -225,11 +141,7 @@ export const pmsApi = apiSlice.injectEndpoints({
         method: 'PATCH',
         body: data,
       }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'PMS', id }, 
-        'PMS',
-        'Performance' // Invalidate KRA cache since KRA progress may have changed
-      ],
+      invalidatesTags: (result, error, { id }) => [{ type: 'PMS', id }, 'PMS'],
     }),
   }),
 });
@@ -241,10 +153,6 @@ export const {
   useUpdateGoalMutation,
   useApproveGoalMutation,
   useRejectGoalMutation,
-  useModifyGoalMutation,
-  useCompleteGoalMutation,
-  useApproveGoalCompletionMutation,
-  useReopenGoalMutation,
   useSubmitReviewMutation,
   useUpdateGoalProgressMutation,
 } = pmsApi;

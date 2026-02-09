@@ -17,7 +17,7 @@ import {
   GraduationCap,
   Phone,
   AlertCircle,
-} from "lucide-react";                    
+} from "lucide-react";
 import {
   useGetBackgroundVerificationDetailsQuery,
   useUpdateContactInfoMutation,

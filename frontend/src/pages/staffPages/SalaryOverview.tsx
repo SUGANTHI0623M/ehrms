@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, ArrowLeft, Users, Search, DollarSign, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, Users, Search, DollarSign } from "lucide-react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useGetPayrollsQuery, useLazyViewPayslipQuery } from "@/store/api/payrollApi";
 import { useGetStaffQuery, useGetStaffByIdQuery } from "@/store/api/staffApi";
@@ -153,22 +153,10 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search by name, employee ID, or designation..."
-                    className={`pl-10 ${searchQuery ? "pr-10" : ""}`}
+                    className="pl-10"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
-                  {searchQuery && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 hover:bg-transparent"
-                      onClick={() => setSearchQuery("")}
-                      aria-label="Clear search"
-                    >
-                      <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                    </Button>
-                  )}
                 </div>
               </div>
 
@@ -195,7 +183,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                           <TableHead>Designation</TableHead>
                           <TableHead>Department</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead className="text-center">Action</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

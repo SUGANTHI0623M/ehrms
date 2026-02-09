@@ -152,9 +152,6 @@ export interface Staff {
   };
   offerLetterUrl?: string;
   offerLetterParsedAt?: string;
-  
-  // Location Access
-  locationAccess?: boolean;
 }
 
 export interface StaffStats {
@@ -169,7 +166,6 @@ export interface CreateStaffRequest {
   name: string;
   email: string;
   phone: string;
-  countryCode?: string;
   designation: string;
   department: string;
   staffType: 'Full Time' | 'Part Time' | 'Contract' | 'Intern';
@@ -330,162 +326,6 @@ export const staffApi = apiSlice.injectEndpoints({
         'Staff',
       ],
     }),
-    importStaffFromExcel: builder.mutation<
-      {
-        success: boolean;
-        data: {
-          imported: number;
-          failed: number;
-          total: number;
-          success: Array<{ row: number; name: string; email: string; employeeId: string }>;
-          failed: Array<{ row: number; name: string; email: string; error: string }>;
-        };
-      },
-      { file: File }
-    >({
-      query: ({ file }) => {
-        const formData = new FormData();
-        formData.append('file', file);
-        return {
-          url: '/staff/import',
-          method: 'POST',
-          body: formData,
-        };
-      },
-      invalidatesTags: ['Staff'],
-    }),
-    exportStaffToExcel: builder.mutation<Blob, void>({
-      queryFn: async (_, { getState }) => {
-        try {
-          const state = getState() as any;
-          const token = state?.auth?.token || localStorage.getItem('token');
-          
-          // Get API URL using the same logic as apiSlice
-          const getApiUrl = () => {
-            if (typeof window !== 'undefined') {
-              const hostname = window.location.hostname;
-              const isLocal = hostname === 'localhost' || 
-                             hostname === '127.0.0.1' || 
-                             hostname === '0.0.0.0' ||
-                             hostname.startsWith('192.168.') ||
-                             hostname.startsWith('10.') ||
-                             hostname.startsWith('172.16.') ||
-                             hostname === '[::1]';
-              if (isLocal) {
-                return 'http://localhost:9000/api';
-              }
-            }
-            if (import.meta.env.VITE_API_URL) {
-              return import.meta.env.VITE_API_URL;
-            }
-            if (typeof window !== 'undefined') {
-              return window.location.origin + '/api';
-            }
-            return 'http://localhost:9000/api';
-          };
-          
-          const apiUrl = getApiUrl();
-          const response = await fetch(`${apiUrl}/staff/export`, {
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-              ...(token ? { 'authorization': `Bearer ${token}` } : {}),
-            },
-          });
-
-          if (!response.ok) {
-            let errorData;
-            try {
-              errorData = await response.json();
-            } catch {
-              errorData = { error: { message: `Failed to export staff data (${response.status})` } };
-            }
-            return { 
-              error: { 
-                status: response.status, 
-                data: errorData 
-              } 
-            };
-          }
-
-          const blob = await response.blob();
-          return { data: blob };
-        } catch (error: any) {
-          return { 
-            error: { 
-              status: 'CUSTOM_ERROR', 
-              data: { error: { message: error.message || 'Failed to export staff data' } } 
-            } 
-          };
-        }
-      },
-    }),
-    downloadSampleStaffFile: builder.mutation<Blob, void>({
-      queryFn: async (_, { getState }) => {
-        try {
-          const state = getState() as any;
-          const token = state?.auth?.token || localStorage.getItem('token');
-          
-          // Get API URL using the same logic as apiSlice
-          const getApiUrl = () => {
-            if (typeof window !== 'undefined') {
-              const hostname = window.location.hostname;
-              const isLocal = hostname === 'localhost' || 
-                             hostname === '127.0.0.1' || 
-                             hostname === '0.0.0.0' ||
-                             hostname.startsWith('192.168.') ||
-                             hostname.startsWith('10.') ||
-                             hostname.startsWith('172.16.') ||
-                             hostname === '[::1]';
-              if (isLocal) {
-                return 'http://localhost:9000/api';
-              }
-            }
-            if (import.meta.env.VITE_API_URL) {
-              return import.meta.env.VITE_API_URL;
-            }
-            if (typeof window !== 'undefined') {
-              return window.location.origin + '/api';
-            }
-            return 'http://localhost:9000/api';
-          };
-          
-          const apiUrl = getApiUrl();
-          const response = await fetch(`${apiUrl}/staff/sample-file`, {
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-              ...(token ? { 'authorization': `Bearer ${token}` } : {}),
-            },
-          });
-
-          if (!response.ok) {
-            let errorData;
-            try {
-              errorData = await response.json();
-            } catch {
-              errorData = { error: { message: `Failed to download sample file (${response.status})` } };
-            }
-            return { 
-              error: { 
-                status: response.status, 
-                data: errorData 
-              } 
-            };
-          }
-
-          const blob = await response.blob();
-          return { data: blob };
-        } catch (error: any) {
-          return { 
-            error: { 
-              status: 'CUSTOM_ERROR', 
-              data: { error: { message: error.message || 'Failed to download sample file' } } 
-            } 
-          };
-        }
-      },
-    }),
   }),
 });
 
@@ -500,8 +340,5 @@ export const {
   useGetAvailableTemplatesQuery,
   useUploadOfferLetterMutation,
   useUpdateSalaryStructureMutation,
-  useImportStaffFromExcelMutation,
-  useExportStaffToExcelMutation,
-  useDownloadSampleStaffFileMutation,
 } = staffApi;
 

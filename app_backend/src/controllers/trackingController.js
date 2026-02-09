@@ -415,12 +415,12 @@ exports.exitTracking = async (req, res) => {
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
-    const statusLower = String(task.status || '').toLowerCase();
-    const allowedForExit = ['in_progress', 'in progress', 'arrived', 'serving today'];
+    const statusLower = String(task.status || '').toLowerCase().replace(/\s+/g, '');
+    const allowedForExit = ['in_progress', 'inprogress', 'arrived', 'servingtoday', 'holdonarrival', 'reopenedonarrival'];
     if (!allowedForExit.includes(statusLower)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status for exit: task must be in_progress or arrived, got ${task.status}`,
+        message: `Invalid status for exit: task must be in_progress, arrived, holdOnArrival, or reopenedOnArrival, got ${task.status}`,
       });
     }
     const staffIdObj = task.assignedTo?._id || staffId;
@@ -447,10 +447,11 @@ exports.exitTracking = async (req, res) => {
       status: normalizedExitType,
     };
 
-    // When exiting from arrived: use holdOnArrival / exitedOnArrival; else Hold / exited
+    // When exiting from arrived (or holdOnArrival/reopenedOnArrival): use holdOnArrival / exitOnArrival; else Hold / exited
+    const fromArrivedState = ['arrived', 'holdonarrival', 'reopenedonarrival'].includes(statusLower);
     let taskStatus;
-    if (statusLower === 'arrived') {
-      taskStatus = normalizedExitType === 'hold' ? 'holdOnArrival' : 'exitedOnArrival';
+    if (fromArrivedState) {
+      taskStatus = normalizedExitType === 'hold' ? 'holdOnArrival' : 'exitOnArrival';
     } else {
       taskStatus = normalizedExitType === 'hold' ? 'Hold' : 'exited';
     }
@@ -547,10 +548,10 @@ exports.restartTracking = async (req, res) => {
       (statusLower === 'exited' && (exitStatus === 'hold' || exitStatus == null)) ||
       statusLower === 'reopened';
     if (!canRestart) {
-      if (!['exited', 'exitedonarrival', 'reopened', 'reopenedonarrival', 'hold', 'holdonarrival'].includes(statusLower)) {
+      if (!['exited', 'exitedonarrival', 'exitonarrival', 'reopened', 'reopenedonarrival', 'hold', 'holdonarrival'].includes(statusLower)) {
         return res.status(400).json({
           success: false,
-          message: `Invalid status for restart: task must be hold, holdOnArrival, exited, exitedOnArrival, reopened, or reopenedOnArrival, got ${task.status}`,
+          message: `Invalid status for restart: task must be hold, holdOnArrival, exited, exitOnArrival, reopened, or reopenedOnArrival, got ${task.status}`,
         });
       }
       return res.status(400).json({

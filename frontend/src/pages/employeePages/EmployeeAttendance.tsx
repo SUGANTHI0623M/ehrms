@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,13 +14,9 @@ import {
 } from "@/store/api/attendanceApi";
 import { message } from "antd";
 import { useAppSelector } from "@/store/hooks";
-import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Pagination } from "@/components/ui/Pagination";
 import { getLocationWithAddress } from "@/utils/geocoding";
-import { Input } from "@/components/ui/input";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from "@/components/ui/select";
 
 const EmployeeAttendance = () => {
   const currentUser = useAppSelector((state) => state.auth.user);
@@ -31,56 +27,24 @@ const EmployeeAttendance = () => {
   // Get today's attendance
   const { data: todayData, isLoading: isLoadingToday, refetch: refetchToday } = useGetTodayAttendanceQuery();
 
-  // Get employee attendance history - backend will resolve employeeId from current user
+  // Get employee attendance history for current month - backend will resolve employeeId from current user
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(20);
-  const [dateRange, setDateRange] = useState<"week" | "month" | "custom">("month");
-  const [startDate, setStartDate] = useState<string>(
-    format(startOfMonth(new Date()), "yyyy-MM-dd")
-  );
-  const [endDate, setEndDate] = useState<string>(
-    format(endOfMonth(new Date()), "yyyy-MM-dd")
-  );
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-
-  // Calculate date range based on selection - useMemo to ensure it updates when filters change
-  const { start, end } = useMemo(() => {
-    const today = new Date();
-    switch (dateRange) {
-      case "week":
-        return {
-          start: format(subDays(today, 7), "yyyy-MM-dd"),
-          end: format(today, "yyyy-MM-dd"),
-        };
-      case "month":
-        return {
-          start: format(startOfMonth(today), "yyyy-MM-dd"),
-          end: format(endOfMonth(today), "yyyy-MM-dd"),
-        };
-      default:
-        return { start: startDate, end: endDate };
-    }
-  }, [dateRange, startDate, endDate]);
+  
+  // Calculate current month date range
+  const currentMonthStart = format(startOfMonth(new Date()), "yyyy-MM-dd");
+  const currentMonthEnd = format(endOfMonth(new Date()), "yyyy-MM-dd");
 
   const { data: historyData, isLoading: isLoadingHistory } = useGetEmployeeAttendanceQuery(
     { 
       employeeId: "current", 
-      startDate: start,
-      endDate: end,
-      status: statusFilter !== "all" ? statusFilter : undefined,
+      startDate: currentMonthStart,
+      endDate: currentMonthEnd,
       page: historyPage, 
       limit: historyPageSize 
     },
-    { 
-      skip: !currentUser,
-      refetchOnMountOrArgChange: true
-    }
+    { skip: !currentUser }
   );
-
-  // Reset page when filters change
-  useEffect(() => {
-    setHistoryPage(1);
-  }, [dateRange, startDate, endDate, statusFilter]);
 
   const [markAttendance, { isLoading: isMarking }] = useMarkAttendanceMutation();
 
@@ -245,10 +209,7 @@ const EmployeeAttendance = () => {
     return `${hours}h ${mins}m`;
   };
 
-  // Disable punch in if already punched in, or if status is Present/Absent (manually marked by admin/HR)
-  const canPunchIn = !todayAttendance?.punchIn && 
-                     todayAttendance?.status !== "Present" && 
-                     todayAttendance?.status !== "Absent";
+  const canPunchIn = !todayAttendance?.punchIn;
   const canPunchOut = todayAttendance?.punchIn && !todayAttendance?.punchOut;
 
   return (
@@ -422,92 +383,11 @@ const EmployeeAttendance = () => {
             </CardContent>
           </Card>
 
-          {/* Filters */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg">Filters</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs sm:text-sm font-medium">Date Range</label>
-                  <Select
-                    value={dateRange}
-                    onValueChange={(value: "week" | "month" | "custom") => {
-                      setDateRange(value);
-                      if (value === "month") {
-                        const today = new Date();
-                        setStartDate(format(startOfMonth(today), "yyyy-MM-dd"));
-                        setEndDate(format(endOfMonth(today), "yyyy-MM-dd"));
-                      } else if (value === "week") {
-                        const today = new Date();
-                        setStartDate(format(subDays(today, 7), "yyyy-MM-dd"));
-                        setEndDate(format(today, "yyyy-MM-dd"));
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="week">Last 7 Days</SelectItem>
-                      <SelectItem value="month">This Month</SelectItem>
-                      <SelectItem value="custom">Custom Range</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {dateRange === "custom" && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-xs sm:text-sm font-medium">Start Date</label>
-                      <Input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs sm:text-sm font-medium">End Date</label>
-                      <Input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                  </>
-                )}
-                <div className="space-y-2">
-                  <label className="text-xs sm:text-sm font-medium">Status</label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="Present">Present</SelectItem>
-                      <SelectItem value="Absent">Absent</SelectItem>
-                      <SelectItem value="Half Day">Half Day</SelectItem>
-                      <SelectItem value="On Leave">On Leave</SelectItem>
-                      <SelectItem value="Not Marked">Not Marked</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Attendance History */}
+          {/* Attendance History - Current Month */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>
-                  Attendance History
-                  {dateRange === "month" && ` - ${format(new Date(), "MMMM yyyy")}`}
-                  {dateRange === "week" && " - Last 7 Days"}
-                  {dateRange === "custom" && ` - ${format(new Date(startDate), "MMM dd")} to ${format(new Date(endDate), "MMM dd, yyyy")}`}
-                </CardTitle>
+                <CardTitle>Attendance History - {format(new Date(), "MMMM yyyy")}</CardTitle>
                 {historyPagination && (
                   <span className="text-sm text-muted-foreground">
                     {historyPagination.total} records

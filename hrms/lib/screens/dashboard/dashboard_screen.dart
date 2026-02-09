@@ -20,6 +20,8 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late int _currentIndex;
+  int _requestsSubTabIndex = 0;
+  int _attendanceSubTabIndex = 0;
 
   @override
   void initState() {
@@ -35,18 +37,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _onDashboardNavigate(int index, {int subTabIndex = 0}) {
+    if (index >= 0 && index <= 4) {
+      setState(() {
+        _currentIndex = index;
+        if (index == 1) _requestsSubTabIndex = subTabIndex;
+        if (index == 4) _attendanceSubTabIndex = subTabIndex;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       HomeDashboardScreen(
-        onNavigate: null,
+        onNavigate: _onDashboardNavigate,
         embeddedInDashboard: true,
         onNavigateToIndex: _onDrawerNavigateToIndex,
         dashboardTabIndex: _currentIndex,
         isActiveTab: _currentIndex == 0,
       ),
       MyRequestsScreen(
-        initialTabIndex: 0,
+        key: ValueKey('Requests_$_requestsSubTabIndex'),
+        initialTabIndex: _requestsSubTabIndex,
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
       ),
@@ -60,8 +73,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onNavigateToIndex: _onDrawerNavigateToIndex,
       ),
       AttendanceScreen(
-        key: const ValueKey('Attendance'),
-        initialTabIndex: 0,
+        key: ValueKey('Attendance_$_attendanceSubTabIndex'),
+        initialTabIndex: _attendanceSubTabIndex,
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
         isActiveTab: _currentIndex == 4,

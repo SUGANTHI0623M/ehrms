@@ -201,64 +201,64 @@ class MyGoalsScreenState extends State<MyGoalsScreen> {
   @override
   Widget build(BuildContext context) {
     final body = _isLoading
-        ? Center(child: CircularProgressIndicator(color: AppColors.primary))
-        : _error != null
-        ? _buildErrorState()
-        : RefreshIndicator(
-            onRefresh: _fetchGoals,
-            color: AppColors.primary,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
+          ? Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : _error != null
+          ? _buildErrorState()
+          : RefreshIndicator(
+              onRefresh: _fetchGoals,
+              color: AppColors.primary,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 80),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Manage your goals and track progress',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Manage your goals and track progress',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSummaryCards(),
-                  const SizedBox(height: 24),
-                  _buildFiltersSection(),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.flag_rounded,
-                        size: 20,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'My Goals (${_goals.length})',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
+                    const SizedBox(height: 16),
+                    _buildSummaryCards(),
+                    const SizedBox(height: 24),
+                    _buildFiltersSection(),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.flag_rounded,
+                          size: 20,
+                          color: AppColors.primary,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _goals.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _goals.length,
-                          itemBuilder: (context, index) {
-                            return _buildGoalCard(
-                              _goals[index] as Map<String, dynamic>,
-                            );
-                          },
+                        const SizedBox(width: 8),
+                        Text(
+                          'My Goals (${_goals.length})',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _goals.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _goals.length,
+                            itemBuilder: (context, index) {
+                              return _buildGoalCard(
+                                _goals[index] as Map<String, dynamic>,
+                              );
+                            },
+                          ),
+                  ],
+                ),
               ),
-            ),
           );
 
     if (widget.embeddedInModule) {
@@ -346,31 +346,31 @@ class MyGoalsScreenState extends State<MyGoalsScreen> {
   }
 
   Widget _buildSummaryCards() {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 2,
       mainAxisSpacing: 8,
       crossAxisSpacing: 8,
       childAspectRatio: 1.6,
-      children: [
-        _buildSummaryCard('Total', _total.toString(), Icons.flag_rounded),
-        _buildSummaryCard(
-          'Approved',
-          _approved.toString(),
-          Icons.check_circle_rounded,
-        ),
-        _buildSummaryCard(
-          'Pending',
-          _pending.toString(),
-          Icons.schedule_rounded,
-        ),
-        _buildSummaryCard(
-          'Completed',
-          _completed.toString(),
-          Icons.done_all_rounded,
-        ),
-      ],
+          children: [
+            _buildSummaryCard('Total', _total.toString(), Icons.flag_rounded),
+            _buildSummaryCard(
+              'Approved',
+              _approved.toString(),
+              Icons.check_circle_rounded,
+            ),
+            _buildSummaryCard(
+              'Pending',
+              _pending.toString(),
+              Icons.schedule_rounded,
+            ),
+            _buildSummaryCard(
+              'Completed',
+              _completed.toString(),
+              Icons.done_all_rounded,
+            ),
+          ],
     );
   }
 
@@ -523,15 +523,15 @@ class MyGoalsScreenState extends State<MyGoalsScreen> {
             children: [
               Expanded(
                 child: Text(
-                  title,
-                  style: TextStyle(
+                title,
+                style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary,
+                ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                ),
+              ),
               ),
               Icon(icon, size: 14, color: AppColors.primary),
             ],

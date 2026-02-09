@@ -45,7 +45,6 @@ import {
 } from "@/utils/salaryStructureCalculation.util";
 import { useAppSelector } from "@/store/hooks";
 import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
-import { formatErrorMessage } from "@/utils/errorFormatter";
 
 const StaffProfile = () => {
   const [activeTab, setActiveTab] = useState("profile");
@@ -153,7 +152,7 @@ const StaffProfile = () => {
     if (!id) return;
     try {
       // Prepare update data - convert "none" to undefined and empty strings to undefined
-      const updateData: any = {
+      const updateData = {
         ...formData,
         shiftName: formData.shiftName && formData.shiftName !== "none" ? formData.shiftName : undefined,
         attendanceTemplateId: formData.attendanceTemplateId && formData.attendanceTemplateId !== "none" ? formData.attendanceTemplateId : undefined,
@@ -161,14 +160,6 @@ const StaffProfile = () => {
         holidayTemplateId: formData.holidayTemplateId && formData.holidayTemplateId !== "none" ? formData.holidayTemplateId : undefined,
         branchId: formData.branchId && formData.branchId !== "none" ? formData.branchId : undefined,
       };
-
-      // Convert empty strings for enum fields to undefined to avoid validation errors
-      if (updateData.gender === "" || updateData.gender === "none") {
-        updateData.gender = undefined;
-      }
-      if (updateData.maritalStatus === "" || updateData.maritalStatus === "none") {
-        updateData.maritalStatus = undefined;
-      }
       
       await updateStaff({
         id,
@@ -178,8 +169,7 @@ const StaffProfile = () => {
       setIsEditing(false);
       refetch(); // Refresh the data
     } catch (err: any) {
-      const errorMessage = formatErrorMessage(err);
-      message.error(errorMessage);
+      message.error(err?.data?.error?.message || "Failed to update profile");
     }
   };
 
@@ -192,8 +182,7 @@ const StaffProfile = () => {
       }).unwrap();
       message.success(`Staff ${newStatus.toLowerCase()} successfully`);
     } catch (err: any) {
-      const errorMessage = formatErrorMessage(err);
-      message.error(errorMessage);
+      message.error(err?.data?.error?.message || "Failed to update status");
     }
   };
 
@@ -236,8 +225,8 @@ const StaffProfile = () => {
 
   // Helper to safely get manager name if populated or string
   const getManagerName = (manager: any) => {
-    if (!manager) return "";
-    return typeof manager === 'object' ? manager.name : "";
+    if (!manager) return "N/A";
+    return typeof manager === 'object' ? manager.name : "N/A";
   };
 
   return (
@@ -278,23 +267,19 @@ const StaffProfile = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {activeTab === "profile" && (
+                  {isEditing ? (
                     <>
-                      {isEditing ? (
-                        <>
-                          <Button variant="outline" size="sm" onClick={() => setIsEditing(false)}>
-                            <X className="w-4 h-4 mr-2" /> Cancel
-                          </Button>
-                          <Button size="sm" onClick={handleSave} disabled={isUpdating}>
-                            <Save className="w-4 h-4 mr-2" /> {isUpdating ? 'Saving...' : 'Save Changes'}
-                          </Button>
-                        </>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                          <Edit className="w-4 h-4 mr-2" /> Edit Profile
-                        </Button>
-                      )}
+                      <Button variant="outline" size="sm" onClick={() => setIsEditing(false)}>
+                        <X className="w-4 h-4 mr-2" /> Cancel
+                      </Button>
+                      <Button size="sm" onClick={handleSave} disabled={isUpdating}>
+                        <Save className="w-4 h-4 mr-2" /> {isUpdating ? 'Saving...' : 'Save Changes'}
+                      </Button>
                     </>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                      <Edit className="w-4 h-4 mr-2" /> Edit Profile
+                    </Button>
                   )}
 
                   <Select onValueChange={handleStatusChange}>
@@ -454,11 +439,11 @@ const StaffProfile = () => {
                       </div>
                       <div className="space-y-2">
                         <Label>Reporting Manager</Label>
-                        <Input value={getManagerName(employeeData.managerId) || ""} readOnly className="bg-muted" placeholder="Not assigned" />
+                        <Input value={getManagerName(employeeData.managerId)} readOnly className="bg-muted" />
                       </div>
                       <div className="space-y-2">
                         <Label>Role</Label>
-                        <Input value={employeeData.designation || ""} readOnly className="bg-muted" placeholder="Not assigned" />
+                        <Input value={employeeData.role || "N/A"} readOnly className="bg-muted" />
                       </div>
                     </CardContent>
                   </Card>
@@ -1290,8 +1275,7 @@ const StaffProfile = () => {
                         setVerifyNotes("");
                         refetchOnboarding();
                       } catch (error: any) {
-                        const errorMessage = formatErrorMessage(error);
-                        message.error(errorMessage);
+                        message.error(error?.data?.error?.message || "Failed to verify document");
                       }
                     }}
                     disabled={isVerifying}

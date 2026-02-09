@@ -191,7 +191,7 @@ const OfferLetterTemplateList = () => {
                                             <TableHead>Last Modified</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>View</TableHead>
-                                            <TableHead className="text-center">Actions</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -222,7 +222,7 @@ const OfferLetterTemplateList = () => {
                                                         <Eye className="h-4 w-4" />
                                                     </Button>
                                                 </TableCell>
-                                                <TableCell className="text-center">
+                                                <TableCell className="text-right">
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
                                                             <Button variant="ghost" size="sm">

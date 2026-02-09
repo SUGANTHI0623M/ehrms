@@ -544,12 +544,14 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             mainAxisSize: MainAxisSize.min,
-                            children: List.generate(4, (i) {
-                              return SizedBox(
-                                width: 56,
-                                child: TextField(
+                            children: [
+                              for (int i = 0; i < 4; i++) ...[
+                                if (i > 0) const SizedBox(width: 12),
+                                SizedBox(
+                                  width: 56,
+                                  child: TextField(
                                   controller: _controllers[i],
                                   focusNode: _focusNodes[i],
                                   keyboardType: TextInputType.number,
@@ -600,8 +602,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                     setState(() => _error = null);
                                   },
                                 ),
-                              );
-                            }),
+                              ),
+                            ],
+                            ],
                           ),
                         ),
                         if (_error != null) ...[

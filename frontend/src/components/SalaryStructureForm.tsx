@@ -738,7 +738,7 @@ const SalaryStructureForm = ({ staffId, staff, onSave }: SalaryStructureFormProp
                     onChange={(e) => handleInputChange('mobileAllowanceType', e.target.value)}
                   >
                     <option value="monthly">Monthly</option>
-                    {/* <option value="yearly">Yearly</option> */}
+                    <option value="yearly">Yearly</option>
                   </select>
                 </div>
               </div>

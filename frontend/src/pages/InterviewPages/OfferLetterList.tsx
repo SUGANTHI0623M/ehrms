@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Eye, Edit, Send, MoreVertical, FileText, X, User, Briefcase, Calendar, Wallet as DollarSign, ArrowRight, RefreshCw } from "lucide-react";
+import { Search, Eye, Edit, Send, MoreVertical, FileText, X, User, Briefcase, Calendar, DollarSign, ArrowRight, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -323,7 +323,7 @@ const OfferLetterList = () => {
                         <TableHead>Joining Date</TableHead>
                         <TableHead>Expiry Date</TableHead>
                         <TableHead>Created Date</TableHead>
-                        <TableHead className="text-center">Actions</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -388,7 +388,7 @@ const OfferLetterList = () => {
                               {offer.createdAt ? formatDate(offer.createdAt) : "N/A"}
                             </span>
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm">

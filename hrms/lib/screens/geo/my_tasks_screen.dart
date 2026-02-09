@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
+import 'package:hrms/config/app_route_observer.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/task_service.dart';
@@ -35,7 +36,7 @@ class MyTasksScreen extends StatefulWidget {
 }
 
 class _MyTasksScreenState extends State<MyTasksScreen>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+    with WidgetsBindingObserver, RouteAware, SingleTickerProviderStateMixin {
   String? _loggedInStaffId;
   List<Task> _tasks = [];
   bool _isLoading = true;
@@ -63,11 +64,26 @@ class _MyTasksScreenState extends State<MyTasksScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    if (mounted) _fetchTasks();
   }
 
   List<Task> get _filteredTasks {
@@ -914,7 +930,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                               task.status ==
                                                   TaskStatus.holdOnArrival ||
                                               task.status ==
-                                                  TaskStatus.reopenedOnArrival) {
+                                                  TaskStatus
+                                                      .reopenedOnArrival) {
                                             Navigator.push(
                                               context,
                                               MaterialPageRoute(

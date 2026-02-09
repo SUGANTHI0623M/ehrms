@@ -1,6 +1,7 @@
 // Task Completion detailed view with timeline and route map.
 // Fetches data from DB (tasks + trackings). Timeline + map side-by-side.
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
@@ -222,6 +223,10 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
                       _buildTimingsCard(task),
                       const SizedBox(height: 10),
                       _buildProofsCard(task),
+                      if (report?.formResponses.isNotEmpty == true) ...[
+                        const SizedBox(height: 10),
+                        _buildFormsCard(report!),
+                      ],
                       const SizedBox(height: 10),
                       Text(
                         'Activity Timeline & Route',
@@ -589,25 +594,123 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
     );
   }
 
-  Widget _proofRow(String label, String value) {
+  Widget _buildFormsCard(TaskCompletionReport report) {
+    final forms = report.formResponses;
+    if (forms.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('📋', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Text(
+                'Filled Forms',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...forms.map((form) {
+            final templateName = form.templateName ?? 'Form';
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  templateName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ...form.responses.entries.map((e) {
+                  final key = e.key;
+                  final val = e.value;
+                  if (val is String && val.startsWith('data:image')) {
+                    try {
+                      final base64 = val.split(',').last;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _proofRow(key, null),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, bottom: 12),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                base64Decode(base64),
+                                height: 100,
+                                width: 100,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    } catch (_) {
+                      return _proofRow(key, '—');
+                    }
+                  }
+                  return _proofRow(key, val?.toString() ?? '—');
+                }),
+                if (forms.indexOf(form) < forms.length - 1)
+                  const SizedBox(height: 12),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _proofRow(String label, String? value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 130,
             child: Text(
               label,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 12, color: Colors.black),
+          if (value != null) ...[
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(fontSize: 12, color: Colors.black),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

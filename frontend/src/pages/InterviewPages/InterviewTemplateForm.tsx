@@ -186,26 +186,11 @@ const InterviewTemplateForm = ({
   // Fetch users for interviewer assignment
   const { data: usersData } = useGetUsersQuery({
     limit: 1000,
-    isActive: 'true', // Only fetch active users
   });
   const users = usersData?.data?.users || [];
-  
-  // Filter eligible interviewers: Admin, Manager, HR, Senior HR, Recruiter, and Employees with valid subRoles
-  const interviewerUsers = users.filter((u) => {
-    if (!u.isActive) return false;
-    
-    // Check if user has interview-related role
-    const interviewRoles = ['Super Admin', 'Admin', 'Manager', 'HR', 'Senior HR', 'Recruiter'];
-    const isInterviewerRole = interviewRoles.includes(u.role || '');
-    
-    // Check if Employee with valid subRole (Junior HR, Senior HR, or Manager)
-    const validSubRoles = ['Junior HR', 'Senior HR', 'Manager'];
-    const isEmployeeWithValidSubRole = u.role === 'Employee' && 
-      u.subRole && 
-      validSubRoles.includes(u.subRole);
-    
-    return isInterviewerRole || isEmployeeWithValidSubRole;
-  });
+  const interviewerUsers = users.filter(
+    (u) => ["Admin", "Manager", "HR", "Senior HR", "Recruiter"].includes(u.role)
+  );
 
   const {
     register,
@@ -405,8 +390,7 @@ const InterviewTemplateForm = ({
           roundName: getRoundName(index),
           enabled: round.enabled,
           assignedInterviewers: round.assignedInterviewers || [],
-          // assignedRole is auto-derived from interviewers on backend, so we don't send it
-          assignedRole: undefined, // Backend will derive this
+          // assignedRole is auto-derived from interviewers on backend
           questions: (round.questions || []).map((q) => ({
             questionText: q.questionText.trim(),
             questionType: q.questionType,
@@ -609,6 +593,9 @@ const InterviewTemplateForm = ({
                 }}
                 canRemove={roundFields.length > 2 && roundIndex >= 2}
                 interviewerUsers={interviewerUsers}
+                allAssignedInterviewers={watch("rounds")
+                  ?.flatMap((r) => r.assignedInterviewers || [])
+                  .filter(Boolean)}
               />
             ))}
           </div>
@@ -667,6 +654,7 @@ interface RoundFormProps {
   onRemove: () => void;
   canRemove: boolean;
   interviewerUsers: any[];
+  allAssignedInterviewers: string[];
 }
 
 const RoundForm = ({
@@ -679,6 +667,7 @@ const RoundForm = ({
   onRemove,
   canRemove,
   interviewerUsers,
+  allAssignedInterviewers,
 }: RoundFormProps) => {
   const round = watch(`rounds.${roundIndex}`);
   const isEnabled = round?.enabled;
@@ -736,19 +725,16 @@ const RoundForm = ({
                       <SelectValue placeholder="Select interviewer..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {interviewerUsers.map((user) => {
-                        // Display name and role/subRole
-                        const displayName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim();
-                        const displayRole = user.role === 'Employee' && user.subRole 
-                          ? `${user.role} (${user.subRole})` 
-                          : user.role;
-                        
-                        return (
+                      {interviewerUsers
+                        .filter((u) =>
+                          // Include if not used elsewhere OR if it's the current selection for this round
+                          !allAssignedInterviewers.includes(u._id) || selectedInterviewers.includes(u._id)
+                        )
+                        .map((user) => (
                           <SelectItem key={user._id} value={user._id}>
-                            {displayName} ({displayRole})
+                            {user.name} ({user.role})
                           </SelectItem>
-                        );
-                      })}
+                        ))}
                     </SelectContent>
                   </Select>
 
@@ -760,19 +746,13 @@ const RoundForm = ({
                   )}
 
                   {/* Role is automatically derived from selected interviewers on the backend */}
-                  {selectedInterviewers.length > 0 && (() => {
-                    const selectedUser = interviewerUsers.find(u => u._id === selectedInterviewerId);
-                    const displayRole = selectedUser?.role === 'Employee' && selectedUser?.subRole
-                      ? `${selectedUser.role} (${selectedUser.subRole})`
-                      : selectedUser?.role || 'Unknown';
-                    return (
-                      <div className="mt-2 p-2 bg-muted/50 rounded-md">
-                        <p className="text-xs text-muted-foreground">
-                          Role will be set to: {displayRole}
-                        </p>
-                      </div>
-                    );
-                  })()}
+                  {selectedInterviewers.length > 0 && (
+                    <div className="mt-2 p-2 bg-muted/50 rounded-md">
+                      <p className="text-xs text-muted-foreground">
+                        Role will be set to: {interviewerUsers.find(u => u._id === selectedInterviewerId)?.role || 'Unknown'}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">

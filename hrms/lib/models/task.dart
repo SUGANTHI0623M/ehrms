@@ -207,6 +207,9 @@ class Task {
   /// From progressSteps.photoProof when present.
   final bool? photoProof;
 
+  /// From progressSteps.formFilled when present.
+  final bool? formFilled;
+
   /// URL of uploaded photo proof.
   final String? photoProofUrl;
 
@@ -272,6 +275,7 @@ class Task {
     this.isOtpVerified,
     this.otpVerifiedAt,
     this.photoProof,
+    this.formFilled,
     this.photoProofUrl,
     this.photoProofUploadedAt,
     this.requireApprovalOnComplete = false,
@@ -342,6 +346,9 @@ class Task {
       ),
       photoProof: json['progressSteps'] != null
           ? (json['progressSteps']['photoProof'] as bool?)
+          : null,
+      formFilled: json['progressSteps'] != null
+          ? (json['progressSteps']['formFilled'] as bool?)
           : null,
       photoProofUrl: json['photoProofUrl'] as String?,
       photoProofUploadedAt: _dateFromJson(json['photoProofUploadedAt']),
@@ -456,6 +463,7 @@ class Task {
       case 'exited':
         return TaskStatus.exited;
       case 'exitedonarrival':
+      case 'exitonarrival':
         return TaskStatus.exitedOnArrival;
       case 'holdonarrival':
         return TaskStatus.holdOnArrival;
@@ -516,6 +524,7 @@ class Task {
     bool? isOtpVerified,
     DateTime? otpVerifiedAt,
     bool? photoProof,
+    bool? formFilled,
     String? photoProofUrl,
     DateTime? photoProofUploadedAt,
     bool? requireApprovalOnComplete,
@@ -552,6 +561,7 @@ class Task {
       isOtpVerified: isOtpVerified ?? this.isOtpVerified,
       otpVerifiedAt: otpVerifiedAt ?? this.otpVerifiedAt,
       photoProof: photoProof ?? this.photoProof,
+      formFilled: formFilled ?? this.formFilled,
       photoProofUrl: photoProofUrl ?? this.photoProofUrl,
       photoProofUploadedAt: photoProofUploadedAt ?? this.photoProofUploadedAt,
       requireApprovalOnComplete:
@@ -663,16 +673,53 @@ class RoutePoint {
   }
 }
 
+/// Filled form response from completion report.
+class FormResponseData {
+  final String? id;
+  final String? templateName;
+  final Map<String, dynamic> responses;
+
+  const FormResponseData({this.id, this.templateName, required this.responses});
+
+  factory FormResponseData.fromJson(Map<String, dynamic> json) {
+    final templateId = json['templateId'];
+    String? templateName;
+    if (templateId is Map) {
+      templateName =
+          (templateId['templateName'] as String?) ??
+          (templateId['template_name'] as String?);
+    }
+    final resp = json['responses'] as Map<String, dynamic>? ?? {};
+    return FormResponseData(
+      id: _stringFromId(json['_id']),
+      templateName: templateName ?? json['templateName'] as String?,
+      responses: Map<String, dynamic>.from(resp),
+    );
+  }
+
+  static String? _stringFromId(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is Map<dynamic, dynamic>) {
+      final oid = value[r'$oid'];
+      if (oid != null) return oid is String ? oid : oid.toString();
+    }
+    return value.toString();
+  }
+}
+
 /// Full task completion report from API.
 class TaskCompletionReport {
   final Task task;
   final List<TimelineEvent> timeline;
   final List<RoutePoint> routePoints;
+  final List<FormResponseData> formResponses;
 
   const TaskCompletionReport({
     required this.task,
     required this.timeline,
     required this.routePoints,
+    this.formResponses = const [],
   });
 
   factory TaskCompletionReport.fromJson(Map<String, dynamic> json) {
@@ -688,10 +735,15 @@ class TaskCompletionReport {
     final routePoints = routeList
         .map((e) => RoutePoint.fromJson(e as Map<String, dynamic>))
         .toList();
+    final formList = json['formResponses'] as List<dynamic>? ?? [];
+    final formResponses = formList
+        .map((e) => FormResponseData.fromJson(e as Map<String, dynamic>))
+        .toList();
     return TaskCompletionReport(
       task: task,
       timeline: timeline,
       routePoints: routePoints,
+      formResponses: formResponses,
     );
   }
 }

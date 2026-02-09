@@ -256,7 +256,7 @@ const ReferCandidate = () => {
                       <TableHead>Referred By</TableHead>
                       <TableHead>Referral Date</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-center">Actions</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -325,7 +325,7 @@ const ReferCandidate = () => {
                               {formatInterviewStatus(candidate.status)}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-right">
                             <Button
                               variant="ghost"
                               size="sm"

@@ -459,7 +459,7 @@ const AdminAttendance = () => {
                               <TableHead>Punch In</TableHead>
                               <TableHead>Punch Out</TableHead>
                               <TableHead>Work Hours</TableHead>
-                              <TableHead>Late Entry</TableHead>
+                              <TableHead>Late/Early</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead>Leave Type</TableHead>
                               <TableHead>Location</TableHead>

@@ -39,7 +39,7 @@ const TasksReports = () => {
             </TabsList>
 
             <TabsContent value="reports" className="mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Task Reports</CardTitle>
@@ -58,6 +58,18 @@ const TasksReports = () => {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground mb-4">Detailed view of tasks associated with employees</p>
+                    <Button>
+                      <Download className="w-4 h-4 mr-2" />
+                      Download
+                    </Button>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Form Details</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4">Details of forms filled during task completion</p>
                     <Button>
                       <Download className="w-4 h-4 mr-2" />
                       Download

@@ -36,7 +36,7 @@ const getApiUrl = () => {
     
     if (isLocal) {
       // Use localhost for local development
-      return 'http://localhost:9000/api';
+      return 'http://localhost:8000/api';
     }
   }
   
@@ -51,7 +51,7 @@ const getApiUrl = () => {
   }
   
   // Default fallback for SSR or other cases
-  return 'http://localhost:9000/api';
+  return 'http://localhost:8000/api';
 };
 
 const API_URL = getApiUrl();
@@ -270,6 +270,8 @@ export async function uploadOnboardingDocument(
         'image/jpeg',
         'image/jpg',
         'image/png',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       ],
       maxSize: 10 * 1024 * 1024, // 10MB
     }

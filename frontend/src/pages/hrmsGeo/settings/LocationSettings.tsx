@@ -1,4 +1,3 @@
-import { useState, useEffect, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,62 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Search, Users, MapPin, Settings } from "lucide-react";
+import { Search, Filter, Users, MapPin, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useGetStaffQuery, useUpdateStaffMutation } from "@/store/api/staffApi";
-import { message } from "antd";
 
 const LocationSettings = () => {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(100);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Debounce search
-  useEffect(() => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      setCurrentPage(1);
-    }, 500);
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    };
-  }, [searchQuery]);
-
-  // Fetch staff (excluding employees)
-  const { data: staffData, isLoading, refetch } = useGetStaffQuery({
-    search: debouncedSearch || undefined,
-    status: "Active",
-    page: currentPage,
-    limit: pageSize,
-  });
-
-  const [updateStaff] = useUpdateStaffMutation();
-
-  const allStaff = staffData?.data?.staff || [];
-  
-  // Filter to show only staff (exclude employees with role='Employee')
-  const filteredStaff = allStaff.filter((staff) => {
-    return staff.role !== "Employee";
-  });
-
-  // Handle location access toggle
-  const handleLocationAccessToggle = async (staffId: string, currentValue: boolean) => {
-    try {
-      await updateStaff({
-        id: staffId,
-        data: { locationAccess: !currentValue },
-      }).unwrap();
-      message.success(`Location access ${!currentValue ? "enabled" : "disabled"} successfully`);
-      refetch();
-    } catch (error: any) {
-      message.error(error?.data?.error?.message || "Failed to update location access");
-    }
-  };
-
-  const totalCount = filteredStaff.length;
+  const staffMembers = [
+    { name: "ABILASH S", id: "ASKEVA/MDU-79", phone: "+91 9585837520", enabled: false },
+    { name: "ABIRAMI KATHIRESAN", id: "ASKEVA/MDU-93", phone: "+91 6381114196", enabled: false },
+    { name: "AMIRTHA VALLI", id: "ASKEVA/MDU-100", phone: "+91 9025734853", enabled: false },
+    { name: "Harsha Varthannan", id: "ASKEVA/MDU-96", phone: "+91 9751506163", enabled: true },
+    { name: "Hemavathi V", id: "ASKEVA/MDU-105", phone: "+91 8939776886", enabled: false },
+    { name: "J SHAROOK", id: "YIT-0005", phone: "+91 8072345995", enabled: false },
+    { name: "Judit Asha", id: "ASKEVA/MDU-78", phone: "+91 7305634155", enabled: false },
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -101,6 +57,7 @@ const LocationSettings = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle>Staff Location Access</CardTitle>
+                      <Badge className="bg-green-100 text-green-800 mt-2">0 of 1 Licenses Left</Badge>
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground mt-2">
@@ -111,61 +68,47 @@ const LocationSettings = () => {
                   <div className="flex items-center gap-2 mb-4">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                      <Input 
-                        placeholder="Search by name or staff ID" 
-                        className="pl-10"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                      />
+                      <Input placeholder="Search by name or staff ID" className="pl-10" />
                     </div>
+                    <Button variant="outline">
+                      <Filter className="w-4 h-4 mr-2" />
+                      Filter
+                    </Button>
                   </div>
 
                   <div className="mb-4">
-                    <h3 className="font-semibold mb-2">
-                      Staff ({totalCount})
-                    </h3>
+                    <h3 className="font-semibold mb-2">Monthly Regular (34)</h3>
                   </div>
 
-                  {isLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">Loading...</div>
-                  ) : filteredStaff.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No staff found
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-3 text-sm font-medium">Name</th>
-                            <th className="text-left p-3 text-sm font-medium">ID</th>
-                            <th className="text-left p-3 text-sm font-medium">Phone Number</th>
-                            <th className="text-left p-3 text-sm font-medium">Enable/Disable</th>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-3 text-sm font-medium">Name</th>
+                          <th className="text-left p-3 text-sm font-medium">ID</th>
+                          <th className="text-left p-3 text-sm font-medium">Phone Number</th>
+                          <th className="text-left p-3 text-sm font-medium">Enable/Disable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {staffMembers.map((staff, index) => (
+                          <tr key={index} className="border-b hover:bg-muted/50">
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-4 h-4 text-muted-foreground" />
+                                <span>{staff.name}</span>
+                              </div>
+                            </td>
+                            <td className="p-3 text-sm">{staff.id}</td>
+                            <td className="p-3 text-sm">{staff.phone}</td>
+                            <td className="p-3">
+                              <Switch checked={staff.enabled} />
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {filteredStaff.map((staff) => (
-                            <tr key={staff._id} className="border-b hover:bg-muted/50">
-                              <td className="p-3">
-                                <div className="flex items-center gap-2">
-                                  <Users className="w-4 h-4 text-muted-foreground" />
-                                  <span>{staff.name}</span>
-                                </div>
-                              </td>
-                              <td className="p-3 text-sm">{staff.employeeId}</td>
-                              <td className="p-3 text-sm">{staff.phone}</td>
-                              <td className="p-3">
-                                <Switch 
-                                  checked={staff.locationAccess || false}
-                                  onCheckedChange={() => handleLocationAccessToggle(staff._id, staff.locationAccess || false)}
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
