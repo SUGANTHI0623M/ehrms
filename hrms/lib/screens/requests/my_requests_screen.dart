@@ -184,6 +184,120 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 }
 
+/// Reusable bottom sheet for request details (Leave, Loan, Expense, Payslip).
+class _RequestDetailBottomSheet extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color iconColor;
+  final List<Widget> children;
+
+  const _RequestDetailBottomSheet({
+    required this.title,
+    required this.icon,
+    required this.iconColor,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 20,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const SizedBox(width: 20),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Flexible(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: children,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // --- LEAVE TAB ---
 
 class LeaveRequestsTab extends StatefulWidget {
@@ -355,47 +469,37 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     final appliedDate = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['createdAt']));
-    final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
-        : '-';
+    // Always show Approved By: backend populates approvedBy with { name, email }; fallback for ID or null
+    String approvedBy = '—';
+    if (leave['approvedBy'] != null) {
+      if (leave['approvedBy'] is Map && leave['approvedBy']['name'] != null) {
+        approvedBy = leave['approvedBy']['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Leave Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _detailRow('Leave Type', leave['leaveType'] ?? ''),
-              _detailRow('Start Date', start),
-              _detailRow('End Date', end),
-              _detailRow('Days', '${leave['days']}'),
-              _detailRow('Applied Date', appliedDate),
-              _detailRow('Approved By', approvedBy),
-              _detailRow('Status', leave['status'] ?? ''),
-              if (leave['reason'] != null &&
-                  leave['reason'].toString().isNotEmpty)
-                _detailRow('Reason', leave['reason']),
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Leave Details',
+        icon: Icons.calendar_today,
+        iconColor: AppColors.primary,
+        children: [
+          _detailRow('Leave Type', leave['leaveType'] ?? ''),
+          _detailRow('Start Date', start),
+          _detailRow('End Date', end),
+          _detailRow('Days', '${leave['days']}'),
+          _detailRow('Applied Date', appliedDate),
+          _detailRow('Approved By', approvedBy),
+          _detailRow('Status', leave['status'] ?? ''),
+          if (leave['reason'] != null &&
+              leave['reason'].toString().isNotEmpty)
+            _detailRow('Reason', leave['reason']),
+        ],
       ),
     );
   }
@@ -935,10 +1039,24 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   }
 
   Future<void> _pickDate(bool isStart) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final DateTime firstDate;
+    final DateTime initialDate;
+    if (isStart) {
+      firstDate = today;
+      initialDate = _startDate ?? now;
+    } else {
+      final startOrToday = _startDate != null && !_startDate!.isBefore(today)
+          ? _startDate!
+          : today;
+      firstDate = startOrToday;
+      initialDate = _endDate ?? _startDate ?? now;
+    }
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
+      initialDate: initialDate.isBefore(firstDate) ? firstDate : initialDate,
+      firstDate: firstDate,
       lastDate: DateTime(2030),
     );
     if (picked != null) {
@@ -948,7 +1066,6 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
           if (_isOneDay) {
             _endDate = picked;
           } else {
-            // Reset end date if it's before new start date
             if (_endDate != null && _endDate!.isBefore(_startDate!)) {
               _endDate = null;
             }
@@ -966,8 +1083,33 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
       return;
     }
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (_startDate!.isBefore(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Start date cannot be in the past. Please select today or a future date.',
+        isError: true,
+      );
+      return;
+    }
     if (!_isOneDay && _endDate == null) {
       SnackBarUtils.showSnackBar(context, 'Please select an end date');
+      return;
+    }
+    if (_endDate != null && _endDate!.isBefore(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'End date cannot be in the past. Please select today or a future date.',
+        isError: true,
+      );
+      return;
+    }
+    if (_endDate != null && _startDate != null && _endDate!.isBefore(_startDate!)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'End date must be on or after start date.',
+        isError: true,
+      );
       return;
     }
 
@@ -1551,58 +1693,41 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   }
 
   void _showLoanDetails(Map<String, dynamic> loan) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Loan Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _detailRow('Type', loan['loanType']),
-              _detailRow('Amount', '₹${loan['amount']}'),
-              _detailRow(
-                'Tenure',
-                '${loan['tenure'] ?? loan['tenureMonths']} Months',
-              ),
-              _detailRow('EMI', '₹${loan['emi'] ?? 0}'),
-              _detailRow('Interest Rate', '${loan['interestRate']}%'),
-              _detailRow('Purpose', loan['purpose'] ?? ''),
-              _detailRow('Status', loan['status']),
-              if (loan['approvedBy'] != null)
-                _detailRow(
-                  'Approved By',
-                  loan['approvedBy'] is Map
-                      ? loan['approvedBy']['name']
-                      : 'ID: ${loan['approvedBy']}',
-                ),
-              if (loan['createdAt'] != null)
-                _detailRow(
-                  'Requested On',
-                  DateFormat(
-                    'MMM dd, yyyy',
-                  ).format(DateTime.parse(loan['createdAt'])),
-                ),
+    String approvedBy = '—';
+    if (loan['approvedBy'] != null) {
+      if (loan['approvedBy'] is Map && loan['approvedBy']['name'] != null) {
+        approvedBy = loan['approvedBy']['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
+    final requestedOn = loan['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(loan['createdAt']))
+        : '—';
 
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Loan Details',
+        icon: Icons.account_balance_wallet,
+        iconColor: AppColors.primary,
+        children: [
+          _detailRow('Type', loan['loanType'] ?? ''),
+          _detailRow('Amount', '₹${loan['amount']}'),
+          _detailRow(
+            'Tenure',
+            '${loan['tenure'] ?? loan['tenureMonths']} Months',
           ),
-        ),
+          _detailRow('EMI', '₹${loan['emi'] ?? 0}'),
+          _detailRow('Interest Rate', '${loan['interestRate']}%'),
+          _detailRow('Purpose', loan['purpose'] ?? ''),
+          _detailRow('Status', loan['status'] ?? ''),
+          _detailRow('Approved By', approvedBy),
+          _detailRow('Requested On', requestedOn),
+        ],
       ),
     );
   }
@@ -2029,12 +2154,8 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
 
   String _loanType = 'Personal';
   final TextEditingController _amountController = TextEditingController();
-  final TextEditingController _tenureController = TextEditingController(
-    text: '1',
-  );
-  final TextEditingController _interestController = TextEditingController(
-    text: '0',
-  ); // Default 0
+  final TextEditingController _tenureController = TextEditingController();
+  final TextEditingController _interestController = TextEditingController();
   final TextEditingController _purposeController = TextEditingController();
   bool _isSubmitting = false;
 
@@ -2427,115 +2548,103 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         ? DateFormat(
             'MMM dd, yyyy',
           ).format(DateTime.parse(expense['createdAt']))
-        : '-';
+        : '—';
 
-    String approvedByName = '-';
+    String approvedByName = '—';
     if (expense['approvedBy'] != null) {
-      if (expense['approvedBy'] is Map) {
-        approvedByName = expense['approvedBy']['name'] ?? '-';
+      if (expense['approvedBy'] is Map &&
+          expense['approvedBy']['name'] != null) {
+        approvedByName =
+            expense['approvedBy']['name'].toString().trim();
+        if (approvedByName.isEmpty) approvedByName = '—';
       } else {
         approvedByName = 'System';
       }
     }
 
     List<dynamic> proofs = expense['proofFiles'] ?? [];
-
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Expense Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _expenseDetailRow(
-                'Type',
-                expense['type'] ?? expense['expenseType'] ?? 'Expense',
-              ),
-              _expenseDetailRow('Amount', '₹${expense['amount']}'),
-              _expenseDetailRow('Date', date),
-              _expenseDetailRow('Applied Date', appliedDate),
-              if (expense['description'] != null &&
-                  expense['description'].toString().isNotEmpty)
-                _expenseDetailRow('Description', expense['description']),
-              _expenseDetailRow('Status', expense['status'] ?? ''),
-              if (approvedByName != '-')
-                _expenseDetailRow('Approved By', approvedByName),
-              if (proofs.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Text(
-                  'Proof Files:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 5),
-                ...proofs.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final proof = entry.value;
-                  String fileName;
-                  String proofUrl;
-
-                  // Handle both Map and String types
-                  if (proof is Map) {
-                    fileName =
-                        proof['fileName']?.toString() ?? 'Proof ${index + 1}';
-                    proofUrl =
-                        proof['url']?.toString() ??
-                        proof['fileUrl']?.toString() ??
-                        proof.toString();
-                  } else {
-                    // If proof is a String (URL), extract filename or use default
-                    final urlString = proof.toString();
-                    proofUrl = urlString;
-                    // Try to extract filename from URL
-                    try {
-                      final uri = Uri.parse(urlString);
-                      fileName = uri.pathSegments.isNotEmpty
-                          ? uri.pathSegments.last
-                          : 'Proof ${index + 1}';
-                    } catch (e) {
-                      fileName = 'Proof ${index + 1}';
-                    }
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 5),
-                    child: InkWell(
-                      onTap: () => _viewProof(proofUrl),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.attach_file, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              fileName,
-                              style: const TextStyle(color: Colors.blue),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-              ],
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
+    final detailChildren = <Widget>[
+      _expenseDetailRow(
+        'Type',
+        expense['type'] ?? expense['expenseType'] ?? 'Expense',
+      ),
+      _expenseDetailRow('Amount', '₹${expense['amount']}'),
+      _expenseDetailRow('Date', date),
+      _expenseDetailRow('Applied Date', appliedDate),
+      if (expense['description'] != null &&
+          expense['description'].toString().isNotEmpty)
+        _expenseDetailRow('Description', expense['description']),
+      _expenseDetailRow('Status', expense['status'] ?? ''),
+      _expenseDetailRow('Approved By', approvedByName),
+      if (proofs.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        const Text(
+          'Proof Files:',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
           ),
         ),
+        const SizedBox(height: 6),
+        ...proofs.asMap().entries.map((entry) {
+          final index = entry.key;
+          final proof = entry.value;
+          String fileName;
+          String proofUrl;
+          if (proof is Map) {
+            fileName =
+                proof['fileName']?.toString() ?? 'Proof ${index + 1}';
+            proofUrl =
+                proof['url']?.toString() ??
+                proof['fileUrl']?.toString() ??
+                proof.toString();
+          } else {
+            final urlString = proof.toString();
+            proofUrl = urlString;
+            try {
+              final uri = Uri.parse(urlString);
+              fileName = uri.pathSegments.isNotEmpty
+                  ? uri.pathSegments.last
+                  : 'Proof ${index + 1}';
+            } catch (e) {
+              fileName = 'Proof ${index + 1}';
+            }
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              onTap: () => _viewProof(proofUrl),
+              borderRadius: BorderRadius.circular(8),
+              child: Row(
+                children: [
+                  Icon(Icons.attach_file, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      fileName,
+                      style: const TextStyle(
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Expense Details',
+        icon: Icons.receipt,
+        iconColor: AppColors.primary,
+        children: detailChildren,
       ),
     );
   }
@@ -3005,11 +3114,16 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final initial = _date != null && !_date!.isAfter(today)
+        ? _date!
+        : now;
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: initial,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      lastDate: today,
     );
     if (picked != null) {
       setState(() => _date = picked);
@@ -3047,6 +3161,15 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
     if (!_formKey.currentState!.validate()) return;
     if (_date == null) {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
+      return;
+    }
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (_date!.isAfter(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Expense date cannot be in the future. Please select today or a past date.',
+        isError: true,
+      );
       return;
     }
 
@@ -3611,45 +3734,35 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   void _showPayslipDetails(Map<String, dynamic> req) {
     final appliedDate = req['createdAt'] != null
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
-        : '-';
-    final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
-        : '-';
+        : '—';
+    String approvedBy = '—';
+    if (req['approvedBy'] != null) {
+      if (req['approvedBy'] is Map && req['approvedBy']['name'] != null) {
+        approvedBy = req['approvedBy']['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
 
-    showDialog(
+    final children = <Widget>[
+      _payslipDetailRow('Period', _getPeriodText(req)),
+      if (req['reason'] != null && req['reason'].toString().isNotEmpty)
+        _payslipDetailRow('Reason', req['reason']),
+      _payslipDetailRow('Applied Date', appliedDate),
+      _payslipDetailRow('Status', req['status'] ?? ''),
+      _payslipDetailRow('Approved By', approvedBy),
+    ];
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Payslip Request Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _payslipDetailRow('Period', _getPeriodText(req)),
-              if (req['reason'] != null && req['reason'].toString().isNotEmpty)
-                _payslipDetailRow('Reason', req['reason']),
-              _payslipDetailRow('Applied Date', appliedDate),
-              _payslipDetailRow('Status', req['status'] ?? ''),
-              if (approvedBy != '-')
-                _payslipDetailRow('Approved By', approvedBy),
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Payslip Request Details',
+        icon: Icons.description,
+        iconColor: AppColors.primary,
+        children: children,
       ),
     );
   }
@@ -4235,6 +4348,52 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     });
   }
 
+  Future<void> _pickYear() async {
+    final now = DateTime.now();
+    // Years from 20 years ago up to and including current year (no future years)
+    final years = List.generate(20, (i) => now.year - 19 + i);
+    final currentYear = int.tryParse(_yearController.text) ?? now.year;
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Select Year',
+                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: years.length,
+                  itemBuilder: (context, index) {
+                    final year = years[index];
+                    return ListTile(
+                      title: Text('$year'),
+                      selected: year == currentYear,
+                      onTap: () => Navigator.pop(context, year),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null && mounted) {
+      setState(() => _yearController.text = picked.toString());
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -4513,18 +4672,32 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       const SizedBox(height: 16),
                     ],
 
-                    TextFormField(
-                      controller: _yearController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                      decoration: _inputDecoration(
-                        'Year',
-                        Icons.calendar_today,
-                      ).copyWith(hintText: 'Enter year'),
-                      validator: (val) => val == null || val.isEmpty
-                          ? 'Year is required'
-                          : null,
+                    InkWell(
+                      onTap: _pickYear,
+                      borderRadius: BorderRadius.circular(16),
+                      child: IgnorePointer(
+                        child: TextFormField(
+                          controller: _yearController,
+                          readOnly: true,
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                          decoration: _inputDecoration(
+                            'Year',
+                            Icons.calendar_today,
+                          ).copyWith(
+                            hintText: 'Tap to select year',
+                            suffixIcon: const Icon(
+                              Icons.arrow_drop_down,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          validator: (val) =>
+                              val == null || val.isEmpty
+                                  ? 'Year is required'
+                                  : null,
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 20),
                     TextFormField(
                       controller: _reasonController,
                       maxLines: 3,

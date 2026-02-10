@@ -25,16 +25,12 @@ void backgroundCallback() {
       debugPrint('[LiveTracking:BG] Skipped: null lat/lon');
       return;
     }
-    final speed = data.speed ?? 0.0;
-    String movementType = 'stop';
-    if (speed >= 10 / 3.6)
-      movementType = 'drive';
-    else if (speed >= 0.5)
-      movementType = 'walk';
+    final speedMps = data.speed;
     await LiveTrackingService.sendTrackingFromBackground(
       lat,
       lon,
-      movementType: movementType,
+      speedMps: speedMps,
+      accuracyM: data.horizontalAccuracy,
     );
   });
 }

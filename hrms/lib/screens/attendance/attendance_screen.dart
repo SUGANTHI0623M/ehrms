@@ -807,9 +807,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                   const SizedBox(height: 16),
                                   _buildDetailRow(
                                     'Session',
-                                    session == '1'
-                                        ? 'Session 1 (First Half: 10:00 AM – 2:00 PM)'
-                                        : 'Session 2 (Second Half: 3:00 PM – 7:00 PM)',
+                                    _formatHalfDaySessionLabel(session),
                                     Icons.schedule,
                                   ),
                                 ],
@@ -1723,8 +1721,58 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return (v != null && v.isNotEmpty) ? v : null;
   }
 
-  // Helper to get working session timings for Half Day, calculated from shift times in DB.
-  // Uses DB-only times so notice never shows hardcoded 18:30/19:00. Returns null if shift times not in DB.
+  static String _formatHhMmForDisplay(String hhmm) {
+    final parts = hhmm.split(':');
+    final h = int.tryParse(parts[0].trim()) ?? 0;
+    final m = parts.length > 1 ? (int.tryParse(parts[1].trim()) ?? 0) : 0;
+    final hour = h % 12 == 0 ? 12 : h % 12;
+    final ampm = h < 12 ? 'AM' : 'PM';
+    if (m == 0) return '$hour:00 $ampm';
+    return '$hour:${m.toString().padLeft(2, '0')} $ampm';
+  }
+
+  String _formatHalfDaySessionLabel(String session) {
+    final b = _getHalfDaySessionBoundaries();
+    if (b == null) {
+      return session == '1' ? 'Session 1 (First Half)' : 'Session 2 (Second Half)';
+    }
+    if (session == '1') {
+      return 'Session 1 (${_formatHhMmForDisplay(b['session1Start']!)} – ${_formatHhMmForDisplay(b['session1End']!)})';
+    }
+    return 'Session 2 (${_formatHhMmForDisplay(b['session2Start']!)} – ${_formatHhMmForDisplay(b['session2End']!)})';
+  }
+
+  // Half-day session boundaries from shift: equal halves. Session 1 = first (total/2) hrs, Session 2 = next (total/2) hrs.
+  // E.g. 10:00–19:00 (9h) → Session 1 = 10:00–14:30, Session 2 = 14:30–19:00. Matches backend getHalfDaySessionBoundaries.
+  Map<String, String>? _getHalfDaySessionBoundaries() {
+    final shiftStartStr = _getShiftStartTimeFromDb();
+    final shiftEndStr = _getShiftEndTimeFromDb();
+    if (shiftStartStr == null || shiftEndStr == null) return null;
+    try {
+      final startParts = shiftStartStr.split(':').map(int.parse).toList();
+      final endParts = shiftEndStr.split(':').map(int.parse).toList();
+      int startTotalMinutes = startParts[0] * 60 + (startParts.length > 1 ? startParts[1] : 0);
+      int endTotalMinutes = endParts[0] * 60 + (endParts.length > 1 ? endParts[1] : 0);
+      if (endTotalMinutes <= startTotalMinutes) endTotalMinutes += 24 * 60;
+      final durationMinutes = endTotalMinutes - startTotalMinutes;
+      final halfMinutes = durationMinutes ~/ 2;
+      final session1EndMinutes = startTotalMinutes + halfMinutes;
+      final session1EndHours = (session1EndMinutes ~/ 60) % 24;
+      final session1EndMins = session1EndMinutes % 60;
+      final session1End = '${session1EndHours.toString().padLeft(2, '0')}:${session1EndMins.toString().padLeft(2, '0')}';
+      return {
+        'session1Start': shiftStartStr,
+        'session1End': session1End,
+        'session2Start': session1End,
+        'session2End': shiftEndStr,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Helper to get working session timings for Half Day (when employee is working, not on leave).
+  // Session 1 leave → employee works Session 2. Session 2 leave → employee works Session 1.
   Map<String, String>? _getWorkingSessionTimings() {
     final bool isHalfDay =
         (_attendanceData?['status'] == 'Half Day') || _halfDayLeave != null;
@@ -1736,29 +1784,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     if (session != '1' && session != '2') return null;
 
-    final shiftStartStr = _getShiftStartTimeFromDb();
-    final shiftEndStr = _getShiftEndTimeFromDb();
-    if (shiftStartStr == null || shiftEndStr == null) return null;
+    final b = _getHalfDaySessionBoundaries();
+    if (b == null) return null;
 
-    try {
-      final startParts = shiftStartStr.split(':').map(int.parse).toList();
-      final startTotalMinutes = startParts[0] * 60 + startParts[1];
-      const sessionDurationMinutes = 5 * 60; // 5 hours = 300 minutes
-
-      if (session == '1') {
-        return {'startTime': '14:00', 'endTime': shiftEndStr};
-      } else if (session == '2') {
-        final session1EndMinutes = startTotalMinutes + sessionDurationMinutes;
-        final session1EndHours = session1EndMinutes ~/ 60;
-        final session1EndMins = session1EndMinutes % 60;
-        return {
-          'startTime': shiftStartStr,
-          'endTime':
-              '${session1EndHours.toString().padLeft(2, '0')}:${session1EndMins.toString().padLeft(2, '0')}',
-        };
-      }
-    } catch (e) {}
+    if (session == '1') {
+      return {'startTime': b['session2Start']!, 'endTime': b['session2End']!};
+    }
+    if (session == '2') {
+      return {'startTime': b['session1Start']!, 'endTime': b['session1End']!};
+    }
     return null;
+  }
+
+  /// For half-day Session 1 leave (employee works Session 2): no grace. Otherwise use template grace.
+  int _getGracePeriodMinutesForLateCheckIn() {
+    final session = _halfDayLeave?['session']?.toString().trim() ?? _attendanceData?['session']?.toString().trim();
+    if (session == '1') return 0; // Session 2 working: no grace
+    return _getGracePeriodMinutes();
   }
 
   // Helper to determine if late
@@ -1772,7 +1814,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final shiftStartStr =
           sessionTimings?['startTime'] ?? _getShiftStartTime();
       final parts = shiftStartStr.split(':').map(int.parse).toList();
-      final gracePeriod = _getGracePeriodMinutes();
+      final gracePeriod = _getGracePeriodMinutesForLateCheckIn();
 
       final shiftStart = DateTime(
         punchIn.year,
@@ -2559,7 +2601,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       } else if (shiftStartStr != null) {
         try {
           final parts = shiftStartStr.split(':').map(int.parse).toList();
-          final gracePeriod = _getGracePeriodMinutes();
+          final gracePeriod = _getGracePeriodMinutesForLateCheckIn();
           final shiftStartOnly = DateTime(
             now.year,
             now.month,

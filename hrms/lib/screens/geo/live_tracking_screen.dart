@@ -14,6 +14,7 @@ import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/services/geo/live_tracking_service.dart';
+import 'package:hrms/services/geo/movement_classification_service.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/screens/geo/arrived_screen.dart';
 import 'package:hrms/screens/geo/exit_ride_bottom_sheet.dart';
@@ -107,11 +108,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   bool _submittingArrived = false;
   Timer? _locationUploadTimer;
 
-  /// Last position we sent to DB – used to compute speed from distance when device speed is 0.
-  double? _lastSentLat;
-  double? _lastSentLng;
-  DateTime? _lastSentTime;
-
   final Floating _floating = Floating();
 
   @override
@@ -128,6 +124,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     LocationService().initLocationService(
       customerLocation: widget.dropoffLocation,
     );
+    MovementClassificationService().start();
 
     _addTrackingEvent(
       TrackingEventType.punchIn,
@@ -257,25 +254,24 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           if (_lastLocation != null) {
             double distance = gl.Geolocator.distanceBetween(
               _lastLocation!.latitude!,
-
               _lastLocation!.longitude!,
-
               location.latitude!,
-
               location.longitude!,
             );
-
             _totalDistanceCovered += distance;
           }
 
-          TrackingEventType newActivityType = _getTrackingEventType(
-            location.speed ?? 0,
+          final movementType = MovementClassificationService().addLocationAndClassify(
+            lat: location.latitude!,
+            lng: location.longitude!,
+            time: DateTime.now(),
+            accuracyM: location.accuracy,
+            inBackground: false,
           );
-
-          if (_currentActivity != newActivityType.name) {
+          final newActivityType = _movementTypeToEventType(movementType);
+          if (_currentActivity != movementType) {
             _addTrackingEvent(newActivityType, DateTime.now());
-
-            _currentActivity = newActivityType.name;
+            _currentActivity = movementType;
           }
 
           _lastLocation = location;
@@ -290,15 +286,14 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     // Get FRESH position from GPS before sending – ensures correct lat/lng as you move.
     double lat;
     double lng;
-    double? deviceSpeedMps; // m/s from fresh Position when available
+    double? accuracyM;
     try {
       final pos = await gl.Geolocator.getCurrentPosition(
         desiredAccuracy: gl.LocationAccuracy.high,
       );
       lat = pos.latitude;
       lng = pos.longitude;
-      // Use fresh position's speed for accurate movement classification
-      if (pos.speed >= 0) deviceSpeedMps = pos.speed;
+      accuracyM = pos.accuracy;
       debugPrint(
         '[LiveTracking] GPS fresh: lat=$lat lng=$lng speed=${pos.speed}',
       );
@@ -307,7 +302,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       if (loc != null && loc.latitude != null && loc.longitude != null) {
         lat = loc.latitude!;
         lng = loc.longitude!;
-        if (loc.speed != null && loc.speed! >= 0) deviceSpeedMps = loc.speed;
+        accuracyM = loc.accuracy;
         debugPrint(
           '[LiveTracking] GPS failed, using _lastLocation: lat=$lat lng=$lng',
         );
@@ -321,10 +316,12 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     try {
       battery = await Battery().batteryLevel;
     } catch (_) {}
-    final movementType = _computeMovementType(
-      lat,
-      lng,
-      deviceSpeedMps: deviceSpeedMps,
+    final movementType = MovementClassificationService().addLocationAndClassify(
+      lat: lat,
+      lng: lng,
+      time: DateTime.now(),
+      accuracyM: accuracyM,
+      inBackground: false,
     );
     debugPrint(
       '[LiveTracking] Sending to DB: lat=$lat lng=$lng movement=$movementType',
@@ -351,65 +348,31 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           destinationLat: _dropoffLatLng.latitude,
           destinationLng: _dropoffLatLng.longitude,
         )
-        .then((_) => _syncPendingDestinationIfAny())
+        .then((_) {
+          final classifier = MovementClassificationService();
+          LiveTrackingService.persistLastSentPosition(
+            lat,
+            lng,
+            movementType: movementType,
+            consecutiveLowSpeed: classifier.consecutiveLowSpeedCount,
+          );
+          _syncPendingDestinationIfAny();
+        })
         .catchError(
           (e) => debugPrint('[LiveTracking] storeTracking failed: $e'),
         );
-    _lastSentLat = lat;
-    _lastSentLng = lng;
-    _lastSentTime = DateTime.now();
   }
 
-  /// Compute movementType: prefer device speed (m/s); if missing, infer from distance covered.
-  /// Uses noise floor so standing (GPS drift/speed noise) is correctly classified as stop.
-  static const double _speedNoiseFloorMps = 0.5; // m/s, below this = standing
-  static const double _walkThresholdMps =
-      0.5; // m/s, above noise floor = walking
-  static const double _driveThresholdMps =
-      10 / 3.6; // ~2.78 m/s = 10 km/h (cycling/vehicle)
-  static const double _distanceNoiseFloorM =
-      15; // meters, below this = standing (GPS drift)
-
-  String _computeMovementType(
-    double lat,
-    double lng, {
-    double? deviceSpeedMps,
-  }) {
-    // 1. Prefer fresh device speed from the position we're sending
-    if (deviceSpeedMps != null && deviceSpeedMps >= 0) {
-      return _getTrackingEventType(deviceSpeedMps).name;
+  TrackingEventType _movementTypeToEventType(String movementType) {
+    switch (movementType) {
+      case 'drive':
+        return TrackingEventType.drive;
+      case 'walk':
+        return TrackingEventType.walk;
+      case 'stop':
+      default:
+        return TrackingEventType.stop;
     }
-    // 2. Fallback to stream's last known speed
-    if (_lastLocation?.speed != null && _lastLocation!.speed! >= 0) {
-      return _getTrackingEventType(_lastLocation!.speed!).name;
-    }
-    // 3. Distance-based inference when device speed unavailable
-    if (_lastSentLat != null && _lastSentLng != null && _lastSentTime != null) {
-      final distM = gl.Geolocator.distanceBetween(
-        _lastSentLat!,
-        _lastSentLng!,
-        lat,
-        lng,
-      );
-      if (distM < _distanceNoiseFloorM) return 'stop';
-      final secs = DateTime.now().difference(_lastSentTime!).inSeconds;
-      if (secs > 0) {
-        final speedMs = distM / secs;
-        return _getTrackingEventType(speedMs).name;
-      }
-    }
-    return _currentActivity.toLowerCase() == 'drive' ||
-            _currentActivity.toLowerCase() == 'walk'
-        ? _currentActivity.toLowerCase()
-        : 'stop';
-  }
-
-  /// Speed in m/s (Geolocator/Android use m/s). Thresholds tuned for accurate walk/stop/drive.
-  TrackingEventType _getTrackingEventType(double speed) {
-    if (speed < _speedNoiseFloorMps) return TrackingEventType.stop;
-    if (speed >= _driveThresholdMps) return TrackingEventType.drive; // 10 km/h+
-    if (speed >= _walkThresholdMps) return TrackingEventType.walk;
-    return TrackingEventType.stop;
   }
 
   String _getMovementDisplay() {
@@ -783,6 +746,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     _etaUpdateTimer?.cancel();
     _locationUploadTimer?.cancel();
     _floating.cancelOnLeavePiP();
+    MovementClassificationService().stop();
     LocationService().dispose();
     super.dispose();
   }

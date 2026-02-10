@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart' as gl;
 import '../../config/constants.dart';
+import 'movement_classification_service.dart';
 
 /// Persists active live tracking state and sends tracking in background.
 /// Used so tracking continues when app is closed or in background.
@@ -17,6 +19,11 @@ class LiveTrackingService {
   static const _keyTaskJson = 'live_tracking_task_json';
   static const _keyBaseUrl = 'live_tracking_base_url';
   static const _keyToken = 'live_tracking_token';
+  static const _keyLastSentLat = 'live_tracking_last_sent_lat';
+  static const _keyLastSentLng = 'live_tracking_last_sent_lng';
+  static const _keyLastSentTime = 'live_tracking_last_sent_time';
+  static const _keyLastMovementType = 'live_tracking_last_movement_type';
+  static const _keyConsecutiveLowSpeed = 'live_tracking_consecutive_low_speed';
 
   static final LiveTrackingService _instance = LiveTrackingService._internal();
   factory LiveTrackingService() => _instance;
@@ -42,6 +49,12 @@ class LiveTrackingService {
     await prefs.setDouble(_keyDropoffLng, dropoffLng);
     if (taskJson != null) await prefs.setString(_keyTaskJson, taskJson);
     await prefs.setString(_keyBaseUrl, AppConstants.baseUrl);
+    await prefs.setDouble(_keyLastSentLat, pickupLat);
+    await prefs.setDouble(_keyLastSentLng, pickupLng);
+    await prefs.setInt(
+      _keyLastSentTime,
+      DateTime.now().millisecondsSinceEpoch,
+    );
     final token = prefs.getString('token');
     if (token != null) {
       await prefs.setString(_keyToken, token);
@@ -68,7 +81,31 @@ class LiveTrackingService {
     await prefs.remove(_keyTaskJson);
     await prefs.remove(_keyBaseUrl);
     await prefs.remove(_keyToken);
+    await prefs.remove(_keyLastSentLat);
+    await prefs.remove(_keyLastSentLng);
+    await prefs.remove(_keyLastSentTime);
+    await prefs.remove(_keyLastMovementType);
+    await prefs.remove(_keyConsecutiveLowSpeed);
     debugPrint('[LiveTrackingService] Stopped');
+  }
+
+  /// Persist last sent position and movement state for background hysteresis.
+  static Future<void> persistLastSentPosition(double lat, double lng,
+      {String? movementType, int consecutiveLowSpeed = 0}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_keyActive) != true) return;
+      await prefs.setDouble(_keyLastSentLat, lat);
+      await prefs.setDouble(_keyLastSentLng, lng);
+      await prefs.setInt(
+        _keyLastSentTime,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+      if (movementType != null) {
+        await prefs.setString(_keyLastMovementType, movementType);
+        await prefs.setInt(_keyConsecutiveLowSpeed, consecutiveLowSpeed);
+      }
+    } catch (_) {}
   }
 
   /// Check if live tracking is active.
@@ -94,13 +131,15 @@ class LiveTrackingService {
     };
   }
 
-  /// Send tracking from background isolate. Uses http for isolate compatibility.
-  /// Called from main.dart backgroundCallback and LocationService when app in background.
+  /// Send tracking from background isolate. Uses GPS-only classification (spec thresholds + hysteresis).
+  /// Ignores points with accuracy > 40m. Stricter in background: no single-point downgrade.
   static Future<void> sendTrackingFromBackground(
     double lat,
     double lng, {
     int? batteryPercent,
     String? movementType,
+    double? speedMps,
+    double? accuracyM,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -126,6 +165,35 @@ class LiveTrackingService {
         debugPrint('[LiveTracking:BG] Skipped: no token');
         return;
       }
+      if (accuracyM != null && accuracyM > 40.0) {
+        debugPrint('[LiveTracking:BG] Skipped: accuracy ${accuracyM}m > 40m');
+        return;
+      }
+
+      final lastLat = prefs.getDouble(_keyLastSentLat);
+      final lastLng = prefs.getDouble(_keyLastSentLng);
+      final lastTimeMs = prefs.getInt(_keyLastSentTime);
+      final lastMovement = prefs.getString(_keyLastMovementType) ?? 'stop';
+      final consecutiveLow = prefs.getInt(_keyConsecutiveLowSpeed) ?? 0;
+
+      double avgSpeedKmh = 0.0;
+      if (lastLat != null && lastLng != null && lastTimeMs != null && lastTimeMs > 0) {
+        final distanceM = gl.Geolocator.distanceBetween(lastLat, lastLng, lat, lng);
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final elapsedSec = (nowMs - lastTimeMs) / 1000.0;
+        if (elapsedSec > 0.1) {
+          final speedMpsCalc = distanceM / elapsedSec;
+          avgSpeedKmh = speedMpsCalc * 3.6;
+        }
+      }
+
+      String resolvedMovementType = MovementClassificationService.classifyFromSpeedOnly(
+        avgSpeedKmh: avgSpeedKmh,
+        lastMovementType: lastMovement,
+        inBackground: true,
+        consecutiveLowSpeed: consecutiveLow,
+      );
+      int nextConsecutive = avgSpeedKmh <= 1.0 ? (consecutiveLow + 1) : 0;
 
       final destinationLat = prefs.getDouble(_keyDropoffLat);
       final destinationLng = prefs.getDouble(_keyDropoffLng);
@@ -139,12 +207,12 @@ class LiveTrackingService {
         'timestamp': DateTime.now().toUtc().toIso8601String(),
       };
       if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
-      if (movementType != null) body['movementType'] = movementType;
+      body['movementType'] = resolvedMovementType;
       if (destinationLat != null) body['destinationLat'] = destinationLat;
       if (destinationLng != null) body['destinationLng'] = destinationLng;
 
       debugPrint(
-        '[LiveTracking:BG] POST $uri taskId=$taskMongoId lat=$lat lng=$lng',
+        '[LiveTracking:BG] POST $uri taskId=$taskMongoId lat=$lat lng=$lng movement=$resolvedMovementType',
       );
       final response = await http.post(
         uri,
@@ -155,6 +223,14 @@ class LiveTrackingService {
         body: jsonEncode(body),
       );
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        await prefs.setDouble(_keyLastSentLat, lat);
+        await prefs.setDouble(_keyLastSentLng, lng);
+        await prefs.setInt(
+          _keyLastSentTime,
+          DateTime.now().millisecondsSinceEpoch,
+        );
+        await prefs.setString(_keyLastMovementType, resolvedMovementType);
+        await prefs.setInt(_keyConsecutiveLowSpeed, nextConsecutive);
         debugPrint('[LiveTracking:BG] Sent OK: status=${response.statusCode}');
       } else {
         debugPrint(

@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/bottom_navigation_bar.dart';
 import '../../widgets/menu_icon_button.dart';
 import 'my_performance_screen.dart';
 import 'my_goals_screen.dart';
@@ -106,6 +107,7 @@ class _PerformanceModuleScreenState extends State<PerformanceModuleScreen> {
           ),
         ],
       ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       floatingActionButton: _currentIndex == 1 ? _buildFab() : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );

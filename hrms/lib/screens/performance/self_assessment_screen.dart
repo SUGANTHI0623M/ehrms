@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/bottom_navigation_bar.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/performance_service.dart';
 import 'self_assessment_form_screen.dart';
@@ -114,6 +115,7 @@ class _SelfAssessmentScreenState extends State<SelfAssessmentScreen> {
         foregroundColor: AppColors.textPrimary,
       ),
       body: body,
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 

@@ -23,6 +23,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   bool _heatmapLoading = true;
   Map<String, dynamic>? _scoresData;
   List<dynamic> _heatmap = [];
+  String? _loadError;
 
   @override
   void initState() {
@@ -34,6 +35,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     setState(() {
       _scoresLoading = true;
       _heatmapLoading = true;
+      _loadError = null;
     });
     final scoresRes = await _lmsService.getMyScores();
     final heatmapRes = await _lmsService.getLearningEngine();
@@ -41,19 +43,47 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
       setState(() {
         _scoresLoading = false;
         _heatmapLoading = false;
-        _scoresData = scoresRes['data'];
-        _heatmap = (heatmapRes['heatmap'] as List?) ?? [];
+        if (scoresRes['success'] == true && scoresRes['data'] != null) {
+          _scoresData = _ensureMap(scoresRes['data']);
+          _loadError = null;
+        } else {
+          if (_scoresData == null) {
+            _loadError = scoresRes['message']?.toString() ??
+                'Could not load dashboard. Pull to retry.';
+          }
+        }
+        if (heatmapRes['heatmap'] != null) {
+          _heatmap = heatmapRes['heatmap'] is List
+              ? heatmapRes['heatmap'] as List
+              : [];
+        }
       });
     }
   }
 
+  static Map<String, dynamic> _ensureMap(dynamic v) {
+    if (v is Map<String, dynamic>) return v;
+    if (v is Map) return Map<String, dynamic>.from(v);
+    return <String, dynamic>{};
+  }
+
+  static int _int(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString()) ?? 0;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final summary = _scoresData?['summary'] ?? {};
-    final courses = (_scoresData?['courses'] as List?) ?? [];
-    final totalCourses = summary['totalCourses'] ?? 0;
-    final completedCourses = summary['completedCourses'] ?? 0;
-    final inProgress = summary['inProgress'] ?? 0;
+    final summary = _scoresData?['summary'] is Map
+        ? Map<String, dynamic>.from(_scoresData!['summary'] as Map)
+        : <String, dynamic>{};
+    final coursesRaw = _scoresData?['courses'];
+    final courses = coursesRaw is List ? coursesRaw : <dynamic>[];
+    final totalCourses = _int(summary['totalCourses']);
+    final completedCourses = _int(summary['completedCourses']);
+    final inProgress = _int(summary['inProgress']);
     final myCompletion = totalCourses > 0
         ? ((completedCourses / totalCourses) * 100).round()
         : 0;
@@ -66,6 +96,39 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_loadError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Material(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 20,
+                          color: Colors.orange.shade800,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _loadError!,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.orange.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             const Text(
               'Learning Engine',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -86,7 +149,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     color: Colors.green,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 6),
                 Expanded(
                   child: _StatCard(
                     title: 'COURSES COMPLETED',
@@ -97,7 +160,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     color: Colors.blue,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 6),
                 Expanded(
                   child: _StatCard(
                     title: 'ACTIVE COURSES',
@@ -134,11 +197,22 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                             fontSize: 16,
                           ),
                         ),
+                        const Spacer(),
+                        Text(
+                          'Last 12 months',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[500],
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     if (_heatmapLoading)
-                      const Center(child: CircularProgressIndicator())
+                      const Center(
+                          child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator()))
                     else if (_heatmap.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 24),
@@ -151,23 +225,23 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                       )
                     else
                       _buildHeatmapGrid(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         Text(
                           'Less',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: Colors.grey[600],
                           ),
                         ),
                         ..._heatColors.asMap().entries.map(
                           (e) => Padding(
-                            padding: const EdgeInsets.only(left: 4),
+                            padding: const EdgeInsets.only(left: 3),
                             child: Container(
-                              width: 14,
-                              height: 14,
+                              width: 12,
+                              height: 12,
                               decoration: BoxDecoration(
                                 color: e.value,
                                 borderRadius: BorderRadius.circular(2),
@@ -175,11 +249,11 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 3),
                         Text(
                           'More',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -210,13 +284,12 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                 ),
               )
             else
-              ...courses
-                  .take(6)
+              ..._recentProgressList(courses)
                   .map(
                     (c) => _RecentProgressItem(
                       title: c['title'] ?? 'Course',
-                      progress: c['progress'] ?? 0,
-                      status: c['status'] ?? 'Not Started',
+                      progress: (c['progress'] is num) ? (c['progress'] as num).round() : 0,
+                      status: _progressStatusLabel(c),
                     ),
                   ),
             const SizedBox(height: 24),
@@ -227,8 +300,39 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     );
   }
 
+  /// Recent progress: sort by completedAt/openedAt descending, take 6 (match web).
+  List<Map<String, dynamic>> _recentProgressList(List<dynamic> courses) {
+    final list = courses
+        .where((c) => c is Map)
+        .map<Map<String, dynamic>>((c) => Map<String, dynamic>.from(c as Map))
+        .toList();
+    list.sort((a, b) {
+      final ta = _parseDate(a['completedAt'] ?? a['openedAt']);
+      final tb = _parseDate(b['completedAt'] ?? b['openedAt']);
+      return tb.compareTo(ta);
+    });
+    return list.take(6).toList();
+  }
+
+  DateTime _parseDate(dynamic v) {
+    if (v == null) return DateTime(0);
+    if (v is DateTime) return v;
+    return DateTime.tryParse(v.toString()) ?? DateTime(0);
+  }
+
+  String _progressStatusLabel(Map<String, dynamic> c) {
+    final status = c['status']?.toString() ?? '';
+    final progress = (c['progress'] is num) ? (c['progress'] as num).toDouble() : 0.0;
+    if (status == 'Completed') return 'Completed';
+    if (progress > 0) return 'In Progress';
+    return 'Not Started';
+  }
+
   Widget _buildQuizPerformanceCard() {
-    final quizStats = _scoresData?['quizStats'] as Map<String, dynamic>?;
+    final quizStatsRaw = _scoresData?['quizStats'];
+    final quizStats = quizStatsRaw is Map
+        ? Map<String, dynamic>.from(quizStatsRaw)
+        : <String, dynamic>{};
     if (_scoresLoading) {
       return Card(
         child: Padding(
@@ -239,12 +343,18 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
         ),
       );
     }
-    final totalAssigned = quizStats?['totalAssigned'] ?? 0;
-    final totalCompleted = quizStats?['totalCompleted'] ?? 0;
-    final completionPercent = quizStats?['completionPercent'] ?? 0;
-    final easy = quizStats?['easy'] as Map<String, dynamic>? ?? {};
-    final medium = quizStats?['medium'] as Map<String, dynamic>? ?? {};
-    final hard = quizStats?['hard'] as Map<String, dynamic>? ?? {};
+    final totalAssigned = _int(quizStats['totalAssigned']);
+    final totalCompleted = _int(quizStats['totalCompleted']);
+    final completionPercent = _int(quizStats['completionPercent']);
+    final easy = quizStats['easy'] is Map
+        ? Map<String, dynamic>.from(quizStats['easy'] as Map)
+        : <String, dynamic>{};
+    final medium = quizStats['medium'] is Map
+        ? Map<String, dynamic>.from(quizStats['medium'] as Map)
+        : <String, dynamic>{};
+    final hard = quizStats['hard'] is Map
+        ? Map<String, dynamic>.from(quizStats['hard'] as Map)
+        : <String, dynamic>{};
 
     if (totalAssigned == 0) {
       return Card(
@@ -330,25 +440,25 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     children: [
                       _QuizDifficultyRow(
                         label: 'Easy',
-                        completed: easy['completed'] ?? 0,
-                        total: easy['total'] ?? 0,
-                        percent: easy['percent'] ?? 0,
+                        completed: _int(easy['completed']),
+                        total: _int(easy['total']),
+                        percent: _int(easy['percent']),
                         color: Colors.green,
                       ),
                       const SizedBox(height: 8),
                       _QuizDifficultyRow(
                         label: 'Medium',
-                        completed: medium['completed'] ?? 0,
-                        total: medium['total'] ?? 0,
-                        percent: medium['percent'] ?? 0,
+                        completed: _int(medium['completed']),
+                        total: _int(medium['total']),
+                        percent: _int(medium['percent']),
                         color: Colors.amber,
                       ),
                       const SizedBox(height: 8),
                       _QuizDifficultyRow(
                         label: 'Hard',
-                        completed: hard['completed'] ?? 0,
-                        total: hard['total'] ?? 0,
-                        percent: hard['percent'] ?? 0,
+                        completed: _int(hard['completed']),
+                        total: _int(hard['total']),
+                        percent: _int(hard['percent']),
                         color: Colors.red,
                       ),
                     ],
@@ -363,17 +473,21 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   }
 
   Widget _buildUpcomingDeadlines() {
-    final courses = (_scoresData?['courses'] as List?) ?? [];
-    final deadlines =
-        courses
-            .where((c) => c['dueDate'] != null && c['status'] != 'Completed')
-            .map((c) => {...c, 'daysRemaining': c['daysRemaining'] ?? 0})
-            .toList()
-          ..sort(
-            (a, b) => (a['daysRemaining'] ?? 999).compareTo(
-              b['daysRemaining'] ?? 999,
-            ),
-          );
+    final coursesRaw = _scoresData?['courses'];
+    final courses = coursesRaw is List ? coursesRaw : <dynamic>[];
+    final deadlines = courses
+        .where((c) =>
+            c is Map &&
+            c['dueDate'] != null &&
+            (c['status']?.toString() != 'Completed'))
+        .map((c) {
+      final m = Map<String, dynamic>.from(c as Map);
+      m['daysRemaining'] = _int(m['daysRemaining']);
+      return m;
+    }).toList()
+      ..sort(
+        (a, b) => (a['daysRemaining'] as int).compareTo(b['daysRemaining'] as int),
+      );
 
     final top5 = deadlines.take(5).toList();
 
@@ -462,12 +576,13 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     );
   }
 
+  /// Format as "Mar 3, 2026" to match web.
   String _formatDate(dynamic date) {
     if (date == null) return '—';
     try {
       final d = date is DateTime ? date : DateTime.tryParse(date.toString());
       if (d == null) return '—';
-      return '${d.day} ${_monthShort(d.month)} ${d.year}';
+      return '${_monthShort(d.month)} ${d.day}, ${d.year}';
     } catch (_) {
       return '—';
     }
@@ -499,87 +614,197 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     Color(0xFF216e39),
   ];
 
-  Widget _buildHeatmapGrid() {
-    final now = DateTime.now();
-    final start = now.subtract(const Duration(days: 83));
-    final cells = <String, int>{};
+  static const _daysLast12Months = 371;
+  static const _cellSize = 12.0;
+  static const _cellGap = 3.0;
+  static const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // DateTime.weekday 1..7
+
+  /// Build date -> activity level (0-4) map from API heatmap. Matches frontend/bb logic.
+  Map<String, int> _buildActivityLevelMap() {
+    final map = <String, int>{};
     for (final h in _heatmap) {
       final date = h['date']?.toString();
-      if (date != null) {
-        final score = h['activityScore'] ?? h['totalMinutes'] ?? 0;
-        int level = 0;
-        if (score > 60)
-          level = 4;
-        else if (score > 40)
-          level = 3;
-        else if (score > 20)
-          level = 2;
-        else if (score > 0)
-          level = 1;
-        cells[date] = level;
-      }
+      if (date == null) continue;
+      final score = (h['activityScore'] is num)
+          ? (h['activityScore'] as num).toDouble()
+          : (h['totalMinutes'] is num)
+              ? (h['totalMinutes'] as num).toDouble()
+              : 0.0;
+      int level = 0;
+      if (score > 60) level = 4;
+      else if (score > 40) level = 3;
+      else if (score > 20) level = 2;
+      else if (score > 0) level = 1;
+      map[date] = level;
     }
-    const cols = 12;
-    const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: List.generate(cols, (col) {
-              final d = start.add(Duration(days: col * 7));
-              return SizedBox(
-                width: 24,
-                child: Center(
-                  child: Text(
-                    DateFormat('MMM').format(d),
-                    style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                  ),
-                ),
-              );
-            }),
+    return map;
+  }
+
+  /// GitHub-style heatmap: 371 days (last 12 months), weeks as columns, 7 rows (Sun–Sat), month labels, legend.
+  Widget _buildHeatmapGrid() {
+    final now = DateTime.now();
+    final rangeStart = now.subtract(const Duration(days: _daysLast12Months - 1));
+    final levelMap = _buildActivityLevelMap();
+    final numWeeks = (_daysLast12Months / 7).ceil();
+    int contributionCount = 0;
+    for (final level in levelMap.values) {
+      if (level > 0) contributionCount++;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$contributionCount ${contributionCount == 1 ? 'contribution' : 'contributions'} in the last year',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey[800],
           ),
-          const SizedBox(height: 4),
-          ...List.generate(7, (row) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Row(
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Month row
+              Padding(
+                padding: const EdgeInsets.only(left: 32),
+                child: Row(
+                  children: List.generate(numWeeks, (col) {
+                    final firstDayOfWeek = rangeStart.add(Duration(days: col * 7));
+                    final prevWeek = col > 0
+                        ? rangeStart.add(Duration(days: (col - 1) * 7))
+                        : null;
+                    final showMonth = prevWeek == null ||
+                        firstDayOfWeek.month != prevWeek.month;
+                    return SizedBox(
+                      width: _cellSize + _cellGap,
+                      child: showMonth
+                          ? Text(
+                              DateFormat('MMM').format(firstDayOfWeek),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            )
+                          : const SizedBox(),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Grid: 7 rows (Mon–Sun) x numWeeks columns
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Day-of-week labels (row 0 = weekday of day 0, etc.)
                   SizedBox(
                     width: 28,
-                    child: Text(
-                      labels[row],
-                      style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(7, (row) {
+                        final dayOfFirstWeek = rangeStart.add(Duration(days: row));
+                        final wd = dayOfFirstWeek.weekday; // 1=Mon .. 7=Sun
+                        final label = _weekdayNames[wd - 1];
+                        return SizedBox(
+                          height: _cellSize + _cellGap,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
                     ),
                   ),
-                  Row(
-                    children: List.generate(cols, (col) {
-                      final dayOffset = col * 7 + row;
-                      final d = start.add(Duration(days: dayOffset));
-                      if (d.isAfter(now)) {
-                        return const SizedBox(width: 20, height: 20);
-                      }
-                      final key = DateFormat('yyyy-MM-dd').format(d);
-                      final level = cells[key] ?? 0;
-                      return Container(
-                        width: 18,
-                        height: 18,
-                        margin: const EdgeInsets.only(right: 2),
-                        decoration: BoxDecoration(
-                          color: _heatColors[level],
-                          borderRadius: BorderRadius.circular(2),
+                  const SizedBox(width: 4),
+                  // Cells: row = day of week (0=Mon .. 6=Sun), col = week
+                  Column(
+                    children: List.generate(7, (row) {
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: row < 6 ? _cellGap : 0),
+                        child: Row(
+                          children: List.generate(numWeeks, (col) {
+                            final dayIndex = col * 7 + row;
+                            if (dayIndex >= _daysLast12Months) {
+                              return SizedBox(
+                                width: _cellSize + _cellGap,
+                                height: _cellSize + _cellGap,
+                              );
+                            }
+                            final d = rangeStart.add(Duration(days: dayIndex));
+                            final key = DateFormat('yyyy-MM-dd').format(d);
+                            final level = levelMap[key] ?? 0;
+                            final isToday = key == DateFormat('yyyy-MM-dd').format(now);
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                  right: col < numWeeks - 1 ? _cellGap : 0),
+                              child: Tooltip(
+                                message: _heatmapTooltip(key, level, d, now),
+                                child: Container(
+                                  width: _cellSize,
+                                  height: _cellSize,
+                                  decoration: BoxDecoration(
+                                    color: _heatColors[level],
+                                    borderRadius: BorderRadius.circular(2),
+                                    border: isToday
+                                        ? Border.all(
+                                            color: const Color(0xFF22c55e),
+                                            width: 1.5,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
                         ),
                       );
                     }),
                   ),
                 ],
               ),
-            );
-          }),
-        ],
-      ),
+            ],
+          ),
+        ),
+      ],
     );
+  }
+
+  String _heatmapTooltip(String key, int level, DateTime d, DateTime now) {
+    final sameDay = key == DateFormat('yyyy-MM-dd').format(now);
+    final dateStr = DateFormat('MMM d, yyyy').format(d);
+    final sb = StringBuffer(dateStr);
+    if (sameDay) sb.write('\nToday');
+    Map<String, dynamic>? point;
+    for (final h in _heatmap) {
+      if (h is Map && h['date']?.toString() == key) {
+        point = Map<String, dynamic>.from(h);
+        break;
+      }
+    }
+    if (point != null) {
+      final mins = point['totalMinutes'] ?? 0;
+      final lessons = point['lessonsCompleted'] ?? 0;
+      final quizzes = point['quizzesAttempted'] ?? 0;
+      final assessments = point['assessmentsAttempted'] ?? 0;
+      final live = point['liveSessionsAttended'] ?? 0;
+      if (mins > 0) sb.write('\n${mins} min learned');
+      if (lessons > 0) sb.write('\n$lessons lesson${lessons != 1 ? 's' : ''} completed');
+      if (quizzes > 0) sb.write('\n$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
+      if (assessments > 0) sb.write('\n$assessments assessment${assessments != 1 ? 's' : ''}');
+      if (live > 0) sb.write('\n$live live session${live != 1 ? 's' : ''} attended');
+    }
+    if (level == 0 && point == null) sb.write('\nNo activity');
+    return sb.toString();
   }
 }
 
@@ -602,37 +827,46 @@ class _StatCard extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               title,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 9,
                 fontWeight: FontWeight.w600,
                 color: Colors.grey[600],
-                letterSpacing: 0.5,
+                letterSpacing: 0.3,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                const SizedBox(width: 4),
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Icon(icon, color: color, size: 24),
+                  child: Icon(icon, color: color, size: 16),
                 ),
               ],
             ),
@@ -746,11 +980,12 @@ class _RecentProgressItem extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 80,
+              width: 88,
               child: Text(
-                status == 'Completed' ? 'Completed' : 'In Progress',
+                status,
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
               ),
             ),
           ],

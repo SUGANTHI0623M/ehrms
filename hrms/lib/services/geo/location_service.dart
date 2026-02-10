@@ -106,16 +106,11 @@ class LocationService {
         _classifyMovement(currentLocation.speed ?? 0);
         _checkGeofence(currentLocation);
         // Send to backend when app is in background (main isolate still alive)
-        final speed = currentLocation.speed ?? 0.0;
-        String movementType = 'stop';
-        if (speed >= 10 / 3.6)
-          movementType = 'drive';
-        else if (speed >= 0.5)
-          movementType = 'walk';
         await LiveTrackingService.sendTrackingFromBackground(
           currentLocation.latitude!,
           currentLocation.longitude!,
-          movementType: movementType,
+          speedMps: currentLocation.speed,
+          accuracyM: currentLocation.accuracy,
         );
       }
     });

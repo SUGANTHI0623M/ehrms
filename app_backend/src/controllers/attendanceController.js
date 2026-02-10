@@ -233,7 +233,8 @@ function calculateShiftHours(startTime, endTime) {
 }
 
 // Helper function to calculate fine for late arrival
-function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours) {
+// fineSettings from company.settings.attendance.fineSettings: { enabled, calculationType: 'shiftBased'|'fixedPerHour', finePerHour, graceTimeMinutes }
+function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours, fineSettings = null) {
     const [shiftHours_val, shiftMins] = shiftStartTime.split(':').map(Number);
     const shiftStart = new Date(attendanceDate);
     shiftStart.setHours(shiftHours_val, shiftMins, 0, 0);
@@ -241,48 +242,39 @@ function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePer
     const graceTimeEnd = new Date(shiftStart);
     graceTimeEnd.setMinutes(graceTimeEnd.getMinutes() + gracePeriodMinutes);
     
-    // If punch-in is before or within grace time, no fine
     if (punchInTime <= graceTimeEnd) {
         return { lateMinutes: 0, fineAmount: 0 };
     }
     
-    // Calculate late minutes from shift start time (not grace end)
     const lateMinutes = Math.max(0, Math.round((punchInTime.getTime() - shiftStart.getTime()) / (1000 * 60)));
-    
-    if (lateMinutes <= 0 || !dailySalary || !shiftHours) {
-        return { lateMinutes, fineAmount: 0 };
+    if (lateMinutes <= 0) return { lateMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.enabled === false) return { lateMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.calculationType === 'fixedPerHour' && (fineSettings.finePerHour != null && fineSettings.finePerHour > 0)) {
+        const fineAmount = Math.round((fineSettings.finePerHour * (lateMinutes / 60)) * 100) / 100;
+        return { lateMinutes, fineAmount };
     }
-    
-    // Calculate fine: Hourly Rate × (Late Minutes / 60)
-    // Hourly Rate = Daily Salary / Shift Hours
+    if (!dailySalary || !shiftHours) return { lateMinutes, fineAmount: 0 };
     const hourlyRate = dailySalary / shiftHours;
     const fineAmount = Math.round((hourlyRate * (lateMinutes / 60)) * 100) / 100;
-    
     return { lateMinutes, fineAmount };
 }
 
 // Helper function to calculate fine for early exit
-function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours) {
+function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours, fineSettings = null) {
     const [endHours, endMins] = shiftEndTime.split(':').map(Number);
     const shiftEnd = new Date(attendanceDate);
     shiftEnd.setHours(endHours, endMins, 0, 0);
-    
-    // If punch-out is after or equal to shift end time, no fine
-    if (punchOutTime >= shiftEnd) {
-        return { earlyMinutes: 0, fineAmount: 0 };
-    }
-    
-    // Calculate early minutes (time before shift end time)
+    if (punchOutTime >= shiftEnd) return { earlyMinutes: 0, fineAmount: 0 };
     const earlyMinutes = Math.max(0, Math.round((shiftEnd.getTime() - punchOutTime.getTime()) / (1000 * 60)));
-    
-    if (earlyMinutes <= 0 || !dailySalary || !shiftHours) {
-        return { earlyMinutes, fineAmount: 0 };
+    if (earlyMinutes <= 0) return { earlyMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.enabled === false) return { earlyMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.calculationType === 'fixedPerHour' && (fineSettings.finePerHour != null && fineSettings.finePerHour > 0)) {
+        const fineAmount = Math.round((fineSettings.finePerHour * (earlyMinutes / 60)) * 100) / 100;
+        return { earlyMinutes, fineAmount };
     }
-    
-    // Calculate fine: Hourly Rate × (Early Minutes / 60)
+    if (!dailySalary || !shiftHours) return { earlyMinutes, fineAmount: 0 };
     const hourlyRate = dailySalary / shiftHours;
     const fineAmount = Math.round((hourlyRate * (earlyMinutes / 60)) * 100) / 100;
-    
     return { earlyMinutes, fineAmount };
 }
 
@@ -290,16 +282,18 @@ function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySal
 // @param {Object} leave - Optional approved leave (for Half Day session-aware calculation)
 async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, template, staff, company, leave = null) {
     try {
-        // Check if Half Day leave and get session
+        // Fine settings from business: staff.businessId → company (business) → settings.attendance.fineSettings
+        const fineSettings = company?.settings?.attendance?.fineSettings || null;
+        if (fineSettings && fineSettings.enabled === false) {
+            return { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0 };
+        }
         const isHalfDay = leave && String(leave.leaveType || '').trim().toLowerCase() === 'half day';
         const session = isHalfDay ? String(leave.session || '').trim() : null;
-        
-        // Get shift timings from DB (use Company settings if available, else template)
         const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
         const dbShiftTimings = getShiftTimings(company, staff);
         const dbShiftStartTime = dbShiftTimings.startTime;
         const dbShiftEndTime = dbShiftTimings.endTime;
-        const dbGracePeriodMinutes = dbShiftTimings.gracePeriodMinutes || 0;
+        const dbGracePeriodMinutes = dbShiftTimings.gracePeriodMinutes ?? fineSettings?.graceTimeMinutes ?? 0;
         
         // Get shift timings (session-aware for Half Day, regular shift otherwise)
         let shiftStartTime, shiftEndTime, shiftHours;
@@ -324,8 +318,7 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             shiftHours = calculateShiftHours(shiftStartTime, shiftEndTime);
         }
         
-        // Use grace period from company settings if available, otherwise from template
-        const gracePeriodMinutes = dbGracePeriodMinutes || template.gracePeriodMinutes || 0;
+        const gracePeriodMinutes = dbGracePeriodMinutes || template.gracePeriodMinutes || (fineSettings && fineSettings.graceTimeMinutes != null ? fineSettings.graceTimeMinutes : 0);
         
         // Calculate daily salary
         let dailySalary = null;
@@ -372,23 +365,21 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             return { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0 };
         }
         
-        // Calculate late fine (session-aware for Half Day)
         let lateFine;
         if (isHalfDay && (session === '1' || session === '2')) {
             const { calculateHalfDayLateFine } = require('../utils/leaveAttendanceHelper');
-            lateFine = calculateHalfDayLateFine(punchInTime, attendanceDate, session, gracePeriodMinutes, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime);
+            const halfDayGrace = session === '1' ? 0 : gracePeriodMinutes;
+            lateFine = calculateHalfDayLateFine(punchInTime, attendanceDate, session, halfDayGrace, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime, fineSettings);
         } else {
-            lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours);
+            lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours, fineSettings);
         }
-        
-        // Calculate early fine if punch-out exists (session-aware for Half Day)
         let earlyFine = { earlyMinutes: 0, fineAmount: 0 };
         if (punchOutTime) {
             if (isHalfDay && (session === '1' || session === '2')) {
                 const { calculateHalfDayEarlyFine } = require('../utils/leaveAttendanceHelper');
-                earlyFine = calculateHalfDayEarlyFine(punchOutTime, attendanceDate, session, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime);
+                earlyFine = calculateHalfDayEarlyFine(punchOutTime, attendanceDate, session, dailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime, fineSettings);
             } else {
-                earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours);
+                earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours, fineSettings);
             }
         }
         
@@ -443,7 +434,11 @@ const checkIn = async (req, res) => {
 
         // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
         const Leave = require('../models/Leave');
-        const { canCheckInWithHalfDayLeave } = require('../utils/leaveAttendanceHelper');
+        const Company = require('../models/Company');
+        const company = await Company.findById(staff.businessId);
+        const { canCheckInWithHalfDayLeave, getShiftTimings, getBusinessTimezone } = require('../utils/leaveAttendanceHelper');
+        const shiftForCheckIn = getShiftTimings(company, staff);
+        const businessTimezone = getBusinessTimezone(company);
         const activeLeave = await Leave.findOne({
             employeeId: staffId,
             status: { $regex: /^approved$/i },
@@ -452,7 +447,7 @@ const checkIn = async (req, res) => {
         });
         if (activeLeave) {
             if (activeLeave.leaveType === 'Half Day') {
-                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now);
+                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now, shiftForCheckIn.startTime, shiftForCheckIn.endTime, businessTimezone);
                 if (!checkInResult.allowed) {
                     return res.status(403).json({ message: checkInResult.message || 'Half-day leave approved. Check-in not allowed at this time.' });
                 }
@@ -478,9 +473,7 @@ const checkIn = async (req, res) => {
             return res.status(403).json({ message: 'Today is a Holiday. Check-in not allowed.' });
         }
 
-        // 3. Check for Weekly Off
-        const Company = require('../models/Company');
-        const company = await Company.findById(staff.businessId);
+        // 3. Check for Weekly Off (company already loaded above for leave check)
         const businessSettings = company?.settings?.business || {};
         const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
         const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
@@ -1036,7 +1029,11 @@ const getTodayAttendance = async (req, res) => {
             queryDate.getMonth() === now.getMonth() &&
             queryDate.getDate() === now.getDate();
 
-        const { isCurrentlyInLeaveSession, getLeaveMessageForUI, canCheckInWithHalfDayLeave, canCheckOutWithHalfDayLeave, getHalfDaySessionMessage } = require('../utils/leaveAttendanceHelper');
+        const { isCurrentlyInLeaveSession, getLeaveMessageForUI, canCheckInWithHalfDayLeave, canCheckOutWithHalfDayLeave, getHalfDaySessionMessage, getShiftTimings, getBusinessTimezone } = require('../utils/leaveAttendanceHelper');
+        const dbShiftTimingsForLeave = getShiftTimings(company, staff);
+        const shiftStartForLeave = dbShiftTimingsForLeave.startTime || null;
+        const shiftEndForLeave = dbShiftTimingsForLeave.endTime || null;
+        const businessTimezone = getBusinessTimezone(company);
 
         // If approved leave exists, it overrides any existing attendance status
         if (activeLeave) {
@@ -1052,24 +1049,24 @@ const getTodayAttendance = async (req, res) => {
             }
         }
 
-        // Session-based: isOnLeave = true only when full-day leave OR half-day and current time inside leave session
+        // Session-based: isOnLeave = true only when full-day leave OR half-day and current time inside leave session (use business timezone)
         const isOnLeave = activeLeave
-            ? (activeLeave.leaveType !== 'Half Day' ? true : (isToday ? isCurrentlyInLeaveSession(activeLeave, now) : true))
+            ? (activeLeave.leaveType !== 'Half Day' ? true : (isToday ? isCurrentlyInLeaveSession(activeLeave, now, shiftStartForLeave, shiftEndForLeave, businessTimezone) : true))
             : (attendance && attendance.status === 'On Leave');
-        const leaveMessage = activeLeave && isToday ? getLeaveMessageForUI(activeLeave, now) : null;
+        const leaveMessage = activeLeave && isToday ? getLeaveMessageForUI(activeLeave, now, shiftStartForLeave, shiftEndForLeave, businessTimezone) : null;
 
-        // Half-day leave: session-based check-in/check-out allowed flags (for today only)
+        // Half-day leave: session-based check-in/check-out allowed flags (for today only). Session times from business shift.
         let halfDayLeave = null;
         let checkInAllowed = true;
         let checkOutAllowed = true;
         if (activeLeave && activeLeave.leaveType === 'Half Day') {
             halfDayLeave = {
                 session: activeLeave.session || null,
-                message: getHalfDaySessionMessage(activeLeave.session)
+                message: getHalfDaySessionMessage(activeLeave.session, shiftStartForLeave, shiftEndForLeave)
             };
             if (isToday) {
-                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now);
-                const checkOutResult = canCheckOutWithHalfDayLeave(activeLeave, now);
+                const checkInResult = canCheckInWithHalfDayLeave(activeLeave, now, shiftStartForLeave, shiftEndForLeave, businessTimezone);
+                const checkOutResult = canCheckOutWithHalfDayLeave(activeLeave, now, shiftStartForLeave, shiftEndForLeave, businessTimezone);
                 checkInAllowed = checkInResult.allowed;
                 checkOutAllowed = checkOutResult.allowed;
             }
@@ -1080,17 +1077,15 @@ const getTodayAttendance = async (req, res) => {
 
         const finalTemplate = staff?.attendanceTemplateId ? normalizeTemplate(staff.attendanceTemplateId) : {};
         
-        // Merge shift timings from company settings into template
-        const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
-        const dbShiftTimings = getShiftTimings(company, staff);
-        if (dbShiftTimings.startTime) {
-            finalTemplate.shiftStartTime = dbShiftTimings.startTime;
+        // Merge shift timings from company settings into template (already loaded above as dbShiftTimingsForLeave)
+        if (dbShiftTimingsForLeave.startTime) {
+            finalTemplate.shiftStartTime = dbShiftTimingsForLeave.startTime;
         }
-        if (dbShiftTimings.endTime) {
-            finalTemplate.shiftEndTime = dbShiftTimings.endTime;
+        if (dbShiftTimingsForLeave.endTime) {
+            finalTemplate.shiftEndTime = dbShiftTimingsForLeave.endTime;
         }
-        if (dbShiftTimings.gracePeriodMinutes !== undefined) {
-            finalTemplate.gracePeriodMinutes = dbShiftTimings.gracePeriodMinutes;
+        if (dbShiftTimingsForLeave.gracePeriodMinutes !== undefined) {
+            finalTemplate.gracePeriodMinutes = dbShiftTimingsForLeave.gracePeriodMinutes;
         }
         
         let holidayInfo = null;

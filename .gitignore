@@ -71,6 +71,12 @@ app_backend/customer_data.json
 # Separate backend project (TypeScript)
 backend/
 
+# BB backend & frontend (exclude from this repo)
+bb/
+bbb/
+frontend/
+
+
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/
 **/Assets.xcassets/**/_/

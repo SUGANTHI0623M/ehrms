@@ -43,16 +43,28 @@ class _AppDrawerState extends State<AppDrawer> {
       final data = jsonDecode(userString) as Map<String, dynamic>;
       setState(() => _userData = data);
 
-      // Fallback: if locationAccess is missing (user logged in before backend added it),
-      // fetch profile to get locationAccess from staffData and update stored user
-      if (!data.containsKey('locationAccess')) {
+      // Fallback: fetch profile to fill locationAccess and/or branchName if missing
+      final needsLocationAccess = !data.containsKey('locationAccess');
+      final needsBranchName = !data.containsKey('branchName') || data['branchName'] == null;
+      if (needsLocationAccess || needsBranchName) {
         try {
           final result = await AuthService().getProfile();
           if (result['success'] == true && mounted) {
-            final profileData = result['data'];
-            final staffData = profileData?['staffData'];
-            final locationAccess = staffData?['locationAccess'] == true;
-            data['locationAccess'] = locationAccess;
+            final profileData = result['data'] as Map<String, dynamic>?;
+            final staffData = profileData?['staffData'] as Map<String, dynamic>?;
+            if (needsLocationAccess) {
+              final locationAccess = staffData?['locationAccess'] == true;
+              data['locationAccess'] = locationAccess;
+            }
+            if (needsBranchName) {
+              final branchName = profileData?['branchName']?.toString() ??
+                  (staffData?['branchId'] is Map
+                      ? (staffData!['branchId'] as Map)['branchName']?.toString()
+                      : null);
+              if (branchName != null && branchName.isNotEmpty) {
+                data['branchName'] = branchName;
+              }
+            }
             await prefs.setString('user', jsonEncode(data));
             if (mounted) setState(() => _userData = data);
           }
@@ -105,25 +117,6 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                //  if (_userData?['locationAccess'] == true)
-                if (1 == 1)
-                  _buildDrawerItem(
-                    icon: Icons.assignment_rounded,
-                    title: 'Tasks',
-                    onTap: () {
-                      Navigator.pop(context);
-                      Future.microtask(
-                        () => _navigateAndClearStack(
-                          const MyTasksScreen(dashboardTabIndex: 1),
-                        ),
-                      );
-                    },
-                  ),
-                _buildDrawerItem(
-                  icon: Icons.access_time_rounded,
-                  title: 'Attendance',
-                  onTap: () => _navigateToTab(4),
-                ),
                 _buildDrawerItem(
                   icon: Icons.person_rounded,
                   title: 'Profile',
@@ -137,14 +130,9 @@ class _AppDrawerState extends State<AppDrawer> {
                   },
                 ),
                 _buildDrawerItem(
-                  icon: Icons.settings_rounded,
-                  title: 'Settings',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Future.microtask(
-                      () => _navigateAndClearStack(const SettingsScreen()),
-                    );
-                  },
+                  icon: Icons.access_time_rounded,
+                  title: 'Attendance',
+                  onTap: () => _navigateToTab(4),
                 ),
                 _buildDrawerItem(
                   icon: Icons.inventory_2_rounded,
@@ -168,6 +156,19 @@ class _AppDrawerState extends State<AppDrawer> {
                     );
                   },
                 ),
+                if (1 == 1)
+                  _buildDrawerItem(
+                    icon: Icons.assignment_rounded,
+                    title: 'Tasks',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Future.microtask(
+                        () => _navigateAndClearStack(
+                          const MyTasksScreen(dashboardTabIndex: 1),
+                        ),
+                      );
+                    },
+                  ),
                 _buildDrawerItem(
                   icon: Icons.school_rounded,
                   title: 'My Learning',
@@ -185,6 +186,16 @@ class _AppDrawerState extends State<AppDrawer> {
                     Navigator.pop(context);
                     Future.microtask(
                       () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 1)),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.settings_rounded,
+                  title: 'Settings',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(const SettingsScreen()),
                     );
                   },
                 ),
@@ -267,7 +278,7 @@ class _AppDrawerState extends State<AppDrawer> {
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 20,
+                        fontSize: 16,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -324,7 +335,7 @@ class _AppDrawerState extends State<AppDrawer> {
   Widget _buildModernChip(IconData icon, String label) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
@@ -332,14 +343,14 @@ class _AppDrawerState extends State<AppDrawer> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white70, size: 14),
-            const SizedBox(width: 6),
+            Icon(icon, color: Colors.white70, size: 12),
+            const SizedBox(width: 4),
             Expanded(
               child: Text(
                 label,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.w600,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -369,7 +380,7 @@ class _AppDrawerState extends State<AppDrawer> {
       ),
       onTap: onTap,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2),
     );
   }
 }

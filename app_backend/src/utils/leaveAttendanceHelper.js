@@ -4,92 +4,178 @@ const Staff = require('../models/Staff');
 const Company = require('../models/Company');
 const LeaveTemplate = require('../models/LeaveTemplate');
 
-// Half-day leave session times (server time): Session 1 = 10:00 AM – 3:00 PM, Session 2 = 2:00 PM – 7:00 PM
-const SESSION_1_START_HOUR = 10;
-const SESSION_1_START_MINUTE = 0;
-const SESSION_1_END_HOUR = 15; // 3:00 PM
-const SESSION_1_END_MINUTE = 0;
-const SESSION_2_START_HOUR = 14; // 2:00 PM
-const SESSION_2_START_MINUTE = 0;
-const SESSION_2_END_HOUR = 19; // 7:00 PM
-const SESSION_2_END_MINUTE = 0;
+// Default half-day boundaries when shift not provided: Session 1 = 10:00–15:00, Session 2 = 15:00–19:00 (from 10:00–19:00 shift)
+const DEFAULT_SHIFT_START = '10:00';
+const DEFAULT_SHIFT_END = '19:00';
+
+// Default business timezone when not set (shift times are in business local time; server may be UTC).
+const DEFAULT_BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata';
 
 /**
- * Get user-facing message for half-day session (for check-in/check-out block)
+ * Get hour and minute of a date in a given timezone (for half-day session checks).
+ * Shift times (e.g. 10:00–19:00) are in business local time; we must compare with "now" in that timezone.
+ * @param {Date} date - Instant in time (e.g. new Date())
+ * @param {string} [timeZone] - IANA timezone e.g. 'Asia/Kolkata'. If falsy, uses server local (date.getHours/getMinutes).
+ * @returns {{ hour: number, minute: number, currentMinutes: number }}
  */
-const getHalfDaySessionMessage = (session) => {
-    if (session === '1') return 'Half-day leave (Session 1: 10:00 AM – 3:00 PM)';
-    if (session === '2') return 'Half-day leave (Session 2: 2:00 PM – 7:00 PM)';
+const getLocalHoursMinutes = (date, timeZone) => {
+    if (!timeZone) {
+        const hour = date.getHours();
+        const minute = date.getMinutes();
+        return { hour, minute, currentMinutes: hour * 60 + minute };
+    }
+    try {
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(date);
+        const hour = parseInt(parts.find(p => p.type === 'hour').value, 10);
+        const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+        return { hour, minute, currentMinutes: hour * 60 + minute };
+    } catch (e) {
+        const hour = date.getHours();
+        const minute = date.getMinutes();
+        return { hour, minute, currentMinutes: hour * 60 + minute };
+    }
+};
+
+/**
+ * Get half-day session boundaries from shift timings.
+ * Formula: Equal halves. Session 1 = first (total/2) hrs, Session 2 = next (total/2) hrs.
+ * E.g. 10:00–19:00 (9h) → half 4.5h each → Session 1 = 10:00–14:30, Session 2 = 14:30–19:00.
+ * @param {string} shiftStartTime - e.g. '10:00'
+ * @param {string} shiftEndTime - e.g. '19:00'
+ * @returns {{ session1Start: string, session1End: string, session2Start: string, session2End: string }} HH:mm
+ */
+const getHalfDaySessionBoundaries = (shiftStartTime, shiftEndTime) => {
+    const start = (shiftStartTime || DEFAULT_SHIFT_START).trim();
+    const end = (shiftEndTime || DEFAULT_SHIFT_END).trim();
+    const [startH, startM] = start.split(':').map(Number);
+    const [endH, endM] = end.split(':').map(Number);
+    const startTotalMinutes = startH * 60 + (startM || 0);
+    let endTotalMinutes = endH * 60 + (endM || 0);
+    if (endTotalMinutes <= startTotalMinutes) endTotalMinutes += 24 * 60; // overnight
+    const durationMinutes = endTotalMinutes - startTotalMinutes;
+    const halfMinutes = Math.floor(durationMinutes / 2); // exact half: 9h → 4.5h each session
+    const session1EndMinutes = startTotalMinutes + halfMinutes;
+    const session1EndH = Math.floor(session1EndMinutes / 60) % 24;
+    const session1EndM = session1EndMinutes % 60;
+    const session1End = `${String(session1EndH).padStart(2, '0')}:${String(session1EndM).padStart(2, '0')}`;
+    return {
+        session1Start: start,
+        session1End,
+        session2Start: session1End,
+        session2End: end
+    };
+};
+
+/** Format HH:mm to "H:00 AM – H:00 PM" for display */
+const formatTimeForMessage = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const hour = h % 12 || 12;
+    const ampm = h < 12 ? 'AM' : 'PM';
+    const min = m ? `:${String(m).padStart(2, '0')}` : '';
+    return `${hour}${min} ${ampm}`;
+};
+
+/**
+ * Get user-facing message for half-day session (for check-in/check-out block).
+ * Uses shift-based boundaries when shiftStartTime/shiftEndTime provided (from business/shift).
+ * @param {string} session - '1' or '2'
+ * @param {string} [shiftStartTime] - from business shift
+ * @param {string} [shiftEndTime] - from business shift
+ */
+const getHalfDaySessionMessage = (session, shiftStartTime, shiftEndTime) => {
+    const b = getHalfDaySessionBoundaries(shiftStartTime || DEFAULT_SHIFT_START, shiftEndTime || DEFAULT_SHIFT_END);
+    if (session === '1') return `Half-day leave (Session 1: ${formatTimeForMessage(b.session1Start)} – ${formatTimeForMessage(b.session1End)})`;
+    if (session === '2') return `Half-day leave (Session 2: ${formatTimeForMessage(b.session2Start)} – ${formatTimeForMessage(b.session2End)})`;
     return 'Half-day leave';
 };
 
 /**
+ * Get boundaries in minute-of-day for a session (for leave window checks).
+ * @param {string} session - '1' or '2'
+ * @param {string} shiftStartTime
+ * @param {string} shiftEndTime
+ */
+const getSessionBoundsMinutes = (session, shiftStartTime, shiftEndTime) => {
+    const b = getHalfDaySessionBoundaries(shiftStartTime || DEFAULT_SHIFT_START, shiftEndTime || DEFAULT_SHIFT_END);
+    const toMinutes = (hhmm) => {
+        const [h, m] = hhmm.split(':').map(Number);
+        return h * 60 + (m || 0);
+    };
+    if (session === '1') return { start: toMinutes(b.session1Start), end: toMinutes(b.session1End) };
+    if (session === '2') return { start: toMinutes(b.session2Start), end: toMinutes(b.session2End) };
+    return null;
+};
+
+/**
  * Check if current time falls within the leave session window.
- * Full-day leave: always in session (whole day).
- * Half-day Session 1: 10:00 AM – 3:00 PM; Session 2: 2:00 PM – 7:00 PM.
+ * Uses business timezone so shift times (e.g. 3:00 PM–7:00 PM) are compared with local time, not server UTC.
  * @param {Object} leave - Approved leave with leaveType and session
- * @param {Date} now - Current server time
+ * @param {Date} now - Current time (server time)
+ * @param {string} [shiftStartTime]
+ * @param {string} [shiftEndTime]
+ * @param {string} [timeZone] - Business timezone e.g. 'Asia/Kolkata'. If omitted, uses server local.
  * @returns {boolean}
  */
-const isCurrentlyInLeaveSession = (leave, now) => {
+const isCurrentlyInLeaveSession = (leave, now, shiftStartTime, shiftEndTime, timeZone) => {
     if (!leave || !/^approved$/i.test(leave.status)) return false;
-    if (leave.leaveType !== 'Half Day') return true; // Full-day: block entire day
-    const session = leave.session;
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    if (session === '1') {
-        const start = SESSION_1_START_HOUR * 60 + SESSION_1_START_MINUTE; // 10:00 AM
-        const end = SESSION_1_END_HOUR * 60 + SESSION_1_END_MINUTE; // 15:00 (3:00 PM)
-        return currentMinutes >= start && currentMinutes < end;
-    }
-    if (session === '2') {
-        const start = SESSION_2_START_HOUR * 60 + SESSION_2_START_MINUTE; // 14:00 (2:00 PM)
-        const end = SESSION_2_END_HOUR * 60 + SESSION_2_END_MINUTE; // 19:00 (7:00 PM)
-        return currentMinutes >= start && currentMinutes < end;
-    }
-    return false;
+    if (leave.leaveType !== 'Half Day') return true;
+    const bounds = getSessionBoundsMinutes(leave.session, shiftStartTime, shiftEndTime);
+    if (!bounds) return false;
+    const { currentMinutes } = getLocalHoursMinutes(now, timeZone);
+    return currentMinutes >= bounds.start && currentMinutes < bounds.end;
 };
 
 /**
  * Get leave message for UI: session-based for half-day, generic for full-day.
  * When half-day and outside session: "Check-in allowed".
  */
-const getLeaveMessageForUI = (leave, now) => {
+const getLeaveMessageForUI = (leave, now, shiftStartTime, shiftEndTime, timeZone) => {
     if (!leave) return null;
     if (leave.leaveType === 'Half Day') {
-        const inSession = isCurrentlyInLeaveSession(leave, now);
-        const sessionMsg = getHalfDaySessionMessage(leave.session);
+        const inSession = isCurrentlyInLeaveSession(leave, now, shiftStartTime, shiftEndTime, timeZone);
+        const sessionMsg = getHalfDaySessionMessage(leave.session, shiftStartTime, shiftEndTime);
         return inSession ? sessionMsg : `${sessionMsg}. Check-in allowed.`;
     }
     return 'Your leave request is approved. Enjoy your leave.';
 };
 
 /**
- * Check if check-in is allowed given an approved Half Day leave and current server time.
- * Session 1 leave (10:00 AM - 3:00 PM): block check-in during Session 1, allow after 3:00 PM.
- * Session 2 leave (2:00 PM - 7:00 PM): allow check-in before 2:00 PM, block during Session 2.
+ * Check if check-in is allowed given an approved Half Day leave and current time.
+ * Uses business timezone so e.g. 5:57 PM IST is correctly treated as during Session 2 (blocked).
  * @param {Object} leave - Approved leave with leaveType 'Half Day' and session '1' or '2'
- * @param {Date} now - Current server time
+ * @param {Date} now - Current time (server time)
+ * @param {string} [shiftStartTime] - from business shift
+ * @param {string} [shiftEndTime] - from business shift
+ * @param {string} [timeZone] - Business timezone e.g. 'Asia/Kolkata'
  * @returns {{ allowed: boolean, message?: string }}
  */
-const canCheckInWithHalfDayLeave = (leave, now) => {
+// Allow check-in this many minutes before Session 2 start when employee has Session 1 leave (Session 2 working).
+const SESSION_2_EARLY_CHECKIN_MINUTES = 30;
+
+const canCheckInWithHalfDayLeave = (leave, now, shiftStartTime, shiftEndTime, timeZone) => {
     if (!leave || leave.leaveType !== 'Half Day') return { allowed: true };
-    const session = leave.session;
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const currentMinutes = hour * 60 + minute;
-    if (session === '1') {
-        // Session 1 leave: block during Session 1 (10:00 AM - 3:00 PM), allow after 3:00 PM
-        const session1EndMinutes = SESSION_1_END_HOUR * 60 + SESSION_1_END_MINUTE; // 15:00 (3:00 PM)
-        if (currentMinutes < session1EndMinutes) {
-            return { allowed: false, message: getHalfDaySessionMessage('1') };
+    const bounds = getSessionBoundsMinutes(leave.session, shiftStartTime, shiftEndTime);
+    if (!bounds) return { allowed: true };
+    const { currentMinutes } = getLocalHoursMinutes(now, timeZone);
+    if (leave.session === '1') {
+        // Session 1 leave: allow check-in from (Session 2 start - 30 mins). E.g. Session 2 is 2:30–7:00 → can login from 2:00.
+        const session2StartMinutes = bounds.end; // Session 1 end = Session 2 start
+        const checkInAllowedFromMinutes = session2StartMinutes - SESSION_2_EARLY_CHECKIN_MINUTES;
+        if (currentMinutes < checkInAllowedFromMinutes) {
+            return { allowed: false, message: getHalfDaySessionMessage('1', shiftStartTime, shiftEndTime) };
         }
         return { allowed: true };
     }
-    if (session === '2') {
-        // Session 2 leave: allow before Session 2 starts (before 2:00 PM), block during Session 2 (2:00 PM - 7:00 PM)
-        const session2StartMinutes = SESSION_2_START_HOUR * 60 + SESSION_2_START_MINUTE; // 14:00 (2:00 PM)
-        if (currentMinutes >= session2StartMinutes) {
-            return { allowed: false, message: getHalfDaySessionMessage('2') };
+    if (leave.session === '2') {
+        // Session 2 leave: allow before Session 2 start, block during Session 2
+        if (currentMinutes >= bounds.start) {
+            return { allowed: false, message: getHalfDaySessionMessage('2', shiftStartTime, shiftEndTime) };
         }
         return { allowed: true };
     }
@@ -97,40 +183,29 @@ const canCheckInWithHalfDayLeave = (leave, now) => {
 };
 
 /**
- * Check if check-out is allowed given an approved Half Day leave and current server time.
- *
- * IMPORTANT (Session 2 UX requirement):
- * - For Session 2 Half Day leave, checkout must NEVER be blocked. Employees can always check out
- *   once they have checked in, regardless of leave window.
- *
- * Session 1 leave: we still block check-out during Session 1 (10:00 AM - 3:00 PM) so that users
- * cannot mark checkout while they are on leave in the first half.
- *
+ * Check if check-out is allowed given an approved Half Day leave and current time.
+ * Uses business timezone for consistency with check-in.
  * @param {Object} leave - Approved leave with leaveType 'Half Day' and session '1' or '2'
- * @param {Date} now - Current server time
+ * @param {Date} now - Current time (server time)
+ * @param {string} [shiftStartTime]
+ * @param {string} [shiftEndTime]
+ * @param {string} [timeZone] - Business timezone e.g. 'Asia/Kolkata'
  * @returns {{ allowed: boolean, message?: string }}
  */
-const canCheckOutWithHalfDayLeave = (leave, now) => {
+const canCheckOutWithHalfDayLeave = (leave, now, shiftStartTime, shiftEndTime, timeZone) => {
     if (!leave || leave.leaveType !== 'Half Day') return { allowed: true };
     const session = (leave.session || '').trim();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const currentMinutes = hour * 60 + minute;
+    const bounds = getSessionBoundsMinutes(session, shiftStartTime, shiftEndTime);
+    if (!bounds) return { allowed: true };
+    const { currentMinutes } = getLocalHoursMinutes(now, timeZone);
 
     if (session === '1') {
-        // Session 1 leave: block check-out during Session 1 (10:00 AM - 3:00 PM)
-        const session1StartMinutes = SESSION_1_START_HOUR * 60 + SESSION_1_START_MINUTE; // 10:00 AM
-        const session1EndMinutes = SESSION_1_END_HOUR * 60 + SESSION_1_END_MINUTE; // 15:00 (3:00 PM)
-        if (currentMinutes >= session1StartMinutes && currentMinutes < session1EndMinutes) {
-            return { allowed: false, message: getHalfDaySessionMessage('1') };
+        // Session 1 leave: block check-out only during Session 1 (10:00–3:00)
+        if (currentMinutes >= bounds.start && currentMinutes < bounds.end) {
+            return { allowed: false, message: getHalfDaySessionMessage('1', shiftStartTime, shiftEndTime) };
         }
     }
-
-    if (session === '2') {
-        // Session 2 leave: NEVER block check-out (UX requirement)
-        return { allowed: true };
-    }
-
+    if (session === '2') return { allowed: true };
     return { allowed: true };
 };
 
@@ -140,6 +215,16 @@ const canCheckOutWithHalfDayLeave = (leave, now) => {
  * @param {Object} staff - Staff document (optional, for staff-specific shift)
  * @returns {Object} - { startTime, endTime, gracePeriodMinutes } in HH:mm format
  */
+/**
+ * Get business timezone for half-day/attendance checks. Shift times are in this timezone.
+ * @param {Object} company - Company document
+ * @returns {string} IANA timezone e.g. 'Asia/Kolkata'
+ */
+const getBusinessTimezone = (company) => {
+    const tz = company?.settings?.business?.timezone || company?.timezone;
+    return (tz && typeof tz === 'string' && tz.trim()) ? tz.trim() : DEFAULT_BUSINESS_TIMEZONE;
+};
+
 const getShiftTimings = (company, staff = null) => {
     // Default shift timings
     let startTime = '09:30';
@@ -614,40 +699,17 @@ const calculateAvailableLeaves = async (staff, leaveType, targetDate = new Date(
  * @returns {{ startTime: string, endTime: string }} - Working session timings in HH:mm format
  */
 const getWorkingSessionTimings = (session, shiftStartTime, shiftEndTime) => {
-    if (!session || (!shiftStartTime && !shiftEndTime)) return null;
-    
+    if (!session) return null;
     try {
-        // Parse shift times
-        const [startHours, startMins] = (shiftStartTime || '10:00').split(':').map(Number);
-        const [endHours, endMins] = (shiftEndTime || '19:00').split(':').map(Number);
-        
-        const startTotalMinutes = startHours * 60 + startMins;
-        const endTotalMinutes = endHours * 60 + endMins;
-        const sessionDurationMinutes = 5 * 60; // 5 hours = 300 minutes
-        
+        const b = getHalfDaySessionBoundaries(shiftStartTime || DEFAULT_SHIFT_START, shiftEndTime || DEFAULT_SHIFT_END);
         if (session === '1') {
-            // Session 1 leave: employee works Session 2 (fixed: 2:00 PM - shift end)
-            // Session 2 start is fixed at 14:00 (2:00 PM), end uses shift end from DB
-            return {
-                startTime: '14:00', // Fixed: 2:00 PM
-                endTime: `${endHours.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')}` // Use shift end from DB
-            };
+            // Session 1 leave: employee works Session 2 (e.g. 3:00 PM – 7:00 PM)
+            return { startTime: b.session2Start, endTime: b.session2End };
         }
-        
         if (session === '2') {
-            // Session 2 leave: employee works Session 1 (first 5 hours of shift)
-            const session1StartHours = startHours;
-            const session1StartMins = startMins;
-            const session1EndMinutes = startTotalMinutes + sessionDurationMinutes;
-            const session1EndHours = Math.floor(session1EndMinutes / 60);
-            const session1EndMins = session1EndMinutes % 60;
-            
-            return {
-                startTime: `${session1StartHours.toString().padStart(2, '0')}:${session1StartMins.toString().padStart(2, '0')}`,
-                endTime: `${session1EndHours.toString().padStart(2, '0')}:${session1EndMins.toString().padStart(2, '0')}`
-            };
+            // Session 2 leave: employee works Session 1 (e.g. 10:00 AM – 3:00 PM)
+            return { startTime: b.session1Start, endTime: b.session1End };
         }
-        
         return null;
     } catch (error) {
         console.error('[getWorkingSessionTimings] Error calculating from shift times:', error);
@@ -657,87 +719,54 @@ const getWorkingSessionTimings = (session, shiftStartTime, shiftEndTime) => {
 
 /**
  * Calculate late check-in fine for Half Day session.
- * Session 1 leave: late if check-in after 2:00 PM (Session 2 start)
- * Session 2 leave: late if check-in after 10:00 AM (Session 1 start)
- * Early check-in is allowed (no penalty).
- * @param {Date} punchInTime - Check-in time
- * @param {Date} attendanceDate - Date of attendance
- * @param {string} session - '1' or '2' (the leave session)
- * @param {number} gracePeriodMinutes - Grace period in minutes
- * @param {number} dailySalary - Daily salary amount
- * @param {number} shiftHours - Working hours for the session (5 hours)
- * @param {string} shiftStartTime - Main shift start time from DB (e.g., '10:00')
- * @param {string} shiftEndTime - Main shift end time from DB (e.g., '19:00')
+ * Uses business fineSettings when provided: enabled, calculationType ('shiftBased'|'fixedPerHour'), finePerHour.
+ * @param {Object} [fineSettings] - company.settings.attendance.fineSettings
  * @returns {{ lateMinutes: number, fineAmount: number }}
  */
-const calculateHalfDayLateFine = (punchInTime, attendanceDate, session, gracePeriodMinutes, dailySalary, shiftHours, shiftStartTime, shiftEndTime) => {
+const calculateHalfDayLateFine = (punchInTime, attendanceDate, session, gracePeriodMinutes, dailySalary, shiftHours, shiftStartTime, shiftEndTime, fineSettings = null) => {
     const timings = getWorkingSessionTimings(session, shiftStartTime, shiftEndTime);
     if (!timings) return { lateMinutes: 0, fineAmount: 0 };
-    
     const [startHours, startMins] = timings.startTime.split(':').map(Number);
     const shiftStart = new Date(attendanceDate);
     shiftStart.setHours(startHours, startMins, 0, 0);
-    
     const graceTimeEnd = new Date(shiftStart);
     graceTimeEnd.setMinutes(graceTimeEnd.getMinutes() + gracePeriodMinutes);
-    
-    // If punch-in is before or within grace time, no fine
-    if (punchInTime <= graceTimeEnd) {
-        return { lateMinutes: 0, fineAmount: 0 };
-    }
-    
-    // Calculate late minutes from shift start time
+    if (punchInTime <= graceTimeEnd) return { lateMinutes: 0, fineAmount: 0 };
     const lateMinutes = Math.max(0, Math.round((punchInTime.getTime() - shiftStart.getTime()) / (1000 * 60)));
-    
-    if (lateMinutes <= 0 || !dailySalary || !shiftHours) {
-        return { lateMinutes, fineAmount: 0 };
+    if (lateMinutes <= 0) return { lateMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.enabled === false) return { lateMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.calculationType === 'fixedPerHour' && (fineSettings.finePerHour != null && fineSettings.finePerHour > 0)) {
+        const fineAmount = Math.round((fineSettings.finePerHour * (lateMinutes / 60)) * 100) / 100;
+        return { lateMinutes, fineAmount };
     }
-    
-    // Calculate fine: Hourly Rate × (Late Minutes / 60)
+    if (!dailySalary || !shiftHours) return { lateMinutes, fineAmount: 0 };
     const hourlyRate = dailySalary / shiftHours;
     const fineAmount = Math.round((hourlyRate * (lateMinutes / 60)) * 100) / 100;
-    
     return { lateMinutes, fineAmount };
 };
 
 /**
- * Calculate early logout fine for Half Day session.
- * Session 1 leave: early if logout before 7:00 PM (Session 2 end)
- * Session 2 leave: early if logout before 3:00 PM (Session 1 end)
- * Late logout is NOT penalized (allowed).
- * @param {Date} punchOutTime - Check-out time
- * @param {Date} attendanceDate - Date of attendance
- * @param {string} session - '1' or '2' (the leave session)
- * @param {number} dailySalary - Daily salary amount
- * @param {number} shiftHours - Working hours for the session (5 hours)
- * @param {string} shiftStartTime - Main shift start time from DB (e.g., '10:00')
- * @param {string} shiftEndTime - Main shift end time from DB (e.g., '19:00')
+ * Calculate early logout fine for Half Day session. Uses business fineSettings when provided.
+ * @param {Object} [fineSettings] - company.settings.attendance.fineSettings
  * @returns {{ earlyMinutes: number, fineAmount: number }}
  */
-const calculateHalfDayEarlyFine = (punchOutTime, attendanceDate, session, dailySalary, shiftHours, shiftStartTime, shiftEndTime) => {
+const calculateHalfDayEarlyFine = (punchOutTime, attendanceDate, session, dailySalary, shiftHours, shiftStartTime, shiftEndTime, fineSettings = null) => {
     const timings = getWorkingSessionTimings(session, shiftStartTime, shiftEndTime);
     if (!timings) return { earlyMinutes: 0, fineAmount: 0 };
-    
     const [endHours, endMins] = timings.endTime.split(':').map(Number);
     const shiftEnd = new Date(attendanceDate);
     shiftEnd.setHours(endHours, endMins, 0, 0);
-    
-    // If punch-out is after or equal to shift end time, no fine (late logout allowed)
-    if (punchOutTime >= shiftEnd) {
-        return { earlyMinutes: 0, fineAmount: 0 };
-    }
-    
-    // Calculate early minutes (time before shift end time)
+    if (punchOutTime >= shiftEnd) return { earlyMinutes: 0, fineAmount: 0 };
     const earlyMinutes = Math.max(0, Math.round((shiftEnd.getTime() - punchOutTime.getTime()) / (1000 * 60)));
-    
-    if (earlyMinutes <= 0 || !dailySalary || !shiftHours) {
-        return { earlyMinutes, fineAmount: 0 };
+    if (earlyMinutes <= 0) return { earlyMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.enabled === false) return { earlyMinutes, fineAmount: 0 };
+    if (fineSettings && fineSettings.calculationType === 'fixedPerHour' && (fineSettings.finePerHour != null && fineSettings.finePerHour > 0)) {
+        const fineAmount = Math.round((fineSettings.finePerHour * (earlyMinutes / 60)) * 100) / 100;
+        return { earlyMinutes, fineAmount };
     }
-    
-    // Calculate fine: Hourly Rate × (Early Minutes / 60)
+    if (!dailySalary || !shiftHours) return { earlyMinutes, fineAmount: 0 };
     const hourlyRate = dailySalary / shiftHours;
     const fineAmount = Math.round((hourlyRate * (earlyMinutes / 60)) * 100) / 100;
-    
     return { earlyMinutes, fineAmount };
 };
 
@@ -753,5 +782,6 @@ module.exports = {
     getWorkingSessionTimings,
     calculateHalfDayLateFine,
     calculateHalfDayEarlyFine,
-    getShiftTimings
+    getShiftTimings,
+    getBusinessTimezone
 };

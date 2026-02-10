@@ -4,6 +4,7 @@ const Expense = require('../models/Expense');
 const PayslipRequest = require('../models/PayslipRequest');
 const Payroll = require('../models/Payroll');
 const Staff = require('../models/Staff');
+const User = require('../models/User');
 const Company = require('../models/Company');
 const payslipGeneratorService = require('../services/payslipGeneratorService');
 const { calculateAttendanceStats } = require('./payrollController');
@@ -281,6 +282,7 @@ const applyLeave = async (req, res) => {
 // @desc    Get My Leave Requests
 // @route   GET /api/requests/leave
 // @access  Private
+// Resolves approvedBy name from Staff collection first, then User (same pattern as loan details).
 const getLeaveRequests = async (req, res) => {
     try {
         const { status } = req.query;
@@ -296,7 +298,32 @@ const getLeaveRequests = async (req, res) => {
             query.status = status;
         }
 
-        const leaves = await Leave.find(query).sort({ createdAt: -1 });
+        const leaves = await Leave.find(query)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Resolve approvedBy: match _id in Staff first, else in User (like loan approvedBy)
+        const approvedByIds = [...new Set(
+            leaves.map(l => l.approvedBy).filter(Boolean)
+        )];
+        const approvedByMap = {};
+        for (const id of approvedByIds) {
+            const staff = await Staff.findById(id).select('name email').lean();
+            if (staff) {
+                approvedByMap[id.toString()] = { name: staff.name, email: staff.email || null };
+            } else {
+                const user = await User.findById(id).select('name email').lean();
+                if (user) {
+                    approvedByMap[id.toString()] = { name: user.name, email: user.email || null };
+                }
+            }
+        }
+        leaves.forEach(l => {
+            if (l.approvedBy) {
+                l.approvedBy = approvedByMap[l.approvedBy.toString()] || null;
+            }
+        });
+
         res.json(leaves);
     } catch (error) {
         console.error('Get Leave Requests Error:', error);
@@ -351,6 +378,7 @@ const applyLoan = async (req, res) => {
 // @desc    Get My Loan Requests
 // @route   GET /api/requests/loan
 // @access  Private
+// Resolves approvedBy name from User first (Loan ref), then Staff if needed.
 const getLoanRequests = async (req, res) => {
     try {
         const { status } = req.query;
@@ -366,7 +394,30 @@ const getLoanRequests = async (req, res) => {
             query.status = status;
         }
 
-        const loans = await Loan.find(query).sort({ createdAt: -1 });
+        const loans = await Loan.find(query).sort({ createdAt: -1 }).lean();
+
+        // Resolve approvedBy: Loan model refs User; also check Staff for consistency
+        const approvedByIds = [...new Set(
+            loans.map(l => l.approvedBy).filter(Boolean)
+        )];
+        const approvedByMap = {};
+        for (const id of approvedByIds) {
+            const user = await User.findById(id).select('name email').lean();
+            if (user) {
+                approvedByMap[id.toString()] = { name: user.name, email: user.email || null };
+            } else {
+                const staff = await Staff.findById(id).select('name email').lean();
+                if (staff) {
+                    approvedByMap[id.toString()] = { name: staff.name, email: staff.email || null };
+                }
+            }
+        }
+        loans.forEach(l => {
+            if (l.approvedBy) {
+                l.approvedBy = approvedByMap[l.approvedBy.toString()] || null;
+            }
+        });
+
         res.json(loans);
     } catch (error) {
         console.error('Get Loan Requests Error:', error);

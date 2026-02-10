@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/app_colors.dart';
+import '../../config/constants.dart';
 import '../../services/auth_service.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
@@ -77,6 +78,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
 
     _fetchAttendanceStatus();
+    final bool requireSelfie = widget.template?['requireSelfie'] ?? true;
     final bool requireGeolocation =
         widget.template?['requireGeolocation'] ?? true;
     if (requireGeolocation) {
@@ -99,17 +101,115 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text('Camera & location'),
-        content: const Text(
-          'Camera is used for your attendance selfie; location is used to record your check-in and check-out place.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.camera_alt_rounded,
+                    size: 48,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Camera & location',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.camera_alt_rounded, size: 20, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Camera is used for your attendance selfie.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.location_on_rounded, size: 20, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Location is used to record your check-in and check-out place.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: Material(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).pop(),
+                      borderRadius: BorderRadius.circular(12),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 14),
+                        child: Text(
+                          'OK',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
     await prefs.setBool(_kAttendancePermissionDialogShown, true);
@@ -350,10 +450,8 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   Future<void> _submitAttendance() async {
     if (!_submitGuard.allow) return; // Throttle double-tap to avoid 429
     final requireSelfie = widget.template?['requireSelfie'] ?? true;
-    // Check if geolocation is required (default to true if not specified)
     final bool requireGeolocation =
         widget.template?['requireGeolocation'] ?? true;
-
     if (requireSelfie && _imageFile == null) {
       SnackBarUtils.showSnackBar(
         context,
@@ -387,8 +485,11 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       selfiePayload = 'data:image/jpeg;base64,$base64Image';
     }
 
-    // Verify selfie against profile photo when selfie is required
-    if (requireSelfie && selfiePayload != null && selfiePayload.isNotEmpty) {
+    // Verify selfie against profile photo when selfie is required (face matching disabled via constant)
+    if (AppConstants.enableAttendanceFaceMatching &&
+        requireSelfie &&
+        selfiePayload != null &&
+        selfiePayload.isNotEmpty) {
       Map<String, dynamic> verify;
       try {
         verify = await _authService.verifyFace(selfiePayload);

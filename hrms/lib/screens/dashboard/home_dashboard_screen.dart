@@ -799,44 +799,47 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   List<Widget> _buildQuickActionButtons() {
     final buttons = <Widget>[];
+    final onNavigate = widget.onNavigate;
 
-    if (!_isCandidate) {
+    if (!_isCandidate && onNavigate != null) {
       buttons.add(
         _buildQuickActionButton(
           icon: Icons.fingerprint,
           label: 'Attendance',
           color: Colors.redAccent,
-          onTap: () => widget.onNavigate?.call(4, subTabIndex: 0),
+          onTap: () => onNavigate(4, subTabIndex: 0),
         ),
       );
     }
 
-    buttons.addAll([
-      _buildQuickActionButton(
-        icon: Icons.calendar_today,
-        label: 'Apply Leave',
-        color: Colors.blue,
-        onTap: () => widget.onNavigate?.call(1, subTabIndex: 0),
-      ),
-      _buildQuickActionButton(
-        icon: Icons.account_balance_wallet,
-        label: 'Request Loan',
-        color: Colors.green,
-        onTap: () => widget.onNavigate?.call(1, subTabIndex: 1),
-      ),
-      _buildQuickActionButton(
-        icon: Icons.receipt,
-        label: 'Expense Claim',
-        color: Colors.orange,
-        onTap: () => widget.onNavigate?.call(1, subTabIndex: 2),
-      ),
-      _buildQuickActionButton(
-        icon: Icons.attach_money,
-        label: 'Request Payslip',
-        color: Colors.purple,
-        onTap: () => widget.onNavigate?.call(1, subTabIndex: 3),
-      ),
-    ]);
+    if (onNavigate != null) {
+      buttons.addAll([
+        _buildQuickActionButton(
+          icon: Icons.calendar_today,
+          label: 'Apply Leave',
+          color: Colors.blue,
+          onTap: () => onNavigate(1, subTabIndex: 0),
+        ),
+        _buildQuickActionButton(
+          icon: Icons.account_balance_wallet,
+          label: 'Request Loan',
+          color: Colors.green,
+          onTap: () => onNavigate(1, subTabIndex: 1),
+        ),
+        _buildQuickActionButton(
+          icon: Icons.receipt,
+          label: 'Expense Claim',
+          color: Colors.orange,
+          onTap: () => onNavigate(1, subTabIndex: 2),
+        ),
+        _buildQuickActionButton(
+          icon: Icons.attach_money,
+          label: 'Request Payslip',
+          color: Colors.purple,
+          onTap: () => onNavigate(1, subTabIndex: 3),
+        ),
+      ]);
+    }
 
     return buttons;
   }
@@ -998,29 +1001,34 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 20),
               ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.black,
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1068,7 +1076,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             width: double.infinity,
             child: OutlinedButton(
               onPressed: () {
-                widget.onNavigate?.call(1, subTabIndex: 0);
+                final fn = widget.onNavigate;
+                if (fn != null) fn(1, subTabIndex: 0);
               },
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1222,7 +1231,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: () => widget.onNavigate?.call(4, subTabIndex: 1),
+              onPressed: () {
+                final fn = widget.onNavigate;
+                if (fn != null) fn(4, subTabIndex: 1);
+              },
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 side: const BorderSide(color: Color(0xFFE2E8F0)),

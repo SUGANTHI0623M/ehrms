@@ -583,12 +583,17 @@ exports.getCompletionReport = async (req, res) => {
       });
     }
 
+    const MOVEMENT_DEBOUNCE_MS = 60 * 1000; // Only show movement change if sustained (next record same type) or ≥1 min since last
     let lastMovementType = null;
+    let lastMovementTime = null;
     let hasHadExit = false;
-    for (const tr of trackingRecords) {
+    let hasArrived = false;
+    for (let i = 0; i < trackingRecords.length; i++) {
+      const tr = trackingRecords[i];
       const ts = tr.timestamp || tr.time;
       if (!ts) continue;
       if (tr.status === 'arrived') {
+        hasArrived = true;
         timeline.push({
           type: 'arrived',
           label: 'Arrived',
@@ -610,24 +615,31 @@ exports.getCompletionReport = async (req, res) => {
           exitReason: tr.exitReason,
           batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
         });
-      } else if (tr.movementType && tr.movementType !== lastMovementType) {
-        lastMovementType = tr.movementType;
-        let label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
-        let type = 'movement';
-        if ((label === 'Start' || tr.movementType === 'start') && hasHadExit) {
-          label = 'Resumed';
-          type = 'restart';
+      } else if (!hasArrived && tr.movementType && tr.movementType !== lastMovementType) {
+        const tsMs = new Date(ts).getTime();
+        const next = trackingRecords[i + 1];
+        const nextHasSameType = next && next.movementType === tr.movementType && next.status !== 'arrived';
+        const enoughTimeSinceLast = lastMovementTime == null || (tsMs - lastMovementTime >= MOVEMENT_DEBOUNCE_MS);
+        if (nextHasSameType || enoughTimeSinceLast) {
+          lastMovementType = tr.movementType;
+          lastMovementTime = tsMs;
+          let label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
+          let type = 'movement';
+          if ((label === 'Start' || tr.movementType === 'start') && hasHadExit) {
+            label = 'Resumed';
+            type = 'restart';
+          }
+          timeline.push({
+            type,
+            label,
+            time: ts,
+            address: tr.fullAddress || tr.address,
+            lat: tr.latitude,
+            lng: tr.longitude,
+            movementType: tr.movementType,
+            batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
+          });
         }
-        timeline.push({
-          type,
-          label,
-          time: ts,
-          address: tr.fullAddress || tr.address,
-          lat: tr.latitude,
-          lng: tr.longitude,
-          movementType: tr.movementType,
-          batteryPercent: tr.batteryPercent != null ? Number(tr.batteryPercent) : undefined,
-        });
       }
     }
 

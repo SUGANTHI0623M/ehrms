@@ -88,6 +88,16 @@ class _ProfileScreenState extends State<ProfileScreen>
           final data = result['data'];
           if (data is Map) {
             _userData = Map<String, dynamic>.from(data);
+            // Update stored user with branchName so app drawer shows branch
+            final branchName = data['branchName']?.toString() ??
+                (data['staffData'] is Map
+                    ? ((data['staffData'] as Map)['branchId'] is Map
+                        ? ((data['staffData'] as Map)['branchId'] as Map)['branchName']?.toString()
+                        : null)
+                    : null);
+            if (branchName != null && branchName.isNotEmpty) {
+              _updateStoredUserBranchName(branchName);
+            }
           } else {
             _userData = null;
           }
@@ -101,6 +111,20 @@ class _ProfileScreenState extends State<ProfileScreen>
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _updateStoredUserBranchName(String branchName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userStr = prefs.getString('user');
+      if (userStr != null) {
+        final user = jsonDecode(userStr) as Map<String, dynamic>?;
+        if (user != null) {
+          user['branchName'] = branchName;
+          await prefs.setString('user', jsonEncode(user));
+        }
+      }
+    } catch (_) {}
   }
 
   Map<String, dynamic>? get _profile {
@@ -316,7 +340,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         leading: const MenuIconButton(),
         title: const Text(
           'My Profile',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         elevation: 0,
         centerTitle: true,
@@ -416,6 +440,12 @@ class _ProfileScreenState extends State<ProfileScreen>
             photoUrlStr.startsWith('https://')) &&
         !_profileImageError;
     final joiningDate = _staffData?['joiningDate'];
+    final role = _profile?['role'] ?? _staffData?['role'] ?? 'N/A';
+    final branchName = _userData?['branchName']?.toString() ??
+        (_staffData?['branchId'] is Map
+            ? (_staffData!['branchId'] as Map)['branchName']?.toString()
+            : null) ??
+        'Main Office';
 
     return Container(
       decoration: BoxDecoration(
@@ -479,7 +509,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             : Text(
                                 initial,
                                 style: TextStyle(
-                                  fontSize: 32,
+                                  fontSize: 22,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.primary,
                                 ),
@@ -513,7 +543,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     Text(
                       name,
                       style: const TextStyle(
-                        fontSize: 24,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -521,7 +551,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     Text(
                       empId,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 12,
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
@@ -540,17 +570,50 @@ class _ProfileScreenState extends State<ProfileScreen>
                             _buildHeaderBadge(
                               'Joined: ${_formatDate(joiningDate)}',
                               Colors.white.withOpacity(0.2),
+                              fontSize: 10,
                             ),
                           ],
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(Icons.work_outline_rounded,
+                            color: Colors.white70, size: 14),
+                        const SizedBox(width: 6),
+                        Text(
+                          role,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.95),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(width: 16),
+                        Icon(Icons.location_on_outlined,
+                            color: Colors.white70, size: 14),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            branchName,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
                     Text(
                       designation.toUpperCase(),
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        fontSize: 14,
+                        fontSize: 12,
                         color: Colors.white.withOpacity(0.9),
                         letterSpacing: 0.8,
                       ),
@@ -589,11 +652,11 @@ class _ProfileScreenState extends State<ProfileScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(icon, color: Colors.white70, size: 20),
+        Icon(icon, color: Colors.white70, size: 18),
         const SizedBox(height: 4),
         Text(
           text,
-          style: const TextStyle(color: Colors.white, fontSize: 10),
+          style: const TextStyle(color: Colors.white, fontSize: 12),
           maxLines: 1,
           textAlign: TextAlign.center,
           overflow: TextOverflow.ellipsis,
@@ -602,7 +665,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildHeaderBadge(String text, Color color) {
+  Widget _buildHeaderBadge(String text, Color color, {double? fontSize}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -612,9 +675,9 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
-          fontSize: 11,
+          fontSize: fontSize ?? 12,
           fontWeight: FontWeight.w600,
         ),
         overflow: TextOverflow.ellipsis,
@@ -3763,7 +3826,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: FontWeight.bold,
           color: Colors.grey[600],
           letterSpacing: 1.2,
@@ -3788,12 +3851,12 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         keyboardType: keyboardType,
         validator: validator,
         obscureText: obscureText,
-        style: const TextStyle(fontWeight: FontWeight.w500),
+        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
           suffixIcon: suffixIcon,
-          labelStyle: const TextStyle(color: Colors.black),
+          labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: Colors.grey.shade300),

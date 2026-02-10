@@ -77,6 +77,57 @@ iframe{width:100%;height:100%;border:0;display:block}
 </html>''';
   }
 
+  /// PDF in WebView often shows blank when loaded via loadRequest. Load via HTML iframe (same as web) so the page has a document and iframe can render PDF on supported devices.
+  Widget _buildPdfViewer(BuildContext context, String pdfUrl) {
+    final pdfSrc = '$pdfUrl#toolbar=1&view=FitH';
+    final uri = Uri.tryParse(pdfUrl);
+    final baseUrl = uri != null ? '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}/' : null;
+    final html = '''
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #f5f5f5; }
+iframe { width: 100%; height: 100%; border: none; display: block; }
+</style>
+</head>
+<body>
+<iframe src="$pdfSrc" title="PDF"></iframe>
+</body>
+</html>''';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: MediaQuery.of(context).size.height * 0.55,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: WebViewWidget(
+              controller: WebViewController()
+                ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                ..setBackgroundColor(Colors.grey.shade100)
+                ..loadHtmlString(
+                  html,
+                  baseUrl: baseUrl,
+                ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(
+            'If the PDF doesn\'t appear, use the Open button above to view in your browser.',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildYouTubePlayer(BuildContext context) {
     final videoId = _getVideoId();
     if (videoId == null || videoId.isEmpty) {
@@ -123,14 +174,7 @@ iframe{width:100%;height:100%;border:0;display:block}
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (type == 'PDF')
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.6,
-            child: WebViewWidget(
-              controller: WebViewController()
-                ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..loadRequest(Uri.parse('$urlToLoad#toolbar=1&view=FitH')),
-            ),
-          )
+          _buildPdfViewer(context, urlToLoad)
         else if (type == 'YOUTUBE')
           _buildYouTubePlayer(context)
         else

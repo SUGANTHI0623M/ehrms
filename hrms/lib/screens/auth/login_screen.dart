@@ -70,6 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         'Login Successful!',
         backgroundColor: AppColors.success,
+        duration: const Duration(milliseconds: 400),
       );
       Navigator.pushReplacement(
         context,

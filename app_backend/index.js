@@ -61,6 +61,10 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 
+// Serve uploaded files (LMS PDFs/videos, onboarding, task photos, etc.) so GET /uploads/... returns the file
+const uploadsDir = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsDir));
+
 // Root / health check – avoids 404 for GET / (load balancers, uptime checks)
 app.get('/', (req, res) => {
     res.json({ ok: true, message: 'Server is running', service: 'hrms-api' });

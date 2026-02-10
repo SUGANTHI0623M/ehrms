@@ -6,11 +6,13 @@ class SnackBarUtils {
   static OverlayEntry? _currentEntry;
   static Timer? _timer;
 
+  /// [duration] optional; if null, defaults to 3 seconds.
   static void showSnackBar(
     BuildContext context,
     String message, {
     Color? backgroundColor,
     bool isError = false,
+    Duration? duration,
   }) {
     // Attempt to find the top-level overlay
     final overlay = Navigator.of(context, rootNavigator: true).overlay;
@@ -31,8 +33,8 @@ class SnackBarUtils {
 
     overlay.insert(_currentEntry!);
 
-    // Auto-dismiss after 3 seconds
-    _timer = Timer(const Duration(milliseconds: 3000), () {
+    // Auto-dismiss after [duration] or default 3 seconds
+    _timer = Timer(duration ?? const Duration(milliseconds: 3000), () {
       _removeCurrentSnackBarSync();
     });
   }

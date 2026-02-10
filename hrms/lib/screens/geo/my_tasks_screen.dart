@@ -56,7 +56,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging && mounted) setState(() {});
     });
@@ -90,10 +90,20 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     List<Task> list = _tasks;
     final tabIndex = _tabController.index;
     switch (tabIndex) {
-      case 1: // Not yet Started
+      case 1: // In Progress (actively doing the task)
         list = list
             .where(
               (t) =>
+                  t.status == TaskStatus.inProgress ||
+                  t.status == TaskStatus.arrived,
+            )
+            .toList();
+        break;
+      case 2: // Pending (not yet started)
+        list = list
+            .where(
+              (t) =>
+                  t.status == TaskStatus.pending ||
                   t.status == TaskStatus.assigned ||
                   t.status == TaskStatus.scheduled ||
                   t.status == TaskStatus.approved ||
@@ -101,18 +111,14 @@ class _MyTasksScreenState extends State<MyTasksScreen>
             )
             .toList();
         break;
-      case 2: // In progress
+      case 3: // Hold
         list = list
             .where(
               (t) =>
-                  t.status == TaskStatus.inProgress ||
-                  t.status == TaskStatus.arrived ||
-                  t.status == TaskStatus.exited,
+                  t.status == TaskStatus.hold ||
+                  t.status == TaskStatus.holdOnArrival,
             )
             .toList();
-        break;
-      case 3: // Pending
-        list = list.where((t) => t.status == TaskStatus.pending).toList();
         break;
       case 4: // Completed
         list = list
@@ -125,6 +131,16 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         break;
       case 5: // Rejected
         list = list.where((t) => t.status == TaskStatus.rejected).toList();
+        break;
+      case 6: // Exited
+        list = list
+            .where(
+              (t) =>
+                  t.status == TaskStatus.exited ||
+                  t.status == TaskStatus.exitedOnArrival ||
+                  t.status == TaskStatus.reopenedOnArrival,
+            )
+            .toList();
         break;
     }
     // Search: customer name, task name, taskId
@@ -212,10 +228,11 @@ class _MyTasksScreenState extends State<MyTasksScreen>
               const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.refresh),
-                tooltip: 'Refresh',
-                onPressed: () {
+                tooltip: 'Refresh tasks and filters',
+                onPressed: () async {
                   _refreshFilters();
-                  _fetchTasks();
+                  await _fetchTasks();
+                  if (mounted) setState(() {});
                 },
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.white,
@@ -228,53 +245,65 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           Row(
             children: [
               Expanded(
+                flex: 2,
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.calendar_today, size: 16),
+                  icon: const Icon(Icons.date_range, size: 16),
                   label: Text(
-                    _filterStartDate == null
-                        ? 'Start date'
-                        : DateFormat('dd/MM/yy').format(_filterStartDate!),
+                    _filterStartDate == null && _filterEndDate == null
+                        ? 'Date range (From - To)'
+                        : _filterStartDate != null && _filterEndDate != null
+                            ? '${DateFormat('dd/MM/yy').format(_filterStartDate!)} - ${DateFormat('dd/MM/yy').format(_filterEndDate!)}'
+                            : _filterStartDate != null
+                                ? 'From ${DateFormat('dd/MM/yy').format(_filterStartDate!)}'
+                                : 'To ${DateFormat('dd/MM/yy').format(_filterEndDate!)}',
                     style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   onPressed: () async {
-                    final d = await showDatePicker(
+                    final now = DateTime.now();
+                    final initialStart = _filterStartDate ?? now;
+                    final initialEnd = _filterEndDate ?? _filterStartDate ?? now;
+                    final range = await showDateRangePicker(
                       context: context,
-                      initialDate: _filterStartDate ?? DateTime.now(),
                       firstDate: DateTime(2020),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                      lastDate: now.add(const Duration(days: 365)),
+                      initialDateRange: DateTimeRange(
+                        start: initialStart.isBefore(initialEnd)
+                            ? initialStart
+                            : initialEnd,
+                        end: initialEnd.isAfter(initialStart)
+                            ? initialEnd
+                            : initialStart,
+                      ),
+                      helpText: 'Select date range (From - To)',
                     );
-                    if (d != null) setState(() => _filterStartDate = d);
+                    if (range != null && mounted) {
+                      setState(() {
+                        _filterStartDate = range.start;
+                        _filterEndDate = range.end;
+                      });
+                    }
                   },
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.calendar_today, size: 16),
-                  label: Text(
-                    _filterEndDate == null
-                        ? 'End date'
-                        : DateFormat('dd/MM/yy').format(_filterEndDate!),
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onPressed: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate:
-                          _filterEndDate ?? _filterStartDate ?? DateTime.now(),
-                      firstDate: _filterStartDate ?? DateTime(2020),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (d != null) setState(() => _filterEndDate = d);
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+              if (_filterStartDate != null || _filterEndDate != null) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.clear, size: 20),
+                  tooltip: 'Clear date filter',
+                  onPressed: () => setState(() {
+                    _filterStartDate = null;
+                    _filterEndDate = null;
+                  }),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    side: BorderSide(color: Colors.grey.shade300),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ],
@@ -770,11 +799,12 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                   ),
                   tabs: const [
                     Tab(text: 'All Tasks'),
-                    Tab(text: 'Not yet Started'),
-                    Tab(text: 'In progress'),
+                    Tab(text: 'In Progress'),
                     Tab(text: 'Pending'),
+                    Tab(text: 'Hold'),
                     Tab(text: 'Completed'),
                     Tab(text: 'Rejected'),
+                    Tab(text: 'Exited'),
                   ],
                 ),
           actions: [

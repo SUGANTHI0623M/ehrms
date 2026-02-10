@@ -376,27 +376,85 @@ const leaveSession = async (req, res) => {
 
 // --- Learning Engine ---
 
-// GET /lms/learning-engine
+// GET /lms/learning-engine — heatmap from LearningActivity + QuizAttempt (match web/bb: show quiz & activity)
 const getLearningEngine = async (req, res) => {
     try {
         const staffId = getStaffId(req);
         if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const start = new Date(Date.now() - 371 * 24 * 60 * 60 * 1000);
+        const end = new Date();
+
+        // Source 1: LearningActivity (if any explicit logging)
         const activities = await LearningActivity.find({
             employeeId: staffId,
-            date: { $gte: start },
-        }).sort({ date: 1 });
+            date: { $gte: start, $lte: end },
+        }).sort({ date: 1 }).lean();
 
-        const heatmap = activities.map(a => ({
-            date: a.date.toISOString().slice(0, 10),
-            totalMinutes: a.totalMinutes,
-            lessonsCompleted: a.lessonsCompleted,
-            quizzesAttempted: a.quizzesAttempted,
-            assessmentsAttempted: a.assessmentsAttempted,
-            liveSessionsAttended: a.liveSessionsAttended,
-            activityScore: a.activityScore,
-        }));
+        // Source 2: Quiz attempts (practice quizzes) — same as bb AIQuiz submittedAt
+        const quizAttempts = await QuizAttempt.find({
+            employeeId: staffId,
+            createdAt: { $gte: start, $lte: end },
+        }).select('createdAt').lean();
+
+        // Source 3: Course progress — contentProgress.viewedAt (days when user viewed content)
+        const progressList = await CourseProgress.find({
+            employeeId: staffId,
+            'contentProgress.viewedAt': { $gte: start, $lte: end },
+        }).select('contentProgress.viewedAt').lean();
+
+        const toKey = (d) => d.toISOString().slice(0, 10);
+        const byDate = new Map();
+        const init = (key) => {
+            if (!byDate.has(key)) byDate.set(key, { totalMinutes: 0, lessonsCompleted: 0, quizzesAttempted: 0, assessmentsAttempted: 0, liveSessionsAttended: 0 });
+        };
+
+        activities.forEach((a) => {
+            const key = toKey(a.date);
+            init(key);
+            const e = byDate.get(key);
+            e.totalMinutes += a.totalMinutes || 0;
+            e.lessonsCompleted += a.lessonsCompleted || 0;
+            e.quizzesAttempted += a.quizzesAttempted || 0;
+            e.assessmentsAttempted += a.assessmentsAttempted || 0;
+            e.liveSessionsAttended += a.liveSessionsAttended || 0;
+        });
+
+        quizAttempts.forEach((q) => {
+            if (!q.createdAt) return;
+            const key = toKey(q.createdAt);
+            init(key);
+            byDate.get(key).quizzesAttempted += 1;
+        });
+
+        progressList.forEach((p) => {
+            (p.contentProgress || []).forEach((cp) => {
+                if (cp.viewedAt) {
+                    const key = toKey(cp.viewedAt);
+                    if (key >= toKey(start) && key <= toKey(end)) {
+                        init(key);
+                        const e = byDate.get(key);
+                        e.lessonsCompleted += 1;
+                        e.totalMinutes = (e.totalMinutes || 0) + 5;
+                    }
+                }
+            });
+        });
+
+        // Build heatmap array with activityScore (match bb: time*1 + lessons*10 + quizzes*15 + assessments*20 + live*20)
+        const heatmap = Array.from(byDate.entries()).map(([date, agg]) => {
+            const activityScore = (agg.totalMinutes || 0) * 1 + (agg.lessonsCompleted || 0) * 10 +
+                (agg.quizzesAttempted || 0) * 15 + (agg.assessmentsAttempted || 0) * 20 + (agg.liveSessionsAttended || 0) * 20;
+            return {
+                date,
+                totalMinutes: agg.totalMinutes || 0,
+                lessonsCompleted: agg.lessonsCompleted || 0,
+                quizzesAttempted: agg.quizzesAttempted || 0,
+                assessmentsAttempted: agg.assessmentsAttempted || 0,
+                liveSessionsAttended: agg.liveSessionsAttended || 0,
+                activityScore,
+            };
+        });
 
         res.json({ success: true, heatmap });
     } catch (err) {
@@ -404,6 +462,20 @@ const getLearningEngine = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+
+// Helper: compute due date from completionDuration and start date
+function addDuration(startDate, duration) {
+    if (!duration || !duration.value || !duration.unit) return null;
+    const d = new Date(startDate);
+    const v = Number(duration.value) || 0;
+    switch (String(duration.unit)) {
+        case 'Days': d.setDate(d.getDate() + v); break;
+        case 'Weeks': d.setDate(d.getDate() + v * 7); break;
+        case 'Months': d.setMonth(d.getMonth() + v); break;
+        default: return null;
+    }
+    return d;
+}
 
 // GET /lms/analytics/my-scores
 const getMyScores = async (req, res) => {
@@ -422,22 +494,56 @@ const getMyScores = async (req, res) => {
             ? Math.round(progressList.reduce((s, p) => s + (p.completionPercentage || 0), 0) / totalCourses)
             : 0;
 
-        const courses = progressList.map(p => ({
-            courseId: p.courseId?._id,
-            title: p.courseId?.title,
-            status: p.status,
-            progress: p.completionPercentage || 0,
-            dueDate: null,
-            daysRemaining: null,
-            completedAt: p.status === 'Completed' ? p.updatedAt : null,
-            openedAt: p.lastAccessedAt || p.createdAt,
-        }));
+        const now = new Date();
+        const courses = progressList.map(p => {
+            const course = p.courseId;
+            const start = p.createdAt ? new Date(p.createdAt) : new Date();
+            const dueDate = course?.completionDuration ? addDuration(start, course.completionDuration) : null;
+            const daysRemaining = dueDate
+                ? Math.ceil((dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+                : null;
+            return {
+                courseId: course?._id,
+                title: course?.title,
+                status: p.status,
+                progress: p.completionPercentage || 0,
+                dueDate: dueDate || null,
+                daysRemaining,
+                completedAt: p.status === 'Completed' ? p.updatedAt : null,
+                openedAt: p.lastAccessedAt || p.createdAt,
+            };
+        });
 
         const quizAttempts = await QuizAttempt.find({ employeeId: staffId })
             .populate('quizId')
             .lean();
+
+        // By difficulty: total = unique quizzes, completed = those with at least one passed attempt
+        const byDiff = { Easy: new Map(), Medium: new Map(), Hard: new Map() };
+        for (const a of quizAttempts) {
+            const qid = a.quizId?._id?.toString();
+            if (!qid) continue;
+            const diff = (a.quizId?.difficulty || 'Medium').trim();
+            const key = byDiff[diff] || byDiff.Medium;
+            if (!key.has(qid)) key.set(qid, { completed: false });
+            if (a.passed !== undefined && a.passed !== null) key.get(qid).completed = true;
+        }
+        const toStat = (m) => {
+            const total = m.size;
+            const completed = [...m.values()].filter((x) => x.completed).length;
+            return {
+                total,
+                completed,
+                percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+                beatsPercent: 0,
+            };
+        };
+
         const totalQuizzes = quizAttempts.length;
-        const completedQuizzes = quizAttempts.filter(a => a.passed !== undefined).length;
+        const uniqueQuizzes = new Set(quizAttempts.map((a) => a.quizId?._id?.toString()).filter(Boolean));
+        const completedQuizzes = [...uniqueQuizzes].filter((qid) =>
+            quizAttempts.some((a) => a.quizId?._id?.toString() === qid && a.passed !== undefined && a.passed !== null)
+        ).length;
 
         res.json({
             success: true,
@@ -448,16 +554,16 @@ const getMyScores = async (req, res) => {
                     inProgress,
                     overallScore,
                     passedAssessments: completedQuizzes,
-                    failedAssessments: totalQuizzes - completedQuizzes,
+                    failedAssessments: uniqueQuizzes.size - completedQuizzes,
                 },
                 courses,
                 quizStats: {
-                    totalAssigned: totalQuizzes,
+                    totalAssigned: uniqueQuizzes.size,
                     totalCompleted: completedQuizzes,
-                    completionPercent: totalQuizzes > 0 ? Math.round((completedQuizzes / totalQuizzes) * 100) : 0,
-                    easy: { total: 0, completed: 0, percent: 0, beatsPercent: 0 },
-                    medium: { total: totalQuizzes, completed: completedQuizzes, percent: totalQuizzes > 0 ? Math.round((completedQuizzes / totalQuizzes) * 100) : 0, beatsPercent: 0 },
-                    hard: { total: 0, completed: 0, percent: 0, beatsPercent: 0 },
+                    completionPercent: uniqueQuizzes.size > 0 ? Math.round((completedQuizzes / uniqueQuizzes.size) * 100) : 0,
+                    easy: toStat(byDiff.Easy),
+                    medium: toStat(byDiff.Medium),
+                    hard: toStat(byDiff.Hard),
                 },
             },
         });

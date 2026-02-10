@@ -241,6 +241,7 @@ const login = async (req, res) => {
             avatar: staff?.avatar || user.avatar,
             locationAccess: staff?.locationAccess === true,
             taskSettings: taskSettings?.settings || null,
+            branchName: staff?.branchId?.branchName ?? undefined,
         };
 
         // Create a refresh token (if needed by frontend, though Flutter usually uses access token for now)
@@ -288,7 +289,7 @@ const googleLogin = async (req, res) => {
             // Old logic allowed it.
         } else {
             // Check Staff by email
-            staff = await Staff.findOne({ email });
+            staff = await Staff.findOne({ email }).populate('branchId');
             if (staff && staff.userId) {
                 user = await User.findById(staff.userId).populate('roleId');
             }
@@ -338,6 +339,7 @@ const googleLogin = async (req, res) => {
             avatar: staff?.avatar || user.avatar,
             locationAccess: staff?.locationAccess === true,
             taskSettings: taskSettings?.settings || null,
+            branchName: staff?.branchId?.branchName ?? undefined,
         };
 
         res.json({
@@ -416,6 +418,7 @@ const getProfile = async (req, res) => {
             }
         }
 
+        const branchName = fullStaff?.branchId?.branchName ?? null;
         res.status(200).json({
             success: true,
             data: {
@@ -423,8 +426,10 @@ const getProfile = async (req, res) => {
                     name: fullUser.name,
                     email: fullUser.email,
                     phone: fullStaff?.phone || fullUser.phone,
-                    avatar: fullUser.avatar || fullStaff?.avatar
+                    avatar: fullUser.avatar || fullStaff?.avatar,
+                    role: fullUser.role
                 },
+                branchName: branchName,
                 staffData: fullStaff ? {
                     ...fullStaff.toObject(),
                     candidateId: candidateData || fullStaff.candidateId,

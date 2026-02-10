@@ -417,16 +417,9 @@ class AuthService {
         'message': body?['message'] as String? ?? 'OTP sent successfully',
       };
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404 && retryCount < 1) {
-        if (kDebugMode) {
-          debugPrint('[AuthService] ForgotPassword: Got 404, retrying once...');
-        }
-        await Future.delayed(const Duration(milliseconds: 500));
-        return forgotPassword(email, retryCount: retryCount + 1);
-      }
-      return _handleDioError(e, 'Failed to send OTP', (code, _) {
+      return _handleDioError(e, 'Failed to send OTP', (code, body) {
         if (code == 404) {
-          return 'Forgot password endpoint not found (404). Please try again or contact support.';
+          return _messageFromBody(body) ?? 'User not found.';
         }
         if (code != null && code >= 500) {
           return 'Server error ($code). The backend server is not responding. Please try again later.';

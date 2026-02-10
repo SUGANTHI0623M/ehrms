@@ -113,7 +113,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       (m) => (m['lessonTitle'] ?? 'Course Materials').toString() == lessonTitle,
     );
     if (materials.isEmpty) return false;
-    return materials.every((m) => _isViewed(m['_id']?.toString()));
+    return materials.every((m) => _isViewed(m['_id']?.toString() ?? m['id']?.toString()));
   }
 
   bool _isLessonLocked(int lessonIndex, List<String> lessonTitles) {
@@ -676,7 +676,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
                         },
                 );
               }),
-              if (!isLocked && isCompleted) ...[
+              if (!isLocked) ...[
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -721,14 +721,15 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
           const SizedBox(height: 16),
           Builder(
             builder: (ctx) {
-              final allLessonsCompleted = lessonTitles.every((t) => _isLessonCompleted(t));
-              final hasAssessment = _course?['assessmentQuestions'] is List &&
-                  (_course['assessmentQuestions'] as List).isNotEmpty;
+              // Match web: show Final Assessment when ALL lessons completed (same as web renderSidebarFooter)
+              final allLessonsCompleted = lessonTitles.isNotEmpty &&
+                  lessonTitles.every((t) => _isLessonCompleted(t));
               final isLiveAssessment = _course?['isLiveAssessment'] == true;
               final assessmentRequested = _progress?['assessmentStatus'] == 'Requested' ||
                   _progress?['assessmentStatus'] == 'In Progress';
 
-              if (allLessonsCompleted && hasAssessment && !isLiveAssessment) {
+              // Web shows "Start Final Assessment" or "Request Final Assessment" whenever allLessonsCompleted (no hasAssessment check)
+              if (allLessonsCompleted && !isLiveAssessment) {
                 return SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -750,18 +751,24 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
                   ),
                 );
               }
-              if (allLessonsCompleted && hasAssessment && isLiveAssessment && !assessmentRequested) {
+              if (allLessonsCompleted && isLiveAssessment && !assessmentRequested) {
                 return SizedBox(
                   width: double.infinity,
-                  child: OutlinedButton.icon(
+                  child: ElevatedButton.icon(
                     onPressed: () {
                       SnackBarUtils.showSnackBar(context, 'Live assessment request not yet supported in app');
                     },
                     icon: const Icon(Icons.emoji_events),
                     label: const Text('Request Final Assessment'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6366F1),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                   ),
                 );
               }
+              // Some but not all lessons completed: show Practice Quiz
               return SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -791,7 +798,14 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
 
   void _showQuizModal(BuildContext context, {List<String>? preSelected}) {
     final completed = _completedLessonTitles;
-    if (completed.isEmpty) return;
+    if (completed.isEmpty) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Complete at least one lesson to generate a quiz.',
+        isError: true,
+      );
+      return;
+    }
     List<String> selected = preSelected != null
         ? preSelected.where((s) => completed.contains(s)).toList()
         : (completed.isNotEmpty ? [completed.first] : []);

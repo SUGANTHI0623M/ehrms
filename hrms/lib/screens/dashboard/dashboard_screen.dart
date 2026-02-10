@@ -38,13 +38,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onDashboardNavigate(int index, {int subTabIndex = 0}) {
-    if (index >= 0 && index <= 4) {
-      setState(() {
-        _currentIndex = index;
-        if (index == 1) _requestsSubTabIndex = subTabIndex;
-        if (index == 4) _attendanceSubTabIndex = subTabIndex;
-      });
-    }
+    if (index < 0 || index > 4) return;
+    if (!mounted) return;
+    setState(() {
+      _currentIndex = index;
+      if (index == 1) _requestsSubTabIndex = subTabIndex;
+      if (index == 4) _attendanceSubTabIndex = subTabIndex;
+    });
   }
 
   @override

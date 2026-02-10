@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
+import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/performance_service.dart';
 import 'self_assessment_form_screen.dart';
 
@@ -87,6 +88,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
       ),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _error != null
