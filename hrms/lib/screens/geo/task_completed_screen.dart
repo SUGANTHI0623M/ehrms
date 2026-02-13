@@ -6,7 +6,6 @@ import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
 import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
 
 /// One event in the task track timeline.
 class _TimelineEvent {
@@ -117,6 +116,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
   double get _displayDistanceKm =>
       _task?.tripDistanceKm ?? widget.totalDistanceKm;
 
+  /// Travel duration: time from journey started to arrived, or (if exited) from resumed to arrived.
   Duration get _displayDuration {
     final secs = _task?.tripDurationSeconds;
     if (secs != null && secs > 0) {
@@ -125,13 +125,30 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
     return widget.totalDuration;
   }
 
+  /// Total task duration: task start time to end time.
+  Duration get _totalTaskDuration {
+    final start = _task?.startTime ?? widget.startedAt;
+    final end = _task?.completedDate ?? widget.completedAt;
+    return end.difference(start);
+  }
+
   bool get _displayOtpVerified => _task?.isOtpVerified ?? widget.otpVerified;
 
   bool get _displayPhotoProof => _task?.photoProof ?? widget.photoProof;
 
   static String _formatDuration(Duration d) {
-    if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
-    return '${d.inMinutes} mins';
+    final secs = d.inSeconds;
+    if (secs < 60) return secs == 1 ? '1 sec' : '$secs secs';
+    final mins = d.inMinutes;
+    final remainderSecs = d.inSeconds.remainder(60);
+    if (d.inHours > 0) {
+      final h = d.inHours;
+      final m = mins.remainder(60);
+      if (remainderSecs > 0) return '${h}h ${m}m ${remainderSecs}s';
+      return '${h}h ${m}m';
+    }
+    if (remainderSecs > 0) return '${mins} min${mins == 1 ? '' : 's'} ${remainderSecs} secs';
+    return mins == 1 ? '1 min' : '$mins mins';
   }
 
   List<_TimelineEvent> _buildTimelineEvents() {
@@ -258,14 +275,14 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       return Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(color: AppColors.primary),
-          ),
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
           title: const Text(
             'Task Completed',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
           centerTitle: true,
+          elevation: 0,
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -280,37 +297,15 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(color: AppColors.primary),
-          ),
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
           leading: const SizedBox.shrink(),
           title: Text(
             _isWaitingForApproval ? 'Waiting for Approval' : 'Task Completed',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           centerTitle: true,
           elevation: 0,
-          actions: [
-            IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryLight.withOpacity(0.5),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.home_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
-              onPressed: () => _goToMyTasks(context),
-            ),
-            const SizedBox(width: 8),
-          ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -401,8 +396,13 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                       ),
                       _divider(),
                       _detailRow(
-                        'Total Duration',
+                        'Travel Duration',
                         _formatDuration(_displayDuration),
+                      ),
+                      _divider(),
+                      _detailRow(
+                        'Total Task Duration',
+                        _formatDuration(_totalTaskDuration),
                       ),
                       _divider(),
                       _detailRow(

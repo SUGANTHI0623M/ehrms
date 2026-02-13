@@ -16,6 +16,7 @@ const {
     joinSession,
     leaveSession,
     getLearningEngine,
+    logLearningActivity,
     getMyScores,
     generateAIQuiz,
     getAIQuiz,
@@ -49,6 +50,7 @@ router.post('/my-sessions/:id/leave', leaveSession);
 
 // Learning Engine
 router.get('/learning-engine', getLearningEngine);
+router.post('/learning-engine/activity', logLearningActivity);
 router.get('/analytics/my-scores', getMyScores);
 
 // AI Quiz

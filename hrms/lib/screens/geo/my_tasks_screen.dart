@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/config/app_route_observer.dart';
@@ -311,60 +312,134 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     );
   }
 
-  /// Escape a CSV field: wrap in quotes and double any internal quotes.
-  String _csvEscape(String value) {
-    final cleaned = value
-        .replaceAll('"', '""')
-        .replaceAll('\r', ' ')
-        .replaceAll('\n', ' ');
-    return '"$cleaned"';
+  /// Safe string for Excel cell (null, dates, numbers).
+  static String _cellStr(dynamic value) {
+    if (value == null) return '';
+    if (value is DateTime) {
+      return DateDisplayUtil.formatForDisplay(value, 'yyyy-MM-dd HH:mm');
+    }
+    final s = value.toString().trim();
+    return s.replaceAll('\r', ' ').replaceAll('\n', ' ');
   }
 
-  Future<void> _exportSelectedToCsv() async {
+  Future<void> _exportSelectedToExcel() async {
     final ids = _selectedTaskIds.toList();
-    if (ids.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one task to export')),
-      );
-      return;
-    }
     final toExport = _filteredTasks
         .where((t) => ids.contains(t.id ?? t.taskId))
         .toList();
     if (toExport.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No selected tasks in current filter')),
+        const SnackBar(
+            content: Text('Select at least one task to export')),
       );
       return;
     }
     setState(() => _exporting = true);
     try {
-      final dir = await getTemporaryDirectory();
-      final file = File(
-        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv',
-      );
-      // CSV with S.No, Task ID, Customer Name, Address only (table format for Google Sheets)
-      const csvHeader = 'S.No,Task ID,Customer Name,Address\r\n';
-      final sb = StringBuffer(csvHeader);
+      final excel = Excel.createExcel();
+      final sheetName = excel.getDefaultSheet() ?? 'Tasks';
+      final sheet = excel[sheetName];
+
+      // Headings row
+      const headers = [
+        'S.No',
+        'Task ID',
+        'Task Title',
+        'Description',
+        'Customer Name',
+        'Customer Number',
+        'Customer Email',
+        'Customer Address',
+        'City',
+        'Pincode',
+        'Expected Completion Date',
+        'Assigned Date',
+        'Completed Date',
+        'Status',
+        'Source Address',
+        'Destination Address',
+        'Start Time',
+        'Arrival Time',
+        'Trip Distance (km)',
+        'Trip Duration (sec)',
+        'OTP Required',
+        'Geo Fence Required',
+        'Photo Required',
+        'Form Required',
+        'OTP Verified',
+        'OTP Verified At',
+        'Photo Proof Done',
+        'Form Filled',
+        'Photo Proof Link',
+        'Photo Proof Uploaded At',
+        'Photo Proof Address',
+        'OTP Verified Address',
+        'Exit Status',
+        'Require Approval',
+        'Auto Approve',
+        'Start Battery %',
+        'Arrival Battery %',
+        'Photo Proof Battery %',
+        'Completed Battery %',
+      ];
+      sheet.appendRow(headers.map((h) => TextCellValue(h)).toList());
+
       int sno = 1;
       for (final t in toExport) {
-        final customerName = t.customer?.customerName ?? '';
-        final address = t.customer != null
-            ? '${t.customer!.address}, ${t.customer!.city}, ${t.customer!.pincode}'
-                  .trim()
-            : '';
-        final row = [
-          sno++,
-          t.taskId,
-          _csvEscape(customerName),
-          _csvEscape(address),
+        final c = t.customer;
+        final row = <CellValue?>[
+          TextCellValue('$sno'),
+          TextCellValue(t.taskId),
+          TextCellValue(_cellStr(t.taskTitle)),
+          TextCellValue(_cellStr(t.description)),
+          TextCellValue(_cellStr(c?.customerName)),
+          TextCellValue(_cellStr(c?.customerNumber)),
+          TextCellValue(_cellStr(c?.effectiveEmail)),
+          TextCellValue(_cellStr(c?.address)),
+          TextCellValue(_cellStr(c?.city)),
+          TextCellValue(_cellStr(c?.pincode)),
+          TextCellValue(_cellStr(t.expectedCompletionDate)),
+          TextCellValue(_cellStr(t.assignedDate)),
+          TextCellValue(_cellStr(t.completedDate)),
+          TextCellValue(t.status.name),
+          TextCellValue(_cellStr(t.sourceLocation?.displayAddress)),
+          TextCellValue(_cellStr(t.destinationLocation?.displayAddress)),
+          TextCellValue(_cellStr(t.startTime)),
+          TextCellValue(_cellStr(t.arrivalTime)),
+          TextCellValue(t.tripDistanceKm != null ? '${t.tripDistanceKm}' : ''),
+          TextCellValue(t.tripDurationSeconds != null ? '${t.tripDurationSeconds}' : ''),
+          TextCellValue(t.isOtpRequired ? 'Yes' : 'No'),
+          TextCellValue(t.isGeoFenceRequired ? 'Yes' : 'No'),
+          TextCellValue(t.isPhotoRequired ? 'Yes' : 'No'),
+          TextCellValue(t.isFormRequired ? 'Yes' : 'No'),
+          TextCellValue(t.isOtpVerified == true ? 'Yes' : (t.isOtpVerified == false ? 'No' : '')),
+          TextCellValue(_cellStr(t.otpVerifiedAt)),
+          TextCellValue(t.photoProof == true ? 'Yes' : (t.photoProof == false ? 'No' : '')),
+          TextCellValue(t.formFilled == true ? 'Yes' : (t.formFilled == false ? 'No' : '')),
+          TextCellValue(_cellStr(t.photoProofUrl)),
+          TextCellValue(_cellStr(t.photoProofUploadedAt)),
+          TextCellValue(_cellStr(t.photoProofAddress)),
+          TextCellValue(_cellStr(t.otpVerifiedAddress)),
+          TextCellValue(_cellStr(t.taskExitStatus)),
+          TextCellValue(t.requireApprovalOnComplete ? 'Yes' : 'No'),
+          TextCellValue(t.autoApprove ? 'Yes' : 'No'),
+          TextCellValue(t.startBatteryPercent != null ? '${t.startBatteryPercent}' : ''),
+          TextCellValue(t.arrivalBatteryPercent != null ? '${t.arrivalBatteryPercent}' : ''),
+          TextCellValue(t.photoProofBatteryPercent != null ? '${t.photoProofBatteryPercent}' : ''),
+          TextCellValue(t.completedBatteryPercent != null ? '${t.completedBatteryPercent}' : ''),
         ];
-        sb.write(row.join(','));
-        sb.write('\r\n');
+        sheet.appendRow(row);
+        sno++;
       }
-      // UTF-8 BOM so Google Sheets / Excel opens without corruption
-      final content = sb.toString();
-      final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(content)];
+
+      final bytes = excel.encode();
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Excel encode returned empty');
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xlsx',
+      );
       await file.writeAsBytes(bytes);
       await OpenFilex.open(file.path);
       if (mounted) {
@@ -374,15 +449,15 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           _exporting = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${toExport.length} task(s)')),
+          SnackBar(content: Text('Exported ${toExport.length} task(s) to Excel')),
         );
       }
-    } catch (e) {
+    } catch (e, stack) {
       if (mounted) {
         setState(() => _exporting = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
       }
     }
   }
@@ -444,10 +519,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           });
         }
       }
-      debugPrint('[MyTasks] staffId for tasks: $_loggedInStaffId');
       await _fetchTasks();
     } catch (e, st) {
-      debugPrint('[MyTasks] _loadLoggedInStaffId error: $e\n$st');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -462,10 +535,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     try {
       List<Task> assignedTasks;
       if (_loggedInStaffId != null && _loggedInStaffId!.isNotEmpty) {
-        debugPrint('[MyTasks] Fetching tasks for staff: $_loggedInStaffId');
         assignedTasks = await TaskService().getAssignedTasks(_loggedInStaffId!);
       } else {
-        debugPrint('[MyTasks] No staffId, fetching all tasks');
         assignedTasks = await TaskService().getAllTasks();
       }
 
@@ -495,7 +566,6 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         });
       }
     } catch (e, st) {
-      debugPrint('[MyTasks] Error: $e\n$st');
       if (mounted) {
         setState(() {
           _errorMessage = 'Failed to load tasks';
@@ -517,6 +587,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return Colors.amber.shade700;
       case TaskStatus.exitedOnArrival:
         return Colors.orange.shade800;
+      case TaskStatus.hold:
       case TaskStatus.holdOnArrival:
         return Colors.amber.shade700;
       case TaskStatus.reopenedOnArrival:
@@ -564,6 +635,8 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         return 'Exited';
       case TaskStatus.exitedOnArrival:
         return 'Exited on Arrival';
+      case TaskStatus.hold:
+        return 'Hold';
       case TaskStatus.holdOnArrival:
         return 'Hold on Arrival';
       case TaskStatus.reopenedOnArrival:
@@ -581,7 +654,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
       case TaskStatus.onlineReady:
         return 'Ready';
       default:
-        return 'Unknown';
+        return '';
     }
   }
 
@@ -738,6 +811,13 @@ class _MyTasksScreenState extends State<MyTasksScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
+        if (_isSelectionMode) {
+          setState(() {
+            _isSelectionMode = false;
+            _selectedTaskIds.clear();
+          });
+          return;
+        }
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop();
         } else {
@@ -808,18 +888,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                   ],
                 ),
           actions: [
-            if (_isSelectionMode)
-              TextButton(
-                onPressed: _exporting ? null : _exportSelectedToCsv,
-                child: _exporting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Export'),
-              )
-            else ...[
+            if (!_isSelectionMode)
               IconButton(
                 icon: Icon(
                   _showFilterSection
@@ -831,15 +900,39 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                 onPressed: () =>
                     setState(() => _showFilterSection = !_showFilterSection),
               ),
-              IconButton(
-                icon: Icon(
-                  Icons.download_outlined,
-                  color: Colors.grey.shade400,
-                ),
-                tooltip: 'Export disabled',
-                onPressed: null,
-              ),
-            ],
+            IconButton(
+              icon: _exporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      _isSelectionMode
+                          ? Icons.file_download
+                          : Icons.download_outlined,
+                      color: _isSelectionMode ? AppColors.primary : null,
+                    ),
+              tooltip: _isSelectionMode
+                  ? 'Export selected tasks'
+                  : 'Select tasks to export',
+              onPressed: _exporting
+                  ? null
+                  : () {
+                      if (_isSelectionMode) {
+                        _exportSelectedToExcel();
+                      } else {
+                        setState(() => _isSelectionMode = true);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Select tasks to export, then tap Export again.',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+            ),
           ],
         ),
         body: _isLoading

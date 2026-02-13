@@ -8,7 +8,8 @@ const {
     checkOut,
     getTodayAttendance,
     getAttendanceHistory,
-    getMonthAttendance
+    getMonthAttendance,
+    getFineCalculation
 } = require('../controllers/attendanceController');
 
 // Attendance: 120 req/min per IP (check-in, check-out, today, month, history)
@@ -26,5 +27,6 @@ router.put('/checkout', protect, attendanceLimiter, checkOut);
 router.get('/today', protect, attendanceLimiter, getTodayAttendance);
 router.get('/month', protect, attendanceLimiter, getMonthAttendance);
 router.get('/history', protect, attendanceLimiter, getAttendanceHistory);
+router.get('/fine-calculation', protect, attendanceLimiter, getFineCalculation);
 
 module.exports = router;

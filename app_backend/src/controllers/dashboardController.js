@@ -84,10 +84,11 @@ const getEmployeeDashboardStats = async (req, res) => {
         // Use same attendance stats as payslip and salary overview (single source of truth)
         const attendanceStats = await calculateAttendanceStats(staffId, month, year);
         const totalWorkingDays = attendanceStats.workingDays || 0;
+        const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? totalWorkingDays;
         const presentDays = attendanceStats.presentDays || 0;
         const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - presentDays);
 
-        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): workingDays=${totalWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
+        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): thisMonthWD=${thisMonthWorkingDays}, workingDaysTillToday=${totalWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
 
         // 3. Leave Metrics
         const pendingLeavesCount = await Leave.countDocuments({
@@ -142,11 +143,9 @@ const getEmployeeDashboardStats = async (req, res) => {
         let currentMonthSalary = 0;
         let payrollStatus = 'Pending';
 
-        // Use the same calculation logic from payrollController
-        // Note: We use totalWorkingDays and presentDays calculated above (till today, not full month)
+        // Use the same calculation logic as salary overview & payroll: proration = presentDays / this month WD (1 day salary = net/this month WD)
         if (payroll) {
-            // CORRECT METHOD: If payroll exists, recalculate using correct proration method
-            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 1;
+            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 1;
             
             // Get staff salary structure for correct proration
             if (staff && staff.salary) {
@@ -208,9 +207,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             // Net Salary = Gross Salary - Employee Deductions
             const netSalary = grossSalary - totalDeductions;
             
-            // CORRECT METHOD: Calculate prorated values based on attendance till present
-            // Use totalWorkingDays and presentDays calculated above (till today)
-            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
+            // Same as salary overview: proration = presentDays / this month working days
+            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
             
             // STEP 1: Prorate Gross Fixed Components
             const proratedBasicSalary = basicSalary * prorationFactor;
@@ -235,8 +233,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             currentMonthSalary = proratedGrossSalary - proratedDeductions - totalFineAmount;
         }
 
-        const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
-        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} / totalWorkingDays=${totalWorkingDays})`);
+        const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
+        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} / thisMonthWD=${thisMonthWorkingDays}, same as salary overview)`);
         console.log(`[getEmployeeDashboardStats] currentMonthSalary: ${currentMonthSalary}`);
         console.log(`[getEmployeeDashboardStats] ========================================`);
 
@@ -262,8 +260,11 @@ const getEmployeeDashboardStats = async (req, res) => {
                     } : null,
                     attendanceSummary: {
                         totalDays: totalWorkingDays,
+                        thisMonthWorkingDays: thisMonthWorkingDays,
                         presentDays: presentDays,
-                        absentDays: absentDays
+                        absentDays: absentDays,
+                        halfDayPaidLeaveCount: attendanceStats.halfDayPaidLeaveCount ?? 0,
+                        leaveDays: attendanceStats.leaveDays ?? 0
                     },
                     currentMonthSalary: currentMonthSalary,
                     payrollStatus: payrollStatus

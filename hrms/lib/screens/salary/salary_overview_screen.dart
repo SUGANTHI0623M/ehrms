@@ -11,6 +11,7 @@ import '../../utils/salary_structure_calculator.dart';
 import '../../utils/fine_calculation_util.dart';
 import '../../utils/app_event_bus.dart';
 import 'salary_structure_detail_screen.dart';
+import 'month_salary_details_screen.dart';
 
 class SalaryOverviewScreen extends StatefulWidget {
   final int? dashboardTabIndex;
@@ -48,6 +49,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   ProratedSalary? _proratedSalary;
   WorkingDaysInfo? _workingDaysInfo;
   double _presentDays = 0;
+  int _halfDayPaidLeaveCount = 0;
+  double _leaveDays = 0;
   Map<String, dynamic>? _staffSalary;
   Map<String, dynamic>? _currentPayroll;
   List<dynamic> _attendanceRecords = [];
@@ -60,6 +63,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     'lateDays': 0,
     'totalLateMinutes': 0,
   };
+  /// When set, use this for "This Month Net" (from backend /payrolls/stats) so it matches payslip.
+  double? _backendThisMonthNet;
+  /// When set, use this for "This Month Gross" (from backend) for consistency.
+  double? _backendThisMonthGross;
 
   final List<String> _months = [
     'January',
@@ -214,11 +221,21 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           month: monthIndex,
           year: year,
         );
-        if (statsResult['stats'] != null) {
-          backendStats = statsResult['stats'];
+        final stats = statsResult['stats'] as Map<String, dynamic>?;
+        if (stats != null) {
+          backendStats = stats;
+          // Use backend's thisMonthNet/thisMonthGross when available so display matches payslip
+          final net = stats['thisMonthNet'];
+          _backendThisMonthNet = (net is num) ? net.toDouble() : null;
+          final gross = stats['thisMonthGross'];
+          _backendThisMonthGross = (gross is num) ? gross.toDouble() : null;
+        } else {
+          _backendThisMonthNet = null;
+          _backendThisMonthGross = null;
         }
       } catch (e) {
-        // Ignore errors
+        _backendThisMonthNet = null;
+        _backendThisMonthGross = null;
       }
 
       // 3. Fetch attendance for the month
@@ -271,11 +288,21 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         // we preserve what we have
       }
 
-      // 4. Present days: prefer backend/stats (includes half-day leave from Leave collection)
-      // Fallback: compute from attendance records only (Present=1, Half day=0.5, Approved=1)
+      // 4. Present days: till today only (same as backend). Prefer backend/stats; fallback: compute from attendance records.
+      // EXCLUDE Absent and Pending. Count only records where date <= today.
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
       double computedPresentDays = 0;
       if (_attendanceRecords.isNotEmpty) {
         for (final record in _attendanceRecords) {
+          final recordDateStr = record['date'] as String?;
+          if (recordDateStr != null) {
+            try {
+              final recordDate = DateTime.parse(recordDateStr).toLocal();
+              final recordDay = DateTime(recordDate.year, recordDate.month, recordDate.day);
+              if (recordDay.isAfter(todayDate)) continue; // Skip future dates – present days = till today
+            } catch (_) {}
+          }
           final status = (record['status'] as String? ?? '')
               .trim()
               .toLowerCase();
@@ -283,10 +310,13 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               .trim()
               .toLowerCase();
           final isHalfDay = status == 'half day' || leaveType == 'half day';
-          if (isHalfDay) {
-            computedPresentDays += 0.5;
-          } else if (status == 'present' || status == 'approved') {
-            computedPresentDays += 1;
+
+          if (status == 'present' || status == 'approved' || status == 'half day') {
+            if (isHalfDay) {
+              computedPresentDays += 0.5;
+            } else {
+              computedPresentDays += 1.0;
+            }
           }
         }
       }
@@ -327,6 +357,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
       // 4a. Working days (BEFORE fine so dailySalary can use current run)
       // Prefer backend stats, then attendance/month stats, then local calculation
+      _halfDayPaidLeaveCount = 0;
+      _leaveDays = 0;
       if (backendStats != null && backendStats['attendance'] != null) {
         final backendAttendance =
             backendStats['attendance'] as Map<String, dynamic>;
@@ -334,11 +366,18 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             (backendAttendance['workingDays'] as num?)?.toInt() ?? 0;
         final backendHolidays =
             (backendAttendance['holidays'] as num?)?.toInt() ?? 0;
+        final backendFullMonth =
+            (backendAttendance['workingDaysFullMonth'] as num?)?.toInt();
+        _halfDayPaidLeaveCount =
+            (backendAttendance['halfDayPaidLeaveCount'] as num?)?.toInt() ?? 0;
+        _leaveDays =
+            (backendAttendance['leaveDays'] as num?)?.toDouble() ?? 0.0;
         _workingDaysInfo = WorkingDaysInfo(
           totalDays: DateTime(year, monthIndex + 1, 0).day,
           workingDays: backendWorkingDays,
           weekends: 0,
           holidayCount: backendHolidays,
+          workingDaysFullMonth: backendFullMonth,
         );
       } else if (attendanceResult['success'] == true &&
           attendanceResult['data'] != null) {
@@ -412,16 +451,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         businessSettings,
       );
 
-      // Calculate daily salary for fine calculation (only when working days > 0)
+      // Daily salary = Monthly NET salary / This month working days (1 day salary = net/this month WD)
       double? dailySalary;
       if (_staffSalary != null &&
           _calculatedSalary != null &&
-          _workingDaysInfo != null &&
-          _workingDaysInfo!.workingDays > 0) {
-        // Daily Salary = Monthly Gross Salary / Working Days (same as dashboard)
-        dailySalary =
-            _calculatedSalary!.monthly.grossSalary /
-            _workingDaysInfo!.workingDays;
+          _workingDaysInfo != null) {
+        final thisMonthWorkingDays = _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+        if (thisMonthWorkingDays > 0) {
+          dailySalary = _calculatedSalary!.monthly.netMonthlySalary / thisMonthWorkingDays;
+        }
       }
 
       // Shift hours for calculatePayrollFine (same as dashboard)
@@ -451,21 +489,18 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       }
 
       // Calculate fine information using the utility (same logic as dashboard)
+      // ONLY for Present or Approved status
+      // EXCLUDE Absent and Pending from fine calculation
       double totalFineAmount = 0.0;
       int lateDays = 0;
       int totalLateMinutes = 0;
 
       for (final record in _attendanceRecords) {
         final status = (record['status'] as String? ?? '').trim().toLowerCase();
-        final leaveType = (record['leaveType'] as String? ?? '')
-            .trim()
-            .toLowerCase();
-        final isCounted =
-            status == 'present' ||
-            status == 'approved' ||
-            status == 'half day' ||
-            leaveType == 'half day';
-        if (!isCounted) continue;
+        
+        // ONLY calculate fine for Present or Approved status
+        // Skip Absent, Pending, Rejected, etc.
+        if (status != 'present' && status != 'approved') continue;
         // Try to get existing fineAmount first (from backend calculation)
         final existingFineAmount =
             (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
@@ -520,19 +555,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       }
 
       // Same as dashboard: use calculatePayrollFine and take max so calculation matches dashboard
+      // ONLY include Present or Approved status (exclude Absent, Pending)
       if (dailySalary != null && dailySalary > 0) {
         final attendanceRecordsList = _attendanceRecords
             .where((record) {
               final s = (record['status'] as String? ?? '')
                   .trim()
                   .toLowerCase();
-              final lt = (record['leaveType'] as String? ?? '')
-                  .trim()
-                  .toLowerCase();
-              return s == 'present' ||
-                  s == 'approved' ||
-                  s == 'half day' ||
-                  lt == 'half day';
+              // ONLY Present or Approved status
+              return s == 'present' || s == 'approved';
             })
             .map((record) => record as Map<String, dynamic>)
             .toList();
@@ -575,14 +606,25 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         'totalLateMinutes': totalLateMinutes,
       };
 
-      // 5. Calculate prorated salary (working days, present days, and late login fine included)
+      // 5. Calculate prorated salary using THIS MONTH working days (so This Month Gross = presentDays * dailySalary)
       if (_calculatedSalary != null && _workingDaysInfo != null) {
-        _proratedSalary = calculateProratedSalary(
-          _calculatedSalary!,
-          _workingDaysInfo!.workingDays,
-          _presentDays,
-          finalTotalFineAmount,
-        );
+        final thisMonthWorkingDays = _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+        if (thisMonthWorkingDays > 0) {
+          _proratedSalary = calculateProratedSalary(
+            _calculatedSalary!,
+            thisMonthWorkingDays,
+            _presentDays,
+            finalTotalFineAmount,
+          );
+          // Debug logs for salary calculation testing (same formula for both: monthly / this month WD)
+          final dailyGrossSalary = _calculatedSalary!.monthly.grossSalary / thisMonthWorkingDays;
+          final dailyNetSalary = _calculatedSalary!.monthly.netMonthlySalary / thisMonthWorkingDays;
+          print('[SalaryOverview] PRORATION: thisMonthWorkingDays=$thisMonthWorkingDays, workingDaysTillToday=${_workingDaysInfo!.workingDays}, presentDays=$_presentDays');
+          print('[SalaryOverview] 1 day gross = Monthly GROSS/$thisMonthWorkingDays = ₹${dailyGrossSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
+          print('[SalaryOverview] 1 day net   = Monthly NET/$thisMonthWorkingDays = ₹${dailyNetSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
+          print('[SalaryOverview] Expected This Month Gross = presentDays * (gross/day) = $_presentDays * ${dailyGrossSalary.toStringAsFixed(2)} = ₹${(_presentDays * dailyGrossSalary).toStringAsFixed(2)}');
+          print('[SalaryOverview] Prorated Gross=₹${_proratedSalary!.proratedGrossSalary.toStringAsFixed(2)}, Prorated Net=₹${_proratedSalary!.proratedNetSalary.toStringAsFixed(2)}, Att%=${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}%');
+        }
       }
 
       // 8. Fetch current month payroll if available
@@ -792,6 +834,82 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   const SizedBox(height: 16),
                   _buildTotalCTC(),
                   const SizedBox(height: 24),
+                  
+                  // This Month Salary Details Button
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.green.shade600, Colors.green.shade800],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _calculatedSalary != null &&
+                              _workingDaysInfo != null &&
+                              _proratedSalary != null &&
+                              ((_workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays) > 0)
+                          ? () {
+                              final thisMonthWorkingDays = _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+                              final dailySalary =
+                                  _calculatedSalary!.monthly.netMonthlySalary / thisMonthWorkingDays;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => MonthSalaryDetailsScreen(
+                                    month: _months.indexOf(_selectedMonth) + 1,
+                                    year: int.parse(_selectedYear),
+                                    dailySalary: dailySalary,
+                                    calculatedSalary: _calculatedSalary!,
+                                    workingDaysInfo: _workingDaysInfo!,
+                                    proratedSalary: _proratedSalary!,
+                                    presentDays: _presentDays,
+                                    totalFine: _fineInfo['totalFineAmount'] as double,
+                                    halfDayPaidLeaveCount: _halfDayPaidLeaveCount > 0 ? _halfDayPaidLeaveCount : null,
+                                    leaveDays: _leaveDays > 0 ? _leaveDays : null,
+                                  ),
+                                ),
+                              );
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBackgroundColor: Colors.grey.shade300,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.calendar_month, color: Colors.white),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'This Month Salary Details',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // View Full Salary Structure Button
                   Container(
                     width: double.infinity,
                     decoration: BoxDecoration(
@@ -861,7 +979,9 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         (_currentPayroll!['status'] == 'Processed' ||
             _currentPayroll!['status'] == 'Paid');
 
-    final rawThisMonthNet = _proratedSalary!.proratedNetSalary;
+    // Prefer backend thisMonthNet/thisMonthGross when available (matches payslip)
+    final thisMonthGrossDisplay = _backendThisMonthGross ?? _proratedSalary!.proratedGrossSalary;
+    final rawThisMonthNet = _backendThisMonthNet ?? _proratedSalary!.proratedNetSalary;
     // Do not show negative net for card display – clamp at 0
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
 
@@ -879,9 +999,9 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           ),
           _buildStatCard(
             'This Month Gross',
-            currencyFormat.format(_proratedSalary!.proratedGrossSalary),
+            currencyFormat.format(thisMonthGrossDisplay),
             _workingDaysInfo != null
-                ? 'Based on $_presentDays present days out of ${_workingDaysInfo!.workingDays} working days\n${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}% attendance'
+                ? 'Based on $_presentDays present days out of ${_workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays} working days\n${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}% attendance'
                 : 'Pro-rated',
             Colors.blue.shade50,
           ),
@@ -895,7 +1015,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             'This Month Net',
             currencyFormat.format(displayThisMonthNet),
             _workingDaysInfo != null
-                ? 'Expected take-home this month\n$_presentDays days present'
+                ? 'Expected take-home this month\n$_presentDays days present (till today)'
                 : 'Expected take-home',
             Colors.green.shade50,
           ),
@@ -982,6 +1102,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     }
 
     final working = _workingDaysInfo!.workingDays;
+    final thisMonthWorking = _workingDaysInfo!.workingDaysFullMonth;
     final present = _presentDays;
     final absent = (working - present).clamp(0.0, double.infinity);
     final absentStr = absent == absent.roundToDouble()
@@ -1043,12 +1164,23 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 runSpacing: 8,
                 children: [
                   _buildAttStat('Working Days', '$working'),
+                  if (thisMonthWorking != null)
+                    _buildAttStat('This Month W.D.', '$thisMonthWorking'),
                   _buildAttStat(
                     'Present Days',
                     '$present',
                     color: Colors.green,
                   ),
                   _buildAttStat('Absent Days', absentStr, color: Colors.red),
+                  if (_halfDayPaidLeaveCount > 0)
+                    _buildAttStat('Half day paid leave', '$_halfDayPaidLeaveCount'),
+                  if (_leaveDays > 0)
+                    _buildAttStat(
+                      'Leave days',
+                      _leaveDays == _leaveDays.roundToDouble()
+                          ? '${_leaveDays.toInt()}'
+                          : _leaveDays.toStringAsFixed(1),
+                    ),
                   _buildAttStat('Holidays', '$holidays', color: Colors.orange),
                 ],
               );

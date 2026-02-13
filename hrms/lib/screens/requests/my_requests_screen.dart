@@ -460,6 +460,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   void _showLeaveDetails(Map<String, dynamic> leave) {
+    // Debug: log leave response for Half day on / approvedBy
+    final halfDayOnValue = leave['halfDayType']?.toString().trim() ??
+        leave['halfDaySession']?.toString().trim() ??
+        (leave['session'] == '1'
+            ? 'First Half Day'
+            : leave['session'] == '2'
+                ? 'Second Half Day'
+                : '—');
     final start = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['startDate']).toLocal());
@@ -490,6 +498,8 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         iconColor: AppColors.primary,
         children: [
           _detailRow('Leave Type', leave['leaveType'] ?? ''),
+          if (leave['leaveType'] == 'Half Day')
+            _detailRow('Half day on', halfDayOnValue),
           _detailRow('Start Date', start),
           _detailRow('End Date', end),
           _detailRow('Days', '${leave['days']}'),
@@ -1139,6 +1149,35 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       );
       return;
     }
+    // Check if employee already has leave (Pending or Approved) on any of the requested dates
+    final reqEnd = _endDate ?? _startDate!;
+    final existingResult = await _requestService.getLeaveRequests(
+      startDate: _startDate,
+      endDate: reqEnd,
+      limit: 100,
+    );
+    if (existingResult['success'] == true) {
+      List<dynamic> leaves = [];
+      if (existingResult['data'] is Map) {
+        leaves = (existingResult['data'] as Map)['leaves'] ?? [];
+      } else if (existingResult['data'] is List) {
+        leaves = existingResult['data'] as List;
+      }
+      final hasExisting = leaves.any((l) {
+        if (l is! Map) return false;
+        final status = (l['status'] as String?)?.trim();
+        return status == 'Pending' || status == 'Approved';
+      });
+      if (hasExisting && mounted) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'You have already applied for leave on one or more of these dates. Please choose different dates or check your existing leave requests.',
+          isError: true,
+        );
+        return;
+      }
+    }
+
     final payload = {
       'leaveType': _leaveType,
       'startDate': _startDate!.toIso8601String(),
@@ -1147,16 +1186,6 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       'reason': _reasonController.text,
       'session': _leaveType == 'Half Day' ? _session : null,
     };
-    debugPrint('Leave Request Payload:');
-    debugPrint(
-      '  leaveType: ${payload['leaveType']} (type: ${payload['leaveType'].runtimeType})',
-    );
-    debugPrint('  startDate: ${payload['startDate']}');
-    debugPrint('  endDate: ${payload['endDate']}');
-    debugPrint('  days: ${payload['days']}');
-    debugPrint('  session: ${payload['session']}');
-    debugPrint('  reason: ${payload['reason']}');
-    debugPrint('Full payload: $payload');
 
     setState(() => _isSubmitting = true);
     final result = await _requestService.applyLeave(payload);
@@ -1164,9 +1193,15 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
 
     if (mounted) {
       if (result['success']) {
-        widget.onSuccess();
-        Navigator.pop(context);
-        SnackBarUtils.showSnackBar(context, 'Leave request submitted');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          final overlay = Navigator.of(context, rootNavigator: true).overlay;
+          Navigator.of(context).pop();
+          widget.onSuccess();
+          if (overlay != null && overlay.context.mounted) {
+            SnackBarUtils.showSnackBar(overlay.context, 'Leave request submitted');
+          }
+        });
       } else {
         SnackBarUtils.showSnackBar(
           context,

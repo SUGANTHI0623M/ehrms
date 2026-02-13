@@ -34,14 +34,35 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
   bool _isLoading = true;
   List<dynamic> _departments = [];
   List<dynamic> _employees = [];
-  bool _metaLoading = false;
+  /// Staff ID for creator check (trainerId in session is Staff id).
+  String? _currentUserId;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadCurrentUser();
     _loadSessions();
     _loadMeta();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final staffStr = prefs.getString('staff');
+      if (staffStr != null) {
+        final staff = jsonDecode(staffStr) as Map<String, dynamic>?;
+        final staffId = staff?['_id']?.toString();
+        if (mounted) setState(() => _currentUserId = staffId);
+        return;
+      }
+      final userStr = prefs.getString('user');
+      if (userStr != null) {
+        final user = jsonDecode(userStr) as Map<String, dynamic>?;
+        final id = user?['_id']?.toString();
+        if (mounted) setState(() => _currentUserId = id);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -62,12 +83,10 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
   }
 
   Future<void> _loadMeta() async {
-    setState(() => _metaLoading = true);
     final deptRes = await _lmsService.getDepartments();
     final empRes = await _lmsService.getEmployees();
     if (mounted) {
       setState(() {
-        _metaLoading = false;
         _departments = (deptRes['data']?['departments'] as List?) ?? [];
         _employees = (empRes['data']?['staff'] as List?) ?? [];
       });
@@ -256,12 +275,22 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
             SliverList(
               delegate: SliverChildBuilderDelegate((context, index) {
                 final session = sessions[index];
+                final status = _getStatus(session);
+                final hasLeft = session['mySessionLog']?['left'] == true ||
+                    session['myAttendance']?['left'] == true;
                 return _SessionCard(
                   session: session,
-                  status: _getStatus(session),
+                  status: status,
+                  currentUserId: _currentUserId,
+                  hasLeft: hasLeft,
                   onJoin: () => _joinSession(session),
+                  onLeave: () => _showLeaveModal(context, session),
                   onEdit: () => _showScheduleModal(context, session: session),
                   onDelete: () => _deleteSession(session),
+                  onStartSession: () => _updateSessionStatus(session, 'Live'),
+                  onCancelSession: () => _updateSessionStatus(session, 'Cancelled'),
+                  onEndSession: () => _updateSessionStatus(session, 'Completed'),
+                  onWatchRecording: () => _openUrl(session['recordingUrl']),
                 );
               }, childCount: sessions.length),
             ),
@@ -270,21 +299,76 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
     );
   }
 
+  Future<void> _openUrl(dynamic url) async {
+    final s = url?.toString();
+    if (s == null || s.isEmpty) return;
+    final uri = Uri.tryParse(s);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Future<void> _joinSession(dynamic session) async {
     final link = session['meetingLink']?.toString();
     if (link != null && link.isNotEmpty) {
-      final uri = Uri.tryParse(link);
-      if (uri != null && await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await _openUrl(link);
+    }
+    await _lmsService.joinSession(session['_id']);
+  }
+
+  Future<void> _updateSessionStatus(dynamic session, String status) async {
+    final res = await _lmsService.updateSession(
+      session['_id'],
+      <String, dynamic>{'status': status},
+    );
+    if (mounted) {
+      if (res['success'] == true) {
+        SnackBarUtils.showSnackBar(
+          context,
+          status == 'Cancelled'
+              ? 'Session cancelled'
+              : status == 'Completed'
+                  ? 'Session ended'
+                  : 'Session started',
+        );
+        _loadSessions();
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          'Failed to open meeting link',
+          res['message'] ?? 'Failed',
           isError: true,
         );
       }
     }
-    await _lmsService.joinSession(session['_id']);
+  }
+
+  void _showLeaveModal(BuildContext context, dynamic session) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _LeaveSessionSheet(
+        sessionTitle: session['title'] ?? 'Session',
+        onSubmit: (feedbackSummary, issues, rating) async {
+          final res = await _lmsService.leaveSession(
+            session['_id'],
+            feedbackSummary: feedbackSummary,
+            issues: issues,
+            rating: rating,
+          );
+          if (mounted) {
+            Navigator.pop(ctx);
+            if (res['success'] == true) {
+              SnackBarUtils.showSnackBar(
+                  context, 'Session log saved. You have left the session.');
+              _loadSessions();
+            } else {
+              SnackBarUtils.showSnackBar(
+                  context, res['message'] ?? 'Failed', isError: true);
+            }
+          }
+        },
+      ),
+    );
   }
 
   Future<void> _deleteSession(dynamic session) async {
@@ -323,7 +407,6 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
   }
 
   void _showScheduleModal(BuildContext context, {dynamic session}) {
-    final isEdit = session != null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -343,17 +426,40 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
 class _SessionCard extends StatelessWidget {
   final dynamic session;
   final String status;
+  final String? currentUserId;
+  final bool hasLeft;
   final VoidCallback onJoin;
+  final VoidCallback? onLeave;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onStartSession;
+  final VoidCallback? onCancelSession;
+  final VoidCallback? onEndSession;
+  final VoidCallback? onWatchRecording;
 
   const _SessionCard({
     required this.session,
     required this.status,
+    this.currentUserId,
+    this.hasLeft = false,
     required this.onJoin,
+    this.onLeave,
     required this.onEdit,
     required this.onDelete,
+    this.onStartSession,
+    this.onCancelSession,
+    this.onEndSession,
+    this.onWatchRecording,
   });
+
+  bool get _isCreator {
+    final trainerId = session['trainerId'];
+    if (trainerId == null || currentUserId == null) return false;
+    final id = trainerId is Map
+        ? trainerId['_id']?.toString()
+        : trainerId.toString();
+    return id == currentUserId;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -362,16 +468,12 @@ class _SessionCard extends StatelessWidget {
     if (dt != null) {
       d = dt is DateTime ? dt : DateTime.tryParse(dt.toString());
     }
-    final assignedAt = session['createdAt'] ?? session['assignedAt'];
-    DateTime? assignedDate;
-    if (assignedAt != null) {
-      assignedDate = assignedAt is DateTime
-          ? assignedAt
-          : DateTime.tryParse(assignedAt.toString());
-    }
-
     final host =
         session['trainerName'] ?? session['trainerId']?['name'] ?? 'Host';
+    final isUpcoming = status == 'Upcoming';
+    final isLive = status == 'Live Now';
+    final isEnded = status == 'Ended';
+    final recordingUrl = session['recordingUrl']?.toString();
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -397,15 +499,17 @@ class _SessionCard extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: status == 'Live Now'
+                    color: isLive
                         ? Colors.green
-                        : status == 'Upcoming'
-                        ? Colors.blue
-                        : Colors.grey,
+                        : isUpcoming
+                            ? Colors.blue
+                            : Colors.grey,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    status,
+                    hasLeft && isLive
+                        ? 'You left'
+                        : status,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -413,14 +517,16 @@ class _SessionCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: onEdit,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: onDelete,
-                ),
+                if (_isCreator) ...[
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: onEdit,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: onDelete,
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 12),
@@ -437,31 +543,94 @@ class _SessionCard extends StatelessWidget {
               children: [
                 const Icon(Icons.person_outline, size: 16),
                 const SizedBox(width: 8),
-                Text(host),
+                Text(host.toString()),
                 const SizedBox(width: 16),
                 Text('${session['duration'] ?? 60} min'),
               ],
             ),
-            if (status == 'Live Now' || status == 'Upcoming') ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: onJoin,
-                  icon: const Icon(Icons.video_call),
-                  label: Text(status == 'Live Now' ? 'Join Now' : 'Join'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
+            if (session['agenda']?.toString().isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Agenda: ${session['agenda']}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (isUpcoming && _isCreator) ...[
+                  if (onStartSession != null)
+                    ElevatedButton.icon(
+                      onPressed: onStartSession,
+                      icon: const Icon(Icons.play_circle_outlined, size: 18),
+                      label: const Text('Start Session'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  if (onCancelSession != null)
+                    OutlinedButton.icon(
+                      onPressed: onCancelSession,
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text('Cancel Session'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                      ),
+                    ),
+                ],
+                if (isLive && _isCreator && onEndSession != null)
+                  OutlinedButton.icon(
+                    onPressed: onEndSession,
+                    icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                    label: const Text('End Session'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange,
+                      side: const BorderSide(color: Colors.orange),
+                    ),
+                  ),
+                if ((isUpcoming || isLive) && (!_isCreator || isUpcoming))
+                  ElevatedButton.icon(
+                    onPressed: onJoin,
+                    icon: const Icon(Icons.video_call, size: 18),
+                    label: Text(isLive ? 'Join Now' : 'Join'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                if (isLive && !_isCreator && !hasLeft && onLeave != null)
+                  OutlinedButton.icon(
+                    onPressed: onLeave,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Leave Session'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                if (isEnded &&
+                    recordingUrl != null &&
+                    recordingUrl.isNotEmpty &&
+                    onWatchRecording != null)
+                  OutlinedButton.icon(
+                    onPressed: onWatchRecording,
+                    icon: const Icon(Icons.video_library_outlined, size: 18),
+                    label: const Text('Watch Recording'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+
 }
 
 class _ScheduleSessionSheet extends StatefulWidget {
@@ -539,16 +708,6 @@ class _ScheduleSessionSheetState extends State<_ScheduleSessionSheet> {
     );
 
     setState(() => _saving = true);
-
-    final prefs = await SharedPreferences.getInstance();
-    final userStr = prefs.getString('user');
-    String? userId;
-    if (userStr != null) {
-      try {
-        final user = jsonDecode(userStr) as Map<String, dynamic>?;
-        userId = user?['_id']?.toString();
-      } catch (_) {}
-    }
 
     final payload = {
       'title': _titleController.text.trim(),
@@ -765,6 +924,186 @@ class _ScheduleSessionSheetState extends State<_ScheduleSessionSheet> {
                 ],
               ),
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LeaveSessionSheet extends StatefulWidget {
+  final String sessionTitle;
+  final Future<void> Function(
+    String feedbackSummary,
+    String? issues,
+    int? rating,
+  ) onSubmit;
+
+  const _LeaveSessionSheet({
+    required this.sessionTitle,
+    required this.onSubmit,
+  });
+
+  @override
+  State<_LeaveSessionSheet> createState() => _LeaveSessionSheetState();
+}
+
+class _LeaveSessionSheetState extends State<_LeaveSessionSheet> {
+  final _summaryController = TextEditingController();
+  final _issuesController = TextEditingController();
+  int? _rating;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _summaryController.dispose();
+    _issuesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final summary = _summaryController.text.trim();
+    if (summary.isEmpty) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Please enter what you learned or a brief summary.',
+        isError: true,
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    await widget.onSubmit(
+      summary,
+      _issuesController.text.trim().isEmpty
+          ? null
+          : _issuesController.text.trim(),
+      _rating,
+    );
+    if (mounted) setState(() => _submitting = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (context, scrollController) {
+        return SingleChildScrollView(
+          controller: scrollController,
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Icon(Icons.logout, size: 28, color: Colors.red[700]),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Leave Live Session',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Before leaving, please share your session feedback.',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _summaryController,
+                decoration: const InputDecoration(
+                  labelText: 'Session Summary / What you learned *',
+                  hintText: 'Summarize key takeaways...',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 4,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _issuesController,
+                decoration: const InputDecoration(
+                  labelText: 'Issues faced (optional)',
+                  hintText: 'Audio / Video / Content issues...',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Session Rating (1–5 stars)',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: List.generate(5, (i) {
+                  final star = i + 1;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: IconButton(
+                      icon: Icon(
+                        _rating != null && star <= _rating!
+                            ? Icons.star
+                            : Icons.star_border,
+                        size: 32,
+                        color: Colors.amber,
+                      ),
+                      onPressed: () => setState(
+                          () => _rating = _rating == star ? null : star),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _submitting ? null : () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _submitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: _submitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Submit & Leave'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         );
       },

@@ -159,9 +159,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     // Send GPS point every 15 sec: updateLocation (task path) + storeTracking (Tracking collection).
     // Persist for background tracking (continues when app closed or in background).
     if (widget.taskMongoId != null && widget.taskMongoId!.isNotEmpty) {
-      debugPrint(
-        '[LiveTracking] Timer started: taskMongoId=${widget.taskMongoId}',
-      );
       LiveTrackingService().startTracking(
         taskMongoId: widget.taskMongoId!,
         taskId: widget.taskId,
@@ -179,10 +176,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         if (!mounted) return;
         _sendLocationToDb();
       });
-    } else {
-      debugPrint(
-        '[LiveTracking] Timer NOT started: taskMongoId is null or empty',
-      );
     }
     _enablePipOnMinimize();
   }
@@ -192,10 +185,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       final available = await _floating.isPipAvailable;
       if (available && mounted) {
         await _floating.enable(OnLeavePiP(aspectRatio: Rational.landscape()));
-        debugPrint('[LiveTracking] PiP enabled: minimize to show floating map');
       }
     } catch (e) {
-      debugPrint('[LiveTracking] PiP not available: $e');
+      // PiP not available
     }
   }
 
@@ -241,9 +233,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       if (mounted) {
         setState(() {
           final newLatLng = LatLng(location.latitude!, location.longitude!);
-          debugPrint(
-            '[LiveTracking] Location update: lat=${location.latitude} lng=${location.longitude}',
-          );
 
           _staffMarker = _staffMarker?.copyWith(positionParam: newLatLng);
 
@@ -294,22 +283,15 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       lat = pos.latitude;
       lng = pos.longitude;
       accuracyM = pos.accuracy;
-      debugPrint(
-        '[LiveTracking] GPS fresh: lat=$lat lng=$lng speed=${pos.speed}',
-      );
     } catch (e) {
       final loc = _lastLocation;
       if (loc != null && loc.latitude != null && loc.longitude != null) {
         lat = loc.latitude!;
         lng = loc.longitude!;
         accuracyM = loc.accuracy;
-        debugPrint(
-          '[LiveTracking] GPS failed, using _lastLocation: lat=$lat lng=$lng',
-        );
       } else {
         lat = widget.pickupLocation.latitude;
         lng = widget.pickupLocation.longitude;
-        debugPrint('[LiveTracking] No GPS, using pickup: lat=$lat lng=$lng');
       }
     }
     int? battery;
@@ -323,9 +305,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       accuracyM: accuracyM,
       inBackground: false,
     );
-    debugPrint(
-      '[LiveTracking] Sending to DB: lat=$lat lng=$lng movement=$movementType',
-    );
     final taskSvc = TaskService();
     taskSvc
         .updateLocation(
@@ -335,9 +314,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           batteryPercent: battery,
           movementType: movementType,
         )
-        .catchError(
-          (e) => debugPrint('[LiveTracking] updateLocation failed: $e'),
-        );
+        .catchError((e) {});
     taskSvc
         .storeTracking(
           widget.taskMongoId!,
@@ -358,9 +335,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           );
           _syncPendingDestinationIfAny();
         })
-        .catchError(
-          (e) => debugPrint('[LiveTracking] storeTracking failed: $e'),
-        );
+        .catchError((e) {});
   }
 
   TrackingEventType _movementTypeToEventType(String movementType) {
@@ -506,7 +481,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       await _clearPendingDestinationCache();
       if (mounted) setState(() => _updatingDestination = false);
     } catch (e) {
-      debugPrint('[LiveTracking] Update destination failed: $e');
       await _cachePendingDestination(payload);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -559,7 +533,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         destinationChanged: true,
       );
       await _clearPendingDestinationCache();
-      debugPrint('[LiveTracking] Synced pending destination');
     } catch (_) {}
   }
 

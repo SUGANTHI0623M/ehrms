@@ -43,9 +43,6 @@ class LocationService {
   /// Update geofence center when destination changes (single source of truth).
   void updateGeofenceCenter(LatLng center) {
     _geofenceCenter = center;
-    debugPrint(
-      '[Geofence] Center updated: ${center.latitude}, ${center.longitude}',
-    );
   }
 
   Future<void> initLocationService({required LatLng customerLocation}) async {
@@ -82,9 +79,6 @@ class LocationService {
 
     // Keep background tracker for when app goes to background.
     // Uses foreground service with persistent notification; app can go background or be swiped away.
-    debugPrint(
-      '[LiveTracking] LocationService: starting BackgroundLocationTrackerManager',
-    );
     const liveTrackingConfig = AndroidConfig(
       notificationIcon: 'explore',
       notificationBody: 'Live tracking in progress. Tap to open.',
@@ -143,23 +137,12 @@ class LocationService {
     // Accuracy-aware validation: do NOT show "outside geofence" when accuracy > 40m.
     if (accuracy > accuracyThresholdMeters) {
       _geofenceController.add(GeofenceEvent.lowAccuracy);
-      debugPrint(
-        '[Geofence] LOW_ACCURACY: lat=$currentLat lng=$currentLng '
-        'dest=$destLat,$destLng accuracy=${accuracy.toStringAsFixed(1)}m '
-        'distance=${distanceInMeters.toStringAsFixed(1)}m effectiveRadius=${effectiveRadius.toStringAsFixed(1)}m',
-      );
       return;
     }
 
     final isInside = distanceInMeters <= effectiveRadius;
     final status = isInside ? GeofenceEvent.enter : GeofenceEvent.exit;
     _geofenceController.add(status);
-
-    debugPrint(
-      '[Geofence] $status: lat=$currentLat lng=$currentLng '
-      'dest=$destLat,$destLng accuracy=${accuracy.toStringAsFixed(1)}m '
-      'distance=${distanceInMeters.toStringAsFixed(1)}m effectiveRadius=${effectiveRadius.toStringAsFixed(1)}m',
-    );
   }
 
   Future<void> _checkAndRequestPermissions() async {
@@ -179,22 +162,15 @@ class LocationService {
 
   String _classifyMovement(double speed) {
     if (speed > 10 / 3.6) {
-      // Convert km/h to m/s
-      print("Driving");
       return "Driving";
     } else if (speed > 1 / 3.6) {
-      print("Walking");
       return "Walking";
     } else {
-      print("Standing");
       return "Standing";
     }
   }
 
   void dispose() {
-    debugPrint(
-      '[LiveTracking] LocationService: stopping BackgroundLocationTrackerManager',
-    );
     _geolocatorSubscription?.cancel();
     _geolocatorSubscription = null;
     _locationController.close();

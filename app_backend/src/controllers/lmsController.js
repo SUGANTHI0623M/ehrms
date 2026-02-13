@@ -1,14 +1,53 @@
+const mongoose = require('mongoose');
 const Course = require('../models/Course');
 const CourseProgress = require('../models/CourseProgress');
 const LiveSession = require('../models/LiveSession');
+const LiveSessionLog = require('../models/LiveSessionLog');
 const SessionLog = require('../models/SessionLog');
 const LearningActivity = require('../models/LearningActivity');
 const AIQuiz = require('../models/AIQuiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const Staff = require('../models/Staff');
 
-// Helper: get staff ID from request
-const getStaffId = (req) => req.staff?._id || req.user?._id;
+// Validate MongoDB ObjectId (24 hex characters) to avoid CastError and return clear 400
+const isValidObjectId = (id) => {
+    if (id == null || typeof id !== 'string') return false;
+    const s = id.trim();
+    return s.length === 24 && /^[0-9a-fA-F]{24}$/.test(s);
+};
+
+// Helper: get staff ID from request (LMS uses Staff id for employeeId in CourseProgress/QuizAttempt)
+const getStaffId = (req) => {
+    const id = req.staff?._id || req.user?._id;
+    return id ? (typeof id === 'string' ? id : id.toString()) : null;
+};
+
+// Helper: get Staff id for LMS (CourseProgress/QuizAttempt use employeeId = Staff id). Resolve from user when needed so web and app match.
+const getLmsStaffId = async (req) => {
+    if (req.staff?._id) {
+        const id = (typeof req.staff._id === 'string' ? req.staff._id : req.staff._id.toString());
+        console.log('[LMS getLmsStaffId] from req.staff:', id);
+        return id;
+    }
+    if (req.user?._id) {
+        const staff = await Staff.findOne({ userId: req.user._id }).select('_id').lean();
+        if (staff) {
+            console.log('[LMS getLmsStaffId] from Staff userId lookup:', staff._id?.toString());
+            return staff._id.toString();
+        }
+        console.log('[LMS getLmsStaffId] no Staff found for userId:', req.user._id);
+    }
+    return null;
+};
+
+// Build query filter for LMS collections: web backend may use userId, app uses employeeId. Query both so same DB shows same data.
+const lmsUserFilter = (staffId, userId) => {
+    const conditions = [];
+    if (staffId) conditions.push({ employeeId: staffId });
+    if (userId) conditions.push({ userId: userId });
+    if (conditions.length === 0) return null;
+    return conditions.length === 1 ? conditions[0] : { $or: conditions };
+};
 
 // Helper: get businessId
 const getBusinessId = (req) => req.staff?.businessId || req.user?.companyId;
@@ -27,19 +66,22 @@ const getAllCourses = async (req, res) => {
 // POST /lms/courses/:id/enroll - Self-enroll in course
 const enrollCourse = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
         const { id } = req.params;
-        if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const course = await Course.findById(id);
         if (!course || course.status !== 'Published') return res.status(404).json({ success: false, message: 'Course not found' });
 
-        let progress = await CourseProgress.findOne({ courseId: id, employeeId: staffId });
+        let progress = await CourseProgress.findOne({ courseId: id, ...filter });
         if (progress) return res.json({ success: true, data: progress });
 
         progress = await CourseProgress.create({
             courseId: id,
-            employeeId: staffId,
+            employeeId: staffId || undefined,
+            userId: userId || undefined,
             status: 'Not Started',
             contentProgress: [],
             completedLessons: [],
@@ -52,15 +94,25 @@ const enrollCourse = async (req, res) => {
     }
 };
 
-// GET /lms/my-courses - Employee's enrolled courses
+// GET /lms/my-courses - Employee's enrolled courses (query by employeeId or userId so web and app see same data)
+// Why "only 1 course" when courseprogresses has 5 for this staff?
+// 1) Query identity: filter uses staffId (from req.staff or Staff.findOne({ userId })) OR userId. If app sends different user/staff, only docs matching that identity are returned.
+// 2) Missing course: .populate('courseId') can be null if the course was deleted. We .filter(p => p.courseId) so progress rows with missing/invalid courseId are dropped and never shown.
 const getMyCourses = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
-        if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const progressList = await CourseProgress.find({ employeeId: staffId })
+        const progressList = await CourseProgress.find(filter)
             .populate('courseId')
             .sort({ updatedAt: -1 });
+
+        const withNullCourse = progressList.filter(p => !p.courseId);
+        if (withNullCourse.length > 0) {
+            console.log('[LMS getMyCourses] filter=', JSON.stringify(filter), 'total progress=', progressList.length, 'dropped (courseId not in courses collection):', withNullCourse.length, 'progress _ids:', withNullCourse.map(p => p._id?.toString()));
+        }
 
         const data = progressList
             .filter(p => p.courseId)
@@ -81,22 +133,37 @@ const getMyCourses = async (req, res) => {
     }
 };
 
-// GET /lms/courses/:id/details - Course details with progress
+// GET /lms/courses/:id/details - Course details with progress (query by employeeId or userId for same data as web)
 const getCourseDetails = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
         const { id } = req.params;
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid course ID. Course ID must be a 24-character hex string.',
+            });
+        }
+
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
 
         const course = await Course.findById(id);
         if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
 
         let progress = null;
-        if (staffId) {
-            progress = await CourseProgress.findOne({ courseId: id, employeeId: staffId });
+        const userFilter = lmsUserFilter(staffId, userId);
+        if (userFilter) {
+            progress = await CourseProgress.findOne({ courseId: id, ...userFilter });
         }
 
         res.json({ success: true, data: { course, progress } });
     } catch (err) {
+        if (err.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid course ID format.',
+            });
+        }
         console.error('[LMS] getCourseDetails error:', err);
         res.status(500).json({ success: false, message: err.message });
     }
@@ -105,11 +172,13 @@ const getCourseDetails = async (req, res) => {
 // GET /lms/courses/:id/my-progress
 const getMyProgress = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
         const { id } = req.params;
-        if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const progress = await CourseProgress.findOne({ courseId: id, employeeId: staffId });
+        const progress = await CourseProgress.findOne({ courseId: id, ...filter });
         res.json({ success: true, data: progress || {} });
     } catch (err) {
         console.error('[LMS] getMyProgress error:', err);
@@ -121,17 +190,20 @@ const getMyProgress = async (req, res) => {
 // Web may send lessonId (alias for lessonTitle) for compatibility
 const completeLesson = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
         const { id } = req.params;
         const { lessonTitle, lessonId } = req.body || {};
         const lesson = lessonTitle || lessonId;
-        if (!staffId || !lesson) return res.status(400).json({ success: false, message: 'Missing lessonTitle or lessonId' });
+        if (!filter || !lesson) return res.status(400).json({ success: false, message: 'Missing lessonTitle or lessonId' });
 
-        let progress = await CourseProgress.findOne({ courseId: id, employeeId: staffId });
+        let progress = await CourseProgress.findOne({ courseId: id, ...filter });
         if (!progress) {
             progress = await CourseProgress.create({
                 courseId: id,
-                employeeId: staffId,
+                employeeId: staffId || undefined,
+                userId: userId || undefined,
                 status: 'In Progress',
                 contentProgress: [],
                 completedLessons: [lesson],
@@ -173,16 +245,19 @@ const completeLesson = async (req, res) => {
 // POST /lms/courses/:id/progress - Update content progress
 const updateProgress = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
         const { id } = req.params;
         const { contentId, completed, watchTime } = req.body;
-        if (!staffId || !contentId) return res.status(400).json({ success: false, message: 'Missing contentId' });
+        if (!filter || !contentId) return res.status(400).json({ success: false, message: 'Missing contentId' });
 
-        let progress = await CourseProgress.findOne({ courseId: id, employeeId: staffId });
+        let progress = await CourseProgress.findOne({ courseId: id, ...filter });
         if (!progress) {
             progress = await CourseProgress.create({
                 courseId: id,
-                employeeId: staffId,
+                employeeId: staffId || undefined,
+                userId: userId || undefined,
                 status: 'In Progress',
                 contentProgress: [],
                 completedLessons: [],
@@ -222,7 +297,7 @@ const updateProgress = async (req, res) => {
 // GET /lms/my-sessions - Employee's live sessions
 const getMySessions = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
         if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const staff = await Staff.findById(staffId);
@@ -302,7 +377,7 @@ const createSession = async (req, res) => {
 const updateSession = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, agenda, dateTime, duration, meetingLink, status } = req.body;
+        const { title, description, agenda, dateTime, duration, meetingLink, status, recordingUrl } = req.body;
 
         const session = await LiveSession.findByIdAndUpdate(id, {
             ...(title && { title }),
@@ -312,6 +387,7 @@ const updateSession = async (req, res) => {
             ...(duration !== undefined && { duration }),
             ...(meetingLink !== undefined && { meetingLink }),
             ...(status && { status }),
+            ...(recordingUrl !== undefined && { recordingUrl }),
         }, { new: true });
 
         if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
@@ -338,7 +414,7 @@ const deleteSession = async (req, res) => {
 // POST /lms/my-sessions/:id/join
 const joinSession = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
         const { id } = req.params;
         if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
@@ -357,7 +433,7 @@ const joinSession = async (req, res) => {
 // POST /lms/my-sessions/:id/leave
 const leaveSession = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
         const { id } = req.params;
         const { feedbackSummary, issues, rating } = req.body || {};
         if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -376,39 +452,29 @@ const leaveSession = async (req, res) => {
 
 // --- Learning Engine ---
 
-// GET /lms/learning-engine — heatmap from LearningActivity + QuizAttempt (match web/bb: show quiz & activity)
+// GET /lms/learning-engine — heatmap from ALL sources (same as web backend): LearningActivity, QuizAttempt, AIQuiz submitted, CourseProgress views, SessionLog (live sessions)
 const getLearningEngine = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
-        if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const start = new Date(Date.now() - 371 * 24 * 60 * 60 * 1000);
         const end = new Date();
-
-        // Source 1: LearningActivity (if any explicit logging)
-        const activities = await LearningActivity.find({
-            employeeId: staffId,
-            date: { $gte: start, $lte: end },
-        }).sort({ date: 1 }).lean();
-
-        // Source 2: Quiz attempts (practice quizzes) — same as bb AIQuiz submittedAt
-        const quizAttempts = await QuizAttempt.find({
-            employeeId: staffId,
-            createdAt: { $gte: start, $lte: end },
-        }).select('createdAt').lean();
-
-        // Source 3: Course progress — contentProgress.viewedAt (days when user viewed content)
-        const progressList = await CourseProgress.find({
-            employeeId: staffId,
-            'contentProgress.viewedAt': { $gte: start, $lte: end },
-        }).select('contentProgress.viewedAt').lean();
-
         const toKey = (d) => d.toISOString().slice(0, 10);
+
+        // Aggregate by date: same shape as web (totalMinutes, lessonsCompleted, quizzesAttempted, assessmentsAttempted, liveSessionsAttended)
         const byDate = new Map();
         const init = (key) => {
             if (!byDate.has(key)) byDate.set(key, { totalMinutes: 0, lessonsCompleted: 0, quizzesAttempted: 0, assessmentsAttempted: 0, liveSessionsAttended: 0 });
         };
 
+        // Source 1: LearningActivity (explicit logging)
+        const activities = await LearningActivity.find({
+            ...filter,
+            date: { $gte: start, $lte: end },
+        }).sort({ date: 1 }).lean();
         activities.forEach((a) => {
             const key = toKey(a.date);
             init(key);
@@ -420,6 +486,11 @@ const getLearningEngine = async (req, res) => {
             e.liveSessionsAttended += a.liveSessionsAttended || 0;
         });
 
+        // Source 2: QuizAttempt (app practice quizzes)
+        const quizAttempts = await QuizAttempt.find({
+            ...filter,
+            createdAt: { $gte: start, $lte: end },
+        }).select('createdAt').lean();
         quizAttempts.forEach((q) => {
             if (!q.createdAt) return;
             const key = toKey(q.createdAt);
@@ -427,6 +498,52 @@ const getLearningEngine = async (req, res) => {
             byDate.get(key).quizzesAttempted += 1;
         });
 
+        // Source 3: AIQuiz submitted (same as web — counts toward heatmap quizzes)
+        const aiQuizzesSubmitted = await AIQuiz.find({
+            ...filter,
+            status: 'Submitted',
+            submittedAt: { $exists: true, $ne: null, $gte: start, $lte: end },
+        }).select('submittedAt').lean();
+        aiQuizzesSubmitted.forEach((q) => {
+            if (!q.submittedAt) return;
+            const key = toKey(q.submittedAt);
+            init(key);
+            byDate.get(key).quizzesAttempted += 1;
+        });
+
+        // Source 4a: LiveSessionLog (web backend collection — same as learningEngine.controller.ts)
+        if (staffId) {
+            const liveLogFilter = {
+                employeeId: staffId,
+                joinedAt: { $gte: start, $lte: end },
+            };
+            const businessId = getBusinessId(req);
+            if (businessId) liveLogFilter.businessId = businessId;
+            const liveSessionLogs = await LiveSessionLog.find(liveLogFilter).select('joinedAt').lean();
+            liveSessionLogs.forEach((l) => {
+                if (!l.joinedAt) return;
+                const key = toKey(l.joinedAt);
+                init(key);
+                byDate.get(key).liveSessionsAttended += 1;
+            });
+            // Source 4b: SessionLog (app-originated joins; add to same count)
+            const sessionLogs = await SessionLog.find({
+                employeeId: staffId,
+                joinedAt: { $gte: start, $lte: end },
+            }).select('joinedAt').lean();
+            sessionLogs.forEach((l) => {
+                if (!l.joinedAt) return;
+                const key = toKey(l.joinedAt);
+                init(key);
+                byDate.get(key).liveSessionsAttended += 1;
+            });
+        }
+
+        // Source 5: CourseProgress contentProgress.viewedAt (lessons/content viewed)
+        const progressList = await CourseProgress.find({
+            ...filter,
+            'contentProgress.viewedAt': { $gte: start, $lte: end },
+        }).select('contentProgress.viewedAt').lean();
         progressList.forEach((p) => {
             (p.contentProgress || []).forEach((cp) => {
                 if (cp.viewedAt) {
@@ -441,10 +558,14 @@ const getLearningEngine = async (req, res) => {
             });
         });
 
-        // Build heatmap array with activityScore (match bb: time*1 + lessons*10 + quizzes*15 + assessments*20 + live*20)
+        // Build heatmap array with activityScore and activityLevel (same shape as web hrms.askeva.net/api/lms/learning-engine)
         const heatmap = Array.from(byDate.entries()).map(([date, agg]) => {
             const activityScore = (agg.totalMinutes || 0) * 1 + (agg.lessonsCompleted || 0) * 10 +
                 (agg.quizzesAttempted || 0) * 15 + (agg.assessmentsAttempted || 0) * 20 + (agg.liveSessionsAttended || 0) * 20;
+            let activityLevel = 'none';
+            if (activityScore > 60) activityLevel = 'high';
+            else if (activityScore > 40) activityLevel = 'medium';
+            else if (activityScore > 0) activityLevel = 'low';
             return {
                 date,
                 totalMinutes: agg.totalMinutes || 0,
@@ -453,10 +574,52 @@ const getLearningEngine = async (req, res) => {
                 assessmentsAttempted: agg.assessmentsAttempted || 0,
                 liveSessionsAttended: agg.liveSessionsAttended || 0,
                 activityScore,
+                activityLevel,
             };
         });
 
-        res.json({ success: true, heatmap });
+        const nowDate = new Date();
+        const todayStr = nowDate.toISOString().slice(0, 10);
+
+        // Same response shape as web: dailyGoal, skills, heatmap, frictionCourses, recommendations, performanceMatrix, scoreHistory, readiness
+        const dailyGoal = {
+            date: nowDate.toISOString(),
+            targetMinutes: 30,
+            currentMinutes: 0,
+            tasksCompleted: 0,
+            tasksTarget: 3,
+            streakDays: 0,
+            longestStreak: 0,
+            streakFrozen: false,
+            status: 'pending',
+            message: 'Start a streak today!',
+        };
+
+        const skills = [
+            { skillId: 's1', name: 'Compliance', competence: 90, confidence: 100, gap: 0, category: 'Domain' },
+            { skillId: 's2', name: 'Technical', competence: 60, confidence: 50, gap: 20, category: 'Technical' },
+        ];
+
+        const readiness = {
+            targetRole: 'Employee',
+            currentScore: 65,
+            missingSkills: ['Advanced Compliance'],
+            nextMilestone: 'Complete Training',
+        };
+
+        res.json({
+            success: true,
+            dailyGoal,
+            skills,
+            heatmap,
+            frictionCourses: [],
+            recommendations: [],
+            performanceMatrix: [],
+            scoreHistory: [],
+            thisWeekMinutes: 0,
+            lastWeekMinutes: 0,
+            readiness,
+        });
     } catch (err) {
         console.error('[LMS] getLearningEngine error:', err);
         res.status(500).json({ success: false, message: err.message });
@@ -477,13 +640,16 @@ function addDuration(startDate, duration) {
     return d;
 }
 
-// GET /lms/analytics/my-scores
+// GET /lms/analytics/my-scores — same response shape as web (summary, courses, quizStats); query by employeeId or userId
 const getMyScores = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
-        if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
+        console.log('[LMS getMyScores] staffId=', staffId, 'userId=', userId, 'filter=', JSON.stringify(filter));
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const progressList = await CourseProgress.find({ employeeId: staffId })
+        const progressList = await CourseProgress.find(filter)
             .populate('courseId')
             .lean();
 
@@ -502,48 +668,85 @@ const getMyScores = async (req, res) => {
             const daysRemaining = dueDate
                 ? Math.ceil((dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
                 : null;
+            const dueDateStr = dueDate ? dueDate.toISOString().slice(0, 10) : null;
             return {
                 courseId: course?._id,
                 title: course?.title,
+                category: course?.category ?? null,
                 status: p.status,
                 progress: p.completionPercentage || 0,
-                dueDate: dueDate || null,
+                assessmentStatus: p.assessmentStatus ?? 'Not Started',
+                assessmentScore: p.assessmentScore ?? null,
+                timeSpentMinutes: p.timeSpent ?? 0,
+                dueDate: dueDateStr,
                 daysRemaining,
                 completedAt: p.status === 'Completed' ? p.updatedAt : null,
                 openedAt: p.lastAccessedAt || p.createdAt,
             };
         });
 
-        const quizAttempts = await QuizAttempt.find({ employeeId: staffId })
+        // Quiz stats: use aiquizzes (AIQuiz) same as web — totalAssigned = AIQuiz count, totalCompleted = status === 'Submitted'
+        const aiQuizzes = await AIQuiz.find(filter).select('difficulty status').lean();
+        console.log('[LMS getMyScores] aiQuizzes.length=', aiQuizzes.length, 'docs=', aiQuizzes.map(q => ({ difficulty: q.difficulty, status: q.status })));
+
+        const quizAttempts = await QuizAttempt.find(filter)
             .populate('quizId')
             .lean();
+        console.log('[LMS getMyScores] quizAttempts.length=', quizAttempts.length, 'rawAttempts=', quizAttempts.length ? quizAttempts.map(a => ({ quizId: a.quizId?._id, employeeId: a.employeeId, userId: a.userId, passed: a.passed })) : []);
 
-        // By difficulty: total = unique quizzes, completed = those with at least one passed attempt
-        const byDiff = { Easy: new Map(), Medium: new Map(), Hard: new Map() };
-        for (const a of quizAttempts) {
-            const qid = a.quizId?._id?.toString();
-            if (!qid) continue;
-            const diff = (a.quizId?.difficulty || 'Medium').trim();
-            const key = byDiff[diff] || byDiff.Medium;
-            if (!key.has(qid)) key.set(qid, { completed: false });
-            if (a.passed !== undefined && a.passed !== null) key.get(qid).completed = true;
-        }
-        const toStat = (m) => {
-            const total = m.size;
-            const completed = [...m.values()].filter((x) => x.completed).length;
-            return {
-                total,
-                completed,
-                percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+        let totalAssigned, totalCompleted, completionPercent, easy, medium, hard;
+
+        if (aiQuizzes.length > 0) {
+            // Same logic as web: use aiquizzes collection
+            totalAssigned = aiQuizzes.length;
+            totalCompleted = aiQuizzes.filter(q => (q.status || '').toString() === 'Submitted').length;
+            completionPercent = totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
+            const normalizeDiff = (d) => (d === 'Difficult' ? 'Hard' : (d || 'Medium'));
+            const byDiff = { Easy: { total: 0, completed: 0 }, Medium: { total: 0, completed: 0 }, Hard: { total: 0, completed: 0 } };
+            aiQuizzes.forEach((q) => {
+                const key = normalizeDiff(q.difficulty);
+                if (byDiff[key]) {
+                    byDiff[key].total += 1;
+                    if ((q.status || '').toString() === 'Submitted') byDiff[key].completed += 1;
+                }
+            });
+            const toStat = (o) => ({
+                total: o.total,
+                completed: o.completed,
+                percent: o.total > 0 ? Math.round((o.completed / o.total) * 100) : 0,
                 beatsPercent: 0,
+            });
+            easy = toStat(byDiff.Easy);
+            medium = toStat(byDiff.Medium);
+            hard = toStat(byDiff.Hard);
+        } else {
+            // Fallback: from QuizAttempt (app-only when no AIQuiz docs)
+            const byDiff = { Easy: new Map(), Medium: new Map(), Hard: new Map() };
+            for (const a of quizAttempts) {
+                const qid = a.quizId?._id?.toString();
+                if (!qid) continue;
+                const diff = (a.quizId?.difficulty || 'Medium').trim();
+                const key = byDiff[diff] || byDiff.Medium;
+                if (!key.has(qid)) key.set(qid, { completed: false });
+                if (a.passed !== undefined && a.passed !== null) key.get(qid).completed = true;
+            }
+            const toStat = (m) => {
+                const total = m.size;
+                const completed = [...m.values()].filter((x) => x.completed).length;
+                return { total, completed, percent: total > 0 ? Math.round((completed / total) * 100) : 0, beatsPercent: 0 };
             };
-        };
+            const uniqueQuizzes = new Set(quizAttempts.map((a) => a.quizId?._id?.toString()).filter(Boolean));
+            totalAssigned = uniqueQuizzes.size;
+            totalCompleted = [...uniqueQuizzes].filter((qid) =>
+                quizAttempts.some((a) => a.quizId?._id?.toString() === qid && a.passed !== undefined && a.passed !== null)
+            ).length;
+            completionPercent = totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
+            easy = toStat(byDiff.Easy);
+            medium = toStat(byDiff.Medium);
+            hard = toStat(byDiff.Hard);
+        }
 
-        const totalQuizzes = quizAttempts.length;
-        const uniqueQuizzes = new Set(quizAttempts.map((a) => a.quizId?._id?.toString()).filter(Boolean));
-        const completedQuizzes = [...uniqueQuizzes].filter((qid) =>
-            quizAttempts.some((a) => a.quizId?._id?.toString() === qid && a.passed !== undefined && a.passed !== null)
-        ).length;
+        console.log('[LMS getMyScores] quizStats: totalAssigned=', totalAssigned, 'totalCompleted=', totalCompleted, 'source=', aiQuizzes.length > 0 ? 'AIQuiz' : 'QuizAttempt');
 
         res.json({
             success: true,
@@ -553,17 +756,17 @@ const getMyScores = async (req, res) => {
                     completedCourses,
                     inProgress,
                     overallScore,
-                    passedAssessments: completedQuizzes,
-                    failedAssessments: uniqueQuizzes.size - completedQuizzes,
+                    passedAssessments: totalCompleted,
+                    failedAssessments: totalAssigned - totalCompleted,
                 },
                 courses,
                 quizStats: {
-                    totalAssigned: uniqueQuizzes.size,
-                    totalCompleted: completedQuizzes,
-                    completionPercent: uniqueQuizzes.size > 0 ? Math.round((completedQuizzes / uniqueQuizzes.size) * 100) : 0,
-                    easy: toStat(byDiff.Easy),
-                    medium: toStat(byDiff.Medium),
-                    hard: toStat(byDiff.Hard),
+                    totalAssigned,
+                    totalCompleted,
+                    completionPercent,
+                    easy,
+                    medium,
+                    hard,
                 },
             },
         });
@@ -575,22 +778,51 @@ const getMyScores = async (req, res) => {
 
 // --- AI Quiz ---
 
+// Extract YouTube video ID from common URL formats (for transcript fetch)
+function getYouTubeVideoId(url) {
+    if (!url || typeof url !== 'string') return null;
+    const u = url.trim();
+    const m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : null;
+}
+
+// Fetch YouTube transcript for a video ID or URL; returns plain text or null
+async function fetchYouTubeTranscript(videoIdOrUrl) {
+    try {
+        const { YoutubeTranscript } = await import('youtube-transcript');
+        const list = await YoutubeTranscript.fetchTranscript(videoIdOrUrl);
+        if (Array.isArray(list) && list.length > 0) {
+            return list.map((item) => item.text).join(' ');
+        }
+    } catch (err) {
+        console.log('[LMS] YouTube transcript fetch failed:', err.message);
+    }
+    return null;
+}
+
 // POST /lms/ai-quiz/generate
-// Uses GEMINI_API_KEY from .env when available for AI-generated questions based on lesson content
+// Uses GEMINI_API_KEY from .env when available for AI-generated questions based on lesson content.
+// For VIDEO/YOUTUBE materials, fetches YouTube transcript when content is missing so quiz is based on video.
 const generateAIQuiz = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
-        const { courseId, lessonTitles, questionCount, difficulty, materialId } = req.body;
-        if (!staffId || !courseId) return res.status(400).json({ success: false, message: 'Missing courseId' });
+        const staffId = await getLmsStaffId(req);
+        const { courseId, lessonTitles, questionCount, difficulty, materialId, materialIds } = req.body;
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        if ((!staffId && !userId) || !courseId) return res.status(400).json({ success: false, message: 'Missing courseId' });
 
         const geminiKey = process.env.GEMINI_API_KEY;
         const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
         const count = Math.min(parseInt(questionCount, 10) || 5, 50);
         let questions = [];
+        console.log('[LMS generateAIQuiz] courseId=', courseId, 'staffId=', staffId, 'userId=', userId);
 
         const course = await Course.findById(courseId).lean();
-        const materials = course?.materials || course?.contents || [];
+        let materials = course?.materials || course?.contents || [];
         const lessons = course?.lessons || [];
+        // If no top-level materials, flatten from lessons so we can fetch transcript for video lessons
+        if (materials.length === 0 && lessons?.length) {
+            materials = lessons.flatMap((l) => (l.materials || []).map((m) => ({ ...m, lessonTitle: l.title || m.lessonTitle || m.title })));
+        }
         const materialsList = materials.map((m, i) => ({
             _id: m._id,
             order: i + 1,
@@ -600,74 +832,132 @@ const generateAIQuiz = async (req, res) => {
             url: m.url || m.filePath || m.link,
             content: m.content || m.description || '',
         }));
-        const relevanceFilter = lessonTitles?.length
-            ? materialsList.filter((m) =>
-                lessonTitles.some((t) =>
-                    String(t || '').toLowerCase().includes(String(m.lessonTitle || '').toLowerCase()) ||
-                    String(m.lessonTitle || '').toLowerCase().includes(String(t || '').toLowerCase())
-                )
-            )
-            : materialsList;
+
+        // Enrich VIDEO/YOUTUBE materials with transcript when content is empty
+        for (const m of materialsList) {
+            const isVideo = (m.type || '').toUpperCase() === 'VIDEO' || (m.type || '').toUpperCase() === 'YOUTUBE';
+            const hasNoContent = !(m.content && String(m.content).trim());
+            if (isVideo && hasNoContent && m.url) {
+                const ytId = getYouTubeVideoId(m.url);
+                if (ytId) {
+                    const transcript = await fetchYouTubeTranscript(ytId);
+                    if (transcript) {
+                        m.content = transcript;
+                        console.log('[LMS generateAIQuiz] YouTube transcript loaded for', m.lessonTitle || m.title, 'length=', transcript.length);
+                    }
+                }
+            }
+        }
+
+        // When app sends materialIds (from selected lessons), use exactly those materials for the quiz.
+        const idSet = Array.isArray(materialIds) && materialIds.length
+            ? new Set(materialIds.map((id) => String(id)))
+            : null;
+        const relevanceFilter = idSet
+            ? materialsList.filter((m) => m._id && idSet.has(String(m._id)))
+            : (lessonTitles?.length
+                ? materialsList.filter((m) => {
+                    const mt = String(m.lessonTitle || '').trim().toLowerCase();
+                    return lessonTitles.some((t) => {
+                        const tt = String(t || '').trim().toLowerCase();
+                        return tt && (mt.includes(tt) || mt === tt || tt.includes(mt));
+                    });
+                })
+                : materialsList);
+        if (idSet && relevanceFilter.length === 0) {
+            console.log('[LMS generateAIQuiz] materialIds sent but no materials matched: materialIds=', materialIds?.length, 'materialsList=', materialsList?.length);
+            return res.status(400).json({
+                success: false,
+                message: 'Selected lesson materials could not be found. Please try again.',
+            });
+        }
         const materialFocus = materialId
             ? materialsList.find((m) => m._id && String(m._id) === String(materialId)) || relevanceFilter[0]
             : relevanceFilter[0];
-        const focusList = materialFocus ? [materialFocus] : relevanceFilter.slice(0, 5);
 
-        // Build lesson content for AI: course description, materials with content, lessons structure
-        const contentParts = [];
-        if (course?.description && String(course.description).trim()) {
-            contentParts.push(`Course Description:\n${course.description.trim()}`);
+        // Align with web (hrms.askeva.net): allow quiz when we have text/transcript OR YouTube URLs.
+        // Web sends YouTube URLs to Gemini as fileData so Gemini analyzes video directly (no transcript needed).
+        let materialsForPrompt = relevanceFilter.length ? relevanceFilter : materialsList;
+        if (materialFocus && materialsForPrompt.length > 1) {
+            const focusFirst = [materialFocus, ...materialsForPrompt.filter((m) => m._id && String(m._id) !== String(materialFocus._id))];
+            materialsForPrompt = focusFirst;
         }
-        const materialsWithContent = lessonTitles?.length ? relevanceFilter : materialsList;
+        const materialsWithText = materialsForPrompt.filter((m) => m.content && String(m.content).trim());
+        const youtubeMaterials = materialsForPrompt.filter((m) => {
+            const type = (m.type || '').toUpperCase();
+            if (type !== 'VIDEO' && type !== 'YOUTUBE') return false;
+            const url = (m.url || '').trim();
+            return url && getYouTubeVideoId(url);
+        });
+        const hasContent = materialsWithText.length > 0 || youtubeMaterials.length > 0;
+        if (!hasContent) {
+            console.log('[LMS generateAIQuiz] No lesson content: materialsWithText=0, youtubeMaterials=0, materialsForPrompt=', materialsForPrompt?.length);
+            return res.status(400).json({
+                success: false,
+                message: 'Selected lessons have no text or transcript available. Use lessons with video captions (e.g. YouTube) or text content to generate a quiz.',
+            });
+        }
         const lessonContentBlocks = [];
-        for (const m of materialsWithContent) {
+        for (const m of materialsWithText) {
             const lessonTitle = m.lessonTitle || m.title || 'Course Materials';
-            let block = `Lesson: ${lessonTitle}\nMaterial: ${m.title || 'Untitled'} (${m.type || 'URL'})`;
-            if (m.content && String(m.content).trim()) {
-                block += `\nContent:\n${m.content.trim()}`;
-            }
+            const block = `Lesson: ${lessonTitle}\nMaterial: ${m.title || 'Untitled'} (${m.type || 'URL'})\nContent:\n${String(m.content).trim()}`;
             lessonContentBlocks.push(block);
         }
-        if (lessonContentBlocks.length) {
-            contentParts.push(`\nLesson Content:\n${lessonContentBlocks.join('\n\n')}`);
-        }
-        if (lessons && lessons.length) {
-            const lessonTexts = lessons
-                .filter((l) => !lessonTitles?.length || lessonTitles.some((t) => String(t).toLowerCase() === String(l.title || '').toLowerCase()))
-                .map((l) => {
-                    let t = `Lesson: ${l.title || 'Untitled'}`;
-                    (l.materials || []).forEach((m) => {
-                        t += `\n  - ${m.title || 'Material'}: ${(m.content || m.description || '').trim() || '(no text content)'}`;
-                    });
-                    return t;
-                });
-            if (lessonTexts.length) contentParts.push(`\nStructured Lessons:\n${lessonTexts.join('\n\n')}`);
-        }
-        const assessmentQs = course?.assessmentQuestions;
-        if (assessmentQs && Array.isArray(assessmentQs)) {
-            const topicHints = assessmentQs.flatMap((g) => (g.questions || []).map((q) => q.questionText || q.question)).filter(Boolean);
-            if (topicHints.length) {
-                contentParts.push(`\nKey Topics (from assessment): ${topicHints.slice(0, 10).join('; ')}`);
-            }
-        }
-        const fullLessonContent = contentParts.join('\n') || `Course: ${course?.title || 'Unknown'}. Lessons: ${(lessonTitles || []).join(', ') || 'All'}`;
+        const fullLessonContent = lessonContentBlocks.join('\n\n');
 
         if (geminiKey && geminiKey.trim()) {
             try {
                 const { GoogleGenAI } = await import('@google/genai');
                 const ai = new GoogleGenAI({ apiKey: geminiKey });
-                const prompt = `You are a quiz generator. Generate exactly ${count} quiz questions based ONLY on the following lesson content. Questions must test understanding of the concepts, facts, and topics in the content below. Return ONLY a valid JSON array. Each item: question, type ("multiple-choice" or "true-false"), options (4 for mc, ["True","False"] for tf), correctAnswer, points:1. Difficulty: ${difficulty || 'Medium'}.
+                const instructionStart = `You are a quiz generator. Generate exactly ${count} quiz questions based ONLY on the learning content provided (text and/or videos below).
+RULES:
+- Each question must be answerable from the lesson content (text or video). Test facts, concepts, and details from the content.
+- Do NOT ask about "course description", "qualification", "attendance", "participation", or metadata.
+- Difficulty: ${difficulty || 'Medium'}.
+- Return ONLY a valid JSON array. Each item: question, type ("multiple-choice" or "true-false"), options (4 for mc, ["True","False"] for tf), correctAnswer, points:1.`;
+                const instructionEnd = `Return JSON array format: [{"question":"...","type":"multiple-choice","options":["A","B","C","D"],"correctAnswer":"A","points":1}]`;
 
-LESSON CONTENT:
+                let response;
+                if (youtubeMaterials.length > 0) {
+                    // Web-style: pass YouTube URLs to Gemini so it analyzes video directly (no transcript required)
+                    const parts = [];
+                    for (const m of youtubeMaterials) {
+                        const url = (m.url || '').trim();
+                        if (!url) continue;
+                        parts.push({
+                            fileData: {
+                                fileUri: url,
+                                mimeType: 'video/*',
+                            },
+                        });
+                        parts.push({
+                            text: `YouTube video titled "${m.title || m.lessonTitle || 'Video'}". Analyze its content for the quiz.`,
+                        });
+                    }
+                    const textContent = fullLessonContent
+                        ? `\n\nText/transcript content:\n${fullLessonContent}\n\n`
+                        : '';
+                    parts.push({
+                        text: `${instructionStart}${textContent}\n${instructionEnd}`,
+                    });
+                    response = await ai.models.generateContent({
+                        model: geminiModel,
+                        contents: [{ role: 'user', parts }],
+                        config: { maxOutputTokens: 2048 },
+                    });
+                } else {
+                    const prompt = `${instructionStart}
+
+LEARNING CONTENT (use only this for questions):
 ${fullLessonContent}
 
-Return JSON array format: [{"question":"...","type":"multiple-choice","options":["A","B","C","D"],"correctAnswer":"A","points":1}]`;
-
-                const response = await ai.models.generateContent({
-                    model: geminiModel,
-                    contents: prompt,
-                    config: { maxOutputTokens: 2048 },
-                });
+${instructionEnd}`;
+                    response = await ai.models.generateContent({
+                        model: geminiModel,
+                        contents: prompt,
+                        config: { maxOutputTokens: 2048 },
+                    });
+                }
                 const text = response?.text?.trim?.() || '';
                 const jsonMatch = text.match(/\[[\s\S]*\]/);
                 if (jsonMatch) {
@@ -679,6 +969,7 @@ Return JSON array format: [{"question":"...","type":"multiple-choice","options":
                             options: Array.isArray(q.options) ? q.options.map(String) : ['Option A', 'Option B', 'Option C', 'Option D'],
                             correctAnswer: q.correctAnswer != null ? String(q.correctAnswer) : (q.options && q.options[0] ? String(q.options[0]) : 'Option A'),
                             points: Math.max(1, parseInt(q.points, 10) || 1),
+                            explanation: q.explanation || (q.correctAnswer != null ? `The correct answer is ${String(q.correctAnswer)}.` : ''),
                         }));
                     }
                 }
@@ -695,22 +986,31 @@ Return JSON array format: [{"question":"...","type":"multiple-choice","options":
                     options: ['Option A', 'Option B', 'Option C', 'Option D'],
                     correctAnswer: 'Option A',
                     points: 1,
+                    explanation: 'The correct answer is Option A.',
                 });
             }
         }
 
+        const rawDiff = (difficulty || 'Medium').trim();
+        const normalizedDifficulty = rawDiff === 'Hard' ? 'Difficult' : (['Easy', 'Medium', 'Difficult'].includes(rawDiff) ? rawDiff : 'Medium');
+        const quizTitle = course?.title ? `Practice: ${course.title}` : 'Practice Quiz';
+
         const totalPoints = questions.reduce((s, q) => s + (q.points || 1), 0);
         const quiz = await AIQuiz.create({
             courseId,
-            employeeId: staffId,
+            employeeId: staffId || undefined,
+            userId: userId || undefined,
             lessonTitles: lessonTitles || [],
-            difficulty: difficulty || 'Medium',
+            difficulty: normalizedDifficulty,
             questionCount: questions.length,
+            title: quizTitle,
             questions,
             totalPoints,
             passingScore: Math.ceil(totalPoints * 0.6),
             materialId,
+            businessId: getBusinessId(req) || undefined,
         });
+        console.log('[LMS generateAIQuiz] AIQuiz created: _id=', quiz._id, 'employeeId=', quiz.employeeId, 'userId=', quiz.userId);
 
         res.status(201).json({ success: true, data: quiz });
     } catch (err) {
@@ -722,11 +1022,13 @@ Return JSON array format: [{"question":"...","type":"multiple-choice","options":
 // GET /lms/ai-quiz/:id
 const getAIQuiz = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
         const { id } = req.params;
         const quiz = await AIQuiz.findById(id).populate('courseId', 'title');
         if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
-        if (String(quiz.employeeId) !== String(staffId)) return res.status(403).json({ success: false, message: 'Forbidden' });
+        const owns = (staffId && String(quiz.employeeId) === String(staffId)) || (userId && quiz.userId && String(quiz.userId) === String(userId));
+        if (!owns) return res.status(403).json({ success: false, message: 'Forbidden' });
         res.json({ success: true, data: quiz });
     } catch (err) {
         console.error('[LMS] getAIQuiz error:', err);
@@ -737,35 +1039,81 @@ const getAIQuiz = async (req, res) => {
 // POST /lms/ai-quiz/:id/submit
 const submitAIQuiz = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
         const { id } = req.params;
         const { responses, completionTime } = req.body || {};
+        console.log('[LMS submitAIQuiz] quizId=', id, 'staffId=', staffId, 'userId=', userId, 'req.user=', req.user?._id, 'req.staff=', req.staff?._id);
 
         const quiz = await AIQuiz.findById(id);
         if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
-        if (String(quiz.employeeId) !== String(staffId)) return res.status(403).json({ success: false, message: 'Forbidden' });
+        const owns = (staffId && String(quiz.employeeId) === String(staffId)) || (userId && quiz.userId && String(quiz.userId) === String(userId));
+        if (!owns) {
+            console.log('[LMS submitAIQuiz] Forbidden: quiz.employeeId=', quiz.employeeId, 'quiz.userId=', quiz.userId);
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
 
         let earned = 0;
-        const results = (responses || []).map((r, i) => {
+        const resolvedResponses = (responses || []).map((r, i) => {
             const q = quiz.questions[i];
             const correct = q && String(r.answer) === String(q.correctAnswer);
             if (correct) earned += q.points || 1;
-            return { questionIndex: i, correct, answer: r.answer };
+            return {
+                questionIndex: i,
+                answer: r.answer ?? '',
+                isCorrect: !!correct,
+                resolvedCorrectAnswer: q?.correctAnswer != null ? String(q.correctAnswer) : undefined,
+            };
+        });
+        const questionResults = (responses || []).map((r, i) => {
+            const q = quiz.questions[i];
+            const correct = q && String(r.answer) === String(q.correctAnswer);
+            return {
+                questionIndex: i,
+                question: q?.question ?? `Question ${i + 1}`,
+                userAnswer: r.answer ?? '',
+                correct,
+                correctAnswer: q?.correctAnswer != null ? String(q.correctAnswer) : '',
+                rationale: q?.rationale ?? q?.explanation ?? (q?.correctAnswer != null ? `The correct answer is ${String(q.correctAnswer)}.` : null),
+            };
         });
         const totalPoints = quiz.questions.reduce((s, q) => s + (q.points || 1), 0);
         const passed = earned >= (quiz.passingScore || Math.ceil(totalPoints * 0.6));
 
-        await QuizAttempt.create({
+        const attemptDoc = {
             quizId: quiz._id,
-            employeeId: staffId,
+            employeeId: staffId || undefined,
+            userId: userId || undefined,
             responses: responses || [],
             score: earned,
             totalPoints,
             passed,
             completionTime,
+        };
+        await QuizAttempt.create(attemptDoc);
+        await AIQuiz.findByIdAndUpdate(id, {
+            $set: {
+                status: 'Submitted',
+                responses: resolvedResponses,
+                score: earned,
+                completionTime: completionTime ?? null,
+                submittedAt: new Date(),
+            },
         });
+        console.log('[LMS submitAIQuiz] QuizAttempt created; AIQuiz updated (status, responses, score, completionTime, submittedAt)');
 
-        res.json({ success: true, data: { score: earned, passed, totalPoints, earnedPoints: earned } });
+        const proficiency = totalPoints > 0 ? Math.round((earned / totalPoints) * 100) : 0;
+        res.json({
+            success: true,
+            data: {
+                score: earned,
+                passed,
+                totalPoints,
+                earnedPoints: earned,
+                proficiency,
+                questionResults,
+            },
+        });
     } catch (err) {
         console.error('[LMS] submitAIQuiz error:', err);
         res.status(500).json({ success: false, message: err.message });
@@ -775,10 +1123,12 @@ const submitAIQuiz = async (req, res) => {
 // POST /lms/courses/:id/assessment/submit - Submit final assessment
 const submitCourseAssessment = async (req, res) => {
     try {
-        const staffId = getStaffId(req);
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
         const { id: courseId } = req.params;
         const { answers } = req.body || {};
-        if (!staffId || !courseId) return res.status(400).json({ success: false, message: 'Missing courseId' });
+        if (!filter || !courseId) return res.status(400).json({ success: false, message: 'Missing courseId' });
 
         const course = await Course.findById(courseId).lean();
         if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
@@ -832,7 +1182,7 @@ const submitCourseAssessment = async (req, res) => {
         const score = totalMarks > 0 ? Math.round((earnedMarks / totalMarks) * 100) : 0;
         const passed = score >= passingScore;
 
-        const progress = await CourseProgress.findOne({ courseId, employeeId: staffId });
+        const progress = await CourseProgress.findOne({ courseId, ...filter });
         if (progress) {
             progress.assessmentStatus = passed ? 'Passed' : 'Failed';
             progress.assessmentScore = score;
@@ -853,6 +1203,62 @@ const submitCourseAssessment = async (req, res) => {
         });
     } catch (err) {
         console.error('[LMS] submitCourseAssessment error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// POST /lms/learning-engine/activity — log activity for heatmap (match web logLearningActivity)
+const logLearningActivity = async (req, res) => {
+    try {
+        const staffId = await getLmsStaffId(req);
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        const filter = lmsUserFilter(staffId, userId);
+        if (!filter) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const body = req.body || {};
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const totalMinutes = Math.max(0, Number(body.totalMinutes) || 0);
+        const lessonsCompleted = Math.max(0, Number(body.lessonsCompleted) || 0);
+        const quizzesAttempted = Math.max(0, Number(body.quizzesAttempted) || 0);
+        const assessmentsAttempted = Math.max(0, Number(body.assessmentsAttempted) || 0);
+        const liveSessionsAttended = Math.max(0, Number(body.liveSessionsAttended) || 0);
+
+        const activityScore = totalMinutes * 1 + lessonsCompleted * 10 + quizzesAttempted * 15 +
+            assessmentsAttempted * 20 + liveSessionsAttended * 20;
+
+        let doc = await LearningActivity.findOne({ ...filter, date: today });
+        const updatePayload = {
+            $inc: {
+                totalMinutes,
+                lessonsCompleted,
+                quizzesAttempted,
+                assessmentsAttempted,
+                liveSessionsAttended,
+                activityScore,
+            },
+        };
+        if (doc) {
+            await LearningActivity.updateOne({ _id: doc._id }, updatePayload);
+        } else {
+            doc = await LearningActivity.create({
+                employeeId: staffId || undefined,
+                userId: userId || undefined,
+                date: today,
+                totalMinutes,
+                lessonsCompleted,
+                quizzesAttempted,
+                assessmentsAttempted,
+                liveSessionsAttended,
+                activityScore: totalMinutes * 1 + lessonsCompleted * 10 + quizzesAttempted * 15 +
+                    assessmentsAttempted * 20 + liveSessionsAttended * 20,
+            });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[LMS] logLearningActivity error:', err);
         res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -907,6 +1313,7 @@ module.exports = {
     joinSession,
     leaveSession,
     getLearningEngine,
+    logLearningActivity,
     getMyScores,
     generateAIQuiz,
     getAIQuiz,

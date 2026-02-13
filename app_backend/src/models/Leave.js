@@ -12,9 +12,20 @@ const leaveSchema = new mongoose.Schema({
         enum: ['1', '2', null],
         default: null
     },
+    halfDaySession: {
+        type: String,
+        enum: ['First Half Day', 'Second Half Day', null],
+        default: null
+    },
+    // Same values as halfDaySession; some clients send halfDayType (e.g. "Second Half Day")
+    halfDayType: {
+        type: String,
+        enum: ['First Half Day', 'Second Half Day', null],
+        default: null
+    },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
-    days: { type: Number, required: true, min: 1 },
+    days: { type: Number, required: true, min: 0.5 },
     reason: { type: String, required: true },
     status: {
         type: String,

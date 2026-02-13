@@ -231,23 +231,22 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(color: AppColors.primary),
-          ),
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            icon: const Icon(Icons.arrow_back_rounded),
             onPressed: _onExitRide,
           ),
           title: const Text(
             'Arrived',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
           centerTitle: true,
           elevation: 0,
           actions: [
             if (task != null)
               IconButton(
-                icon: const Icon(Icons.history_rounded, color: Colors.white),
+                icon: const Icon(Icons.history_rounded),
                 tooltip: 'Task history',
                 onPressed: () {
                   Navigator.push(

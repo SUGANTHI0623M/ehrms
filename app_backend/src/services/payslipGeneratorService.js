@@ -55,11 +55,14 @@ class PayslipGeneratorService {
     }
 
     const workingDays = attendanceStats.workingDays || 0;
+    const workingDaysFullMonth = attendanceStats.workingDaysFullMonth ?? workingDays;
     const presentDays = attendanceStats.presentDays || 0;
     const absentDays = attendanceStats.absentDays || 0;
     const lopDays = absentDays; // Loss of Pay days = Absent days
-    
-    console.log(`[PayslipGenerator] Using Attendance - Working Days: ${workingDays}, Present Days: ${presentDays}, Absent Days: ${absentDays}`);
+    const halfDayPaidLeaveCount = attendanceStats.halfDayPaidLeaveCount ?? 0;
+    const leaveDays = attendanceStats.leaveDays ?? 0;
+
+    console.log(`[PayslipGenerator] Using Attendance - Working Days: ${workingDays}, Present: ${presentDays}, Absent: ${absentDays}, Half-day paid leave: ${halfDayPaidLeaveCount}, Leave days: ${leaveDays}`);
 
     return { 
       payroll, 
@@ -67,9 +70,12 @@ class PayslipGeneratorService {
       business,
       attendance: {
         workingDays,
+        workingDaysFullMonth,
         presentDays,
         absentDays,
-        lopDays
+        lopDays,
+        halfDayPaidLeaveCount,
+        leaveDays
       }
     };
   }
@@ -212,8 +218,11 @@ class PayslipGeneratorService {
     
     const attendanceInfo = [
       { label: 'Working Days:', value: attendance.workingDays || 0 },
+      { label: 'This Month Working Days:', value: attendance.workingDaysFullMonth ?? attendance.workingDays ?? 0 },
       { label: 'Present Days:', value: attendance.presentDays || 0 },
       { label: 'Absent Days:', value: attendance.absentDays || 0 },
+      { label: 'Half Day Paid Leave:', value: attendance.halfDayPaidLeaveCount ?? 0 },
+      { label: 'Leave Days:', value: attendance.leaveDays ?? 0 },
       { label: 'Loss of Pay (LOP) Days:', value: attendance.lopDays || 0 },
     ];
 

@@ -2,6 +2,9 @@
 // LMS API service - mirrors web frontend lmsService for staff employee routes.
 // Uses app_backend /api/lms/* endpoints.
 
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
@@ -29,7 +32,58 @@ class LmsService {
     return e.message ?? 'Request failed';
   }
 
+  /// Fetches PDF bytes from a full URL (e.g. from getLmsFileUrl). Uses auth token. For in-app PDF viewer.
+  /// [onProgress] receives (received, total); total may be -1 if server omits Content-Length.
+  /// Uses longer timeout (60s) for large PDFs.
+  Future<Uint8List?> fetchPdfBytes(
+    String fullUrl, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    if (fullUrl.isEmpty) return null;
+    await _setToken();
+    try {
+      final res = await _api.dio.get<Uint8List>(
+        fullUrl,
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: const Duration(seconds: 60),
+          sendTimeout: const Duration(seconds: 30),
+        ),
+        onReceiveProgress: onProgress,
+      );
+      return res.data;
+    } on DioException catch (_) {
+      return null;
+    }
+  }
+
   // --- Courses ---
+  /// GET /lms/courses - List all published courses (for library). Ref: lmsController.getAllCourses
+  Future<Map<String, dynamic>> getAllCourses() async {
+    await _setToken();
+    try {
+      final res = await _api.dio.get<Map<String, dynamic>>('/lms/courses');
+      final body = res.data ?? {};
+      return {'success': body['success'] == true, 'data': body['data'] ?? []};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
+    }
+  }
+
+  /// POST /lms/courses/:id/enroll - Self-enroll in course. Ref: lmsController.enrollCourse
+  Future<Map<String, dynamic>> enrollCourse(String courseId) async {
+    await _setToken();
+    try {
+      final res = await _api.dio.post<Map<String, dynamic>>(
+        '/lms/courses/$courseId/enroll',
+      );
+      final body = res.data ?? {};
+      return {'success': body['success'] == true, 'data': body['data']};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
+    }
+  }
+
   Future<Map<String, dynamic>> getMyCourses() async {
     await _setToken();
     try {
@@ -207,6 +261,8 @@ class LmsService {
   }
 
   // --- Learning Engine ---
+  /// GET /lms/learning-engine — same as web (hrms.askeva.net). Returns heatmap; supports both
+  /// { success, heatmap } and raw { dailyGoal, skills, heatmap, ... } response shapes.
   Future<Map<String, dynamic>> getLearningEngine() async {
     await _setToken();
     try {
@@ -214,12 +270,42 @@ class LmsService {
         '/lms/learning-engine',
       );
       final body = res.data ?? {};
+      final heatmap = body['heatmap'] ?? body['data']?['heatmap'] ?? [];
+      final heatmapList = heatmap is List ? heatmap : [];
       return {
-        'success': body['success'] == true,
-        'heatmap': body['heatmap'] ?? [],
+        'success': body['success'] == true || body['heatmap'] != null,
+        'heatmap': heatmapList,
+        if (body['dailyGoal'] != null) 'dailyGoal': body['dailyGoal'],
+        if (body['skills'] != null) 'skills': body['skills'],
+        if (body['readiness'] != null) 'readiness': body['readiness'],
       };
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
+    }
+  }
+
+  /// Log learning activity for heatmap (same as web logLearningActivity).
+  Future<void> logLearningActivity({
+    int totalMinutes = 0,
+    int lessonsCompleted = 0,
+    int quizzesAttempted = 0,
+    int assessmentsAttempted = 0,
+    int liveSessionsAttended = 0,
+  }) async {
+    await _setToken();
+    try {
+      await _api.dio.post<Map<String, dynamic>>(
+        '/lms/learning-engine/activity',
+        data: {
+          'totalMinutes': totalMinutes,
+          'lessonsCompleted': lessonsCompleted,
+          'quizzesAttempted': quizzesAttempted,
+          'assessmentsAttempted': assessmentsAttempted,
+          'liveSessionsAttended': liveSessionsAttended,
+        },
+      );
+    } on DioException catch (_) {
+      // Non-blocking; heatmap still gets data from progress/viewedAt
     }
   }
 
@@ -230,7 +316,8 @@ class LmsService {
         '/lms/analytics/my-scores',
       );
       final body = res.data ?? {};
-      return {'success': body['success'] == true, 'data': body['data']};
+      final result = {'success': body['success'] == true, 'data': body['data']};
+      return result;
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
     }
@@ -243,6 +330,7 @@ class LmsService {
     int questionCount = 5,
     String difficulty = 'Medium',
     String? materialId,
+    List<String>? materialIds,
   }) async {
     await _setToken();
     try {
@@ -253,6 +341,9 @@ class LmsService {
         'difficulty': difficulty,
       };
       if (materialId != null) data['materialId'] = materialId;
+      if (materialIds != null && materialIds.isNotEmpty) {
+        data['materialIds'] = materialIds;
+      }
       final res = await _api.dio.post<Map<String, dynamic>>(
         '/lms/ai-quiz/generate',
         data: data,

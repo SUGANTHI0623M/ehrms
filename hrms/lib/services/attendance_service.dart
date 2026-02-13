@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../config/constants.dart';
@@ -37,11 +38,18 @@ class AttendanceService {
 
   /// Call after check-in/check-out so Recent Activity and History never show
   /// cached data. Also call from the attendance screen before a forced refresh.
+  /// Clears throttle for today endpoint so the next getAttendanceByDate(today) gets fresh data (e.g. punch out).
   void clearCachesForRefresh() {
     AttendanceService._cachedTodayAttendance = null;
     AttendanceService._lastTodayAttendanceFetch = null;
     _cachedMonthAttendance.clear();
     _lastMonthAttendanceFetch.clear();
+    // So the next fetch for today is not throttled and the main card gets updated punch out
+    final now = DateTime.now();
+    final todayStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    AttendanceService._lastCallTimestamps.remove('$baseUrl/attendance/today?date=$todayStr');
+    AttendanceService._lastCallTimestamps.remove('$baseUrl/attendance/today');
   }
 
   Future<Map<String, String>> _getHeaders() async {
@@ -66,7 +74,9 @@ class AttendanceService {
       final headers = await _getHeaders();
       final token = headers['Authorization']?.replaceFirst('Bearer ', '');
       if (token != null) _api.setAuthToken(token);
-      final body = {
+      final prefs = await SharedPreferences.getInstance();
+      final businessId = prefs.getString('businessId');
+      final body = <String, dynamic>{
         'latitude': lat,
         'longitude': lng,
         'address': address,
@@ -75,6 +85,9 @@ class AttendanceService {
         'pincode': pincode,
         'selfie': selfie,
       };
+      if (businessId != null && businessId.isNotEmpty) {
+        body['businessId'] = businessId;
+      }
       final response = await _api.dio.post<Map<String, dynamic>>(
         '/attendance/checkin',
         data: body,
@@ -210,6 +223,28 @@ class AttendanceService {
     }
   }
 
+  /// Fetches company fine calculation config (company.settings.payroll.fineCalculation) using staff's businessId.
+  /// Returns { success, data: { enabled, applyFines, calculationMethod, formula?, fineRules? } } or { success, message }.
+  Future<Map<String, dynamic>> getFineCalculation() async {
+    try {
+      final headers = await _getHeaders();
+      final token = headers['Authorization']?.replaceFirst('Bearer ', '');
+      if (token != null) _api.setAuthToken(token);
+      final response =
+          await _api.dio.get<Map<String, dynamic>>('/attendance/fine-calculation');
+      final data = response.data ?? {};
+      final fineCalculation = data['data'];
+      return {'success': true, 'data': fineCalculation};
+    } on DioException catch (e) {
+      return {
+        'success': false,
+        'message': _dioErrorMessage(e) ?? 'Failed to fetch fine calculation',
+      };
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
   Future<Map<String, dynamic>> getAttendanceByDate(String date) async {
     try {
       final url = '$baseUrl/attendance/today?date=$date';
@@ -230,9 +265,13 @@ class AttendanceService {
       final headers = await _getHeaders();
       final token = headers['Authorization']?.replaceFirst('Bearer ', '');
       if (token != null) _api.setAuthToken(token);
+      // Send device current time so server can evaluate half-day leave (Intl timezone can be wrong on server)
+      final deviceNow = DateTime.now();
+      final clientTimeIso = deviceNow.toUtc().toIso8601String();
+      final clientLocalTime = '${deviceNow.hour.toString().padLeft(2, '0')}:${deviceNow.minute.toString().padLeft(2, '0')}';
       final response = await _api.dio.get<Map<String, dynamic>>(
         '/attendance/today',
-        queryParameters: {'date': date},
+        queryParameters: {'date': date, 'clientTime': clientTimeIso, 'clientLocalTime': clientLocalTime},
       );
       final data = response.data ?? {};
       // Share cache with getTodayAttendance so throttle/cache hits can return this data.

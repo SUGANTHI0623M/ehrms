@@ -59,6 +59,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   bool _checkInAllowed = true;
   bool _checkOutAllowed = true;
   String? _halfDayLeaveMessage;
+  String? _halfDayType; // "First Half Day" | "Second Half Day" for snackbar
 
   /// Prevents double-tap on Check In / Check Out (429 and "server busy").
   final RequestGuard _submitGuard = RequestGuard(
@@ -149,7 +150,11 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.camera_alt_rounded, size: 20, color: AppColors.primary),
+                    Icon(
+                      Icons.camera_alt_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -168,7 +173,11 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.location_on_rounded, size: 20, color: AppColors.primary),
+                    Icon(
+                      Icons.location_on_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -232,6 +241,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         _checkInAllowed = state.checkInAllowed;
         _checkOutAllowed = state.checkOutAllowed;
         _halfDayLeaveMessage = state.halfDayLeaveMessage;
+        _halfDayType = state.halfDayType;
         _isCheckedIn = state.isCheckedIn;
         _isCompleted = state.isCompleted;
         _isStatusLoading = false;
@@ -447,8 +457,23 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     );
   }
 
+  void _showHalfDayNotAllowedSnackbar() {
+    final bool isSecond = _halfDayType == 'Second Half Day';
+    final bool isFirst = _halfDayType == 'First Half Day';
+    final String half = isSecond ? 'second' : (isFirst ? 'first' : '');
+    final String action = _isCheckedIn ? 'check-out' : 'check-in';
+    final String msg = half.isNotEmpty
+        ? 'Not allowed $action. You are on leave on $half half.'
+        : (_halfDayLeaveMessage ?? 'Not allowed $action at this time.');
+    SnackBarUtils.showSnackBar(context, msg, isError: true);
+  }
+
   Future<void> _submitAttendance() async {
     if (!_submitGuard.allow) return; // Throttle double-tap to avoid 429
+    if (_isCheckInDisabled || _isCheckOutDisabled) {
+      _showHalfDayNotAllowedSnackbar();
+      return;
+    }
     final requireSelfie = widget.template?['requireSelfie'] ?? true;
     final bool requireGeolocation =
         widget.template?['requireGeolocation'] ?? true;
@@ -886,7 +911,15 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                       )
                     else
                       ElevatedButton(
-                        onPressed: _isButtonDisabled ? null : _submitAttendance,
+                        onPressed: () {
+                          if (_isButtonDisabled) {
+                            if (_isCheckInDisabled || _isCheckOutDisabled) {
+                              _showHalfDayNotAllowedSnackbar();
+                            }
+                            return;
+                          }
+                          _submitAttendance();
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _isButtonDisabled
                               ? Colors.grey

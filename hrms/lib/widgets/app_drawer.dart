@@ -169,26 +169,29 @@ class _AppDrawerState extends State<AppDrawer> {
                       );
                     },
                   ),
-                _buildDrawerItem(
-                  icon: Icons.school_rounded,
-                  title: 'My Learning',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Future.microtask(
-                      () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 0)),
-                    );
-                  },
-                ),
-                _buildDrawerItem(
-                  icon: Icons.video_call_rounded,
-                  title: 'Live Sessions',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Future.microtask(
-                      () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 1)),
-                    );
-                  },
-                ),
+                // My Learning and Live Sessions hidden from drawer
+                if (false) ...[
+                  _buildDrawerItem(
+                    icon: Icons.school_rounded,
+                    title: 'My Learning',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Future.microtask(
+                        () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 0)),
+                      );
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.video_call_rounded,
+                    title: 'Live Sessions',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Future.microtask(
+                        () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 2)),
+                      );
+                    },
+                  ),
+                ],
                 _buildDrawerItem(
                   icon: Icons.settings_rounded,
                   title: 'Settings',

@@ -1,8 +1,16 @@
 // hrms/lib/screens/lms/lms_learning_engine_tab.dart
-// Learning Engine tab - mirrors web Learning Engine section
-// Stats: My completion, Courses completed, Active courses
-// Learning consistency heatmap (simplified), Recent progress
+// Learning Engine tab — mirrors web LearningEngineDashboard.tsx (same API and layout).
+// Data: GET /lms/analytics/my-scores (app_backend getMyScores) → summary, quizStats, courses.
+// Top 3 cards use data.summary only:
+//   Card 1 MY COMPLETION     → (summary.completedCourses / summary.totalCourses) * 100 %
+//   Card 2 COURSES COMPLETED → summary.completedCourses / summary.totalCourses (e.g. "0/1")
+//   Card 3 AVG ASSESSMENT SCORE → summary.overallScore %
+// quizStats (totalAssigned, totalCompleted, easy/medium/hard) → Quiz performance card below.
+// courses → Recent progress, Upcoming deadlines.
+// Sections: 3 KPIs, heatmap,
+// Quiz performance card, Recent progress, Upcoming deadlines.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
@@ -24,6 +32,8 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   Map<String, dynamic>? _scoresData;
   List<dynamic> _heatmap = [];
   String? _loadError;
+  /// Selected day key (yyyy-MM-dd) for heatmap; when set, that cell is shown in black like web.
+  String? _selectedHeatmapKey;
 
   @override
   void initState() {
@@ -83,7 +93,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     final courses = coursesRaw is List ? coursesRaw : <dynamic>[];
     final totalCourses = _int(summary['totalCourses']);
     final completedCourses = _int(summary['completedCourses']);
-    final inProgress = _int(summary['inProgress']);
+    final overallScore = _int(summary['overallScore']);
     final myCompletion = totalCourses > 0
         ? ((completedCourses / totalCourses) * 100).round()
         : 0;
@@ -138,6 +148,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
               'Track progress and stay consistent.',
               style: TextStyle(color: Colors.grey[600], fontSize: 14),
             ),
+            // Top 3 cards from GET /lms/analytics/my-scores → data.summary
             const SizedBox(height: 24),
             Row(
               children: [
@@ -163,10 +174,10 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: _StatCard(
-                    title: 'ACTIVE COURSES',
-                    value: _scoresLoading ? '—' : '$inProgress',
-                    icon: Icons.local_fire_department_outlined,
-                    color: Colors.orange,
+                    title: 'AVG ASSESSMENT SCORE',
+                    value: _scoresLoading ? '—' : '$overallScore%',
+                    icon: Icons.emoji_events_outlined,
+                    color: Colors.amber,
                   ),
                 ),
               ],
@@ -238,13 +249,13 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                         ),
                         ..._heatColors.asMap().entries.map(
                           (e) => Padding(
-                            padding: const EdgeInsets.only(left: 3),
+                            padding: const EdgeInsets.only(left: 4),
                             child: Container(
-                              width: 12,
-                              height: 12,
+                              width: 14,
+                              height: 14,
                               decoration: BoxDecoration(
                                 color: e.value,
-                                borderRadius: BorderRadius.circular(2),
+                                borderRadius: BorderRadius.circular(3),
                               ),
                             ),
                           ),
@@ -266,9 +277,15 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
             const SizedBox(height: 24),
             _buildQuizPerformanceCard(),
             const SizedBox(height: 24),
-            const Text(
-              'Recent progress',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            Row(
+              children: [
+                Icon(Icons.show_chart, size: 20, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                const Text(
+                  'Recent progress',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             if (courses.isEmpty)
@@ -389,7 +406,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
           children: [
             Row(
               children: [
-                Icon(Icons.emoji_events, color: Colors.amber[700]),
+                Icon(Icons.emoji_events_outlined, color: Colors.amber[700], size: 22),
                 const SizedBox(width: 8),
                 const Text(
                   'Quiz performance',
@@ -399,34 +416,43 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
             ),
             const SizedBox(height: 16),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  width: 90,
-                  height: 90,
+                  width: 100,
+                  height: 100,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      CircularProgressIndicator(
-                        value: completionPercent / 100,
-                        strokeWidth: 8,
-                        backgroundColor: Colors.grey[200],
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                      SizedBox(
+                        width: 100,
+                        height: 100,
+                        child: CircularProgressIndicator(
+                          value: completionPercent / 100,
+                          strokeWidth: 6,
+                          backgroundColor: const Color(0xFFe5e7eb),
+                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF22c55e)),
+                        ),
                       ),
                       Column(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
                             '$totalCompleted',
                             style: const TextStyle(
-                              fontSize: 22,
+                              fontSize: 24,
                               fontWeight: FontWeight.bold,
+                              color: Color(0xFF1f2937),
                             ),
                           ),
                           Text(
-                            'of $totalAssigned',
+                            'of $totalAssigned\ncompleted',
+                            textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey[600],
+                              height: 1.2,
                             ),
                           ),
                         ],
@@ -434,7 +460,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     children: [
@@ -530,6 +556,13 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                 ? Colors.red
                 : (urgency == 'soon' ? Colors.amber : Colors.green);
 
+            final daysText = days < 0
+                ? '${-days}d overdue'
+                : days == 0
+                    ? 'Due today'
+                    : '${days}d left';
+            final isSoon = days >= 0 && days <= 7;
+
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               shape: RoundedRectangleBorder(
@@ -555,16 +588,19 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     const SizedBox(width: 8),
-                    Text(
-                      days < 0
-                          ? '${-days}d overdue'
-                          : days == 0
-                          ? 'Due today'
-                          : '${days}d left',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: border,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isSoon ? Colors.orange.withOpacity(0.2) : border.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        daysText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isSoon ? Colors.orange.shade800 : border,
+                        ),
                       ),
                     ),
                   ],
@@ -615,8 +651,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   ];
 
   static const _daysLast12Months = 371;
-  static const _cellSize = 12.0;
-  static const _cellGap = 3.0;
+  /// Match web frontend: CELL_MIN = 14, CELL_GAP = 4
+  static const _cellSize = 14.0;
+  static const _cellGap = 4.0;
   static const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // DateTime.weekday 1..7
 
   /// Build date -> activity level (0-4) map from API heatmap. Matches frontend/bb logic.
@@ -646,23 +683,10 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     final rangeStart = now.subtract(const Duration(days: _daysLast12Months - 1));
     final levelMap = _buildActivityLevelMap();
     final numWeeks = (_daysLast12Months / 7).ceil();
-    int contributionCount = 0;
-    for (final level in levelMap.values) {
-      if (level > 0) contributionCount++;
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '$contributionCount ${contributionCount == 1 ? 'contribution' : 'contributions'} in the last year',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey[800],
-          ),
-        ),
-        const SizedBox(height: 12),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Column(
@@ -744,25 +768,43 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                             final key = DateFormat('yyyy-MM-dd').format(d);
                             final level = levelMap[key] ?? 0;
                             final isToday = key == DateFormat('yyyy-MM-dd').format(now);
+                            final isSelected = key == _selectedHeatmapKey;
+                            final cellColor = isSelected
+                                ? Colors.black
+                                : _heatColors[level];
                             return Padding(
                               padding: EdgeInsets.only(
                                   right: col < numWeeks - 1 ? _cellGap : 0),
-                              child: Tooltip(
-                                message: _heatmapTooltip(key, level, d, now),
-                                child: Container(
-                                  width: _cellSize,
-                                  height: _cellSize,
-                                  decoration: BoxDecoration(
-                                    color: _heatColors[level],
-                                    borderRadius: BorderRadius.circular(2),
-                                    border: isToday
-                                        ? Border.all(
-                                            color: const Color(0xFF22c55e),
-                                            width: 1.5,
-                                          )
-                                        : null,
-                                  ),
-                                ),
+                              child: Builder(
+                                builder: (cellContext) {
+                                  return GestureDetector(
+                                    onTap: () {
+                                      final box = cellContext.findRenderObject() as RenderBox?;
+                                      if (box != null && box.hasSize) {
+                                        final position = box.localToGlobal(Offset.zero);
+                                        setState(() => _selectedHeatmapKey = key);
+                                        _showHeatmapPopup(context, key, d, now, position, box.size);
+                                      }
+                                    },
+                                    child: Tooltip(
+                                      message: _heatmapTooltip(key, level, d, now),
+                                      child: Container(
+                                        width: _cellSize,
+                                        height: _cellSize,
+                                        decoration: BoxDecoration(
+                                          color: cellColor,
+                                          borderRadius: BorderRadius.circular(3),
+                                          border: isToday
+                                              ? Border.all(
+                                                  color: const Color(0xFF22c55e),
+                                                  width: 2,
+                                                )
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             );
                           }),
@@ -806,6 +848,179 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     if (level == 0 && point == null) sb.write('\nNo activity');
     return sb.toString();
   }
+
+  /// Build activity detail lines for a day (same as web tooltip).
+  List<String> _heatmapDayDetailLines(String key) {
+    Map<String, dynamic>? point;
+    for (final h in _heatmap) {
+      if (h is Map && h['date']?.toString() == key) {
+        point = Map<String, dynamic>.from(h);
+        break;
+      }
+    }
+    final lines = <String>[];
+    if (point != null) {
+      final mins = (point['totalMinutes'] is num) ? (point['totalMinutes'] as num).toInt() : 0;
+      final lessons = (point['lessonsCompleted'] is num) ? (point['lessonsCompleted'] as num).toInt() : 0;
+      final quizzes = (point['quizzesAttempted'] is num) ? (point['quizzesAttempted'] as num).toInt() : 0;
+      final assessments = (point['assessmentsAttempted'] is num) ? (point['assessmentsAttempted'] as num).toInt() : 0;
+      final live = (point['liveSessionsAttended'] is num) ? (point['liveSessionsAttended'] as num).toInt() : 0;
+      if (mins > 0) lines.add('${mins} min learned');
+      if (lessons > 0) lines.add('$lessons lesson${lessons != 1 ? 's' : ''} completed');
+      if (quizzes > 0) lines.add('$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
+      if (assessments > 0) lines.add('$assessments assessment${assessments != 1 ? 's' : ''} attempted');
+      if (live > 0) lines.add('$live live session${live != 1 ? 's' : ''} attended');
+    }
+    if (lines.isEmpty) lines.add('No activity');
+    return lines;
+  }
+
+  /// Show dark tooltip popup above the heatmap cell (like web: dark bg, white text, triangle pointer).
+  void _showHeatmapPopup(
+    BuildContext context,
+    String key,
+    DateTime d,
+    DateTime now,
+    Offset cellPosition,
+    Size cellSize,
+  ) {
+    final dateStr = DateFormat('MMM d, yyyy').format(d);
+    final sameDay = key == DateFormat('yyyy-MM-dd').format(now);
+    final detailLines = _heatmapDayDetailLines(key);
+
+    const double popupPadding = 12;
+    const double arrowHeight = 6;
+    const double popupRadius = 8;
+    const double popupWidth = 240;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final centerX = cellPosition.dx + cellSize.width / 2;
+    final left = (centerX - popupWidth / 2).clamp(8.0, screenWidth - popupWidth - 8);
+
+    late OverlayEntry overlayEntry;
+    overlayEntry = OverlayEntry(
+      builder: (ctx) => Stack(
+        children: [
+          GestureDetector(
+            onTap: () {
+              overlayEntry.remove();
+              if (mounted) setState(() => _selectedHeatmapKey = null);
+            },
+            behavior: HitTestBehavior.opaque,
+            child: const SizedBox.expand(),
+          ),
+          Positioned(
+            left: left,
+            bottom: screenHeight - cellPosition.dy,
+            width: popupWidth,
+            child: Material(
+              color: Colors.transparent,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: popupPadding,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F2937),
+                      borderRadius: BorderRadius.circular(popupRadius),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          dateStr,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (sameDay)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Today',
+                              style: TextStyle(
+                                color: Colors.green.shade300,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ...detailLines.map(
+                          (line) => Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              line,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Center(
+                    child: CustomPaint(
+                      size: const Size(16, arrowHeight),
+                      painter: _TrianglePainter(
+                        color: const Color(0xFF1F2937),
+                        pointUp: false,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Overlay.of(context).insert(overlayEntry);
+  }
+}
+
+/// Paints a small triangle for the tooltip pointer (point up or down).
+class _TrianglePainter extends CustomPainter {
+  final Color color;
+  final bool pointUp;
+
+  _TrianglePainter({required this.color, this.pointUp = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path();
+    if (pointUp) {
+      path.moveTo(size.width / 2, 0);
+      path.lineTo(size.width, size.height);
+      path.lineTo(0, size.height);
+    } else {
+      path.moveTo(0, 0);
+      path.lineTo(size.width, 0);
+      path.lineTo(size.width / 2, size.height);
+    }
+    path.close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _StatCard extends StatelessWidget {
@@ -894,12 +1109,27 @@ class _QuizDifficultyRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isGreen = color == Colors.green;
+    final isAmber = color == Colors.amber;
+    final bgColor = isGreen
+        ? const Color(0xFFf0fdf4)
+        : (isAmber ? const Color(0xFFfffbeb) : const Color(0xFFfef2f2));
+    final borderColor = isGreen
+        ? const Color(0xFFdcfce7)
+        : (isAmber ? const Color(0xFFfef3c7) : const Color(0xFFfecaca));
+    final textColor = isGreen
+        ? const Color(0xFF166534)
+        : (isAmber ? const Color(0xFF92400e) : const Color(0xFF991b1b));
+    final percentBg = isGreen
+        ? const Color(0xFFbbf7d0)
+        : (isAmber ? const Color(0xFFfde68a) : const Color(0xFFfecaca));
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: bgColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -907,31 +1137,31 @@ class _QuizDifficultyRow extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: color,
+              color: textColor,
             ),
           ),
           Text(
             '$completed/$total',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: color,
+              color: textColor,
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
+              color: percentBg,
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               '$percent%',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: color,
+                color: textColor,
               ),
             ),
           ),

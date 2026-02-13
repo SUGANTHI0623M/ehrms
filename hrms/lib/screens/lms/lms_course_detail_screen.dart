@@ -3,6 +3,7 @@
 // Course content sidebar, embedded content viewer, Mark Done, Practice Quiz
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../config/app_colors.dart';
 import '../../config/constants.dart';
@@ -17,10 +18,15 @@ import 'widgets/lms_content_viewer.dart';
 
 class LmsCourseDetailScreen extends StatefulWidget {
   final String courseId;
+
   /// When provided, bottom nav "Live Sessions" will pop and switch to that tab.
   final void Function(int index)? onLmsTabSwitch;
 
-  const LmsCourseDetailScreen({super.key, required this.courseId, this.onLmsTabSwitch});
+  const LmsCourseDetailScreen({
+    super.key,
+    required this.courseId,
+    this.onLmsTabSwitch,
+  });
 
   @override
   State<LmsCourseDetailScreen> createState() => _LmsCourseDetailScreenState();
@@ -68,7 +74,8 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
     final fromLessons = <dynamic>[];
     for (final l in lessons) {
       final lessonMats = (l['materials'] as List?) ?? [];
-      final lessonTitle = (l['title'] ?? l['lessonTitle'] ?? 'Course Materials').toString();
+      final lessonTitle = (l['title'] ?? l['lessonTitle'] ?? 'Course Materials')
+          .toString();
       for (final m in lessonMats) {
         final mat = Map<String, dynamic>.from((m is Map) ? m : {});
         mat['lessonTitle'] = lessonTitle;
@@ -80,7 +87,9 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
     final combined = <dynamic>[...primary, ...contents];
     // Normalize: ensure each item has lessonTitle
     return combined.map((m) {
-      final map = (m is Map) ? Map<String, dynamic>.from(m) : <String, dynamic>{};
+      final map = (m is Map)
+          ? Map<String, dynamic>.from(m)
+          : <String, dynamic>{};
       if (!map.containsKey('lessonTitle') || map['lessonTitle'] == null) {
         map['lessonTitle'] = 'Course Materials';
       }
@@ -113,7 +122,9 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       (m) => (m['lessonTitle'] ?? 'Course Materials').toString() == lessonTitle,
     );
     if (materials.isEmpty) return false;
-    return materials.every((m) => _isViewed(m['_id']?.toString() ?? m['id']?.toString()));
+    return materials.every(
+      (m) => _isViewed(m['_id']?.toString() ?? m['id']?.toString()),
+    );
   }
 
   bool _isLessonLocked(int lessonIndex, List<String> lessonTitles) {
@@ -132,6 +143,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       if (res['success'] == true) {
         SnackBarUtils.showSnackBar(context, 'Lesson marked as complete!');
         setState(() => _progress = res['data']);
+        _lmsService.logLearningActivity(lessonsCompleted: 1);
       } else {
         SnackBarUtils.showSnackBar(
           context,
@@ -160,6 +172,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
     List<String> lessonTitles, {
     String difficulty = 'Medium',
     int questionCount = 5,
+    List<String>? materialIds,
   }) async {
     if (lessonTitles.isEmpty) {
       SnackBarUtils.showSnackBar(
@@ -174,6 +187,9 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       lessonTitles: lessonTitles,
       questionCount: questionCount,
       difficulty: difficulty,
+      materialId: materialIds != null && materialIds.isNotEmpty
+          ? materialIds.first
+          : null,
     );
     if (mounted) {
       if (res['success'] == true && res['data'] != null) {
@@ -226,8 +242,8 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Loading...'),
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -237,8 +253,8 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Course'),
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
         ),
         body: const Center(child: Text('Course not found')),
       );
@@ -263,32 +279,43 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
               ),
             ),
             title: const Text('Course'),
-            backgroundColor: AppColors.surface,
+            backgroundColor: AppColors.background,
             foregroundColor: AppColors.textPrimary,
           ),
           drawer: const AppDrawer(),
           body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => _showCourseContentSheet(context, lessonTitles, grouped, completionPercent),
-                  icon: const Icon(Icons.list_alt, size: 20),
-                  label: const Text('Course content'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () => _showCourseContentSheet(
+                        context,
+                        lessonTitles,
+                        grouped,
+                        completionPercent,
+                      ),
+                      icon: const Icon(Icons.list_alt, size: 20),
+                      label: const Text('Course content'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(child: _buildContentViewer(currentMaterial)),
+            ],
           ),
-            Expanded(child: _buildContentViewer(currentMaterial)),
-          ],
-        ),
           bottomNavigationBar: _buildLmsBottomNav(context),
         ),
         if (_generatingQuiz)
@@ -362,10 +389,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
                   const SizedBox(height: 4),
                   Text(
                     _course['title'] ?? 'Course',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                   ),
                 ],
               ),
@@ -394,7 +418,9 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       currentIndex: 0,
       onTap: (index) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: index)),
+          MaterialPageRoute(
+            builder: (_) => DashboardScreen(initialIndex: index),
+          ),
           (route) => route.isFirst,
         );
       },
@@ -568,153 +594,156 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
               color: Colors.white,
             ),
             child: ExpansionTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                initiallyExpanded: i == 0,
-                leading: Icon(
-              isLocked
-                  ? Icons.lock
-                  : (isCompleted
-                        ? Icons.check_circle
-                        : Icons.radio_button_unchecked),
-              color: isLocked
-                  ? Colors.grey
-                  : (isCompleted ? Colors.green : AppColors.primary),
-              size: 20,
-            ),
-            title: Text(
-              '${i + 1}. $title',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: isLocked ? Colors.grey : null,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
               ),
-            ),
-            subtitle: Row(
-              children: [
-                Text(
-                  '${materials.length} item(s)',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              tilePadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              initiallyExpanded: i == 0,
+              leading: Icon(
+                isLocked
+                    ? Icons.lock
+                    : (isCompleted
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked),
+                color: isLocked
+                    ? Colors.grey
+                    : (isCompleted ? Colors.green : AppColors.primary),
+                size: 20,
+              ),
+              title: Text(
+                '${i + 1}. $title',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isLocked ? Colors.grey : null,
                 ),
-                if (isCompleted) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
+              ),
+              subtitle: Row(
+                children: [
+                  Text(
+                    '${materials.length} item(s)',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  if (isCompleted) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'Completed',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green,
+                        ),
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(4),
+                  ],
+                ],
+              ),
+              children: [
+                ...materials.map((m) {
+                  final matId = m['_id']?.toString();
+                  final viewed = _isViewed(matId);
+                  final idx = _allMaterials.indexWhere(
+                    (x) => (x['_id']?.toString()) == matId,
+                  );
+                  if (idx < 0) return const SizedBox();
+
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      viewed ? Icons.check_circle : Icons.play_circle_outline,
+                      size: 18,
+                      color: viewed ? Colors.green : Colors.grey,
                     ),
-                    child: const Text(
-                      'Completed',
+                    title: Text(
+                      m['title'] ?? m['type'] ?? 'Content',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green,
+                        fontSize: 12,
+                        color: isLocked ? Colors.grey : null,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: (m['type'] ?? '').toString().isNotEmpty
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              (m['type'] ?? 'URL').toString(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: isLocked
+                        ? null
+                        : () {
+                            if (onSelectMaterial != null) {
+                              onSelectMaterial(idx);
+                            } else {
+                              setState(() => _selectedIndex = idx);
+                            }
+                          },
+                  );
+                }),
+                if (!isLocked) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _showQuizModal(context, preSelected: [title]),
+                      icon: const Icon(Icons.quiz_outlined, size: 16),
+                      label: const Text('AI Quiz'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                ],
+                if (!isLocked && !isCompleted) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () => _markLessonComplete(title),
+                      icon: const Icon(Icons.check_circle_outline, size: 16),
+                      label: const Text('Mark Done'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
                       ),
                     ),
                   ),
                 ],
               ],
             ),
-            children: [
-              ...materials.map((m) {
-                final matId = m['_id']?.toString();
-                final viewed = _isViewed(matId);
-                final idx = _allMaterials.indexWhere(
-                  (x) => (x['_id']?.toString()) == matId,
-                );
-                if (idx < 0) return const SizedBox();
-
-                return ListTile(
-                  dense: true,
-                  leading: Icon(
-                    viewed ? Icons.check_circle : Icons.play_circle_outline,
-                    size: 18,
-                    color: viewed ? Colors.green : Colors.grey,
-                  ),
-                  title: Text(
-                    m['title'] ?? m['type'] ?? 'Content',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isLocked ? Colors.grey : null,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: (m['type'] ?? '').toString().isNotEmpty
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            (m['type'] ?? 'URL').toString(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        )
-                      : null,
-                  onTap: isLocked
-                      ? null
-                      : () {
-                          if (onSelectMaterial != null) {
-                            onSelectMaterial(idx);
-                          } else {
-                            setState(() => _selectedIndex = idx);
-                          }
-                        },
-                );
-              }),
-              if (!isLocked) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: OutlinedButton.icon(
-                    onPressed: () =>
-                        _showQuizModal(context, preSelected: [title]),
-                    icon: const Icon(Icons.quiz_outlined, size: 16),
-                    label: const Text('AI Quiz'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: BorderSide(color: AppColors.primary),
-                    ),
-                  ),
-                ),
-              ],
-              if (!isLocked && !isCompleted) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: ElevatedButton.icon(
-                    onPressed: () => _markLessonComplete(title),
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Mark Done'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
           );
         }),
         if (_completedLessonTitles.isNotEmpty) ...[
@@ -722,10 +751,12 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
           Builder(
             builder: (ctx) {
               // Match web: show Final Assessment when ALL lessons completed (same as web renderSidebarFooter)
-              final allLessonsCompleted = lessonTitles.isNotEmpty &&
+              final allLessonsCompleted =
+                  lessonTitles.isNotEmpty &&
                   lessonTitles.every((t) => _isLessonCompleted(t));
               final isLiveAssessment = _course?['isLiveAssessment'] == true;
-              final assessmentRequested = _progress?['assessmentStatus'] == 'Requested' ||
+              final assessmentRequested =
+                  _progress?['assessmentStatus'] == 'Requested' ||
                   _progress?['assessmentStatus'] == 'In Progress';
 
               // Web shows "Start Final Assessment" or "Request Final Assessment" whenever allLessonsCompleted (no hasAssessment check)
@@ -735,11 +766,15 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(ctx);
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => LmsAssessmentScreen(courseId: widget.courseId),
-                        ),
-                      ).then((_) => mounted ? _loadCourse() : null);
+                      Navigator.of(context)
+                          .push(
+                            MaterialPageRoute(
+                              builder: (_) => LmsAssessmentScreen(
+                                courseId: widget.courseId,
+                              ),
+                            ),
+                          )
+                          .then((_) => mounted ? _loadCourse() : null);
                     },
                     icon: const Icon(Icons.emoji_events),
                     label: const Text('Start Final Assessment'),
@@ -751,12 +786,17 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
                   ),
                 );
               }
-              if (allLessonsCompleted && isLiveAssessment && !assessmentRequested) {
+              if (allLessonsCompleted &&
+                  isLiveAssessment &&
+                  !assessmentRequested) {
                 return SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      SnackBarUtils.showSnackBar(context, 'Live assessment request not yet supported in app');
+                      SnackBarUtils.showSnackBar(
+                        context,
+                        'Live assessment request not yet supported in app',
+                      );
                     },
                     icon: const Icon(Icons.emoji_events),
                     label: const Text('Request Final Assessment'),
@@ -806,193 +846,242 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       );
       return;
     }
-    List<String> selected = preSelected != null
+    List<String> initialSelected = preSelected != null
         ? preSelected.where((s) => completed.contains(s)).toList()
         : (completed.isNotEmpty ? [completed.first] : []);
-    if (selected.isEmpty && completed.isNotEmpty) selected = [completed.first];
-    String difficulty = 'Medium';
-    int questionCount = 5;
+    if (initialSelected.isEmpty && completed.isNotEmpty) {
+      initialSelected = [completed.first];
+    }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) {
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.quiz_outlined,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'AI Practice Quiz',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+      builder: (ctx) => _AiQuizModalContent(
+        completedLessons: completed,
+        initialSelected: initialSelected,
+        onGenerate: (selected, difficulty, questionCount) {
+          Navigator.pop(ctx);
+          // Send material IDs for selected lessons so backend uses exact content
+          final ids = _allMaterials
+              .where(
+                (m) => selected.contains(
+                  (m['lessonTitle'] ?? 'Course Materials').toString(),
+                ),
+              )
+              .map((m) => m['_id']?.toString())
+              .whereType<String>()
+              .toList();
+          Future.delayed(const Duration(milliseconds: 150), () {
+            if (!mounted) return;
+            setState(() => _generatingQuiz = true);
+            _generateQuiz(
+              selected,
+              difficulty: difficulty,
+              questionCount: questionCount,
+              materialIds: ids.isNotEmpty ? ids : null,
+            ).then((res) {
+              if (!mounted) return;
+              setState(() => _generatingQuiz = false);
+              if (res != null &&
+                  res['success'] == true &&
+                  res['data'] != null) {
+                final quizId = res['data']['_id']?.toString();
+                if (quizId != null) {
+                  Navigator.of(context)
+                      .push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              LmsAiQuizAttemptScreen(quizId: quizId),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Choose completed lessons and generate a quiz.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Select Lessons *',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                ...completed.map((lesson) {
-                  final isSelected = selected.contains(lesson);
-                  return CheckboxListTile(
-                    value: isSelected,
-                    onChanged: (v) {
-                      setModalState(() {
-                        if (v == true) {
-                          if (!selected.contains(lesson)) {
-                            selected = [...selected, lesson];
-                          }
-                        } else {
-                          selected = selected
-                              .where((s) => s != lesson)
-                              .toList();
-                        }
-                      });
-                    },
-                    title: Text(lesson, style: const TextStyle(fontSize: 14)),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  );
-                }),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Difficulty',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          DropdownButtonFormField<String>(
-                            value: difficulty,
-                            decoration: const InputDecoration(
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: ['Easy', 'Medium', 'Hard']
-                                .map(
-                                  (e) => DropdownMenuItem(
-                                    value: e,
-                                    child: Text(e),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) =>
-                                setModalState(() => difficulty = v ?? 'Medium'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Questions',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          DropdownButtonFormField<int>(
-                            value: questionCount,
-                            decoration: const InputDecoration(
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: [3, 5, 10, 15, 20]
-                                .map(
-                                  (e) => DropdownMenuItem(
-                                    value: e,
-                                    child: Text('$e'),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) =>
-                                setModalState(() => questionCount = v ?? 5),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (selected.isEmpty) return;
-                    Navigator.pop(ctx);
-                    if (mounted && Navigator.of(context).canPop()) {
-                      Navigator.pop(context);
-                    }
-                    await Future.delayed(const Duration(milliseconds: 300));
-                    if (!mounted) return;
-                    setState(() => _generatingQuiz = true);
-                    final res = await _generateQuiz(
-                      selected,
-                      difficulty: difficulty,
-                      questionCount: questionCount,
-                    );
-                    if (!mounted) return;
-                    setState(() => _generatingQuiz = false);
-                    if (res != null && res['success'] == true && res['data'] != null) {
-                      final quizId = res['data']['_id']?.toString();
-                      if (quizId != null) {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => LmsAiQuizAttemptScreen(quizId: quizId),
-                          ),
-                        ).then((_) => _loadCourse());
-                      }
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Generate Quiz'),
-                ),
-              ],
-            ),
-          );
+                      )
+                      .then((_) => _loadCourse());
+                }
+              }
+            });
+          });
         },
       ),
     );
   }
 }
 
+/// Modal content for AI Practice Quiz; owns [TextEditingController] and disposes it correctly to avoid _dependents assertion.
+class _AiQuizModalContent extends StatefulWidget {
+  final List<String> completedLessons;
+  final List<String> initialSelected;
+  final void Function(
+    List<String> selected,
+    String difficulty,
+    int questionCount,
+  )
+  onGenerate;
+
+  const _AiQuizModalContent({
+    required this.completedLessons,
+    required this.initialSelected,
+    required this.onGenerate,
+  });
+
+  @override
+  State<_AiQuizModalContent> createState() => _AiQuizModalContentState();
+}
+
+class _AiQuizModalContentState extends State<_AiQuizModalContent> {
+  late List<String> _selected;
+  late String _difficulty;
+  late TextEditingController _questionCountController;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = List.from(widget.initialSelected);
+    _difficulty = 'Medium';
+    _questionCountController = TextEditingController(text: '5');
+  }
+
+  @override
+  void dispose() {
+    _questionCountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.quiz_outlined, color: AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'AI Practice Quiz',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose completed lessons and generate a quiz.',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Select Lessons *',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          ...widget.completedLessons.map((lesson) {
+            final isSelected = _selected.contains(lesson);
+            return CheckboxListTile(
+              value: isSelected,
+              onChanged: (v) {
+                setState(() {
+                  if (v == true) {
+                    if (!_selected.contains(lesson)) {
+                      _selected = [..._selected, lesson];
+                    }
+                  } else {
+                    _selected = _selected.where((s) => s != lesson).toList();
+                  }
+                });
+              },
+              title: Text(lesson, style: const TextStyle(fontSize: 14)),
+              controlAffinity: ListTileControlAffinity.leading,
+            );
+          }),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Difficulty',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      value: _difficulty,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      items: ['Easy', 'Medium', 'Hard']
+                          .map(
+                            (e) => DropdownMenuItem(value: e, child: Text(e)),
+                          )
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => _difficulty = v ?? 'Medium'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Questions (1–10)',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    TextFormField(
+                      controller: _questionCountController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(2),
+                      ],
+                      decoration: const InputDecoration(
+                        hintText: '5',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              if (_selected.isEmpty) return;
+              final q = int.tryParse(_questionCountController.text) ?? 5;
+              final clampedCount = q.clamp(1, 10);
+              widget.onGenerate(_selected, _difficulty, clampedCount);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            child: const Text('Generate Quiz'),
+          ),
+        ],
+      ),
+    );
+  }
+}

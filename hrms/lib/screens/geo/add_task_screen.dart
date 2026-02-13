@@ -44,10 +44,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   List<PlacePrediction> _destinationPredictions = [];
   String _sourceAddress = '';
   String _destinationAddress = '';
-  DateTime _expectedCompletionDate = DateTime.now().add(
-    const Duration(days: 1),
-  );
+  DateTime? _expectedCompletionDate;
   bool _useCurrentLocationForSource = true;
+  bool _useCustomerAddressAsDestination = false;
   bool _destinationChangedByUser = false;
   String _currentLocationAddress = '';
   bool _loadingCurrentLocation = false;
@@ -228,13 +227,19 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       _selectedCustomer = c;
       _customerSearchController.text = c.customerName;
       _showCustomerDropdown = false;
-      final addr = '${c.address}, ${c.city}, ${c.pincode}'.trim();
-      if (!_destinationChangedByUser) {
-        _destinationController.text = addr;
-        _destinationAddress = addr;
-        _destinationPincode = c.pincode.isNotEmpty ? c.pincode : null;
+      if (_useCustomerAddressAsDestination) {
+        _applyCustomerAddressAsDestination(c);
       }
     });
+  }
+
+  void _applyCustomerAddressAsDestination(Customer c) {
+    final addr = '${c.address}, ${c.city}, ${c.pincode}'.trim();
+    _destinationController.text = addr;
+    _destinationAddress = addr;
+    _destinationPincode = c.pincode.isNotEmpty ? c.pincode : null;
+    _destinationLatLng = null;
+    _destinationChangedByUser = false;
   }
 
   Widget _buildDestinationField() {
@@ -298,6 +303,27 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             }
           },
         ),
+        if (_selectedCustomer != null) ...[
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            value: _useCustomerAddressAsDestination,
+            onChanged: (bool? value) {
+              setState(() {
+                _useCustomerAddressAsDestination = value ?? false;
+                if (_useCustomerAddressAsDestination && _selectedCustomer != null) {
+                  _applyCustomerAddressAsDestination(_selectedCustomer!);
+                }
+              });
+            },
+            title: Text(
+              'Use customer address as destination',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ],
         if (_showDestinationSuggestions &&
             _destinationPredictions.isNotEmpty) ...[
           const SizedBox(height: 4),
@@ -425,6 +451,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       ).showSnackBar(const SnackBar(content: Text('Please select a customer')));
       return;
     }
+    if (_expectedCompletionDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select expected completion date')),
+      );
+      return;
+    }
     final destAddr = _destinationAddress.isNotEmpty
         ? _destinationAddress
         : _destinationController.text.trim();
@@ -505,7 +537,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         description: _buildDescription(),
         assignedTo: widget.staffId,
         customerId: _selectedCustomer!.id!,
-        expectedCompletionDate: _expectedCompletionDate,
+        expectedCompletionDate: _expectedCompletionDate!,
         status: 'assigned',
         sourceLocation: {
           'lat': pickup.latitude,
@@ -703,11 +735,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         const SizedBox(height: 6),
         InkWell(
           onTap: () async {
+            final now = DateTime.now();
             final picked = await showDatePicker(
               context: context,
-              initialDate: _expectedCompletionDate,
-              firstDate: DateTime.now(),
-              lastDate: DateTime.now().add(const Duration(days: 365)),
+              initialDate: _expectedCompletionDate ?? now,
+              firstDate: now,
+              lastDate: now.add(const Duration(days: 365)),
             );
             if (picked != null && mounted) {
               setState(() => _expectedCompletionDate = picked);
@@ -733,8 +766,15 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               ),
             ),
             child: Text(
-              '${_expectedCompletionDate.day.toString().padLeft(2, '0')}/${_expectedCompletionDate.month.toString().padLeft(2, '0')}/${_expectedCompletionDate.year}',
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              _expectedCompletionDate == null
+                  ? ''
+                  : '${_expectedCompletionDate!.day.toString().padLeft(2, '0')}/${_expectedCompletionDate!.month.toString().padLeft(2, '0')}/${_expectedCompletionDate!.year}',
+              style: TextStyle(
+                fontSize: 14,
+                color: _expectedCompletionDate == null
+                    ? Colors.grey.shade500
+                    : Colors.black87,
+              ),
             ),
           ),
         ),

@@ -17,6 +17,9 @@ class AttendanceStatusLoaded extends AttendanceState {
   final bool checkInAllowed;
   final bool checkOutAllowed;
   final String? halfDayLeaveMessage;
+
+  /// "First Half Day" | "Second Half Day" from halfDayLeave, for snackbar messages.
+  final String? halfDayType;
   final bool isCheckedIn;
   final bool isCompleted;
   final bool isToday;
@@ -25,20 +28,22 @@ class AttendanceStatusLoaded extends AttendanceState {
     this.checkInAllowed = true,
     this.checkOutAllowed = true,
     this.halfDayLeaveMessage,
+    this.halfDayType,
     this.isCheckedIn = false,
     this.isCompleted = false,
     this.isToday = true,
   });
   @override
   List<Object?> get props => [
-        branchData,
-        checkInAllowed,
-        checkOutAllowed,
-        halfDayLeaveMessage,
-        isCheckedIn,
-        isCompleted,
-        isToday,
-      ];
+    branchData,
+    checkInAllowed,
+    checkOutAllowed,
+    halfDayLeaveMessage,
+    halfDayType,
+    isCheckedIn,
+    isCompleted,
+    isToday,
+  ];
 }
 
 class AttendanceCheckInSuccess extends AttendanceState {}

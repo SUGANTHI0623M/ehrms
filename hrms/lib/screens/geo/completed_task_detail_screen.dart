@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/screens/dashboard/dashboard_screen.dart';
 import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/widgets/bottom_navigation_bar.dart';
 
 class CompletedTaskDetailScreen extends StatefulWidget {
   final Task task;
@@ -177,17 +179,15 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
       child: Scaffold(
         backgroundColor: Colors.grey.shade100,
         appBar: AppBar(
-          flexibleSpace: Container(
-            decoration: BoxDecoration(color: AppColors.primary),
-          ),
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () => _goToMyTasks(context),
           ),
           title: const Text(
             'Task Completion Report',
             style: TextStyle(
-              color: Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 18,
             ),
@@ -287,6 +287,17 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
                   ),
                 ),
               ),
+        bottomNavigationBar: AppBottomNavigationBar(
+          currentIndex: 0,
+          onTap: (index) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => DashboardScreen(initialIndex: index.clamp(0, 4)),
+              ),
+              (route) => false,
+            );
+          },
+        ),
       ),
     );
   }

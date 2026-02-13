@@ -58,14 +58,7 @@ class LiveTrackingService {
     final token = prefs.getString('token');
     if (token != null) {
       await prefs.setString(_keyToken, token);
-    } else {
-      debugPrint(
-        '[LiveTrackingService] WARNING: no token in prefs - background tracking may fail',
-      );
     }
-    debugPrint(
-      '[LiveTrackingService] Started: taskMongoId=$taskMongoId tokenPresent=${token != null}',
-    );
   }
 
   /// Stop live tracking - clear persisted state.
@@ -86,7 +79,6 @@ class LiveTrackingService {
     await prefs.remove(_keyLastSentTime);
     await prefs.remove(_keyLastMovementType);
     await prefs.remove(_keyConsecutiveLowSpeed);
-    debugPrint('[LiveTrackingService] Stopped');
   }
 
   /// Persist last sent position and movement state for background hysteresis.
@@ -144,31 +136,14 @@ class LiveTrackingService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final active = prefs.getBool(_keyActive);
-      if (active != true) {
-        debugPrint(
-          '[LiveTracking:BG] Skipped: live tracking not active (active=$active)',
-        );
-        return;
-      }
+      if (active != true) return;
       final taskMongoId = prefs.getString(_keyTaskMongoId);
       final baseUrl = prefs.getString(_keyBaseUrl);
       final token = prefs.getString(_keyToken);
-      if (taskMongoId == null || taskMongoId.isEmpty) {
-        debugPrint('[LiveTracking:BG] Skipped: no taskMongoId');
-        return;
-      }
-      if (baseUrl == null || baseUrl.isEmpty) {
-        debugPrint('[LiveTracking:BG] Skipped: no baseUrl');
-        return;
-      }
-      if (token == null || token.isEmpty) {
-        debugPrint('[LiveTracking:BG] Skipped: no token');
-        return;
-      }
-      if (accuracyM != null && accuracyM > 40.0) {
-        debugPrint('[LiveTracking:BG] Skipped: accuracy ${accuracyM}m > 40m');
-        return;
-      }
+      if (taskMongoId == null || taskMongoId.isEmpty) return;
+      if (baseUrl == null || baseUrl.isEmpty) return;
+      if (token == null || token.isEmpty) return;
+      if (accuracyM != null && accuracyM > 40.0) return;
 
       final lastLat = prefs.getDouble(_keyLastSentLat);
       final lastLng = prefs.getDouble(_keyLastSentLng);
@@ -211,9 +186,6 @@ class LiveTrackingService {
       if (destinationLat != null) body['destinationLat'] = destinationLat;
       if (destinationLng != null) body['destinationLng'] = destinationLng;
 
-      debugPrint(
-        '[LiveTracking:BG] POST $uri taskId=$taskMongoId lat=$lat lng=$lng movement=$resolvedMovementType',
-      );
       final response = await http.post(
         uri,
         headers: {
@@ -231,15 +203,9 @@ class LiveTrackingService {
         );
         await prefs.setString(_keyLastMovementType, resolvedMovementType);
         await prefs.setInt(_keyConsecutiveLowSpeed, nextConsecutive);
-        debugPrint('[LiveTracking:BG] Sent OK: status=${response.statusCode}');
-      } else {
-        debugPrint(
-          '[LiveTracking:BG] Send failed: status=${response.statusCode} body=${response.body}',
-        );
       }
     } catch (e, st) {
-      debugPrint('[LiveTracking:BG] Exception: $e');
-      debugPrint('[LiveTracking:BG] Stack: $st');
+      // Background tracking error
     }
   }
 }

@@ -92,7 +92,7 @@ class MovementClassificationService {
               .listen(_onActivityEvent);
         }
       } catch (e) {
-        debugPrint('[MovementClass] Activity recognition error: $e');
+        // Activity recognition error
       }
     }
   }

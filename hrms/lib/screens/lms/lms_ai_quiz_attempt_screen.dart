@@ -273,14 +273,37 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
   }
 
   Widget _buildResultsView() {
-    final score = _results!['score'] ?? 0;
+    final score = _results!['score'] ?? _results!['earnedPoints'] ?? 0;
     final totalPoints = _results!['totalPoints'] ?? 0;
     final passed = _results!['passed'] ?? false;
-    final percentage = totalPoints > 0
-        ? ((score / totalPoints) * 100).round()
-        : 0;
+    final percentage = _results!['proficiency'] as int? ??
+        (totalPoints > 0 ? ((score / totalPoints) * 100).round() : 0);
     final c = _quiz?['courseId'];
     final courseId = c is Map ? c['_id']?.toString() : c?.toString();
+
+    List<Map<String, dynamic>> questionResults = [];
+    if (_results!['questionResults'] is List) {
+      questionResults = List<Map<String, dynamic>>.from(
+        (_results!['questionResults'] as List)
+            .map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+    } else {
+      final questions = (_quiz?['questions'] as List?) ?? [];
+      for (var i = 0; i < questions.length; i++) {
+        final q = questions[i] as Map<String, dynamic>? ?? {};
+        final userAnswer = _answers[i] ?? '';
+        final correctAnswer = q['correctAnswer']?.toString() ?? '';
+        final correct = userAnswer == correctAnswer;
+        questionResults.add({
+          'questionIndex': i,
+          'question': q['question'] ?? 'Question ${i + 1}',
+          'userAnswer': userAnswer,
+          'correct': correct,
+          'correctAnswer': correctAnswer,
+          'rationale': q['rationale'] ?? (correctAnswer.isNotEmpty ? 'The correct answer is $correctAnswer.' : null),
+        });
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -292,6 +315,7 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 24),
             Icon(
@@ -305,6 +329,15 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
+            if ((_quiz?['lessonTitles'] as List?)?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Focused practice for ${(_quiz!['lessonTitles'] as List).length}',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -351,6 +384,103 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
                 ),
               ],
             ),
+            if (questionResults.isNotEmpty) ...[
+              const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 16),
+              ...questionResults.map((r) => _buildQuestionResultCard(r)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuestionResultCard(Map<String, dynamic> r) {
+    final correct = r['correct'] == true;
+    final questionNum = (r['questionIndex'] as int? ?? 0) + 1;
+    final question = (r['question'] ?? '').toString();
+    final userAnswer = (r['userAnswer'] ?? '').toString();
+    final rationale = (r['rationale'] ?? '').toString();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: correct ? Colors.green.shade50 : Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    correct ? 'Correct' : 'Incorrect',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: correct ? Colors.green.shade800 : Colors.red.shade800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'QUESTION $questionNum',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              question,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'YOUR RESPONSE',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              userAnswer.isEmpty ? '(No answer)' : userAnswer,
+              style: TextStyle(
+                fontSize: 14,
+                color: correct ? Colors.green.shade700 : Colors.red.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (rationale.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'AI Tutor Rationale',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                rationale,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              ),
+            ],
           ],
         ),
       ),

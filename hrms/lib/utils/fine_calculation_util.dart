@@ -206,19 +206,15 @@ double calculatePayrollFine({
 }) {
   if (!fineSettings.enabled) {
     // If fine settings are disabled, use existing fine amounts if available
-    // Include Half Day - late login fine applies to half day too
+    // ONLY for Present or Approved status
+    // EXCLUDE Absent, Pending, etc.
     double total = 0;
     for (final record in attendanceRecords) {
       final status = (record['status'] as String? ?? '').trim().toLowerCase();
-      final leaveType = (record['leaveType'] as String? ?? '')
-          .trim()
-          .toLowerCase();
-      final isCounted =
-          status == 'present' ||
-          status == 'approved' ||
-          status == 'half day' ||
-          leaveType == 'half day';
-      if (!isCounted) continue;
+      
+      // ONLY include Present or Approved status
+      if (status != 'present' && status != 'approved') continue;
+      
       total += (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
     }
     return total;
@@ -229,17 +225,13 @@ double calculatePayrollFine({
   for (final record in attendanceRecords) {
     final status = record['status'] as String?;
 
-    // Calculate fine for Present, Approved, or Half Day (late login fine applies to half day too)
+    // Calculate fine ONLY for Present or Approved status
+    // EXCLUDE Absent, Pending, etc.
     final statusLower = (status ?? '').trim().toLowerCase();
-    final leaveType = (record['leaveType'] as String? ?? '')
-        .trim()
-        .toLowerCase();
-    final isCounted =
-        statusLower == 'present' ||
-        statusLower == 'approved' ||
-        statusLower == 'half day' ||
-        leaveType == 'half day';
-    if (!isCounted) continue;
+    
+    // ONLY include Present or Approved status
+    if (statusLower != 'present' && statusLower != 'approved') continue;
+    
     final lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
 
     if (lateMinutes > 0) {

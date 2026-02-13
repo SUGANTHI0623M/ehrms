@@ -55,6 +55,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   List<dynamic> _recentLeaves = [];
   List<dynamic> _activeLoans = [];
   bool _isLoadingDashboard = false;
+  bool _isRefreshingInBackground = false;
   bool _isFetchingMonthAttendance = false;
   Map<String, dynamic>? _todayAttendance;
   Map<String, dynamic>? _monthData;
@@ -82,7 +83,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   @override
   void didUpdateWidget(HomeDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // When user opens/switches to Dashboard tab, refresh once
+    // Whenever user opens or switches to Dashboard tab, refresh all values
     if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
       _loadData();
       _checkLiveTracking();
@@ -127,7 +128,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoadingDashboard = true);
+    final hasCachedData = _stats != null;
+    // Full-screen loading only when no cached data; otherwise show content and refresh in background
+    if (!hasCachedData) {
+      setState(() => _isLoadingDashboard = true);
+    } else {
+      setState(() => _isRefreshingInBackground = true);
+    }
 
     try {
       // Load local user data (name, company) from SharedPreferences
@@ -149,31 +156,38 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // Fetch unified dashboard data
-      final result = await _requestService.getDashboardData();
+      // Run dashboard, month attendance, and loans in parallel for faster load
+      final dashboardFuture = _requestService.getDashboardData();
+      _fetchMonthAttendance(forceRefresh: true);
+      _fetchActiveLoans();
+
+      final result = await dashboardFuture;
       if (mounted) {
         if (result['success']) {
           final data = result['data'];
+          final stats = data['stats'];
+          final activeLoansList = stats?['activeLoansList'];
+          final loansList = activeLoansList is List ? activeLoansList : <dynamic>[];
           setState(() {
-            _stats = data['stats'];
+            _stats = stats;
             _recentLeaves = data['recentLeaves'] ?? [];
-            _activeLoans = data['stats']?['activeLoansList'] ?? [];
-            _todayAttendance = data['stats']?['attendanceToday'];
+            _activeLoans = loansList;
+            _activeLoansCount = loansList.length;
+            _todayAttendance = stats?['attendanceToday'];
           });
+          _calculateSalaryFromModule();
         }
+        setState(() {
+          _isLoadingDashboard = false;
+          _isRefreshingInBackground = false;
+        });
       }
-
-      // Fetch month attendance (force refresh so calendar and days stay in sync with server)
-      await _fetchMonthAttendance(forceRefresh: true);
-
-      // Fetch active loans from loan request module
-      await _fetchActiveLoans();
-
-      // Calculate salary from salary module (after month attendance is fetched)
-      await _calculateSalaryFromModule();
-    } finally {
+    } catch (_) {
       if (mounted) {
-        setState(() => _isLoadingDashboard = false);
+        setState(() {
+          _isLoadingDashboard = false;
+          _isRefreshingInBackground = false;
+        });
       }
     }
   }
@@ -339,19 +353,31 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             ((backendStats['attendance'] as Map)['presentDays'] as num)
                 .toDouble();
       }
+      // Present days = till today only (same as backend / salary overview)
       if (presentDays == 0 && attendanceRecords.isNotEmpty) {
+        final todayDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
         for (final record in attendanceRecords) {
+          final recordDateStr = record['date'] as String?;
+          if (recordDateStr != null) {
+            try {
+              final recordDate = DateTime.parse(recordDateStr).toLocal();
+              final recordDay = DateTime(recordDate.year, recordDate.month, recordDate.day);
+              if (recordDay.isAfter(todayDate)) continue; // Skip future dates
+            } catch (_) {}
+          }
           final status = (record['status'] as String? ?? '')
               .trim()
               .toLowerCase();
-          final leaveType = (record['leaveType'] as String? ?? '')
-              .trim()
-              .toLowerCase();
-          final isHalfDay = status == 'half day' || leaveType == 'half day';
-          if (isHalfDay) {
-            presentDays += 0.5;
-          } else if (status == 'present' || status == 'approved') {
-            presentDays += 1;
+          if (status == 'present' || status == 'approved' || status == 'half day') {
+            final leaveType = (record['leaveType'] as String? ?? '')
+                .trim()
+                .toLowerCase();
+            final isHalfDay = status == 'half day' || leaveType == 'half day';
+            if (isHalfDay) {
+              presentDays += 0.5;
+            } else {
+              presentDays += 1.0;
+            }
           }
         }
       }
@@ -370,12 +396,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         final backendWorkingDays =
             backendAttendance['workingDays'] as int? ?? 0;
         final backendHolidays = backendAttendance['holidays'] as int? ?? 0;
+        final backendFullMonth =
+            backendAttendance['workingDaysFullMonth'] as int?;
         if (backendWorkingDays >= minReasonableWorkingDays) {
           workingDaysInfo = WorkingDaysInfo(
             totalDays: lastDayOfMonth,
             workingDays: backendWorkingDays,
             weekends: 0,
             holidayCount: backendHolidays,
+            workingDaysFullMonth: backendFullMonth,
           );
         }
       }
@@ -414,10 +443,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         businessSettings,
       );
 
+      // Daily salary = Monthly NET salary / This month working days (1 day salary = net/this month WD)
       double? dailySalary;
-      if (workingDaysInfo.workingDays > 0) {
-        dailySalary =
-            calculatedSalary.monthly.grossSalary / workingDaysInfo.workingDays;
+      final thisMonthWorkingDays = workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
+      if (thisMonthWorkingDays > 0) {
+        dailySalary = calculatedSalary.monthly.netMonthlySalary / thisMonthWorkingDays;
       }
 
       double shiftHours = 9.0;
@@ -443,19 +473,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         } catch (_) {}
       }
 
-      // 7. Fine calculation – Present, Approved, or Half Day (late login fine applies to half day too)
+      // 7. Fine calculation – ONLY for Present or Approved status
+      // EXCLUDE Absent and Pending from fine calculation
       double totalFineAmount = 0.0;
       for (final record in attendanceRecords) {
         final status = (record['status'] as String? ?? '').trim().toLowerCase();
-        final leaveType = (record['leaveType'] as String? ?? '')
-            .trim()
-            .toLowerCase();
-        final isCounted =
-            status == 'present' ||
-            status == 'approved' ||
-            status == 'half day' ||
-            leaveType == 'half day';
-        if (!isCounted) continue;
+        
+        // ONLY calculate fine for Present or Approved status
+        // Skip Absent, Pending, Rejected, etc.
+        if (status != 'present' && status != 'approved') continue;
         double fineAmount = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
         int lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
         if (fineAmount == 0 && lateMinutes == 0 && dailySalary != null) {
@@ -486,20 +512,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         if (fineAmount > 0 || lateMinutes > 0) totalFineAmount += fineAmount;
       }
 
-      // Use calculatePayrollFine for Present, Approved, or Half Day
+      // Use calculatePayrollFine for Present or Approved status ONLY
+      // EXCLUDE Absent and Pending from fine calculation
       if (dailySalary != null && dailySalary > 0) {
         final attendanceRecordsList = attendanceRecords
             .where((record) {
               final s = (record['status'] as String? ?? '')
                   .trim()
                   .toLowerCase();
-              final lt = (record['leaveType'] as String? ?? '')
-                  .trim()
-                  .toLowerCase();
-              return s == 'present' ||
-                  s == 'approved' ||
-                  s == 'half day' ||
-                  lt == 'half day';
+              // ONLY Present or Approved status
+              return s == 'present' || s == 'approved';
             })
             .map((record) => record as Map<String, dynamic>)
             .toList();
@@ -514,16 +536,27 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // 8. Prorated salary and "This Month Net" – same function and inputs as Salary Overview
+      // 8. Prorated salary using THIS MONTH working days (same as Salary Overview)
+      final thisMonthWorkingDaysForProration = workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
       final proratedSalary = calculateProratedSalary(
         calculatedSalary,
-        workingDaysInfo.workingDays,
+        thisMonthWorkingDaysForProration,
         presentDays,
         totalFineAmount,
       );
 
       final rawThisMonthNet = proratedSalary.proratedNetSalary;
       final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
+
+      if (thisMonthWorkingDaysForProration > 0) {
+        final dailyGrossSalary = calculatedSalary.monthly.grossSalary / thisMonthWorkingDaysForProration;
+        final dailyNetSalary = calculatedSalary.monthly.netMonthlySalary / thisMonthWorkingDaysForProration;
+        print('[Dashboard] PRORATION: thisMonthWorkingDays=$thisMonthWorkingDaysForProration, workingDaysTillToday=${workingDaysInfo.workingDays}, presentDays=$presentDays');
+        print('[Dashboard] 1 day gross = Monthly GROSS/$thisMonthWorkingDaysForProration = ₹${dailyGrossSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
+        print('[Dashboard] 1 day net   = Monthly NET/$thisMonthWorkingDaysForProration = ₹${dailyNetSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
+        print('[Dashboard] Fine amount (this month from attendance) = ₹${totalFineAmount.toStringAsFixed(2)}');
+        print('[Dashboard] Prorated Gross=₹${proratedSalary.proratedGrossSalary.toStringAsFixed(2)}, This Month Net=₹${displayThisMonthNet.toStringAsFixed(2)}');
+      }
 
       if (mounted) {
         final workingDaysUsed = workingDaysInfo.workingDays;
@@ -552,11 +585,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     // Use active loans count from loan request module
     final activeLoansCount = _activeLoansCount.toString();
 
-    // Use calculated salary from salary module (same logic as Salary Overview)
-    // Show "This Month Net" - prorated net salary based on attendance
+    // Use calculated salary from salary module (same logic as Salary Overview); show backend value until client calc completes
     String monthSalary = '';
-    if (_calculatedMonthSalary > 0) {
-      final salaryValue = _calculatedMonthSalary;
+    final salaryValue = _calculatedMonthSalary > 0
+        ? _calculatedMonthSalary
+        : (_stats?['currentMonthSalary'] as num?)?.toDouble() ?? 0.0;
+    if (salaryValue > 0) {
       // Format with thousand separators and 2 decimal places
       final formatter = NumberFormat('#,##0.00');
       monthSalary = formatter.format(salaryValue);
@@ -694,6 +728,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           centerTitle: true,
           elevation: 0,
           actions: [
+            if (_isRefreshingInBackground)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             if (_liveTrackingActive)
               IconButton(
                 icon: const Icon(Icons.gps_fixed),
@@ -720,6 +763,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         centerTitle: true,
         elevation: 0,
         actions: [
+          if (_isRefreshingInBackground)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           if (_liveTrackingActive)
             IconButton(
               icon: const Icon(Icons.gps_fixed),
@@ -1168,8 +1220,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     final stats = summary != null
         ? {
             'workingDays': summary['totalDays'],
+            'thisMonthWorkingDays': summary['thisMonthWorkingDays'],
             'presentDays': summary['presentDays'],
             'absentDays': summary['absentDays'],
+            'halfDayPaidLeaveCount': summary['halfDayPaidLeaveCount'],
+            'leaveDays': summary['leaveDays'],
             'holidaysCount': _monthData?['stats']?['holidaysCount'],
             'weekOffs': _monthData?['stats']?['weekOffs'],
           }
@@ -1218,10 +1273,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           const SizedBox(height: 20),
           _buildMonthStatsRow(
             workingDays: stats?['workingDays']?.toString() ?? '0',
+            thisMonthWorkingDays: stats?['thisMonthWorkingDays']?.toString(),
             holidays: stats?['holidaysCount']?.toString() ?? '0',
             weekOffs: stats?['weekOffs']?.toString() ?? '0',
             presentDays: stats?['presentDays']?.toString() ?? '0',
             absentDays: stats?['absentDays']?.toString() ?? '0',
+            halfDayPaidLeaveCount: stats?['halfDayPaidLeaveCount']?.toString(),
+            leaveDays: stats?['leaveDays']?.toString(),
           ),
           const SizedBox(height: 24),
           _buildSimpleCalendar(),
@@ -1423,10 +1481,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   Widget _buildMonthStatsRow({
     required String workingDays,
+    String? thisMonthWorkingDays,
     required String holidays,
     required String weekOffs,
     required String presentDays,
     required String absentDays,
+    String? halfDayPaidLeaveCount,
+    String? leaveDays,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1435,48 +1496,67 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFDBEAFE)),
       ),
-      child: Row(
-        children: [
-          Expanded(child: _buildStatItem(presentDays, 'Present')),
-          Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
-          Expanded(child: _buildStatItem(absentDays, 'Absent')),
-          Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
-          Expanded(child: _buildStatItem(workingDays, 'Working')),
-          Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
-          Expanded(child: _buildStatItem(holidays, 'Holidays')),
-          Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
-          Expanded(child: _buildStatItem(weekOffs, 'Week Offs')),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildStatItem(presentDays, 'Present'),
+            Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            _buildStatItem(absentDays, 'Absent'),
+            Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            _buildStatItem(workingDays, 'Working'),
+            Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            if (thisMonthWorkingDays != null) ...[
+              _buildStatItem(thisMonthWorkingDays, 'Month W.D.'),
+              Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            ],
+            if (halfDayPaidLeaveCount != null) ...[
+              _buildStatItem(halfDayPaidLeaveCount, 'Half day PL'),
+              Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            ],
+            if (leaveDays != null) ...[
+              _buildStatItem(leaveDays, 'Leave'),
+              Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            ],
+            _buildStatItem(holidays, 'Holidays'),
+            Container(width: 1, height: 30, color: const Color(0xFFDBEAFE)),
+            _buildStatItem(weekOffs, 'Week Offs'),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildStatItem(String value, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF1E40AF),
+    return Container(
+      width: 80,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E40AF),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Colors.black,
-            fontWeight: FontWeight.w500,
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

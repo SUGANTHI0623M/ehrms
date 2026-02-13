@@ -1,23 +1,37 @@
 // hrms/lib/screens/lms/widgets/lms_content_viewer.dart
 // Embedded content viewer for YouTube, VIDEO, PDF, URL - mirrors web LMSCoursePlayer
 // YouTube: uses loadHtmlString with baseUrl to fix Error 153 (Referer required)
+// PDF: WebView loads the PDF link directly so it opens in-app; "Open in browser" as fallback.
+//
+// WebViewController is cached per content URL to avoid creating a new WebView on every rebuild.
+// This reduces MediaCodec/Chromium teardown races (Pipe closed, BAD_INDEX) when leaving video or rebuilding.
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../config/constants.dart';
 
-class LmsContentViewer extends StatelessWidget {
+class LmsContentViewer extends StatefulWidget {
   final dynamic material;
   final VoidCallback? onMarkDone;
 
   const LmsContentViewer({super.key, required this.material, this.onMarkDone});
 
+  @override
+  State<LmsContentViewer> createState() => _LmsContentViewerState();
+}
+
+class _LmsContentViewerState extends State<LmsContentViewer> {
+  WebViewController? _cachedController;
+  String? _cachedControllerKey;
+
   String? _getVideoId() {
+    final m = widget.material;
     var url =
-        material['url'] ??
-        material['filePath'] ??
-        material['link'] ??
-        material['externalUrl'] ??
+        m['url'] ??
+        m['filePath'] ??
+        m['link'] ??
+        m['externalUrl'] ??
         '';
     url = url.toString().trim();
     if (url.isEmpty) return null;
@@ -26,12 +40,12 @@ class LmsContentViewer extends StatelessWidget {
   }
 
   String? _getResolvedUrl() {
-    final type = (material['type'] ?? 'URL').toString().toUpperCase();
+    final type = (widget.material['type'] ?? 'URL').toString().toUpperCase();
     var url =
-        material['url'] ??
-        material['filePath'] ??
-        material['link'] ??
-        material['externalUrl'] ??
+        widget.material['url'] ??
+        widget.material['filePath'] ??
+        widget.material['link'] ??
+        widget.material['externalUrl'] ??
         '';
     url = url.toString().trim();
     if (url.isEmpty) return null;
@@ -77,52 +91,57 @@ iframe{width:100%;height:100%;border:0;display:block}
 </html>''';
   }
 
-  /// PDF in WebView often shows blank when loaded via loadRequest. Load via HTML iframe (same as web) so the page has a document and iframe can render PDF on supported devices.
+  /// Returns a cached WebViewController for the given key, or creates and caches one.
+  WebViewController _getOrCreateController({
+    required String key,
+    required void Function(WebViewController c) setup,
+  }) {
+    if (_cachedControllerKey == key && _cachedController != null) {
+      return _cachedController!;
+    }
+    _cachedControllerKey = key;
+    final c = WebViewController();
+    setup(c);
+    _cachedController = c;
+    return c;
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Widget _buildPdfViewer(BuildContext context, String pdfUrl) {
-    final pdfSrc = '$pdfUrl#toolbar=1&view=FitH';
     final uri = Uri.tryParse(pdfUrl);
-    final baseUrl = uri != null ? '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}/' : null;
-    final html = '''
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; background: #f5f5f5; }
-iframe { width: 100%; height: 100%; border: none; display: block; }
-</style>
-</head>
-<body>
-<iframe src="$pdfSrc" title="PDF"></iframe>
-</body>
-</html>''';
+    if (uri == null) {
+      return _buildPlaceholder('Invalid PDF link.');
+    }
+    final controller = _getOrCreateController(
+      key: 'pdf:$pdfUrl',
+      setup: (c) {
+        c.setJavaScriptMode(JavaScriptMode.unrestricted);
+        c.setBackgroundColor(Colors.grey.shade100);
+        c.loadRequest(uri);
+      },
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
-          height: MediaQuery.of(context).size.height * 0.55,
+          height: MediaQuery.of(context).size.height * 0.6,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: WebViewWidget(
-              controller: WebViewController()
-                ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..setBackgroundColor(Colors.grey.shade100)
-                ..loadHtmlString(
-                  html,
-                  baseUrl: baseUrl,
-                ),
-            ),
+            child: WebViewWidget(controller: controller),
           ),
         ),
         const SizedBox(height: 8),
-        Center(
-          child: Text(
-            'If the PDF doesn\'t appear, use the Open button above to view in your browser.',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            textAlign: TextAlign.center,
-          ),
+        TextButton.icon(
+          onPressed: () => _openUrl(pdfUrl),
+          icon: const Icon(Icons.open_in_browser, size: 18),
+          label: const Text('Open in browser'),
+          style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
         ),
       ],
     );
@@ -135,6 +154,13 @@ iframe { width: 100%; height: 100%; border: none; display: block; }
     }
     final html = _buildYouTubeEmbedHtml(videoId);
     const baseUrl = 'https://www.youtube-nocookie.com/';
+    final controller = _getOrCreateController(
+      key: 'yt:$videoId',
+      setup: (c) {
+        c.setJavaScriptMode(JavaScriptMode.unrestricted);
+        c.loadHtmlString(html, baseUrl: baseUrl);
+      },
+    );
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: Container(
@@ -150,18 +176,49 @@ iframe { width: 100%; height: 100%; border: none; display: block; }
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: WebViewWidget(
-          controller: WebViewController()
-            ..setJavaScriptMode(JavaScriptMode.unrestricted)
-            ..loadHtmlString(html, baseUrl: baseUrl),
+        child: WebViewWidget(controller: controller),
+      ),
+    );
+  }
+
+  Widget _buildVideoOrUrlViewer(BuildContext context, String urlToLoad) {
+    final controller = _getOrCreateController(
+      key: 'video:$urlToLoad',
+      setup: (c) {
+        c.setJavaScriptMode(JavaScriptMode.unrestricted);
+        c.loadRequest(Uri.parse(urlToLoad));
+      },
+    );
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
+        clipBehavior: Clip.antiAlias,
+        child: WebViewWidget(controller: controller),
       ),
     );
   }
 
   @override
+  void dispose() {
+    _cachedController = null;
+    _cachedControllerKey = null;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final type = (material['type'] ?? 'URL').toString().toUpperCase();
+    final type = (widget.material['type'] ?? 'URL').toString().toUpperCase();
     final urlToLoad = _getResolvedUrl();
 
     if (urlToLoad == null || urlToLoad.isEmpty) {
@@ -178,34 +235,13 @@ iframe { width: 100%; height: 100%; border: none; display: block; }
         else if (type == 'YOUTUBE')
           _buildYouTubePlayer(context)
         else
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: WebViewWidget(
-                controller: WebViewController()
-                  ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                  ..loadRequest(Uri.parse(urlToLoad)),
-              ),
-            ),
-          ),
-        if (onMarkDone != null) ...[
+          _buildVideoOrUrlViewer(context, urlToLoad),
+        if (widget.onMarkDone != null) ...[
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: onMarkDone,
+              onPressed: widget.onMarkDone,
               icon: const Icon(Icons.check_circle_outline),
               label: const Text('Mark Done'),
               style: ElevatedButton.styleFrom(

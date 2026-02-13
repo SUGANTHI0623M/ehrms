@@ -326,13 +326,16 @@ class ProratedSalary {
   });
 }
 
+/// [workingDaysForProration] - Use "this month working days" (total in month) so that
+/// proration = (presentDays/workingDaysForProration)*monthly, i.e. presentDays * dailySalary
+/// where dailySalary = monthly / workingDaysForProration.
 ProratedSalary calculateProratedSalary(
   CalculatedSalaryStructure calculatedSalary,
-  int workingDays,
+  int workingDaysForProration,
   num presentDays, [
   double fineAmount = 0,
 ]) {
-  if (workingDays == 0) {
+  if (workingDaysForProration == 0) {
     return ProratedSalary(
       proratedGrossSalary: 0,
       proratedDeductions: 0,
@@ -343,8 +346,8 @@ ProratedSalary calculateProratedSalary(
     );
   }
 
-  final attendancePercentage = (presentDays / workingDays) * 100;
-  final prorationFactor = presentDays / workingDays;
+  final attendancePercentage = (presentDays / workingDaysForProration) * 100;
+  final prorationFactor = presentDays / workingDaysForProration;
 
   // CORRECT METHOD: Step 1 - Prorate Gross Fixed Components (Basic, DA, HRA, Special Allowance)
   final proratedBasicSalary =
@@ -429,12 +432,15 @@ class WorkingDaysInfo {
   final int workingDays;
   final int weekends;
   final int holidayCount;
+  /// Full month working days (for display as "This month working days"). When null, [workingDays] is used.
+  final int? workingDaysFullMonth;
 
   WorkingDaysInfo({
     required this.totalDays,
     required this.workingDays,
     required this.weekends,
     required this.holidayCount,
+    this.workingDaysFullMonth,
   });
 }
 

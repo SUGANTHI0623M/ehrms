@@ -140,6 +140,46 @@ exports.upsertTaskDetails = async function upsertTaskDetails(fullDoc) {
   }
 };
 
+/** Normalize status for app: case-insensitive match, trim spaces, return canonical value so app never sees "Unknown". */
+function normalizeStatusForApp(status) {
+  if (status == null || typeof status !== 'string') return 'assigned';
+  const s = status.trim().toLowerCase().replace(/\s+/g, ' ');
+  const noSpaces = s.replace(/\s/g, '').replace(/_/g, '');
+  const map = {
+    hold: 'hold',
+    onhold: 'hold',
+    notyetstarted: 'assigned',
+    delayedtasks: 'pending',
+    servingtoday: 'in_progress',
+    assigned: 'assigned',
+    assignedtasks: 'assigned',
+    pending: 'pending',
+    pendingtasks: 'pending',
+    scheduled: 'scheduled',
+    scheduledtasks: 'scheduled',
+    inprogress: 'in_progress',
+    'in_progress': 'in_progress',
+    completed: 'completed',
+    completedtasks: 'completed',
+    arrived: 'arrived',
+    exited: 'exited',
+    exitedonarrival: 'exitedOnArrival',
+    exitonarrival: 'exitedOnArrival',
+    holdonarrival: 'holdOnArrival',
+    reopenedonarrival: 'reopenedOnArrival',
+    waitingforapproval: 'waiting_for_approval',
+    'waiting_for_approval': 'waiting_for_approval',
+    approved: 'approved',
+    staffapproved: 'staffapproved',
+    rejected: 'rejected',
+    reopened: 'reopened',
+    cancelled: 'cancelled',
+    cancelledtasks: 'cancelled',
+    onlineready: 'onlineReady',
+  };
+  return map[noSpaces] || status;
+}
+
 /** Merge Task + TaskDetails for API response. Extended fields always from task_details. */
 async function mergeTaskWithDetails(taskDoc) {
   if (!taskDoc) return null;
@@ -158,6 +198,7 @@ async function mergeTaskWithDetails(taskDoc) {
       if (details[k] !== undefined) merged[k] = details[k];
     }
   }
+  merged.status = normalizeStatusForApp(merged.status);
   return merged;
 }
 const cloudinary = require('cloudinary').v2;

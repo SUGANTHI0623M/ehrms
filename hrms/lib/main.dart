@@ -13,16 +13,10 @@ import 'bloc/attendance/attendance_bloc.dart';
 
 @pragma('vm:entry-point')
 void backgroundCallback() {
-  // Log: background isolate started (app killed or in background)
-  debugPrint('[LiveTracking:BG] Background callback isolate started');
   BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
     final lat = data.lat;
     final lon = data.lon;
-    debugPrint(
-      '[LiveTracking:BG] Location received: lat=$lat lon=$lon speed=${data.speed}',
-    );
     if (lat == null || lon == null) {
-      debugPrint('[LiveTracking:BG] Skipped: null lat/lon');
       return;
     }
     final speedMps = data.speed;

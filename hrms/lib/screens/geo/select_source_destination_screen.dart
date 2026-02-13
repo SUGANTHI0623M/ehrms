@@ -11,7 +11,6 @@ import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
 import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/screens/geo/start_ride_screen.dart';
-import 'package:hrms/widgets/bottom_navigation_bar.dart';
 
 class SelectSourceDestinationScreen extends StatefulWidget {
   final Task task;
@@ -236,25 +235,17 @@ class _SelectSourceDestinationScreenState
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primary, AppColors.primary.withOpacity(0.85)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
+        backgroundColor: AppColors.background,
+        foregroundColor: AppColors.textPrimary,
         title: const Text(
           'Select Source & Destination',
           style: TextStyle(
-            color: Colors.white,
             fontWeight: FontWeight.bold,
             fontSize: 18,
           ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.of(context).pop(),
         ),
         elevation: 0,

@@ -441,22 +441,25 @@ class Task {
     }
   }
 
+  /// Parse status from API: case-insensitive, trims spaces and underscores for matching.
   static TaskStatus statusFromJson(String status) {
-    switch (status.toLowerCase()) {
+    final raw = status.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final noSpaces = raw.replaceAll(' ', '').replaceAll('_', '');
+    switch (noSpaces) {
       case 'assigned':
-      case 'assigned tasks':
+      case 'assignedtasks':
         return TaskStatus.assigned;
       case 'pending':
-      case 'pending tasks':
+      case 'pendingtasks':
         return TaskStatus.pending;
       case 'scheduled':
-      case 'scheduled tasks':
+      case 'scheduledtasks':
         return TaskStatus.scheduled;
       case 'in_progress':
-      case 'in progress':
+      case 'inprogress':
         return TaskStatus.inProgress;
       case 'completed':
-      case 'completed tasks':
+      case 'completedtasks':
         return TaskStatus.completed;
       case 'arrived':
         return TaskStatus.arrived;
@@ -470,7 +473,17 @@ class Task {
       case 'reopenedonarrival':
         return TaskStatus.reopenedOnArrival;
       case 'waiting_for_approval':
+      case 'waitingforapproval':
         return TaskStatus.waitingForApproval;
+      case 'notyetstarted':
+        return TaskStatus.assigned;
+      case 'delayedtasks':
+      case 'servingtoday':
+        return TaskStatus.pending;
+      case 'completedtasks':
+        return TaskStatus.completed;
+      case 'onhold':
+        return TaskStatus.hold;
       case 'approved':
         return TaskStatus.approved;
       case 'staffapproved':
@@ -478,7 +491,7 @@ class Task {
       case 'rejected':
         return TaskStatus.rejected;
       case 'cancelled':
-      case 'cancelled tasks':
+      case 'cancelledtasks':
         return TaskStatus.cancelled;
       case 'reopened':
         return TaskStatus.reopened;

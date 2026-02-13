@@ -116,12 +116,13 @@ const getPayrollStats = async (req, res) => {
             // If exists, return processed stats
             const attendanceStats = await calculateAttendanceStats(staffId, currentMonth, currentYear);
             
-            // CORRECT METHOD: Calculate prorated values based on attendance
+            // Use THIS MONTH working days for proration (so This Month Gross = presentDays * dailySalary, dailySalary = monthly/thisMonthWorkingDays)
             const workingDays = attendanceStats.workingDays || 0;
+            const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? workingDays;
             const presentDays = attendanceStats.presentDays || 0;
-            const prorationFactor = workingDays > 0 ? presentDays / workingDays : 1;
+            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 1;
             
-            console.log(`[getPayrollStats] Payroll exists path: workingDays=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
+            console.log(`[getPayrollStats] Payroll exists path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
             
             // Get fine amount from attendance records
             const Attendance = require('../models/Attendance');
@@ -178,7 +179,10 @@ const getPayrollStats = async (req, res) => {
                 
                 // STEP 5: Calculate Prorated Net Salary (fines are NOT prorated)
                 thisMonthNet = thisMonthGross - proratedDeductions - totalFineAmount;
+                const monthlyNet = (() => { const gf = basicSalary + dearnessAllowance + houseRentAllowance + specialAllowance; const epf = (s.employerPFRate || 0) / 100 * basicSalary; const eesi = (s.employerESIRate || 0) / 100 * gf; const gross = gf + epf + eesi; const empPF = (s.employeePFRate || 0) / 100 * basicSalary; const empESI = (s.employeeESIRate || 0) / 100 * gross; return gross - empPF - empESI; })();
+                const oneDaySalary = thisMonthWorkingDays > 0 ? (monthlyNet / thisMonthWorkingDays).toFixed(2) : null;
                 console.log(`[getPayrollStats] Calculated from salary structure: thisMonthGross=${thisMonthGross}, thisMonthNet=${thisMonthNet}, proratedDeductions=${proratedDeductions}, totalFineAmount=${totalFineAmount}`);
+                if (oneDaySalary) console.log(`[getPayrollStats] 1 day salary = Monthly NET / this month WD = ${oneDaySalary} (same as salary overview)`);
             } else {
                 // Fallback to simple proration if salary structure not available
                 console.log(`[getPayrollStats] FALLBACK: Using payroll.netPay=${payroll.netPay} * prorationFactor=${prorationFactor}`);
@@ -275,11 +279,12 @@ const getPayrollStats = async (req, res) => {
         // Net Salary = Gross Salary - Employee Deductions
         const netSalary = grossSalary - totalDeductions;
         
-        // CORRECT METHOD: Calculate prorated values based on attendance
+        // Use THIS MONTH working days for proration (same as app: daily = monthly/thisMonthWorkingDays)
         const workingDays = attendanceStats.workingDays || 0;
+        const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? workingDays;
         const presentDays = attendanceStats.presentDays || 0;
-        const prorationFactor = workingDays > 0 ? presentDays / workingDays : 0;
-        console.log(`[getPayrollStats] No-payroll path: workingDays=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
+        const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
+        console.log(`[getPayrollStats] No-payroll path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
         
         // STEP 1: Prorate Gross Fixed Components
         const proratedBasicSalary = basicSalary * prorationFactor;
@@ -322,7 +327,9 @@ const getPayrollStats = async (req, res) => {
         
         // STEP 5: Calculate Prorated Net Salary (fines are NOT prorated)
         const thisMonthNet = thisMonthGross - proratedDeductions - totalFineAmount;
+        const oneDaySalaryNoPayroll = thisMonthWorkingDays > 0 ? (netSalary / thisMonthWorkingDays).toFixed(2) : null;
         console.log(`[getPayrollStats] No-payroll path: thisMonthGross=${thisMonthGross?.toFixed?.(2)}, thisMonthNet=${thisMonthNet?.toFixed?.(2)}`);
+        if (oneDaySalaryNoPayroll) console.log(`[getPayrollStats] 1 day salary = Monthly NET / this month WD = ${oneDaySalaryNoPayroll} (same as salary overview)`);
         
         // Calculate Annual Benefits for CTC
         const annualGrossSalary = grossSalary * 12;
@@ -441,13 +448,26 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
     
     // Count days in month
     const daysInMonth = endDate.getDate();
-    let weeklyOffDays = 0; // Days that are weekly off (not holidays)
+    let weeklyOffDays = 0; // Days that are weekly off (not holidays) in range
     let holidays = 0;
 
-    // Count weekly off days and holidays for the FULL month
-    // Working days = Total days in month - Weekly Off Days - Holidays
-    // NOTE: Working days is the COMPANY's total working days, NOT filtered by employee joining date
-    for (let day = 1; day <= daysInMonth; day++) {
+    // Cap at today: don't count future days. For dashboard/salary/payroll, working days and absent
+    // should only consider dates up to and including today.
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    const currentDay = now.getDate();
+    let lastDayToCount = daysInMonth;
+    if (year > currentYear || (year === currentYear && month > currentMonth)) {
+        lastDayToCount = 0; // Future month: no days to count
+    } else if (year === currentYear && month === currentMonth) {
+        lastDayToCount = currentDay; // Current month: only up to today
+    }
+    console.log(`[calculateAttendanceStats] Cap at today: lastDayToCount=${lastDayToCount} (current: ${currentYear}-${currentMonth}-${currentDay})`);
+
+    // Count weekly off days and holidays only for days 1..lastDayToCount
+    // Working days = days in range - Weekly Off Days - Holidays (so future days are not counted as absent)
+    for (let day = 1; day <= lastDayToCount; day++) {
         const currentDate = new Date(year, month - 1, day);
         currentDate.setHours(0, 0, 0, 0);
         const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
@@ -496,9 +516,31 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         }
     }
     
-    // Working days = Total days in month - Weekly Off Days - Holidays
-    // This is the COMPANY's total working days for the month (not filtered by employee joining date)
-    const workingDays = daysInMonth - weeklyOffDays - holidays;
+    // Working days = days in range (1..lastDayToCount) - Weekly Off Days - Holidays
+    const workingDays = lastDayToCount - weeklyOffDays - holidays;
+
+    // Full month working days (for display: "This month working days" in dashboard/salary/payroll)
+    let weeklyOffDaysFull = 0;
+    let holidaysFull = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+        const currentDate = new Date(year, month - 1, day);
+        currentDate.setHours(0, 0, 0, 0);
+        const dayOfWeek = currentDate.getDay();
+        const isHoliday = holidayDayNumbers.has(day);
+        if (isHoliday) {
+            holidaysFull++;
+        } else {
+            let isWeeklyOff = false;
+            if (weeklyOffPattern === 'oddEvenSaturday') {
+                if (dayOfWeek === 0) isWeeklyOff = true;
+                else if (dayOfWeek === 6 && day % 2 === 0) isWeeklyOff = true;
+            } else {
+                isWeeklyOff = weeklyHolidays.some(h => h.day === dayOfWeek);
+            }
+            if (isWeeklyOff) weeklyOffDaysFull++;
+        }
+    }
+    const workingDaysFullMonth = daysInMonth - weeklyOffDaysFull - holidaysFull;
     
     // Debug logging
     console.log(`[calculateAttendanceStats] ========== CALCULATION DEBUG ==========`);
@@ -509,7 +551,7 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
     console.log(`[calculateAttendanceStats] Weekly Off Days (non-holiday): ${weeklyOffDays}`);
     console.log(`[calculateAttendanceStats] Holidays: ${holidays}`);
     console.log(`[calculateAttendanceStats] Holiday day numbers: ${Array.from(holidayDayNumbers).sort((a, b) => a - b).join(', ')}`);
-    console.log(`[calculateAttendanceStats] Working days calculation: ${daysInMonth} - ${weeklyOffDays} - ${holidays} = ${workingDays}`);
+    console.log(`[calculateAttendanceStats] Working days calculation: lastDayToCount=${lastDayToCount}, ${lastDayToCount} - ${weeklyOffDays} - ${holidays} = ${workingDays}`);
     console.log(`[calculateAttendanceStats] ======================================`);
 
     // Calculate Present Days with specific Half Day logic
@@ -536,47 +578,103 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
     });
 
-    // 2. Process Leave Records for Half Day
+    // 2. Process Leave Records for Half Day and build leave-date set (for leave count)
+    // leaveDateToHalfDay: dateStr -> true if that date is half-day leave
+    const leaveDateToHalfDay = {};
     leaveRecords.forEach(l => {
         const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
-        if (isHalfDayLeave) {
-            const start = new Date(Math.max(new Date(l.startDate), startDate));
-            const end = new Date(Math.min(new Date(l.endDate), endDate));
-            let curr = new Date(start);
-            while (curr <= end) {
-                const d = curr.toISOString().split('T')[0];
-                if (!dateMap[d]) dateMap[d] = {};
+        const start = new Date(Math.max(new Date(l.startDate), startDate));
+        const end = new Date(Math.min(new Date(l.endDate), endDate));
+        let curr = new Date(start);
+        while (curr <= end) {
+            const d = curr.toISOString().split('T')[0];
+            if (!dateMap[d]) dateMap[d] = {};
+            if (isHalfDayLeave) {
                 dateMap[d].hasHalfDayLeave = true;
-                curr.setDate(curr.getDate() + 1);
+                leaveDateToHalfDay[d] = true;
+            } else {
+                leaveDateToHalfDay[d] = false;
             }
+            curr.setDate(curr.getDate() + 1);
         }
     });
 
-    // 3. Calculate Weighted Present Days
-    // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
-    // Full day present/approved (and NOT half day) -> 1.0
-    // Others -> 0.0
-    const presentDays = Object.values(dateMap).reduce((sum, data) => {
+    // 3. Calculate Weighted Present Days (only for dates up to today; future dates not counted)
+    // ONLY status "Present" or "Approved" (case insensitive) are counted
+    // If leaveType is "half day" -> 0.5, otherwise -> 1.0
+    // All other statuses (Absent, Pending, etc.) -> 0.0
+    const todayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
+    console.log(`[calculateAttendanceStats] ======== PRESENT DAYS CALCULATION (dates <= ${todayStr}) ========`);
+    const presentDays = Object.entries(dateMap).reduce((sum, [date, data]) => {
+        if (date > todayStr) return sum; // Don't count future dates as present
         const status = data.attendanceStatus || '';
         const attLeaveType = data.attendanceLeaveType || '';
-        const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
-        if (isHalfDay) return sum + 0.5;
-        if (status === 'present' || status === 'approved') return sum + 1;
-        return sum;
+        
+        let dayValue = 0;
+        let reason = '';
+        
+        // Present, Approved, or Half day status are counted (case insensitive)
+        // Half day = 0.5, full day = 1.0
+        if (status === 'present' || status === 'approved' || status === 'half day') {
+            // Check if it's half day via status, leaveType, or Leave collection
+            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+            
+            if (isHalfDay) {
+                dayValue = 0.5;
+                reason = `Half Day (status="${status}", leaveType="${attLeaveType}", hasHalfDayLeave=${data.hasHalfDayLeave})`;
+            } else {
+                dayValue = 1;
+                reason = `Full Day (status="${status}")`;
+            }
+        } else {
+            dayValue = 0;
+            reason = `Not Counted (status="${status}", leaveType="${attLeaveType}")`;
+        }
+        
+        console.log(`[calculateAttendanceStats] ${date}: ${reason} = ${dayValue} day(s)`);
+        return sum + dayValue;
     }, 0);
+    console.log(`[calculateAttendanceStats] ==========================================`);
     
     console.log(`[calculateAttendanceStats] Attendance Records Found: ${attendanceRecords.length}`);
     console.log(`[calculateAttendanceStats] Leave Records Found: ${leaveRecords.length}`);
     console.log(`[calculateAttendanceStats] Calculated Weighted Present Days: ${presentDays}`);
-    
+
+    // Half day paid leave: dates <= today where attendance is present/approved and (half day)
+    let halfDayPaidLeaveCount = 0;
+    Object.entries(dateMap).forEach(([date, data]) => {
+        if (date > todayStr) return;
+        const status = (data.attendanceStatus || '').trim().toLowerCase();
+        const attLeaveType = (data.attendanceLeaveType || '').trim().toLowerCase();
+        const isHalfDay = attLeaveType === 'half day' || data.hasHalfDayLeave === true;
+        if ((status === 'present' || status === 'approved') && isHalfDay) {
+            halfDayPaidLeaveCount += 1;
+        }
+    });
+
+    // Leave (approved leave but NOT present in attendance for that date): day-equivalent, only up to today
+    let leaveDays = 0;
+    Object.entries(leaveDateToHalfDay).forEach(([date, isHalfDay]) => {
+        if (date > todayStr) return;
+        const data = dateMap[date];
+        const status = data ? (data.attendanceStatus || '').trim().toLowerCase() : '';
+        const isPresent = status === 'present' || status === 'approved';
+        if (!isPresent) {
+            leaveDays += isHalfDay ? 0.5 : 1;
+        }
+    });
+
     // Absent days = Working days - Present days
     const absentDays = Math.max(0, workingDays - presentDays);
 
     const result = {
         workingDays,
+        workingDaysFullMonth,
         presentDays,
         absentDays,
         holidays,
+        halfDayPaidLeaveCount,
+        leaveDays,
         attendancePercentage: workingDays > 0 ? (presentDays / workingDays) * 100 : 0
     };
     

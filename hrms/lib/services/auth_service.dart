@@ -391,27 +391,12 @@ class AuthService {
     String email, {
     int retryCount = 0,
   }) async {
-    final url = '$baseUrl/auth/forgot-password';
-    if (kDebugMode) {
-      debugPrint(
-        '[AuthService] ForgotPassword: Requesting OTP for email: $email (attempt ${retryCount + 1})',
-      );
-      debugPrint('[AuthService] ForgotPassword: URL: $url');
-    }
     try {
       final response = await _api.dio.post<Map<String, dynamic>>(
         '/auth/forgot-password',
         data: {'email': email},
       );
       final body = response.data;
-      if (kDebugMode) {
-        debugPrint(
-          '[AuthService] ForgotPassword: ✅ OTP sent successfully to $email',
-        );
-        debugPrint(
-          '[AuthService] ForgotPassword: Server message: ${body?['message']}',
-        );
-      }
       return {
         'success': true,
         'message': body?['message'] as String? ?? 'OTP sent successfully',
@@ -427,9 +412,6 @@ class AuthService {
         return 'Failed to send OTP';
       });
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[AuthService] ForgotPassword: Exception - ${e.toString()}');
-      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
@@ -438,23 +420,12 @@ class AuthService {
     required String email,
     required String otp,
   }) async {
-    if (kDebugMode) {
-      debugPrint('[AuthService] VerifyOTP: Verifying OTP for email: $email');
-    }
     try {
       final response = await _api.dio.post<Map<String, dynamic>>(
         '/auth/verify-otp',
         data: {'email': email, 'otp': otp},
       );
       final body = response.data;
-      if (kDebugMode) {
-        debugPrint(
-          '[AuthService] VerifyOTP: ✅ OTP verified successfully for $email',
-        );
-        debugPrint(
-          '[AuthService] VerifyOTP: Server message: ${body?['message']}',
-        );
-      }
       return {
         'success': true,
         'message': body?['message'] as String? ?? 'OTP verified successfully',
@@ -462,9 +433,6 @@ class AuthService {
     } on DioException catch (e) {
       return _handleDioError(e, 'Invalid or expired OTP', null);
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[AuthService] VerifyOTP: Exception - ${e.toString()}');
-      }
       return {'success': false, 'message': _handleException(e)};
     }
   }
