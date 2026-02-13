@@ -610,13 +610,42 @@ const updateLeaveStatus = async (req, res) => {
 
         await leave.save();
 
-        // If approved, mark attendance as "Present" for all dates in the leave period
+        // Send FCM only to the one employee who owns this leave (leave.employeeId). Never broadcast to all.
+        const fcmService = require('../services/fcmService');
+        const leaveOwnerId = leave.employeeId && leave.employeeId._id ? leave.employeeId._id : leave.employeeId;
+        const staffForNotification = await Staff.findById(leaveOwnerId).select('fcmToken _id').lean();
+        if (!staffForNotification || String(staffForNotification._id) !== String(leaveOwnerId)) {
+            console.warn('[updateLeaveStatus] Staff for leave owner not found or mismatch – skip FCM');
+        }
+        console.log('[updateLeaveStatus] Sending notification to leave owner only: employeeId=', leaveOwnerId?.toString(), 'leaveId=', leave._id?.toString());
         if (status === 'Approved') {
             try {
                 await markAttendanceForApprovedLeave(leave);
             } catch (error) {
                 console.error('[updateLeaveStatus] Error marking attendance:', error);
-                // Don't fail the request if attendance marking fails, but log it
+            }
+            try {
+                const result = await fcmService.sendLeaveApprovedNotification(leave, staffForNotification);
+                if (result.success) {
+                    leave.fcmNotificationSentAt = new Date();
+                    await leave.save();
+                } else {
+                    console.warn('[updateLeaveStatus] FCM leave approved:', result.error);
+                }
+            } catch (error) {
+                console.error('[updateLeaveStatus] FCM send failed:', error.message);
+            }
+        } else if (status === 'Rejected') {
+            try {
+                const result = await fcmService.sendLeaveRejectedNotification(leave, staffForNotification);
+                if (result.success) {
+                    leave.fcmRejectionSentAt = new Date();
+                    await leave.save();
+                } else {
+                    console.warn('[updateLeaveStatus] FCM leave rejected:', result.error);
+                }
+            } catch (error) {
+                console.error('[updateLeaveStatus] FCM rejection send failed:', error.message);
             }
         }
 

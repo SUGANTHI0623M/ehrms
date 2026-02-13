@@ -364,72 +364,34 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     //   Sum of fines for Present/Approved days only (EXCLUDES Absent, Pending)
     final totalFines = widget.totalFine;
     
-    // Count status types from attendance records for display chips only
-    // These are for display purposes and don't affect salary calculation
-    print('═══ ATTENDANCE RECORDS (For Display Only - NOT for Calculation) ═══');
-    print('  ℹ️  Fetched ${_attendanceRecords.length} attendance records');
-    print('  ℹ️  These records are ONLY used for:');
-    print('     - Daily breakdown display');
-    print('     - Fine breakdown list');
-    print('     - Status chips count');
-    print('  ℹ️  These records are NOT used for salary calculation');
-    print('');
-    
-    int fullDayPresentCount = 0;
-    int halfDaysCount = 0;
-    int absentDaysCount = 0;
-    int pendingDaysCount = 0;
-    int leaveDaysCount = 0;
+    // Use SAME day counts as Salary Overview (from widget) so chips match "Present Days (till today)" and calculation
+    final presentForChips = widget.presentDays;
+    final halfDaysForChips = widget.halfDayPaidLeaveCount ?? 0;
+    final leaveForChips = widget.leaveDays ?? 0.0;
+    final workingTillToday = widget.workingDaysInfo.workingDays;
+    final absentForChips = (workingTillToday - presentForChips).clamp(0.0, double.infinity);
 
+    // Pending count from records only (overview doesn't show it; keep for chip if needed)
+    int pendingDaysCount = 0;
     for (final record in _attendanceRecords) {
       final status = (record['status'] as String? ?? '').trim().toLowerCase();
-      final leaveType = (record['leaveType'] as String? ?? '').trim().toLowerCase();
-      final isHalfDay = status == 'half day' || leaveType == 'half day';
-      
-      // Count by status (for display only - not used in salary calculation)
-      if (status == 'present' || status == 'approved') {
-        if (isHalfDay) {
-          halfDaysCount++;
-        } else {
-          fullDayPresentCount++;
-        }
-      } else if (status == 'on leave') {
-        leaveDaysCount++;
-      } else if (status == 'absent') {
-        absentDaysCount++;
-      } else if (status == 'pending') {
-        pendingDaysCount++;
-      }
+      if (status == 'pending') pendingDaysCount++;
     }
-    
-    print('═══ STATUS CHIPS COUNT (For Display Only) ═══');
-    print('  Present (Full Day): $fullDayPresentCount');
-    print('  Half Day: $halfDaysCount');
-    print('  Leave: $leaveDaysCount');
-    print('  Absent: $absentDaysCount');
-    if (pendingDaysCount > 0) {
-      print('  Pending: $pendingDaysCount');
-    }
-    print('  ⚠️  These counts are for UI display chips only');
-    print('  ⚠️  Salary calculation uses widget.presentDays = ${widget.presentDays.toStringAsFixed(1)}');
-    print('');
-    print('═══════════════════════════════════════════════════════════════════════');
-    print('');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Summary Card - Use "This Month Net" from salary overview
+          // Summary Card - Use same day counts as Salary Overview (widget.presentDays, etc.)
           _buildSummaryCard(
             currencyFormat,
             displayThisMonthNet,
             totalFines,
-            fullDayPresentCount,
-            halfDaysCount,
-            leaveDaysCount,
-            absentDaysCount,
+            presentForChips,
+            halfDaysForChips,
+            leaveForChips,
+            absentForChips,
             pendingDaysCount,
           ),
           const SizedBox(height: 16),
@@ -445,14 +407,20 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     );
   }
 
+  /// Formats a day count for chip display (integer if whole, else one decimal).
+  String _formatDayChip(num value) {
+    final d = value.toDouble();
+    return d == d.roundToDouble() ? '${d.toInt()}' : d.toStringAsFixed(1);
+  }
+
   Widget _buildSummaryCard(
     NumberFormat currencyFormat,
     double thisMonthNet,
     double totalFines,
-    int presentDays,
+    double presentDays,
     int halfDays,
-    int leaveDays,
-    int absentDays,
+    double leaveDays,
+    double absentDays,
     int pendingDays,
   ) {
     return Container(
@@ -499,14 +467,27 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             spacing: 16,
             runSpacing: 8,
             children: [
-              _buildStatChip('Present: $presentDays', Colors.green),
+              _buildStatChip('Present: ${_formatDayChip(presentDays)}', Colors.green),
               _buildStatChip('Half Day: $halfDays', Colors.blue),
-              _buildStatChip('Leave: $leaveDays', Colors.orange),
-              _buildStatChip('Absent: $absentDays', Colors.red),
+              _buildStatChip('Leave: ${_formatDayChip(leaveDays)}', Colors.orange),
+              _buildStatChip('Absent: ${_formatDayChip(absentDays)}', Colors.red),
               if (pendingDays > 0)
                 _buildStatChip('Pending: $pendingDays', Colors.orange),
             ],
           ),
+          if (leaveDays > 0) ...[
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Text(
+                'Leave = approved leave days this month (from attendance).',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.85),
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

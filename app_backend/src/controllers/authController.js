@@ -195,6 +195,14 @@ const login = async (req, res) => {
             return res.status(401).json({ success: false, error: { message: 'User record not found' } });
         }
 
+        // Only Active (or On Leave) staff can login; block Deactivated
+        if (staff && (staff.status || '').toString().toLowerCase() === 'deactivated') {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Your account has been deactivated. Please contact HR.' }
+            });
+        }
+
         // Prevent candidates from logging in
         if (user.role && user.role.toLowerCase() === 'candidate') {
             return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
@@ -297,6 +305,14 @@ const googleLogin = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User not registered. Please sign up first.' } });
+        }
+
+        // Only Active (or On Leave) staff can login; block Deactivated
+        if (staff && (staff.status || '').toString().toLowerCase() === 'deactivated') {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Your account has been deactivated. Please contact HR.' }
+            });
         }
 
         // Prevent candidates from logging in
@@ -1184,6 +1200,25 @@ function toUserFriendlyVerifyMessage(raw) {
     return 'Face not matching. Please try again.';
 }
 
+/**
+ * GET /auth/check-active (protected)
+ * Returns { active: boolean } for current staff. Used by app to poll every 5s; if active is false (deactivated), app logs out silently.
+ */
+const checkActive = async (req, res) => {
+    try {
+        const staffId = req.staff?._id;
+        if (!staffId) {
+            return res.status(401).json({ success: false, active: false });
+        }
+        const staff = await Staff.findById(staffId).select('status').lean();
+        const active = staff && (staff.status || '').toString().toLowerCase() !== 'deactivated';
+        return res.json({ success: true, active: !!active });
+    } catch (err) {
+        console.error('[authController] checkActive:', err.message);
+        return res.status(500).json({ success: false, active: false });
+    }
+};
+
 module.exports = {
     login,
     googleLogin,
@@ -1197,5 +1232,6 @@ module.exports = {
     resetPassword,
     changePassword,
     updateProfilePhoto,
-    verifyFace
+    verifyFace,
+    checkActive
 };

@@ -295,36 +295,40 @@ class _SelfAssessmentScreenState extends State<SelfAssessmentScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                OutlinedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const MyReviewsScreen(),
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: BorderSide(color: AppColors.primary),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyReviewsScreen(),
+                        ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: BorderSide(color: AppColors.primary),
+                    ),
+                    child: const Text('View Details'),
                   ),
-                  child: const Text('View Details'),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => SelfAssessmentFormScreen(reviewId: id),
-                      ),
-                    ).then((_) => _fetchPendingReviews());
-                  },
-                  icon: const Icon(Icons.edit_rounded, size: 14),
-                  label: const Text('Start Assessment'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SelfAssessmentFormScreen(reviewId: id),
+                        ),
+                      ).then((_) => _fetchPendingReviews());
+                    },
+                    icon: const Icon(Icons.edit_rounded, size: 14),
+                    label: const Text('Start Assessment'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
               ],

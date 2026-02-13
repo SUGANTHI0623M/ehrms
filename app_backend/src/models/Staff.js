@@ -26,6 +26,8 @@ const staffSchema = new mongoose.Schema({
         line1: String,
         city: String,
         state: String,
+        postalCode: String,
+        country: String,
     },
     // Employment IDs (direct fields, not nested)
     uan: { type: String },
@@ -48,6 +50,9 @@ const staffSchema = new mongoose.Schema({
 
     // Tasks module visibility – when true, show Tasks in app drawer
     locationAccess: { type: Boolean, default: false },
+
+    // FCM token for push notifications (set by app via POST /api/notifications/fcm-token)
+    fcmToken: { type: String },
 
     salary: {
         // Fixed Salary Components (Monthly)

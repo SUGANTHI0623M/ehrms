@@ -26,6 +26,7 @@ const customerRoutes = require('./src/routes/customerRoutes');
 const pmsRoutes = require('./src/routes/pmsRoutes');
 const performanceRoutes = require('./src/routes/performanceRoutes');
 const lmsRoutes = require('./src/routes/lmsRoutes');
+const notificationRoutes = require('./src/routes/notificationRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -104,8 +105,10 @@ app.use('/api/onboarding/customers', customerRoutes);
 app.use('/api/pms', pmsRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/lms', lmsRoutes);
+app.use('/api/notifications', notificationRoutes);
 console.log('[Server] Customer routes registered at /api/onboarding/customers');
 console.log('[Server] LMS routes registered at /api/lms');
+console.log('[Server] Notification routes registered at /api/notifications');
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

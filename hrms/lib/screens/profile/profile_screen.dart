@@ -564,13 +564,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                           _buildHeaderBadge(
                             status,
                             Colors.white.withOpacity(0.2),
+                            fontSize: 10,
                           ),
                           if (joiningDate != null) ...[
                             const SizedBox(width: 8),
                             _buildHeaderBadge(
                               'Joined: ${_formatDate(joiningDate)}',
                               Colors.white.withOpacity(0.2),
-                              fontSize: 10,
+                              fontSize: 9,
                             ),
                           ],
                         ],
@@ -626,20 +627,18 @@ class _ProfileScreenState extends State<ProfileScreen>
           const SizedBox(height: 24),
           const Divider(color: Colors.white24),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.email_outlined, email),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.phone_outlined, phone),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.business_outlined, dept),
-              ),
+              if (email.isNotEmpty)
+                _buildHeaderInfoRow(Icons.email_outlined, email, maxLines: 2),
+              if (email.isNotEmpty && (phone.isNotEmpty || dept.isNotEmpty))
+                const SizedBox(height: 12),
+              if (phone.isNotEmpty)
+                _buildHeaderInfoRow(Icons.phone_outlined, phone),
+              if (phone.isNotEmpty && dept.isNotEmpty) const SizedBox(height: 12),
+              if (dept.isNotEmpty)
+                _buildHeaderInfoRow(Icons.business_outlined, dept),
             ],
           ),
         ],
@@ -647,19 +646,21 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildHeaderInfoItem(IconData icon, String text) {
+  Widget _buildHeaderInfoRow(IconData icon, String text, {int maxLines = 1}) {
     if (text.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, color: Colors.white70, size: 18),
-        const SizedBox(height: 4),
-        Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-          maxLines: 1,
-          textAlign: TextAlign.center,
-          overflow: TextOverflow.ellipsis,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            maxLines: maxLines,
+            textAlign: TextAlign.left,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
@@ -667,7 +668,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildHeaderBadge(String text, Color color, {double? fontSize}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(20),
@@ -677,7 +678,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         text,
         style: TextStyle(
           color: Colors.white,
-          fontSize: fontSize ?? 12,
+          fontSize: fontSize ?? 10,
           fontWeight: FontWeight.w600,
         ),
         overflow: TextOverflow.ellipsis,
@@ -713,6 +714,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                   addr['line1']?.toString().trim() ?? '',
                   addr['city']?.toString().trim() ?? '',
                   addr['state']?.toString().trim() ?? '',
+                  addr['postalCode']?.toString().trim() ?? '',
+                  addr['country']?.toString().trim() ?? '',
                 ].where((p) => p.isNotEmpty).toList();
 
                 if (parts.isEmpty) {
@@ -1567,16 +1570,22 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.left,
+              softWrap: true,
+              overflow: TextOverflow.clip,
+            ),
           ),
-          textAlign: TextAlign.left,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -2644,29 +2653,48 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
         return false;
       }
 
-      // Validate date formats
-      try {
-        DateFormat('yyyy-MM-dd').parseStrict(durationFrom);
-      } catch (e) {
+      // Validate date formats (accept YYYY-MM-DD, DD-MM-YYYY, or ISO; normalize to YYYY-MM-DD)
+      final fromNormalized = _normalizeExperienceDate(durationFrom);
+      final toNormalized = _normalizeExperienceDate(durationTo);
+      if (fromNormalized.isEmpty || toNormalized.isEmpty) {
         SnackBarUtils.showSnackBar(
           context,
-          'Invalid date format for "From Date" in Experience ${i + 1}. Use YYYY-MM-DD format',
+          'Invalid date format for dates in Experience ${i + 1}. Use DD-MM-YYYY or YYYY-MM-DD',
           isError: true,
         );
         return false;
       }
       try {
-        DateFormat('yyyy-MM-dd').parseStrict(durationTo);
+        DateFormat('yyyy-MM-dd').parseStrict(fromNormalized);
+        DateFormat('yyyy-MM-dd').parseStrict(toNormalized);
       } catch (e) {
         SnackBarUtils.showSnackBar(
           context,
-          'Invalid date format for "To Date" in Experience ${i + 1}. Use YYYY-MM-DD format',
+          'Invalid date format for dates in Experience ${i + 1}. Use DD-MM-YYYY or YYYY-MM-DD',
           isError: true,
         );
         return false;
       }
     }
     return true;
+  }
+
+  /// Normalize experience date string to YYYY-MM-DD for API (accepts ISO, YYYY-MM-DD, DD-MM-YYYY).
+  String _normalizeExperienceDate(String value) {
+    final s = value.trim();
+    if (s.isEmpty || s == 'Present') return s;
+    try {
+      return DateFormat('yyyy-MM-dd').format(DateTime.parse(s));
+    } catch (_) {}
+    try {
+      final dt = DateFormat('yyyy-MM-dd').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('dd-MM-yyyy').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    return '';
   }
 
   List<Map<String, dynamic>> _collectExperience() {
@@ -2676,8 +2704,12 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
             'company': (e['company'] ?? '').toString().trim(),
             'role': (e['role'] ?? '').toString().trim(),
             'designation': (e['designation'] ?? '').toString().trim(),
-            'durationFrom': (e['durationFrom'] ?? '').toString().trim(),
-            'durationTo': (e['durationTo'] ?? '').toString().trim(),
+            'durationFrom': _normalizeExperienceDate(
+              (e['durationFrom'] ?? '').toString().trim(),
+            ),
+            'durationTo': _normalizeExperienceDate(
+              (e['durationTo'] ?? '').toString().trim(),
+            ),
             'keyResponsibilities': (e['keyResponsibilities'] ?? '')
                 .toString()
                 .trim(),
@@ -2826,20 +2858,33 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
   DateTime? _selectedFromDate;
   DateTime? _selectedToDate;
 
+  /// Normalize any date string (ISO, YYYY-MM-DD, or DD-MM-YYYY) to YYYY-MM-DD for storage and API.
+  static String _normalizeDateToApiFormat(dynamic date) {
+    if (date == null) return '';
+    if (date is DateTime) {
+      return DateFormat('yyyy-MM-dd').format(date);
+    }
+    final s = date.toString().trim();
+    if (s.isEmpty || s == 'Present') return s;
+    try {
+      final dt = DateTime.parse(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('yyyy-MM-dd').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('dd-MM-yyyy').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    return s;
+  }
+
   @override
   void initState() {
     super.initState();
     final e = widget.entry;
-
-    // Handle dates - convert Date objects to strings for display
-    String formatDate(dynamic date) {
-      if (date == null) return '';
-      if (date is String) return date;
-      if (date is DateTime) {
-        return DateFormat('yyyy-MM-dd').format(date);
-      }
-      return date.toString();
-    }
 
     _companyController = TextEditingController(
       text: (e['company'] ?? '').toString(),
@@ -2849,28 +2894,22 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
       text: (e['designation'] ?? '').toString(),
     );
 
-    // Parse dates
-    final fromDateStr = formatDate(e['durationFrom']);
-    final toDateStr = formatDate(e['durationTo']);
+    // Parse dates: normalize to YYYY-MM-DD so controller always has API format (avoids "Invalid date format" on save)
+    final fromDateStr = _normalizeDateToApiFormat(e['durationFrom']);
+    final toDateStr = _normalizeDateToApiFormat(e['durationTo']);
 
     _fromController = TextEditingController(text: fromDateStr);
     _toController = TextEditingController(text: toDateStr);
 
-    // Parse dates to DateTime objects if available
     if (fromDateStr.isNotEmpty && fromDateStr != 'Present') {
       try {
         _selectedFromDate = DateFormat('yyyy-MM-dd').parse(fromDateStr);
-      } catch (e) {
-        // Invalid date format, leave as null
-      }
+      } catch (_) {}
     }
-
     if (toDateStr.isNotEmpty && toDateStr != 'Present') {
       try {
         _selectedToDate = DateFormat('yyyy-MM-dd').parse(toDateStr);
-      } catch (e) {
-        // Invalid date format, leave as null
-      }
+      } catch (_) {}
     }
 
     _responsibilitiesController = TextEditingController(
@@ -3308,6 +3347,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late TextEditingController _addrLine1Controller;
   late TextEditingController _cityController;
   late TextEditingController _stateController;
+  late TextEditingController _postalCodeController;
+  late TextEditingController _countryController;
   late TextEditingController _bankNameController;
   late TextEditingController _accNumController;
   late TextEditingController _ifscController;
@@ -3345,6 +3386,29 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     return null;
   }
 
+  String? _validatePostalCode(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final v = value.trim();
+    if (v.length < 3 || v.length > 10) {
+      return 'Postal code must be 3–10 digits';
+    }
+    if (!RegExp(r'^\d+$').hasMatch(v)) {
+      return 'Postal code must contain only numbers';
+    }
+    return null;
+  }
+
+  String? _validateCountry(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    if (value.trim().length < 2) {
+      return 'Country must be at least 2 characters';
+    }
+    if (value.trim().length > 56) {
+      return 'Country name too long';
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3378,6 +3442,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _addrLine1Controller = TextEditingController(text: d['address']?['line1']);
     _cityController = TextEditingController(text: d['address']?['city']);
     _stateController = TextEditingController(text: d['address']?['state']);
+    _postalCodeController = TextEditingController(text: d['address']?['postalCode']);
+    _countryController = TextEditingController(text: d['address']?['country']);
     _bankNameController = TextEditingController(
       text: d['bankDetails']?['bankName'],
     );
@@ -3418,6 +3484,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _addrLine1Controller.dispose();
     _cityController.dispose();
     _stateController.dispose();
+    _postalCodeController.dispose();
+    _countryController.dispose();
     _bankNameController.dispose();
     _accNumController.dispose();
     _ifscController.dispose();
@@ -3464,6 +3532,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             const Divider(),
             Expanded(
               child: SingleChildScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -3543,6 +3615,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       _addrLine1Controller,
                       'Address Line 1',
                       Icons.location_on,
+                      maxLines: 3,
                     ),
                     Row(
                       children: [
@@ -3563,6 +3636,19 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         ),
                       ],
                     ),
+                    _buildTextField(
+                      _postalCodeController,
+                      'Postal Code',
+                      Icons.markunread_mailbox,
+                      keyboardType: TextInputType.number,
+                      validator: _validatePostalCode,
+                    ),
+                    _buildTextField(
+                      _countryController,
+                      'Country',
+                      Icons.public,
+                      validator: _validateCountry,
+                    ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Employment IDs'),
                     _buildTextField(
@@ -3580,24 +3666,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       'Aadhaar Number',
                       Icons.perm_identity,
                     ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            _pfNumberController,
-                            'PF Number',
-                            Icons.numbers,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildTextField(
-                            _esiNumberController,
-                            'ESI Number',
-                            Icons.numbers,
-                          ),
-                        ),
-                      ],
+                    _buildTextField(
+                      _pfNumberController,
+                      'PF Number',
+                      Icons.numbers,
+                    ),
+                    _buildTextField(
+                      _esiNumberController,
+                      'ESI Number',
+                      Icons.numbers,
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Bank Details'),
@@ -3713,6 +3790,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         'line1': _addrLine1Controller.text,
                         'city': _cityController.text,
                         'state': _stateController.text,
+                        'postalCode': _postalCodeController.text.trim(),
+                        'country': _countryController.text.trim(),
                       },
                       'employmentIds': {
                         'uan': _uanController.text,
@@ -3843,6 +3922,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     String? Function(String?)? validator,
     bool obscureText = false,
     Widget? suffixIcon,
+    int? maxLines,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -3851,10 +3931,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         keyboardType: keyboardType,
         validator: validator,
         obscureText: obscureText,
+        maxLines: maxLines ?? 1,
         style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 48,
+            minHeight: 24,
+          ),
           suffixIcon: suffixIcon,
           labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
           border: OutlineInputBorder(
@@ -3869,11 +3954,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: AppColors.primary, width: 2),
           ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
-          ),
+          contentPadding: const EdgeInsets.fromLTRB(12, 16, 16, 16),
+          alignLabelWithHint: maxLines != null && maxLines > 1,
         ),
+        scrollPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
       ),
     );
   }

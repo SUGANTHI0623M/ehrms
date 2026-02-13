@@ -1,0 +1,75 @@
+// When app is open and user is logged in, check every 5s if staff is still active.
+// If deactivated, logout silently (no notification) and navigate to login.
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../bloc/auth/auth_bloc.dart';
+import '../screens/auth/login_screen.dart';
+import '../services/auth_service.dart';
+
+class DeactivationCheckWrapper extends StatefulWidget {
+  const DeactivationCheckWrapper({
+    super.key,
+    required this.child,
+    required this.navigatorKey,
+  });
+
+  final Widget child;
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  @override
+  State<DeactivationCheckWrapper> createState() => _DeactivationCheckWrapperState();
+}
+
+class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> with WidgetsBindingObserver {
+  Timer? _timer;
+  static const Duration _checkInterval = Duration(seconds: 5);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _scheduleNextCheck();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _scheduleNextCheck();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  void _scheduleNextCheck() {
+    _timer?.cancel();
+    _timer = Timer.periodic(_checkInterval, (_) => _checkActive());
+  }
+
+  Future<void> _checkActive() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('token') == null || prefs.getString('token')!.isEmpty) return;
+    final active = await AuthService().checkStaffActive();
+    if (active == false && mounted) {
+      _timer?.cancel();
+      _timer = null;
+      context.read<AuthBloc>().add(AuthLogoutRequested());
+      widget.navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (_) => false,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}

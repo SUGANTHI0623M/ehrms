@@ -285,7 +285,7 @@ const applyLeave = async (req, res) => {
 // Resolves approvedBy name from Staff collection first, then User (same pattern as loan details).
 const getLeaveRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -296,6 +296,17 @@ const getLeaveRequests = async (req, res) => {
 
         if (status && status !== 'All Status') {
             query.status = status;
+        }
+
+        // Filter by from-to date range: leave overlaps [startDate, endDate]
+        if (startDate || endDate) {
+            query.$and = query.$and || [];
+            if (startDate) {
+                query.$and.push({ endDate: { $gte: new Date(startDate) } });
+            }
+            if (endDate) {
+                query.$and.push({ startDate: { $lte: new Date(endDate) } });
+            }
         }
 
         const leaves = await Leave.find(query)
@@ -381,7 +392,7 @@ const applyLoan = async (req, res) => {
 // Resolves approvedBy name from User first (Loan ref), then Staff if needed.
 const getLoanRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -392,6 +403,12 @@ const getLoanRequests = async (req, res) => {
 
         if (status && status !== 'All Status') {
             query.status = status;
+        }
+
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) query.createdAt.$lte = new Date(endDate);
         }
 
         const loans = await Loan.find(query).sort({ createdAt: -1 }).lean();
@@ -464,7 +481,7 @@ const applyExpense = async (req, res) => {
 // @access  Private
 const getExpenseRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -475,6 +492,12 @@ const getExpenseRequests = async (req, res) => {
 
         if (status && status !== 'All Status') {
             query.status = status;
+        }
+
+        if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = new Date(startDate);
+            if (endDate) query.date.$lte = new Date(endDate);
         }
 
         const expenses = await Expense.find(query).sort({ createdAt: -1 });

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../config/constants.dart';
 import 'api_client.dart';
+import 'fcm_service.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -65,6 +66,7 @@ class AuthService {
         }
       }
       _api.setAuthToken(accessToken);
+      await FcmService.sendTokenToBackend();
       return {'success': true, 'data': data};
     } on DioException catch (e) {
       return _handleDioError(e, 'Login failed', (code, body) {
@@ -178,6 +180,7 @@ class AuthService {
         }
       }
       _api.setAuthToken(data?['accessToken']);
+      await FcmService.sendTokenToBackend();
       return {'success': true, 'data': data};
     } on DioException catch (e) {
       return _handleDioError(e, 'Login failed', (code, body) {
@@ -357,8 +360,16 @@ class AuthService {
   }
 
   Future<void> logout() async {
-    _api.clearAuthToken();
     final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token != null && token.isNotEmpty) {
+      final t = token.startsWith('"') || token.endsWith('"') ? token.replaceAll('"', '') : token;
+      _api.setAuthToken(t);
+      try {
+        await _api.dio.post<dynamic>('/notifications/fcm-token', data: {'fcmToken': ''});
+      } catch (_) {}
+    }
+    _api.clearAuthToken();
     await prefs.clear();
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
@@ -367,6 +378,26 @@ class AuthService {
   Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token');
+  }
+
+  /// Returns true if staff is still active, false if deactivated (or 401), null on network/error (no logout).
+  Future<bool?> checkStaffActive() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+    if (token == null || token.isEmpty) return null;
+    if (token.startsWith('"') || token.endsWith('"')) token = token.replaceAll('"', '');
+    try {
+      _api.setAuthToken(token);
+      final response = await _api.dio.get<Map<String, dynamic>>('/auth/check-active');
+      final data = response.data;
+      if (data == null) return null;
+      return data['active'] == true;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return false;
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Task settings (enableOtpVerification, autoApprove, etc.) stored on login.

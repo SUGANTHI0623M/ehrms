@@ -35,7 +35,11 @@ const leaveSchema = new mongoose.Schema({
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
     approvedAt: { type: Date },
     rejectionReason: { type: String },
-    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
+    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+    // Set when FCM "leave approved" notification has been sent (by API or cron)
+    fcmNotificationSentAt: { type: Date },
+    // Set when FCM "leave rejected" notification has been sent
+    fcmRejectionSentAt: { type: Date }
 }, { timestamps: true });
 
 leaveSchema.index({ employeeId: 1 });

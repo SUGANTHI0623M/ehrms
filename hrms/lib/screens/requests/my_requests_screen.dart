@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -182,6 +183,106 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
         return null;
     }
   }
+}
+
+/// Shows a single calendar in a bottom sheet to select from-date and to-date (range) in the same calendar.
+/// Returns [DateTimeRange] with start at 00:00:00 and end at 23:59:59 of the selected days, or null if dismissed.
+Future<DateTimeRange?> showDateRangePickerSameCalendar({
+  required BuildContext context,
+  required DateTime firstDate,
+  required DateTime lastDate,
+  DateTime? initialStart,
+  DateTime? initialEnd,
+}) async {
+  final now = DateTime.now();
+  DateTime? rangeStart = initialStart != null ? DateTime(initialStart.year, initialStart.month, initialStart.day) : null;
+  DateTime? rangeEnd = initialEnd != null ? DateTime(initialEnd.year, initialEnd.month, initialEnd.day) : null;
+  DateTime focusedDay = rangeEnd ?? rangeStart ?? DateTime(now.year, now.month, now.day);
+
+  final result = await showModalBottomSheet<DateTimeRange>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (context, setModalState) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.6,
+            minChildSize: 0.4,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) => Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Select from - to date', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                        TextButton(
+                          onPressed: () {
+                            if (rangeStart != null && rangeEnd != null) {
+                              final start = rangeStart!.isAfter(rangeEnd!) ? rangeEnd! : rangeStart!;
+                              final end = rangeStart!.isAfter(rangeEnd!) ? rangeStart! : rangeEnd!;
+                              Navigator.pop(context, DateTimeRange(start: start, end: end));
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Select start and end date in the calendar')),
+                              );
+                            }
+                          },
+                          child: const Text('Apply'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      child: TableCalendar(
+                        firstDay: DateTime(firstDate.year, firstDate.month, firstDate.day),
+                        lastDay: DateTime(lastDate.year, lastDate.month, lastDate.day),
+                        focusedDay: focusedDay,
+                        rangeStartDay: rangeStart,
+                        rangeEndDay: rangeEnd,
+                        rangeSelectionMode: RangeSelectionMode.enforced,
+                        onRangeSelected: (start, end, focused) {
+                          setModalState(() {
+                            rangeStart = start;
+                            rangeEnd = end;
+                            focusedDay = focused;
+                          });
+                        },
+                        onPageChanged: (focused) {
+                          setModalState(() => focusedDay = focused);
+                        },
+                        calendarFormat: CalendarFormat.month,
+                        headerStyle: HeaderStyle(
+                          formatButtonVisible: false,
+                          titleCentered: true,
+                        ),
+                        calendarStyle: CalendarStyle(
+                          rangeStartDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          rangeEndDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          rangeHighlightColor: AppColors.primary.withOpacity(0.2),
+                          selectedDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.5), shape: BoxShape.circle),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+  return result;
 }
 
 /// Reusable bottom sheet for request details (Leave, Loan, Expense, Payslip).
@@ -424,18 +525,19 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     }
   }
 
-  /// Pick a date; leaves and balances are shown for that date's month.
-  Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
+  /// Pick from-date and to-date in same calendar; leaves and balances are shown for that range.
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
-      initialDate: _startDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
-        _startDate = _firstDayOfMonth(picked);
-        _endDate = _lastDayOfMonth(picked);
+        _startDate = picked.start;
+        _endDate = picked.end;
       });
       _fetchLeaves();
     }
@@ -828,7 +930,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                     ),
                     const SizedBox(width: 10),
                     InkWell(
-                      onTap: _pickMonth,
+                      onTap: _pickDateRange,
                       child: Container(
                         height: 48,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -845,12 +947,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _startDate == null
-                                  ? 'Select month'
-                                  : DateFormat('MMM yyyy').format(_startDate!),
+                              _startDate == null || _endDate == null
+                                  ? 'Select from - to date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
                               style: const TextStyle(color: Colors.black),
                             ),
-                            if (_startDate != null)
+                            if (_startDate != null && _endDate != null)
                               IconButton(
                                 icon: const Icon(Icons.close, size: 16),
                                 onPressed: _resetToCurrentMonth,
@@ -1653,6 +1755,9 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
     _fetchLoans();
   }
 
@@ -1711,10 +1816,12 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
@@ -2470,6 +2577,9 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0);
     _fetchExpenses();
   }
 
@@ -2512,10 +2622,12 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
@@ -3547,6 +3659,9 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
     _fetchRequests();
   }
 
@@ -4076,10 +4191,12 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {

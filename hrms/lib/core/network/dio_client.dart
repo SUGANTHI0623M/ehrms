@@ -76,8 +76,10 @@ class DebugLogInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (kDebugMode) {
+      final status = err.response?.statusCode;
+      final msg = err.message ?? err.type.name;
       debugPrint(
-        '[DioClient] Error ${err.response?.statusCode} ${err.requestOptions.uri}',
+        '[DioClient] Error ${status ?? msg} ${err.requestOptions.uri}',
       );
     }
     handler.next(err);

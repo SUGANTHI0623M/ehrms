@@ -15,7 +15,8 @@ const {
     resetPassword,
     changePassword,
     updateProfilePhoto,
-    verifyFace
+    verifyFace,
+    checkActive
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const multer = require('multer');
@@ -45,6 +46,9 @@ router.post('/forgot-password', authLimiter, forgotPassword);
 console.log('[AuthRoutes] Registered POST /forgot-password');
 router.post('/verify-otp', authLimiter, verifyOTP);
 router.post('/reset-password', authLimiter, resetPassword);
+
+// Check if current staff is still active (app polls every 5s; deactivated -> silent logout)
+router.get('/check-active', protect, checkActive);
 
 // Authenticated profile routes (auth check first, then rate limit)
 router.get('/profile', protect, authLimiter, getProfile);
