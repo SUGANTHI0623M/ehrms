@@ -1609,36 +1609,46 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     if (_monthData != null && _monthData!['attendance'] != null) {
       for (var entry in _monthData!['attendance']) {
         try {
-          final d = DateTime.parse(entry['date']).toLocal();
-          final dateStr = DateFormat('yyyy-MM-dd').format(d);
-          // Check both year and month to ensure correct matching
-          if (d.year == _selectedMonth.year &&
-              d.month == _selectedMonth.month) {
-            dayStatusByDate[dateStr] = entry['status'] ?? 'Present';
-            final leaveType = entry['leaveType'] as String?;
-            if (leaveType != null && leaveType.isNotEmpty) {
-              dayLeaveTypeByDate[dateStr] = leaveType;
-            }
-            num? workHours = entry['workHours'] as num?;
+          // Use date-only from API so calendar day matches backend (avoids timezone shifting)
+          final dateVal = entry['date'];
+          String dateStr;
+          if (dateVal is String && dateVal.toString().contains('T')) {
+            dateStr = dateVal.toString().split('T').first;
+          } else {
+            final d = DateTime.parse(dateVal.toString()).toLocal();
+            dateStr = DateFormat('yyyy-MM-dd').format(d);
+          }
+          final parts = dateStr.split('-');
+          if (parts.length != 3) continue;
+          final dayYear = int.tryParse(parts[0]) ?? 0;
+          final dayMonth = int.tryParse(parts[1]) ?? 0;
+          if (dayYear != _selectedMonth.year || dayMonth != _selectedMonth.month) {
+            continue;
+          }
+          dayStatusByDate[dateStr] = entry['status'] ?? 'Present';
+          final leaveType = entry['leaveType'] as String?;
+          if (leaveType != null && leaveType.isNotEmpty) {
+            dayLeaveTypeByDate[dateStr] = leaveType;
+          }
+          num? workHours = entry['workHours'] as num?;
 
-            // Calculate workHours from punchIn and punchOut if not available
-            if (workHours == null) {
-              final punchIn = entry['punchIn'];
-              final punchOut = entry['punchOut'];
-              if (punchIn != null && punchOut != null) {
-                try {
-                  final punchInTime = DateTime.parse(punchIn).toLocal();
-                  final punchOutTime = DateTime.parse(punchOut).toLocal();
-                  final duration = punchOutTime.difference(punchInTime);
-                  workHours = duration.inMinutes / 60.0; // Convert to hours
-                } catch (_) {
-                  // If parsing fails, leave workHours as null
-                }
+          // Calculate workHours from punchIn and punchOut if not available
+          if (workHours == null) {
+            final punchIn = entry['punchIn'];
+            final punchOut = entry['punchOut'];
+            if (punchIn != null && punchOut != null) {
+              try {
+                final punchInTime = DateTime.parse(punchIn.toString()).toLocal();
+                final punchOutTime = DateTime.parse(punchOut.toString()).toLocal();
+                final duration = punchOutTime.difference(punchInTime);
+                workHours = duration.inMinutes / 60.0; // Convert to hours
+              } catch (_) {
+                // If parsing fails, leave workHours as null
               }
             }
-
-            dayWorkHoursByDate[dateStr] = workHours;
           }
+
+          dayWorkHoursByDate[dateStr] = workHours;
         } catch (e) {
           // Skip invalid date entries
           continue;
@@ -1833,12 +1843,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               final status = dayStatusByDate[dateStr];
               final hasLeaveType = dayLeaveTypeByDate.containsKey(dateStr);
               // Never treat as present when record is Pending/Absent/Rejected (trust attendance list over presentDates)
+              final isAbsentStatus =
+                  (status ?? '').toString().toLowerCase() == 'absent';
               final isPresentStatus =
                   (status == 'Present' ||
                       status == 'Approved' ||
                       isPresentFromBackend) &&
                   status != 'Pending' &&
-                  status != 'Absent' &&
+                  !isAbsentStatus &&
                   status != 'Rejected';
               final isHalfDayStatus =
                   status == 'Half Day' || (status?.toLowerCase() == 'half day');
@@ -1867,10 +1879,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               else if (isPresentStatus) {
                 bgColor = const Color(0xFFDCFCE7); // Present - Light Green
               }
-              // 7. Other attendance statuses (Pending treated as Absent)
+              // 7. Other attendance statuses (Pending treated as Absent). Show red when status is Absent in attendances collection.
               else if (dayStatusByDate.containsKey(dateStr)) {
                 if (status == 'Pending' ||
-                    status == 'Absent' ||
+                    isAbsentStatus ||
                     status == 'Rejected') {
                   bgColor = const Color(0xFFFEE2E2); // Absent - Light red
                 } else if (status == 'On Leave') {
@@ -1913,12 +1925,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // - If Half Day → Show "HA" (blue background)
               // - If Leave date without attendance → Show "L" (purple background)
               final statusForDay = dayStatusByDate[dateStr] ?? '';
+              final isAbsentStatusForAbbr =
+                  (statusForDay.toString().toLowerCase() == 'absent');
               final isPresentStatusForAbbr =
                   (statusForDay == 'Present' ||
                       statusForDay == 'Approved' ||
                       isPresentFromBackend) &&
                   statusForDay != 'Pending' &&
-                  statusForDay != 'Absent' &&
+                  !isAbsentStatusForAbbr &&
                   statusForDay != 'Rejected';
               final isHalfDayStatusForAbbr =
                   statusForDay == 'Half Day' ||

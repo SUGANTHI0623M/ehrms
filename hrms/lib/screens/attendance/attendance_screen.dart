@@ -275,10 +275,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         if (_monthData!['attendance'] != null) {
           for (var entry in _monthData!['attendance']) {
             try {
-              final d = DateTime.parse(entry['date']).toLocal();
-              // Ensure we only map dates for the requested month/year
-              if (d.year != year || d.month != month) continue;
-              final dateStr = DateFormat('yyyy-MM-dd').format(d);
+              // Use date-only from API so calendar day matches backend (avoids timezone shifting e.g. Feb 4 UTC becoming Feb 3 in UTC-)
+              final dateVal = entry['date'];
+              String dateStr;
+              if (dateVal is String && dateVal.toString().contains('T')) {
+                dateStr = dateVal.toString().split('T').first;
+              } else {
+                final d = DateTime.parse(dateVal.toString()).toLocal();
+                dateStr = DateFormat('yyyy-MM-dd').format(d);
+              }
+              final parts = dateStr.split('-');
+              if (parts.length != 3) continue;
+              final dayYear = int.tryParse(parts[0]) ?? 0;
+              final dayMonth = int.tryParse(parts[1]) ?? 0;
+              if (dayYear != year || dayMonth != month) continue;
 
               _dayStatusByDate[dateStr] =
                   (entry['status'] as String?) ?? 'Present';
@@ -1992,12 +2002,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final status = _dayStatusByDate[dateStr];
       final hasLeaveType = _dayLeaveTypeByDate.containsKey(dateStr);
       // Never treat as present when record is Pending/Absent/Rejected (trust attendance list over presentDates)
+      final isAbsentStatus = (status ?? '').toString().toLowerCase() == 'absent';
       final isPresentStatus =
           (status == 'Present' ||
               status == 'Approved' ||
               isPresentFromBackend) &&
           status != 'Pending' &&
-          status != 'Absent' &&
+          !isAbsentStatus &&
           status != 'Rejected';
       final isHalfDayStatus =
           status == 'Half Day' || (status?.toLowerCase() == 'half day');
@@ -2026,9 +2037,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       else if (isPresentStatus) {
         bgColor = const Color(0xFFDCFCE7); // Present - Light Green
       }
-      // 7. Other attendance statuses (Pending treated as Absent)
+      // 7. Other attendance statuses (Pending treated as Absent). Show red when status is Absent in attendances collection.
       else if (_dayStatusByDate.containsKey(dateStr)) {
-        if (status == 'Pending' || status == 'Absent' || status == 'Rejected') {
+        if (status == 'Pending' || isAbsentStatus || status == 'Rejected') {
           bgColor = const Color(0xFFFEE2E2); // Absent - light red
         } else if (status == 'On Leave') {
           bgColor = const Color(0xFFBFDBFE); // On Leave - light blue
@@ -2055,12 +2066,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // - If Half Day → Show "HA" (blue background)
       // - If Leave date without attendance → Show "L" (purple background)
       final statusForDay = _dayStatusByDate[dateStr] ?? '';
+      final isAbsentStatusForAbbr =
+          (statusForDay.toString().toLowerCase() == 'absent');
       final isPresentStatusForAbbr =
           (statusForDay == 'Present' ||
               statusForDay == 'Approved' ||
               isPresentFromBackend) &&
           statusForDay != 'Pending' &&
-          statusForDay != 'Absent' &&
+          !isAbsentStatusForAbbr &&
           statusForDay != 'Rejected';
       final isHalfDayStatusForAbbr =
           statusForDay == 'Half Day' ||

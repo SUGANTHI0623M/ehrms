@@ -1686,11 +1686,13 @@ const getMonthAttendance = async (req, res) => {
                     const attDateStr = formatDateString(a.date);
                     return attDateStr === dateStr;
                 });
-                // Only treat as present when status is Present or Approved (not Pending, Absent, Rejected)
                 if (attRecord) {
                     const status = (attRecord.status || '').trim().toLowerCase();
                     if (status === 'present' || status === 'approved') {
                         presentDates.push(dateStr);
+                    } else if (status === 'absent' || status === 'pending' || status === 'rejected') {
+                        // So calendar (dashboard + attendance history) can highlight these dates as red
+                        absentDates.push(dateStr);
                     }
                 }
                 // If attendance exists, skip further checks (attendance overrides week off/holiday)
