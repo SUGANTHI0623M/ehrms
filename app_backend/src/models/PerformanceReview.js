@@ -88,6 +88,10 @@ const performanceReviewSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    fcmSelfReviewReminderDaysSent: [Number],
+    fcmManagerReviewReminderDaysSent: [Number],
+    /** Last status for which we sent FCM to employee (so we notify on each status change) */
+    fcmStatusChangeSentForStatus: { type: String, default: null },
   },
   { timestamps: true }
 );

@@ -11,7 +11,9 @@ const payslipRequestSchema = new mongoose.Schema({
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     actionReason: { type: String },
     payrollId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payroll' },
-    approvedAt: { type: Date }
+    approvedAt: { type: Date },
+    fcmNotificationSentAt: { type: Date },
+    fcmRejectionSentAt: { type: Date }
 }, { timestamps: true });
 
 // Index to prevent duplicate requests for same employee, month, and year

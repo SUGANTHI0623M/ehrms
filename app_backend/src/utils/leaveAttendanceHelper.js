@@ -944,5 +944,6 @@ module.exports = {
     calculateHalfDayLateFine,
     calculateHalfDayEarlyFine,
     getShiftTimings,
+    calculateWorkHoursFromShift,
     getBusinessTimezone
 };

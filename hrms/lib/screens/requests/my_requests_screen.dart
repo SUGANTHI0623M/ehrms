@@ -579,16 +579,31 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     final appliedDate = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['createdAt']));
-    // Always show Approved By: backend populates approvedBy with { name, email }; fallback for ID or null
+    // Resolve approvedBy / rejectedBy: backend may populate with { name, email }
     String approvedBy = '—';
-    if (leave['approvedBy'] != null) {
-      if (leave['approvedBy'] is Map && leave['approvedBy']['name'] != null) {
-        approvedBy = leave['approvedBy']['name'].toString().trim();
+    String rejectedBy = '—';
+    final approver = leave['approvedBy'];
+    final rejector = leave['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
         if (approvedBy.isEmpty) approvedBy = '—';
       } else {
         approvedBy = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (leave['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy; // Backend may use approvedBy for rejector
+    }
+    final rejectionReason = leave['rejectionReason']?.toString().trim();
+    final isRejected = leave['status'] == 'Rejected';
 
     showModalBottomSheet(
       context: context,
@@ -606,8 +621,13 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
           _detailRow('End Date', end),
           _detailRow('Days', '${leave['days']}'),
           _detailRow('Applied Date', appliedDate),
-          _detailRow('Approved By', approvedBy),
           _detailRow('Status', leave['status'] ?? ''),
+          if (isRejected) ...[
+            _detailRow('Rejected By', rejectedBy),
+            if (rejectionReason != null && rejectionReason.isNotEmpty)
+              _detailRow('Rejection Reason', rejectionReason),
+          ] else
+            _detailRow('Approved By', approvedBy),
           if (leave['reason'] != null &&
               leave['reason'].toString().isNotEmpty)
             _detailRow('Reason', leave['reason']),
@@ -648,9 +668,15 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     final appliedDate = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['createdAt']));
-    final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
+    final approver = leave['approvedBy'];
+    final rejector = leave['rejectedBy'];
+    final isRejectedLeave = leave['status'] == 'Rejected';
+    final approvedBy = approver != null
+        ? (approver is Map ? approver['name'] : 'System')
         : '-';
+    final rejectedBy = rejector != null
+        ? (rejector is Map ? rejector['name'] : 'System')
+        : (isRejectedLeave && approver != null ? approvedBy : '-');
 
     Color statusColor = Colors.grey;
     if (leave['status'] == 'Approved') {
@@ -756,7 +782,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedBy != '-') ...[
+                    if (isRejectedLeave && rejectedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedBy,
+                      ),
+                    ] else if (!isRejectedLeave && approvedBy != '-') ...[
                       const SizedBox(height: 4),
                       _buildCardDetailRow(
                         Icons.person,
@@ -1836,14 +1869,29 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
 
   void _showLoanDetails(Map<String, dynamic> loan) {
     String approvedBy = '—';
-    if (loan['approvedBy'] != null) {
-      if (loan['approvedBy'] is Map && loan['approvedBy']['name'] != null) {
-        approvedBy = loan['approvedBy']['name'].toString().trim();
+    String rejectedBy = '—';
+    final approver = loan['approvedBy'];
+    final rejector = loan['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
         if (approvedBy.isEmpty) approvedBy = '—';
       } else {
         approvedBy = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (loan['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy;
+    }
+    final rejectionReason = loan['rejectionReason']?.toString().trim();
+    final isRejected = loan['status'] == 'Rejected';
     final requestedOn = loan['createdAt'] != null
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(loan['createdAt']))
         : '—';
@@ -1867,7 +1915,12 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
           _detailRow('Interest Rate', '${loan['interestRate']}%'),
           _detailRow('Purpose', loan['purpose'] ?? ''),
           _detailRow('Status', loan['status'] ?? ''),
-          _detailRow('Approved By', approvedBy),
+          if (isRejected) ...[
+            _detailRow('Rejected By', rejectedBy),
+            if (rejectionReason != null && rejectionReason.isNotEmpty)
+              _detailRow('Rejection Reason', rejectionReason),
+          ] else
+            _detailRow('Approved By', approvedBy),
           _detailRow('Requested On', requestedOn),
         ],
       ),
@@ -1910,12 +1963,25 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
     }
 
     String approvedByName = '-';
-    if (loan['approvedBy'] != null) {
-      if (loan['approvedBy'] is Map) {
-        approvedByName = loan['approvedBy']['name'] ?? '-';
+    String rejectedByName = '-';
+    final approver = loan['approvedBy'];
+    final rejector = loan['rejectedBy'];
+    final isRejectedLoan = loan['status'] == 'Rejected';
+    if (approver != null) {
+      if (approver is Map) {
+        approvedByName = approver['name'] ?? '-';
       } else {
         approvedByName = 'System';
       }
+    }
+    if (rejector != null) {
+      if (rejector is Map) {
+        rejectedByName = rejector['name'] ?? '-';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (isRejectedLoan && approver != null) {
+      rejectedByName = approvedByName;
     }
 
     return InkWell(
@@ -2019,7 +2085,14 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedByName != '-') ...[
+                    if (isRejectedLoan && rejectedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildLoanCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedByName,
+                      ),
+                    ] else if (!isRejectedLoan && approvedByName != '-') ...[
                       const SizedBox(height: 4),
                       _buildLoanCardDetailRow(
                         Icons.person,
@@ -2698,16 +2771,29 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         : '—';
 
     String approvedByName = '—';
-    if (expense['approvedBy'] != null) {
-      if (expense['approvedBy'] is Map &&
-          expense['approvedBy']['name'] != null) {
-        approvedByName =
-            expense['approvedBy']['name'].toString().trim();
+    String rejectedByName = '—';
+    final approver = expense['approvedBy'];
+    final rejector = expense['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedByName = approver['name'].toString().trim();
         if (approvedByName.isEmpty) approvedByName = '—';
       } else {
         approvedByName = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedByName = rejector['name'].toString().trim();
+        if (rejectedByName.isEmpty) rejectedByName = '—';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (expense['status'] == 'Rejected' && approver != null) {
+      rejectedByName = approvedByName;
+    }
+    final rejectionReason = expense['rejectionReason']?.toString().trim();
+    final isRejected = expense['status'] == 'Rejected';
 
     List<dynamic> proofs = expense['proofFiles'] ?? [];
     final detailChildren = <Widget>[
@@ -2722,7 +2808,12 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
           expense['description'].toString().isNotEmpty)
         _expenseDetailRow('Description', expense['description']),
       _expenseDetailRow('Status', expense['status'] ?? ''),
-      _expenseDetailRow('Approved By', approvedByName),
+      if (isRejected) ...[
+        _expenseDetailRow('Rejected By', rejectedByName),
+        if (rejectionReason != null && rejectionReason.isNotEmpty)
+          _expenseDetailRow('Rejection Reason', rejectionReason),
+      ] else
+        _expenseDetailRow('Approved By', approvedByName),
       if (proofs.isNotEmpty) ...[
         const SizedBox(height: 12),
         const Text(
@@ -2838,12 +2929,25 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
     }
 
     String approvedByName = '-';
-    if (expense['approvedBy'] != null) {
-      if (expense['approvedBy'] is Map) {
-        approvedByName = expense['approvedBy']['name'] ?? '-';
+    String rejectedByName = '-';
+    final approver = expense['approvedBy'];
+    final rejector = expense['rejectedBy'];
+    final isRejectedExpense = expense['status'] == 'Rejected';
+    if (approver != null) {
+      if (approver is Map) {
+        approvedByName = approver['name'] ?? '-';
       } else {
         approvedByName = 'System';
       }
+    }
+    if (rejector != null) {
+      if (rejector is Map) {
+        rejectedByName = rejector['name'] ?? '-';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (isRejectedExpense && approver != null) {
+      rejectedByName = approvedByName;
     }
 
     List<dynamic> proofs = expense['proofFiles'] ?? [];
@@ -2972,7 +3076,14 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                         ],
                       ),
                     ],
-                    if (approvedByName != '-') ...[
+                    if (isRejectedExpense && rejectedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildExpenseCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedByName,
+                      ),
+                    ] else if (!isRejectedExpense && approvedByName != '-') ...[
                       const SizedBox(height: 4),
                       _buildExpenseCardDetailRow(
                         Icons.person,
@@ -3886,14 +3997,29 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
         : '—';
     String approvedBy = '—';
-    if (req['approvedBy'] != null) {
-      if (req['approvedBy'] is Map && req['approvedBy']['name'] != null) {
-        approvedBy = req['approvedBy']['name'].toString().trim();
+    String rejectedBy = '—';
+    final approver = req['approvedBy'];
+    final rejector = req['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
         if (approvedBy.isEmpty) approvedBy = '—';
       } else {
         approvedBy = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (req['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy;
+    }
+    final rejectionReason = (req['actionReason'] ?? req['rejectionReason'])?.toString().trim();
+    final isRejected = req['status'] == 'Rejected';
 
     final children = <Widget>[
       _payslipDetailRow('Period', _getPeriodText(req)),
@@ -3901,7 +4027,12 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         _payslipDetailRow('Reason', req['reason']),
       _payslipDetailRow('Applied Date', appliedDate),
       _payslipDetailRow('Status', req['status'] ?? ''),
-      _payslipDetailRow('Approved By', approvedBy),
+      if (isRejected) ...[
+        _payslipDetailRow('Rejected By', rejectedBy),
+        if (rejectionReason != null && rejectionReason.isNotEmpty)
+          _payslipDetailRow('Rejection Reason', rejectionReason),
+      ] else
+        _payslipDetailRow('Approved By', approvedBy),
     ];
 
     showModalBottomSheet(
@@ -3943,9 +4074,15 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     final appliedDate = req['createdAt'] != null
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
         : '-';
-    final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
+    final approver = req['approvedBy'];
+    final rejector = req['rejectedBy'];
+    final isRejectedPayslip = req['status'] == 'Rejected';
+    final approvedBy = approver != null
+        ? (approver is Map ? approver['name'] : 'System')
         : '-';
+    final rejectedBy = rejector != null
+        ? (rejector is Map ? rejector['name'] : 'System')
+        : (isRejectedPayslip && approver != null ? approvedBy : '-');
 
     // Get month name from month number or period
     String periodText = 'Payslip Request';
@@ -4061,7 +4198,14 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedBy != '-') ...[
+                    if (isRejectedPayslip && rejectedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildPayslipCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedBy,
+                      ),
+                    ] else if (!isRejectedPayslip && approvedBy != '-') ...[
                       const SizedBox(height: 4),
                       _buildPayslipCardDetailRow(
                         Icons.person,

@@ -4,7 +4,6 @@
 
 import 'dart:async';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import '../../config/constants.dart';
 
 /// Retries on 429 (rate limit) with exponential backoff. Respects Retry-After.
@@ -22,7 +21,6 @@ class RetryOnRateLimitInterceptor extends Interceptor {
     final extra = err.requestOptions.extra;
     final retryCount = extra['retry_count'] as int? ?? 0;
     if (retryCount >= maxRetries) {
-      if (kDebugMode) debugPrint('[DioClient] 429 after $maxRetries retries');
       return handler.next(err);
     }
     int waitSeconds =
@@ -35,11 +33,6 @@ class RetryOnRateLimitInterceptor extends Interceptor {
       final parsed = int.tryParse(retryAfter);
       if (parsed != null && parsed > 0)
         waitSeconds = parsed > 120 ? 120 : parsed;
-    }
-    if (kDebugMode) {
-      debugPrint(
-        '[DioClient] 429 retry ${retryCount + 1}/$maxRetries in ${waitSeconds}s',
-      );
     }
     await Future<void>.delayed(Duration(seconds: waitSeconds));
     final opts = err.requestOptions;
@@ -62,27 +55,6 @@ class FormDataContentTypeInterceptor extends Interceptor {
       // Dio will set multipart/form-data with boundary when sending
     }
     handler.next(options);
-  }
-}
-
-/// Debug request/error logging only.
-class DebugLogInterceptor extends Interceptor {
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (kDebugMode) debugPrint('[DioClient] ${options.method} ${options.uri}');
-    handler.next(options);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (kDebugMode) {
-      final status = err.response?.statusCode;
-      final msg = err.message ?? err.type.name;
-      debugPrint(
-        '[DioClient] Error ${status ?? msg} ${err.requestOptions.uri}',
-      );
-    }
-    handler.next(err);
   }
 }
 
@@ -114,7 +86,6 @@ class DioClient {
     dio.interceptors.addAll([
       FormDataContentTypeInterceptor(),
       RetryOnRateLimitInterceptor(dio),
-      if (kDebugMode) DebugLogInterceptor(),
     ]);
   }
 

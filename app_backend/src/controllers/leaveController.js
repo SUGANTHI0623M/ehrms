@@ -80,27 +80,28 @@ const getLeaves = async (req, res) => {
 
         const total = await Leave.countDocuments(query);
 
-        // Resolve approvedBy: check Staff first, then User (approvedBy may be in either collection)
-        const approvedByIds = [...new Set(
-            leaves.map((l) => l.approvedBy).filter(Boolean).map((id) => (id && id._id ? id._id.toString() : id.toString()))
-        )];
-        const approvedByMap = {};
-        for (const id of approvedByIds) {
+        // Resolve approvedBy and rejectedBy: check Staff first, then User (same as Approved By)
+        const toIdStr = (v) => (v && v._id != null ? v._id.toString() : v && v.toString ? v.toString() : null);
+        const approvedByIds = [...new Set(leaves.map((l) => toIdStr(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(leaves.map((l) => toIdStr(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
             const staff = await Staff.findById(id).select('name email').lean();
             if (staff) {
-                approvedByMap[id] = { name: staff.name, email: staff.email || null };
+                resolvedMap[id] = { name: staff.name, email: staff.email || null };
             } else {
                 const user = await User.findById(id).select('name email').lean();
                 if (user) {
-                    approvedByMap[id] = { name: user.name, email: user.email || null };
+                    resolvedMap[id] = { name: user.name, email: user.email || null };
                 }
             }
         }
         leaves.forEach((l) => {
-            if (l.approvedBy) {
-                const id = l.approvedBy._id ? l.approvedBy._id.toString() : l.approvedBy.toString();
-                l.approvedBy = approvedByMap[id] || (l.approvedBy && typeof l.approvedBy === 'object' && l.approvedBy.name ? l.approvedBy : null);
-            }
+            const aid = toIdStr(l.approvedBy);
+            const rid = toIdStr(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid] || (l.approvedBy && typeof l.approvedBy === 'object' && l.approvedBy.name ? l.approvedBy : null);
+            if (rid) l.rejectedBy = resolvedMap[rid] || (l.rejectedBy && typeof l.rejectedBy === 'object' && l.rejectedBy.name ? l.rejectedBy : null);
         });
 
         // For app display "Half day on": prefer halfDayType (DB), then halfDaySession, then session
@@ -602,10 +603,18 @@ const updateLeaveStatus = async (req, res) => {
 
         // Update leave status
         leave.status = status;
-        leave.approvedBy = approverId;
-        leave.approvedAt = new Date();
-        if (status === 'Rejected' && rejectionReason) {
-            leave.rejectionReason = rejectionReason;
+        if (status === 'Approved') {
+            leave.approvedBy = approverId;
+            leave.approvedAt = new Date();
+            leave.rejectedBy = undefined;
+            leave.rejectedAt = undefined;
+            leave.rejectionReason = undefined;
+        } else if (status === 'Rejected') {
+            leave.rejectedBy = approverId;
+            leave.rejectedAt = new Date();
+            if (rejectionReason) leave.rejectionReason = rejectionReason;
+            leave.approvedBy = undefined;
+            leave.approvedAt = undefined;
         }
 
         await leave.save();

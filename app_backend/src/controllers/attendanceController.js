@@ -971,11 +971,13 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     const earlyFineAmount = Number(fineResult.earlyFineAmount) || 0;
     const totalFineAmount = lateFineAmount + earlyFineAmount;
 
-    attendance.earlyMinutes = fineResult.earlyMinutes;
-    attendance.fineHours = (Number(attendance.lateMinutes) || 0) + (fineResult.earlyMinutes || 0);
+    // Set all fine fields from combined result so attendance collection has consistent fine amount and fine hours
+    attendance.lateMinutes = fineResult.lateMinutes ?? attendance.lateMinutes ?? 0;
+    attendance.earlyMinutes = fineResult.earlyMinutes ?? 0;
+    attendance.fineHours = fineResult.fineHours ?? ((Number(attendance.lateMinutes) || 0) + (Number(attendance.earlyMinutes) || 0));
     attendance.fineAmount = totalFineAmount;
 
-    console.log('[Fine CHECK-OUT] lateFineAmount=', lateFineAmount, 'earlyFineAmount=', earlyFineAmount, 'totalFineAmount=', totalFineAmount, 'INSERTING: lateMinutes=', attendance.lateMinutes, 'earlyMinutes=', attendance.earlyMinutes, 'fineAmount=', attendance.fineAmount);
+    console.log('[Fine CHECK-OUT] lateFineAmount=', lateFineAmount, 'earlyFineAmount=', earlyFineAmount, 'totalFineAmount=', totalFineAmount, 'INSERTING: lateMinutes=', attendance.lateMinutes, 'earlyMinutes=', attendance.earlyMinutes, 'fineHours=', attendance.fineHours, 'fineAmount=', attendance.fineAmount);
 
     await attendance.save();
 
@@ -1489,6 +1491,47 @@ const getMonthAttendance = async (req, res) => {
             date: { $gte: startOfMonth, $lte: endOfMonth }
         }).sort({ date: 1 });
 
+        // Enrich records that have fineHours/lateMinutes but no fineAmount (e.g. Excel import) using payroll fine formula
+        const Company = require('../models/Company');
+        const Staff = require('../models/Staff');
+        const { getRecordFineAmount, calculateAttendanceStats } = require('./payrollController');
+        const { getEffectiveFineConfig } = require('../utils/fineCalculationHelper');
+        const { getShiftTimings, calculateWorkHoursFromShift } = require('../utils/leaveAttendanceHelper');
+
+        const companyForFine = await Company.findById(req.staff.businessId).lean();
+        const staffWithSalary = await Staff.findById(req.staff._id).select('+salary').lean();
+        const fineConfig = companyForFine ? getEffectiveFineConfig(companyForFine) : null;
+        const shiftTimings = companyForFine && staffWithSalary ? getShiftTimings(companyForFine, staffWithSalary) : {};
+        const shiftHours = Math.max(0, calculateWorkHoursFromShift(shiftTimings.startTime || '09:30', shiftTimings.endTime || '18:30') || 9);
+
+        let dailySalaryForEnrich = 0;
+        try {
+            const stats = await calculateAttendanceStats(req.staff._id, Number(month), Number(year));
+            const thisMonthWorkingDays = stats.workingDaysFullMonth ?? stats.workingDays ?? 0;
+            if (thisMonthWorkingDays > 0 && staffWithSalary && staffWithSalary.salary) {
+                const s = staffWithSalary.salary;
+                const gf = (s.basicSalary || 0) + (s.dearnessAllowance || 0) + (s.houseRentAllowance || 0) + (s.specialAllowance || 0);
+                const epf = (s.employerPFRate || 0) / 100 * (s.basicSalary || 0);
+                const eesi = (s.employerESIRate || 0) / 100 * gf;
+                const gross = gf + epf + eesi;
+                const empPF = (s.employeePFRate || 0) / 100 * (s.basicSalary || 0);
+                const empESI = (s.employeeESIRate || 0) / 100 * gross;
+                dailySalaryForEnrich = (gross - empPF - empESI) / thisMonthWorkingDays;
+            }
+        } catch (e) {
+            console.warn('[getMonthAttendance] Could not compute daily salary for fine enrichment:', e?.message);
+        }
+
+        for (const doc of attendanceRaw) {
+            const hasFineMinutes = (Number(doc.fineHours) || 0) > 0 || (Number(doc.lateMinutes) || 0) > 0;
+            const status = (doc.status || '').trim().toLowerCase();
+            const isEligible = status === 'present' || status === 'approved' || (doc.leaveType || '').trim().toLowerCase() === 'half day';
+            if (hasFineMinutes && isEligible && !(Number(doc.fineAmount) > 0)) {
+                const amount = getRecordFineAmount(doc, dailySalaryForEnrich, shiftHours, fineConfig);
+                if (amount > 0) doc.fineAmount = amount;
+            }
+        }
+
         const attendance = await enrichWithLeaveDetails(attendanceRaw, req.staff._id);
 
         // Fetch holidays
@@ -1506,10 +1549,8 @@ const getMonthAttendance = async (req, res) => {
             });
         }
 
-        // Fetch Business settings for week-offs
-        const Company = require('../models/Company');
-        const company = await Company.findById(req.staff.businessId);
-        const businessSettings = company?.settings?.business || {};
+        // Fetch Business settings for week-offs (reuse company from fine enrichment above)
+        const businessSettings = companyForFine?.settings?.business || {};
         const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
         const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }]; // Default to Sunday if not set
 

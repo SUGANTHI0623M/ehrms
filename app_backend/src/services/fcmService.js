@@ -14,6 +14,7 @@ function init() {
     const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
         process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
         path.join(process.cwd(), 'firebase-service-account.json');
+    console.log('[FCM] Init: credPath=', credPath, 'exists=', fs.existsSync(credPath));
     if (!fs.existsSync(credPath)) {
         console.warn('[FCM] Service account file not found:', credPath, '- push notifications disabled');
         return null;
@@ -22,7 +23,7 @@ function init() {
         const key = JSON.parse(fs.readFileSync(credPath, 'utf8'));
         admin.initializeApp({ credential: admin.credential.cert(key) });
         _initialized = true;
-        console.log('[FCM] Initialized');
+        console.log('[FCM] Initialized successfully');
     } catch (e) {
         console.error('[FCM] Init failed:', e.message);
         return null;
@@ -33,14 +34,23 @@ function init() {
 /**
  * Send a notification to a single device token.
  * @param {string} token - FCM device token
- * @param {object} options - { title, body, data }
+ * @param {object} options - { title, body, data, androidTag? } (androidTag: same tag = replace previous notification on device)
  * @returns {Promise<{ success: boolean, error?: string }>}
  */
-async function sendToToken(token, { title, body, data = {} }) {
+async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
     const app = init();
-    if (!app) return { success: false, error: 'FCM not initialized' };
-    if (!token || typeof token !== 'string') return { success: false, error: 'Missing token' };
+    if (!app) {
+        console.warn('[FCM] sendToToken: FCM not initialized, skip');
+        return { success: false, error: 'FCM not initialized' };
+    }
+    if (!token || typeof token !== 'string') {
+        console.warn('[FCM] sendToToken: missing or invalid token');
+        return { success: false, error: 'Missing token' };
+    }
     if (Array.isArray(token)) return { success: false, error: 'Must send to one token only, not multiple' };
+    const tokenPreview = token.length > 24 ? token.substring(0, 12) + '...' + token.slice(-8) : token;
+    const androidTag = options && options.androidTag ? String(options.androidTag) : null;
+    console.log('[FCM] sendToToken: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
     try {
         const payload = {
             token,
@@ -48,12 +58,18 @@ async function sendToToken(token, { title, body, data = {} }) {
             data: Object.fromEntries(
                 Object.entries(data).map(([k, v]) => [String(k), String(v == null ? '' : v)])
             ),
-            android: { priority: 'high' },
+            android: {
+                priority: 'high',
+                ...(androidTag ? { notification: { tag: androidTag } } : {}),
+            },
         };
-        await admin.messaging().send(payload);
+        const msgId = await admin.messaging().send(payload);
+        console.log('[FCM] sendToToken: success messageId=', msgId);
         return { success: true };
     } catch (e) {
-        console.error('[FCM] sendToToken failed:', e.message);
+        const code = e.code || e.errorInfo?.code;
+        console.error('[FCM] sendToToken failed: code=', code, 'message=', e.message, 'tokenPreview=', tokenPreview);
+        if (e.errorInfo) console.error('[FCM] errorInfo:', JSON.stringify(e.errorInfo));
         return { success: false, error: e.message };
     }
 }
@@ -84,7 +100,6 @@ async function sendLeaveApprovedNotification(leaveDoc, staff = null) {
     }
     const fcmToken = staffDoc.fcmToken;
     if (!fcmToken || typeof fcmToken !== 'string') {
-        console.warn('[FCM] sendLeaveApproved: no fcmToken for staff', employeeId);
         return { success: false, error: 'No FCM token for employee' };
     }
     const leaveType = leaveDoc.leaveType || 'Leave';
@@ -129,7 +144,6 @@ async function sendLeaveRejectedNotification(leaveDoc, staff = null) {
     }
     const fcmToken = staffDoc.fcmToken;
     if (!fcmToken || typeof fcmToken !== 'string') {
-        console.warn('[FCM] sendLeaveRejected: no fcmToken for staff', employeeId);
         return { success: false, error: 'No FCM token for employee' };
     }
     const leaveType = leaveDoc.leaveType || 'Leave';
@@ -168,10 +182,198 @@ async function sendNotification(token, title, body, data = {}) {
     return sendToToken(token, { title, body, data });
 }
 
+async function _sendToEmployee(employeeId, title, body, data = {}, options = {}) {
+    const Staff = require('../models/Staff');
+    const staff = await Staff.findById(employeeId).select('fcmToken _id').lean();
+    if (!staff) {
+        console.warn('[FCM] _sendToEmployee: staff not found employeeId=', employeeId);
+        return { success: false, error: 'Staff not found' };
+    }
+    if (!staff.fcmToken || typeof staff.fcmToken !== 'string' || !staff.fcmToken.trim()) {
+        console.warn('[FCM] _sendToEmployee: no fcmToken for staffId=', staff._id);
+        return { success: false, error: 'No FCM token for employee' };
+    }
+    return sendToToken(staff.fcmToken.trim(), { title, body, data, ...options });
+}
+
+async function sendExpenseApprovedNotification(expenseDoc, staff = null) {
+    const employeeId = expenseDoc.employeeId && expenseDoc.employeeId._id ? expenseDoc.employeeId._id : expenseDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const amount = expenseDoc.amount ? `₹${expenseDoc.amount}` : '';
+    const type = expenseDoc.expenseType || expenseDoc.type || 'Expense';
+    const body = `Your ${type} request ${amount ? `of ${amount} ` : ''}has been approved.`;
+    return _sendToEmployee(employeeId, 'Expense Approved', body, {
+        module: 'expense',
+        type: 'expense_approved',
+        staffId: String(employeeId),
+        expenseId: String(expenseDoc._id || ''),
+    });
+}
+
+async function sendExpenseRejectedNotification(expenseDoc, staff = null) {
+    const employeeId = expenseDoc.employeeId && expenseDoc.employeeId._id ? expenseDoc.employeeId._id : expenseDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const body = `Your expense request has been rejected.`;
+    return _sendToEmployee(employeeId, 'Expense Rejected', body, {
+        module: 'expense',
+        type: 'expense_rejected',
+        staffId: String(employeeId),
+        expenseId: String(expenseDoc._id || ''),
+    });
+}
+
+async function sendPayslipApprovedNotification(payslipDoc, staff = null) {
+    const employeeId = payslipDoc.employeeId && payslipDoc.employeeId._id ? payslipDoc.employeeId._id : payslipDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = payslipDoc.month || 1;
+    const y = payslipDoc.year || new Date().getFullYear();
+    const body = `Your payslip request for ${monthNames[m-1]} ${y} has been approved.`;
+    return _sendToEmployee(employeeId, 'Payslip Approved', body, {
+        module: 'payslip',
+        type: 'payslip_approved',
+        staffId: String(employeeId),
+        payslipId: String(payslipDoc._id || ''),
+    });
+}
+
+async function sendPayslipRejectedNotification(payslipDoc, staff = null) {
+    const employeeId = payslipDoc.employeeId && payslipDoc.employeeId._id ? payslipDoc.employeeId._id : payslipDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const body = `Your payslip request has been rejected.`;
+    return _sendToEmployee(employeeId, 'Payslip Rejected', body, {
+        module: 'payslip',
+        type: 'payslip_rejected',
+        staffId: String(employeeId),
+        payslipId: String(payslipDoc._id || ''),
+    });
+}
+
+async function sendLoanApprovedNotification(loanDoc, staff = null) {
+    const employeeId = loanDoc.employeeId && loanDoc.employeeId._id ? loanDoc.employeeId._id : loanDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const amount = loanDoc.amount ? `₹${loanDoc.amount}` : '';
+    const body = `Your loan request ${amount ? `of ${amount} ` : ''}has been approved.`;
+    return _sendToEmployee(employeeId, 'Loan Approved', body, {
+        module: 'loan',
+        type: 'loan_approved',
+        staffId: String(employeeId),
+        loanId: String(loanDoc._id || ''),
+    });
+}
+
+async function sendLoanRejectedNotification(loanDoc, staff = null) {
+    const employeeId = loanDoc.employeeId && loanDoc.employeeId._id ? loanDoc.employeeId._id : loanDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const body = `Your loan request has been rejected.`;
+    return _sendToEmployee(employeeId, 'Loan Rejected', body, {
+        module: 'loan',
+        type: 'loan_rejected',
+        staffId: String(employeeId),
+        loanId: String(loanDoc._id || ''),
+    });
+}
+
+async function sendAttendanceApprovedNotification(attendanceDoc, staff = null) {
+    const employeeId = attendanceDoc.employeeId && attendanceDoc.employeeId._id ? attendanceDoc.employeeId._id : attendanceDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const dateStr = attendanceDoc.date ? new Date(attendanceDoc.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const body = dateStr ? `Your attendance for ${dateStr} has been approved.` : `Your attendance has been approved.`;
+    return _sendToEmployee(employeeId, 'Attendance Approved', body, {
+        module: 'attendance',
+        type: 'attendance_approved',
+        staffId: String(employeeId),
+        attendanceId: String(attendanceDoc._id || ''),
+    });
+}
+
+async function sendAttendanceRejectedNotification(attendanceDoc, staff = null) {
+    const employeeId = attendanceDoc.employeeId && attendanceDoc.employeeId._id ? attendanceDoc.employeeId._id : attendanceDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const body = `Your attendance request has been rejected.`;
+    return _sendToEmployee(employeeId, 'Attendance Rejected', body, {
+        module: 'attendance',
+        type: 'attendance_rejected',
+        staffId: String(employeeId),
+        attendanceId: String(attendanceDoc._id || ''),
+    });
+}
+
+async function sendAttendanceStatusChangeNotification(attendanceDoc, staff = null) {
+    const employeeId = attendanceDoc.employeeId && attendanceDoc.employeeId._id ? attendanceDoc.employeeId._id : attendanceDoc.employeeId
+        || attendanceDoc.user && attendanceDoc.user._id ? attendanceDoc.user._id : attendanceDoc.user;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const dateStr = attendanceDoc.date ? new Date(attendanceDoc.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const dateKey = attendanceDoc.date ? new Date(attendanceDoc.date).toISOString().slice(0, 10) : '';
+    const status = (attendanceDoc.status || 'Updated').trim();
+    const body = dateStr ? `Your attendance for ${dateStr} has been marked as ${status}.` : `Your attendance has been marked as ${status}.`;
+    const androidTag = dateKey ? `att_status_${employeeId}_${dateKey}` : null;
+    return _sendToEmployee(employeeId, 'Attendance Updated', body, {
+        module: 'attendance',
+        type: 'attendance_status_changed',
+        staffId: String(employeeId),
+        attendanceId: String(attendanceDoc._id || ''),
+    }, androidTag ? { androidTag } : {});
+}
+
+async function sendPerformanceDeadlineNotification(staffIdOrUserId, title, body, data = {}) {
+    const Staff = require('../models/Staff');
+    const User = require('../models/User');
+    let staff = await Staff.findById(staffIdOrUserId).select('fcmToken userId').lean();
+    if (!staff) {
+        staff = await Staff.findOne({ userId: staffIdOrUserId }).select('fcmToken _id').lean();
+    }
+    if (!staff || !staff.fcmToken || typeof staff.fcmToken !== 'string' || !staff.fcmToken.trim()) {
+        return { success: false, error: 'No FCM token' };
+    }
+    return sendToToken(staff.fcmToken.trim(), { title, body, data: { module: 'performance', ...data } });
+}
+
+const PERFORMANCE_REVIEW_STATUS_LABELS = {
+    'draft': 'Draft',
+    'self-review-pending': 'Self review pending',
+    'self-review-submitted': 'Self review submitted',
+    'manager-review-pending': 'Manager review pending',
+    'manager-review-submitted': 'Manager review submitted',
+    'hr-review-pending': 'HR review pending',
+    'hr-review-submitted': 'HR review submitted',
+    'completed': 'Completed',
+    'cancelled': 'Cancelled',
+};
+
+async function sendPerformanceReviewStatusChangeNotification(reviewDoc, staff = null) {
+    const employeeId = reviewDoc.employeeId && reviewDoc.employeeId._id ? reviewDoc.employeeId._id : reviewDoc.employeeId;
+    if (!employeeId) return { success: false, error: 'No employeeId' };
+    const cycle = reviewDoc.reviewCycle || 'Performance Review';
+    const status = (reviewDoc.status || '').trim();
+    const statusLabel = PERFORMANCE_REVIEW_STATUS_LABELS[status] || status.replace(/-/g, ' ') || 'Updated';
+    const body = `Your performance review for "${cycle}" has been updated to ${statusLabel}.`;
+    const androidTag = `perf_review_${employeeId}_${String(reviewDoc._id)}`;
+    return _sendToEmployee(employeeId, 'Performance Review Updated', body, {
+        module: 'performance',
+        type: 'performance_review_status_changed',
+        staffId: String(employeeId),
+        reviewId: String(reviewDoc._id || ''),
+        reviewCycle: cycle,
+        status,
+    }, { androidTag });
+}
+
 module.exports = {
     init,
     sendToToken,
     sendLeaveApprovedNotification,
     sendLeaveRejectedNotification,
+    sendExpenseApprovedNotification,
+    sendExpenseRejectedNotification,
+    sendPayslipApprovedNotification,
+    sendPayslipRejectedNotification,
+    sendLoanApprovedNotification,
+    sendLoanRejectedNotification,
+    sendAttendanceApprovedNotification,
+    sendAttendanceRejectedNotification,
+    sendAttendanceStatusChangeNotification,
+    sendPerformanceDeadlineNotification,
+    sendPerformanceReviewStatusChangeNotification,
     sendNotification,
 };

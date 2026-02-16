@@ -63,6 +63,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     'lateDays': 0,
     'totalLateMinutes': 0,
   };
+  /// Per-day late login fine (date yyyy-MM-dd -> amount) for Daily Breakdown in Month Salary Details.
+  Map<String, double> _dailyFineAmounts = {};
   /// When set, use this for "This Month Net" (from backend /payrolls/stats) so it matches payslip.
   double? _backendThisMonthNet;
   /// When set, use this for "This Month Gross" (from backend) for consistency.
@@ -494,6 +496,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       double totalFineAmount = 0.0;
       int lateDays = 0;
       int totalLateMinutes = 0;
+      final dailyFineAmounts = <String, double>{};
 
       for (final record in _attendanceRecords) {
         final status = (record['status'] as String? ?? '').trim().toLowerCase();
@@ -551,6 +554,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             lateDays++;
             totalLateMinutes += lateMinutes;
           }
+          // Store per-day fine for Daily Breakdown (date key yyyy-MM-dd)
+          try {
+            final dateStr = record['date'] as String?;
+            if (dateStr != null && dateStr.isNotEmpty) {
+              final d = DateTime.parse(dateStr).toLocal();
+              final key = DateFormat('yyyy-MM-dd').format(d);
+              dailyFineAmounts[key] = fineAmount;
+            }
+          } catch (_) {}
         }
       }
 
@@ -605,6 +617,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         'lateDays': lateDays,
         'totalLateMinutes': totalLateMinutes,
       };
+      _dailyFineAmounts = dailyFineAmounts;
 
       // 5. Calculate prorated salary using THIS MONTH working days (so This Month Gross = presentDays * dailySalary)
       if (_calculatedSalary != null && _workingDaysInfo != null) {
@@ -616,14 +629,6 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             _presentDays,
             finalTotalFineAmount,
           );
-          // Debug logs for salary calculation testing (same formula for both: monthly / this month WD)
-          final dailyGrossSalary = _calculatedSalary!.monthly.grossSalary / thisMonthWorkingDays;
-          final dailyNetSalary = _calculatedSalary!.monthly.netMonthlySalary / thisMonthWorkingDays;
-          print('[SalaryOverview] PRORATION: thisMonthWorkingDays=$thisMonthWorkingDays, workingDaysTillToday=${_workingDaysInfo!.workingDays}, presentDays=$_presentDays');
-          print('[SalaryOverview] 1 day gross = Monthly GROSS/$thisMonthWorkingDays = ₹${dailyGrossSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
-          print('[SalaryOverview] 1 day net   = Monthly NET/$thisMonthWorkingDays = ₹${dailyNetSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
-          print('[SalaryOverview] Expected This Month Gross = presentDays * (gross/day) = $_presentDays * ${dailyGrossSalary.toStringAsFixed(2)} = ₹${(_presentDays * dailyGrossSalary).toStringAsFixed(2)}');
-          print('[SalaryOverview] Prorated Gross=₹${_proratedSalary!.proratedGrossSalary.toStringAsFixed(2)}, Prorated Net=₹${_proratedSalary!.proratedNetSalary.toStringAsFixed(2)}, Att%=${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}%');
         }
       }
 
@@ -874,6 +879,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                                     proratedSalary: _proratedSalary!,
                                     presentDays: _presentDays,
                                     totalFine: _fineInfo['totalFineAmount'] as double,
+                                    dailyFineAmounts: _dailyFineAmounts.isNotEmpty ? _dailyFineAmounts : null,
                                     halfDayPaidLeaveCount: _halfDayPaidLeaveCount > 0 ? _halfDayPaidLeaveCount : null,
                                     leaveDays: _leaveDays > 0 ? _leaveDays : null,
                                   ),
@@ -979,9 +985,13 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         (_currentPayroll!['status'] == 'Processed' ||
             _currentPayroll!['status'] == 'Paid');
 
-    // Prefer backend thisMonthNet/thisMonthGross when available (matches payslip)
+    // Use local prorated values for "This Month Gross" and "This Month Net" so they always
+    // match Month Salary Details (which uses the same proratedSalary). Backend thisMonthNet
+    // can differ if backend attendance records don't have fineAmount populated (Overview would
+    // show net without fine, Details would show net with fine). Prefer backend only for gross
+    // when available; for net always use local so both screens show the same take-home.
     final thisMonthGrossDisplay = _backendThisMonthGross ?? _proratedSalary!.proratedGrossSalary;
-    final rawThisMonthNet = _backendThisMonthNet ?? _proratedSalary!.proratedNetSalary;
+    final rawThisMonthNet = _proratedSalary!.proratedNetSalary;
     // Do not show negative net for card display – clamp at 0
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
 

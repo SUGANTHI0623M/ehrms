@@ -234,11 +234,7 @@ class TaskService {
     if (movementType != null) body['movementType'] = movementType;
     if (destinationLat != null) body['destinationLat'] = destinationLat;
     if (destinationLng != null) body['destinationLng'] = destinationLng;
-    debugPrint(
-      '[Tracking] Sending to DB: taskId=$taskMongoId lat=$lat lng=$lng battery=$batteryPercent movement=$movementType',
-    );
     await _api.dio.post<dynamic>('/tracking/store', data: body);
-    debugPrint('[Tracking] Saved to DB OK');
   }
 
   /// Update task progress steps (reachedLocation, photoProof, formFilled, otpVerified).

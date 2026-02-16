@@ -367,7 +367,9 @@ class AuthService {
       _api.setAuthToken(t);
       try {
         await _api.dio.post<dynamic>('/notifications/fcm-token', data: {'fcmToken': ''});
-      } catch (_) {}
+      } catch (_) {
+        // Ignore FCM token clear errors
+      }
     }
     _api.clearAuthToken();
     await prefs.clear();

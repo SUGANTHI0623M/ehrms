@@ -1658,12 +1658,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         );
       }
       // Store initial point in Tracking collection (separate route).
-      debugPrint('[TaskDetail] Sending to DB: lat=$startLat lng=$startLng');
       TaskService()
           .storeTracking(task.id!, startLat, startLng, movementType: 'stop')
-          .catchError(
-            (e) => debugPrint('[TaskDetail] storeTracking failed: $e'),
-          );
+          .catchError((_) {});
       PresenceTrackingService().pausePresenceTracking();
       if (mounted) {
         setState(() => _actionLoading = false);

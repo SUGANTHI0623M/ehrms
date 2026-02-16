@@ -3,7 +3,6 @@
 // or with HTTP referrer / Android/iOS app restriction that allows these endpoints.
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hrms/config/constants.dart';
 import 'package:hrms/services/api_client.dart';
 
@@ -65,16 +64,8 @@ class PlacesService {
       final data = res.data;
       if (data == null) return [];
       final status = data['status'] as String?;
-      final errorMessage = data['error_message'] as String?;
 
-      if (status != 'OK' && status != 'ZERO_RESULTS') {
-        if (kDebugMode) {
-          debugPrint(
-            '[PlacesService] Autocomplete status=$status error_message=$errorMessage',
-          );
-        }
-        return [];
-      }
+      if (status != 'OK' && status != 'ZERO_RESULTS') return [];
       final predictions = data['predictions'] as List<dynamic>?;
       if (predictions == null) return [];
 
@@ -98,15 +89,9 @@ class PlacesService {
         }
       }
       return list;
-    } on DioException catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[PlacesService] Autocomplete DioException: ${e.type} ${e.response?.data}',
-        );
-      }
+    } on DioException catch (_) {
       return [];
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlacesService] Autocomplete error: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -129,15 +114,7 @@ class PlacesService {
       final data = res.data;
       if (data == null) return null;
       final status = data['status'] as String?;
-      if (status != 'OK') {
-        if (kDebugMode) {
-          debugPrint(
-            '[PlacesService] Place details status=$status '
-            'error_message=${data['error_message']}',
-          );
-        }
-        return null;
-      }
+      if (status != 'OK') return null;
       final result = data['result'] as Map<String, dynamic>?;
       if (result == null) return null;
       final geometry = result['geometry'] as Map<String, dynamic>?;
@@ -164,15 +141,9 @@ class PlacesService {
         formattedAddress: formattedAddress,
         pincode: pincode,
       );
-    } on DioException catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[PlacesService] Place details DioException: ${e.type} ${e.response?.data}',
-        );
-      }
+    } on DioException catch (_) {
       return null;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlacesService] Place details error: $e');
+    } catch (_) {
       return null;
     }
   }

@@ -80,7 +80,6 @@ class SpeedCalculationService {
     }
     if (locPerm == gl.LocationPermission.deniedForever ||
         locPerm == gl.LocationPermission.denied) {
-      debugPrint('[SpeedService] Location permission denied.');
       return false;
     }
 
@@ -90,7 +89,6 @@ class SpeedCalculationService {
       if (!status.isGranted) {
         final result = await Permission.activityRecognition.request();
         if (!result.isGranted) {
-          debugPrint('[SpeedService] Activity recognition permission denied.');
           // Continue anyway; we can still use GPS speed.
         }
       }
@@ -104,10 +102,7 @@ class SpeedCalculationService {
     if (_isRunning) return;
 
     final ok = await checkPermissions();
-    if (!ok) {
-      debugPrint('[SpeedService] Cannot start: permissions failed.');
-      return;
-    }
+    if (!ok) return;
 
     _isRunning = true;
     _speedBufferMps.clear();
@@ -121,12 +116,8 @@ class SpeedCalculationService {
         _activitySubscription = ActivityRecognition()
             .activityStream(runForegroundService: false)
             .listen(_onActivityUpdate);
-      } else {
-        debugPrint('[SpeedService] Activity recognition not available.');
       }
-    } catch (e) {
-      debugPrint('[SpeedService] Activity recognition error: $e');
-    }
+    } catch (_) {}
 
     // GPS stream: reasonable interval to balance accuracy and battery.
     // distanceFilter: 3m, update every ~2–5 seconds when moving.
@@ -136,8 +127,6 @@ class SpeedCalculationService {
         distanceFilter: 3,
       ),
     ).listen(_onPositionUpdate);
-
-    debugPrint('[SpeedService] Started.');
   }
 
   /// Stop all subscriptions. Call when screen is disposed or app goes to background.
@@ -154,8 +143,6 @@ class SpeedCalculationService {
     try {
       await ActivityRecognition().stopActivityUpdates();
     } catch (_) {}
-
-    debugPrint('[SpeedService] Stopped.');
   }
 
   /// Dispose the stream controller. Call when the service is no longer needed.
@@ -215,15 +202,6 @@ class SpeedCalculationService {
 
     // --- Output ---
     final speedKmh = smoothedMps * 3.6;
-
-    if (kDebugMode) {
-      debugPrint(
-        '[SpeedService] GPS: ${gpsSpeedMps?.toStringAsFixed(2) ?? "null"} m/s | '
-        'Calc: ${calculatedSpeedMps?.toStringAsFixed(2) ?? "null"} m/s | '
-        'Final: ${speedKmh.toStringAsFixed(1)} km/h | '
-        'Activity: ${_currentActivity.name} | Source: $selectedSource',
-      );
-    }
 
     _controller.add(SpeedUpdate(
       speedKmh: speedKmh,

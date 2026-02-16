@@ -79,7 +79,6 @@ class PresenceTrackingService {
         'branchGeofence': d['branchGeofence'] as Map<String, dynamic>?,
       };
     } catch (e) {
-      if (kDebugMode) debugPrint('[PresenceTracking] getStatus error: $e');
       return {'canTrack': false, 'reason': 'error'};
     }
   }
@@ -106,7 +105,6 @@ class PresenceTrackingService {
       await _api.dio.post<dynamic>('/tracking/presence/store', data: body);
       return true;
     } catch (e) {
-      if (kDebugMode) debugPrint('[PresenceTracking] send error: $e');
       return false;
     }
   }
@@ -138,7 +136,6 @@ class PresenceTrackingService {
     if (_taskInProgress) return;
 
     if (!await isTrackingAllowed()) {
-      if (kDebugMode) debugPrint('[PresenceTracking] Stopping: pref cleared');
       stopTracking();
       return;
     }
@@ -151,7 +148,6 @@ class PresenceTrackingService {
         desiredAccuracy: gl.LocationAccuracy.medium,
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('[PresenceTracking] getPosition error: $e');
       return;
     }
 
@@ -163,29 +159,12 @@ class PresenceTrackingService {
         ? 'in_office'
         : 'out_of_office';
 
-    if (kDebugMode && gf == null) {
-      debugPrint(
-        '[PresenceTracking] branchGeofence null – always out_of_office. Enable geofence on branch.',
-      );
-    }
-
     final sent = await _sendPresence(
       lat: lat,
       lng: lng,
       presenceStatus: presenceStatus,
       accuracy: accuracy,
     );
-    if (sent && kDebugMode) {
-      if (presenceStatus == 'in_office') {
-        debugPrint(
-          '[PresenceTracking] in_office stored: lat=$lat lng=$lng accuracy=${accuracy.toStringAsFixed(1)}m',
-        );
-      } else {
-        debugPrint(
-          '[PresenceTracking] Sent: $presenceStatus lat=$lat lng=$lng',
-        );
-      }
-    }
   }
 
   /// Start presence tracking. Call when checked in (SharedPref set).
@@ -194,8 +173,6 @@ class PresenceTrackingService {
     if (_isTracking) return;
 
     if (!await isTrackingAllowed()) {
-      if (kDebugMode)
-        debugPrint('[PresenceTracking] Cannot start: pref not set');
       return;
     }
 
@@ -211,7 +188,6 @@ class PresenceTrackingService {
       await _tick(branchGeofence);
     });
 
-    if (kDebugMode) debugPrint('[PresenceTracking] Started');
   }
 
   /// Stop presence tracking immediately (e.g. on checkout). Clears SharedPref.
@@ -221,7 +197,6 @@ class PresenceTrackingService {
     _trackingTimer?.cancel();
     _trackingTimer = null;
     await clearTrackingAllowed();
-    if (kDebugMode) debugPrint('[PresenceTracking] Stopped');
   }
 
   /// Pause presence tracking while task is in progress (Start Ride). No 5-min sends.
@@ -229,7 +204,6 @@ class PresenceTrackingService {
     _taskInProgress = true;
     _trackingTimer?.cancel();
     _trackingTimer = null;
-    if (kDebugMode) debugPrint('[PresenceTracking] Paused (task in progress)');
   }
 
   /// Resume presence tracking after task exit. Restarts 5-min sends.
@@ -247,7 +221,6 @@ class PresenceTrackingService {
     _trackingTimer = Timer.periodic(trackingInterval, (_) async {
       await _tick(branchGeofence);
     });
-    if (kDebugMode) debugPrint('[PresenceTracking] Resumed (task exited)');
   }
 
   bool get isTracking => _isTracking;

@@ -21,6 +21,7 @@ const reviewCycleSchema = new mongoose.Schema(
     },
     description: String,
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true, index: true },
+    fcmHrReviewReminderDaysSent: [Number],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

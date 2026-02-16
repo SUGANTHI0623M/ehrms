@@ -548,16 +548,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       final rawThisMonthNet = proratedSalary.proratedNetSalary;
       final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
 
-      if (thisMonthWorkingDaysForProration > 0) {
-        final dailyGrossSalary = calculatedSalary.monthly.grossSalary / thisMonthWorkingDaysForProration;
-        final dailyNetSalary = calculatedSalary.monthly.netMonthlySalary / thisMonthWorkingDaysForProration;
-        print('[Dashboard] PRORATION: thisMonthWorkingDays=$thisMonthWorkingDaysForProration, workingDaysTillToday=${workingDaysInfo.workingDays}, presentDays=$presentDays');
-        print('[Dashboard] 1 day gross = Monthly GROSS/$thisMonthWorkingDaysForProration = ₹${dailyGrossSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
-        print('[Dashboard] 1 day net   = Monthly NET/$thisMonthWorkingDaysForProration = ₹${dailyNetSalary.toStringAsFixed(2)} (same way: monthly/this month WD)');
-        print('[Dashboard] Fine amount (this month from attendance) = ₹${totalFineAmount.toStringAsFixed(2)}');
-        print('[Dashboard] Prorated Gross=₹${proratedSalary.proratedGrossSalary.toStringAsFixed(2)}, This Month Net=₹${displayThisMonthNet.toStringAsFixed(2)}');
-      }
-
       if (mounted) {
         final workingDaysUsed = workingDaysInfo.workingDays;
         setState(() {

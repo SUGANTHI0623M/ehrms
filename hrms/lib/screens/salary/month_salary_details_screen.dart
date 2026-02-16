@@ -87,6 +87,8 @@ class MonthSalaryDetailsScreen extends StatefulWidget {
   final ProratedSalary proratedSalary;
   final double presentDays;
   final double totalFine;
+  /// Per-day late login fine (date yyyy-MM-dd -> amount) from Salary Overview for Daily Breakdown.
+  final Map<String, double>? dailyFineAmounts;
   final int? halfDayPaidLeaveCount;
   final double? leaveDays;
 
@@ -100,6 +102,7 @@ class MonthSalaryDetailsScreen extends StatefulWidget {
     required this.proratedSalary,
     required this.presentDays,
     required this.totalFine,
+    this.dailyFineAmounts,
     this.halfDayPaidLeaveCount,
     this.leaveDays,
   });
@@ -121,25 +124,6 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    
-    print('\n');
-    print('╔═══════════════════════════════════════════════════════════════════════╗');
-    print('║   MONTH SALARY DETAILS SCREEN INITIALIZED                            ║');
-    print('╚═══════════════════════════════════════════════════════════════════════╝');
-    print('Received following values from Salary Overview Screen:');
-    print('  ✓ Month: ${widget.month}');
-    print('  ✓ Year: ${widget.year}');
-    print('  ✓ Daily Salary: ₹${widget.dailySalary.toStringAsFixed(2)}');
-    print('  ✓ Working Days: ${widget.workingDaysInfo.workingDays}');
-    print('  ✓ Present Days: ${widget.presentDays.toStringAsFixed(1)}');
-    print('  ✓ Total Fine: ₹${widget.totalFine.toStringAsFixed(2)}');
-    print('  ✓ Prorated Net Salary: ₹${widget.proratedSalary.proratedNetSalary.toStringAsFixed(2)}');
-    print('  ✓ Attendance %: ${widget.proratedSalary.attendancePercentage.toStringAsFixed(1)}%');
-    print('');
-    print('Now loading attendance records for display purposes only...');
-    print('═══════════════════════════════════════════════════════════════════════');
-    print('');
-    
     // Load attendance records ONLY for display purposes (daily breakdown)
     // These records are NOT used for any salary calculations
     _loadData();
@@ -171,12 +155,6 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
         final data = attendanceResult['data'];
         _attendanceRecords = data['attendance'] ?? [];
 
-        print('');
-        print('╔═══════════════════════════════════════════════════════════════════════╗');
-        print('║   ATTENDANCE DATA LOADED (For Display Only)                          ║');
-        print('╚═══════════════════════════════════════════════════════════════════════╝');
-        print('  ✓ Attendance Records: ${_attendanceRecords.length}');
-        
         // Extract holidays
         if (data['holidays'] != null) {
           _holidays = (data['holidays'] as List)
@@ -189,7 +167,6 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
               })
               .whereType<DateTime>()
               .toList();
-          print('  ✓ Holidays: ${_holidays.length}');
         }
 
         // Extract week off dates
@@ -197,7 +174,6 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
           _weekOffDates = (data['weekOffDates'] as List)
               .map((e) => e.toString())
               .toSet();
-          print('  ✓ Week Off Dates: ${_weekOffDates.length}');
         }
 
         // Extract leave dates
@@ -205,23 +181,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
           _leaveDates = (data['leaveDates'] as List)
               .map((e) => e.toString())
               .toSet();
-          print('  ✓ Leave Dates: ${_leaveDates.length}');
         }
-        
-        print('');
-        print('  ℹ️  These records will be used ONLY for:');
-        print('     1. Daily breakdown display (date list)');
-        print('     2. Fine breakdown display (dates with fines)');
-        print('     3. Status chips count (Present: X, Absent: Y, etc.)');
-        print('');
-        print('  ⚠️  IMPORTANT: These records are NOT used for:');
-        print('     ✗ Calculating present days (uses widget.presentDays)');
-        print('     ✗ Calculating working days (uses widget.workingDaysInfo)');
-        print('     ✗ Calculating fine amount (uses widget.totalFine)');
-        print('     ✗ Calculating salary (uses widget.proratedSalary)');
-        print('');
-        print('═══════════════════════════════════════════════════════════════════════');
-        print('');
       }
 
       setState(() => _isLoading = false);
@@ -298,67 +258,13 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     // ========================================================================
     // All salary calculations are done in the Salary Overview Screen.
     // This screen only DISPLAYS those pre-calculated values.
-    
-    print('\n╔═══════════════════════════════════════════════════════════════════════╗');
-    print('║         MONTH SALARY DETAILS SCREEN - VALUES FROM OVERVIEW           ║');
-    print('╚═══════════════════════════════════════════════════════════════════════╝');
-    print('');
-    print('📅 Month/Year: $monthName');
-    print('');
-    print('═══ DAYS COUNT (From Salary Overview - NO Recalculation) ═══');
-    print('  ✓ Working Days: ${widget.workingDaysInfo.workingDays}');
-    if (widget.workingDaysInfo.workingDaysFullMonth != null) {
-      print('  ✓ This Month Working Days: ${widget.workingDaysInfo.workingDaysFullMonth}');
-    }
-    print('  ✓ Present Days: ${widget.presentDays.toStringAsFixed(1)}');
-    print('  ✓ Holiday Count: ${widget.workingDaysInfo.holidayCount}');
-    if (widget.halfDayPaidLeaveCount != null && widget.halfDayPaidLeaveCount! > 0) {
-      print('  ✓ Half Day Paid Leave: ${widget.halfDayPaidLeaveCount}');
-    }
-    if (widget.leaveDays != null && widget.leaveDays! > 0) {
-      print('  ✓ Leave Days: ${widget.leaveDays!.toStringAsFixed(1)}');
-    }
-    print('  ✓ Attendance %: ${widget.proratedSalary.attendancePercentage.toStringAsFixed(1)}%');
-    print('');
-    print('═══ SALARY CALCULATION (From Salary Overview - NO Recalculation) ═══');
-    print('  ✓ Monthly Gross Salary: ${currencyFormat.format(widget.calculatedSalary.monthly.grossSalary)}');
-    final thisMonthWorkingDays = widget.workingDaysInfo.workingDaysFullMonth ?? widget.workingDaysInfo.workingDays;
-    print('  ✓ Daily Salary (1 day): ${currencyFormat.format(widget.dailySalary)}');
-    print('    └─ Formula: Monthly NET salary / This month working days');
-    print('    └─ ${currencyFormat.format(widget.calculatedSalary.monthly.netMonthlySalary)} / $thisMonthWorkingDays = ${currencyFormat.format(widget.dailySalary)}');
-    print('');
-    print('  ✓ Prorated Gross: ${currencyFormat.format(widget.proratedSalary.proratedGrossSalary)}');
-    final wdForProration = widget.workingDaysInfo.workingDaysFullMonth ?? widget.workingDaysInfo.workingDays;
-    print('    └─ Based on ${widget.presentDays.toStringAsFixed(1)}/$wdForProration days (this month working days)');
-    final expectedNetFromDaily = widget.presentDays * widget.dailySalary;
-    print('    └─ [SalaryDetails] Sanity: presentDays * daily (net) = ${currencyFormat.format(expectedNetFromDaily)} (approx This Month Net before fine)');
-    print('  ✓ Prorated Deductions: ${currencyFormat.format(widget.proratedSalary.proratedDeductions)}');
-    print('  ✓ Late Login Fine: ${currencyFormat.format(widget.totalFine)}');
-    print('');
-    print('═══ THIS MONTH NET SALARY CALCULATION ═══');
-    print('  Formula: Prorated Gross - Prorated Deductions - Fine');
-    print('  ${currencyFormat.format(widget.proratedSalary.proratedGrossSalary)}');
-    print('  - ${currencyFormat.format(widget.proratedSalary.proratedDeductions)} (deductions)');
-    print('  - ${currencyFormat.format(widget.totalFine)} (fine)');
-    print('  ─────────────────────────────────');
-    
+
     // This Month Net Salary = Prorated Net Salary from overview
     // Formula (calculated in overview): 
     //   Prorated Gross - Prorated Deductions - Fine Amount
     final rawThisMonthNet = widget.proratedSalary.proratedNetSalary;
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
-    
-    print('  = ${currencyFormat.format(rawThisMonthNet)}');
-    if (rawThisMonthNet < 0) {
-      print('  ⚠️  Adjusted to ₹0.00 (negative value clamped)');
-    }
-    print('  ✓ FINAL THIS MONTH NET: ${currencyFormat.format(displayThisMonthNet)}');
-    print('');
-    print('╔═══════════════════════════════════════════════════════════════════════╗');
-    print('║  ✅ ALL VALUES ABOVE ARE FROM SALARY OVERVIEW (NO RECALCULATION)     ║');
-    print('╚═══════════════════════════════════════════════════════════════════════╝');
-    print('');
-    
+
     // Total Fine Amount = From overview (backend or calculated with grace time)
     // Formula (calculated in overview):
     //   Sum of fines for Present/Approved days only (EXCLUDES Absent, Pending)
@@ -732,6 +638,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     Color statusColor = Colors.grey;
     double salaryForDay = 0;
     double fineAmount = 0; // Initialize fine amount
+    int fineMinutes = 0; // From attendances collection: fineHours (total min) or lateMinutes
     IconData statusIcon = Icons.help_outline;
 
     if (isHoliday) {
@@ -763,8 +670,11 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
           salaryForDay = widget.dailySalary;
         }
         
-        // Get fine amount ONLY from database (no client-side calculation)
-        fineAmount = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+        // Prefer per-day fine from Overview (includes client-calculated when backend missing); else from record
+        final dateKey = DateFormat('yyyy-MM-dd').format(date);
+        fineAmount = widget.dailyFineAmounts?[dateKey] ?? (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+        // Fine duration in minutes from attendances collection (fineHours = total min, lateMinutes = late only)
+        fineMinutes = (record['lateMinutes'] as num?)?.toInt() ?? (record['fineHours'] as num?)?.toInt() ?? 0;
       } else if (recordStatus == 'on leave') {
         status = 'On Leave';
         statusColor = Colors.blue;
@@ -882,24 +792,29 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                       color: Colors.green,
                     ),
                   ),
-                // Show fine below salary in red if there is a fine
+                // Show late login fine on that day when applicable (amount + fine duration in mins from attendances)
                 if (fineAmount > 0) ...[
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.error_outline,
+                        Icons.schedule,
                         size: 11,
                         color: Colors.red.shade700,
                       ),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${currencyFormat.format(fineAmount)}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.red.shade700,
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          fineMinutes > 0
+                              ? 'Late login fine: ${currencyFormat.format(fineAmount)} ($fineMinutes min)'
+                              : 'Late login fine: ${currencyFormat.format(fineAmount)}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.red.shade700,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

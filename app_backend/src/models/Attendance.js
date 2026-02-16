@@ -42,9 +42,11 @@ const attendanceSchema = new mongoose.Schema(
     remarks: String,
     workHours: Number,
     overtime: Number,
+    /** Total fine duration in MINUTES (late + early). Display as hours by dividing by 60. */
     fineHours: Number,
     lateMinutes: Number,
     earlyMinutes: Number,
+    /** Total fine amount in currency (late + early) from payroll fine calculation. */
     fineAmount: Number,
     location: {
       latitude: Number,
@@ -78,7 +80,10 @@ const attendanceSchema = new mongoose.Schema(
       ref: 'Business'
     },
     punchInSelfie: String,
-    punchOutSelfie: String
+    punchOutSelfie: String,
+    fcmNotificationSentAt: { type: Date },
+    fcmRejectionSentAt: { type: Date },
+    fcmStatusChangeSentAt: { type: Date }
   },
   { timestamps: true }
 );

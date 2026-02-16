@@ -2588,6 +2588,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          //fine formula
           if (1 == 0)
             Container(
               width: double.infinity,

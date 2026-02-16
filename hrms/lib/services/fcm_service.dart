@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
 import '../screens/requests/my_requests_screen.dart';
+import '../screens/attendance/attendance_screen.dart';
+import '../screens/performance/performance_module_screen.dart';
 
 /// Handles FCM: permission, token, foreground/background/terminated messages.
 /// Call [init] from main() after Firebase.initializeApp().
@@ -19,7 +21,7 @@ class FcmService {
   static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
 
   static void _log(String message) {
-    if (kDebugMode) debugPrint('$_logTag $message');
+    // Logging disabled for performance
   }
 
   /// Initialize FCM: permission, token, handlers. Call once after Firebase.initializeApp().
@@ -89,19 +91,20 @@ class FcmService {
         '/notifications/fcm-token',
         data: {'fcmToken': fcmToken},
       );
-      _log('sendTokenToBackend: success status=${response.statusCode}');
-    } catch (e, st) {
-      _log('sendTokenToBackend: failed – $e');
-      if (kDebugMode) debugPrint('$_logTag stack: $st');
+      final preview = fcmToken.length > 16 ? '${fcmToken.substring(0, 8)}...${fcmToken.substring(fcmToken.length - 6)}' : 'short';
+      _log('sendTokenToBackend: success status=${response.statusCode} tokenLength=${fcmToken.length} tokenPreview=$preview');
+    } catch (_, __) {
+      // sendTokenToBackend failed; silently ignore
     }
   }
 
   static void _onForegroundMessage(RemoteMessage message) {
     _log('foreground message: title=${message.notification?.title} body=${message.notification?.body} data=${message.data}');
+    _log('foreground: when app is in foreground Android often does NOT show system tray notification – only this callback runs. Put app in background to see tray notification.');
   }
 
   static void _onNotificationOpened(RemoteMessage message) {
-    _log('notification opened (background): data=${message.data}');
+    _log('notification opened (background/terminated): data=${message.data}');
     _handleNotificationData(message.data);
   }
 
@@ -113,33 +116,33 @@ class FcmService {
     }
 
     final module = data['module']?.toString() ?? data['type']?.toString() ?? '';
+    final type = data['type']?.toString() ?? '';
 
-    // Leave approved or rejected → open My Requests, Leave tab only if notification is for this user
-    if (module == 'leave' ||
-        module == 'leave_approved' ||
-        module == 'leave_rejected' ||
-        module == 'requests') {
-        final payloadStaffId = data['staffId']?.toString();
-      if (payloadStaffId != null && payloadStaffId.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        String? currentStaffId;
-        final userStr = prefs.getString('user');
-        if (userStr != null) {
-          try {
-            final user = jsonDecode(userStr) as Map<String, dynamic>?;
-            if (user != null) {
-              currentStaffId = user['staffId']?.toString() ?? user['_id']?.toString() ?? user['id']?.toString();
-            }
-          } catch (_) {}
-        }
-        currentStaffId ??= prefs.getString('staffId');
-        if (currentStaffId != null && currentStaffId != payloadStaffId) {
-          _log('handleNotificationData: ignoring – notification is for staffId=$payloadStaffId, current staffId=$currentStaffId');
-          return;
-        }
-        _log('handleNotificationData: notification is for this user (staffId=$payloadStaffId), opening Leave');
+    // Check staffId match for user-specific notifications
+    final payloadStaffId = data['staffId']?.toString();
+    if (payloadStaffId != null && payloadStaffId.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      String? currentStaffId;
+      final userStr = prefs.getString('user');
+      if (userStr != null) {
+        try {
+          final user = jsonDecode(userStr) as Map<String, dynamic>?;
+          if (user != null) {
+            currentStaffId = user['staffId']?.toString() ?? user['_id']?.toString() ?? user['id']?.toString();
+          }
+        } catch (_) {}
       }
-      if (!navigatorKey!.currentContext!.mounted) return;
+      currentStaffId ??= prefs.getString('staffId');
+      if (currentStaffId != null && currentStaffId != payloadStaffId) {
+        _log('handleNotificationData: ignoring – notification is for staffId=$payloadStaffId, current staffId=$currentStaffId');
+        return;
+      }
+    }
+
+    if (!navigatorKey!.currentContext!.mounted) return;
+
+    // Leave: My Requests, tab 0
+    if (module == 'leave' || type == 'leave_approved' || type == 'leave_rejected' || module == 'requests' && (type == 'leave_approved' || type == 'leave_rejected')) {
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => MyRequestsScreen(initialTabIndex: 0),
@@ -147,7 +150,51 @@ class FcmService {
       );
       return;
     }
-    // Add more modules as needed: attendance, loan, etc.
+    // Loan: My Requests, tab 1
+    if (module == 'loan' || type == 'loan_approved' || type == 'loan_rejected') {
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => MyRequestsScreen(initialTabIndex: 1),
+        ),
+      );
+      return;
+    }
+    // Expense: My Requests, tab 2
+    if (module == 'expense' || type == 'expense_approved' || type == 'expense_rejected') {
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => MyRequestsScreen(initialTabIndex: 2),
+        ),
+      );
+      return;
+    }
+    // Payslip: My Requests, tab 3
+    if (module == 'payslip' || type == 'payslip_approved' || type == 'payslip_rejected') {
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => MyRequestsScreen(initialTabIndex: 3),
+        ),
+      );
+      return;
+    }
+    // Attendance: Attendance screen
+    if (module == 'attendance' || type == 'attendance_approved' || type == 'attendance_rejected') {
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => AttendanceScreen(),
+        ),
+      );
+      return;
+    }
+    // Performance: Performance module
+    if (module == 'performance' || type.startsWith('self_review') || type.startsWith('manager_review') || type.startsWith('hr_review')) {
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => PerformanceModuleScreen(),
+        ),
+      );
+      return;
+    }
   }
 
   /// Call this to get the current FCM token (e.g. after login, to send to backend).

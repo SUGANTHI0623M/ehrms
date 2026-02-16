@@ -397,9 +397,6 @@ class _StartRideScreenState extends State<StartRideScreen> {
         );
       }
       // Store initial point in Tracking collection (separate route).
-      debugPrint(
-        '[StartRide] Sending to DB: lat=${_currentPosition!.latitude} lng=${_currentPosition!.longitude}',
-      );
       TaskService()
           .storeTracking(
             _task.id!,
@@ -409,9 +406,7 @@ class _StartRideScreenState extends State<StartRideScreen> {
             destinationLat: _destinationLatLng!.latitude,
             destinationLng: _destinationLatLng!.longitude,
           )
-          .catchError(
-            (e) => debugPrint('[StartRide] storeTracking failed: $e'),
-          );
+          .catchError((_) {});
       PresenceTrackingService().pausePresenceTracking();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

@@ -49,6 +49,7 @@ const getReimbursements = async (req, res) => {
 
         const reimbursements = await Reimbursement.find(query)
             .populate('approvedBy', 'name email')
+            .populate('rejectedBy', 'name email')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));

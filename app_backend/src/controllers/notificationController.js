@@ -15,8 +15,10 @@ const registerFcmToken = async (req, res) => {
         const staffIdStr = staffId.toString();
 
         if (fcmToken === undefined || fcmToken === null || (typeof fcmToken === 'string' && fcmToken.trim() === '')) {
+            const before = await Staff.findById(staffId).select('fcmToken').lean();
+            const hadToken = before && before.fcmToken && String(before.fcmToken).trim().length > 0;
             await Staff.findByIdAndUpdate(staffId, { $unset: { fcmToken: 1 } });
-            console.log('[FCM] Cleared token on logout for staffId=', staffIdStr);
+            console.log('[FCM] Logout: cleared fcmToken for staffId=', staffIdStr, 'hadToken=', hadToken, '– device will not receive push until they log in again');
             return res.json({ success: true, message: 'FCM token cleared' });
         }
 
@@ -30,7 +32,7 @@ const registerFcmToken = async (req, res) => {
         const tokenTrimmed = fcmToken.trim();
         if (!tokenTrimmed) {
             await Staff.findByIdAndUpdate(staffId, { $unset: { fcmToken: 1 } });
-            console.log('[FCM] Cleared token for staffId=', staffIdStr);
+            console.log('[FCM] Logout: cleared fcmToken for staffId=', staffIdStr, '(empty string)');
             return res.json({ success: true, message: 'FCM token cleared' });
         }
 
@@ -40,7 +42,8 @@ const registerFcmToken = async (req, res) => {
             { $unset: { fcmToken: 1 } }
         );
         await Staff.findByIdAndUpdate(staffId, { $set: { fcmToken: tokenTrimmed } });
-        console.log('[FCM] Registered token for this logged-in staff only: staffId=', staffIdStr);
+        const tokenPreview = tokenTrimmed.length > 20 ? tokenTrimmed.substring(0, 10) + '...' + tokenTrimmed.slice(-6) : tokenTrimmed;
+        console.log('[FCM] Registered token for staffId=', staffIdStr, 'tokenLength=', tokenTrimmed.length, 'tokenPreview=', tokenPreview);
         return res.json({ success: true, message: 'FCM token registered' });
     } catch (error) {
         console.error('[notificationController] registerFcmToken:', error);

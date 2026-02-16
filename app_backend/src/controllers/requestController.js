@@ -9,6 +9,9 @@ const Company = require('../models/Company');
 const payslipGeneratorService = require('../services/payslipGeneratorService');
 const { calculateAttendanceStats } = require('./payrollController');
 
+// Normalize ref to raw ObjectId (handles both ObjectId and populated { _id, name } so lookup works)
+const toId = (v) => (v != null && typeof v === 'object' && v._id != null ? v._id : v) || null;
+
 // Helper function to generate payroll dynamically for payslip requests
 // ALWAYS recalculates from scratch - does not use existing payroll records
 const _generatePayrollForPayslip = async (employeeId, month, year, businessId) => {
@@ -313,26 +316,28 @@ const getLeaveRequests = async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Resolve approvedBy: match _id in Staff first, else in User (like loan approvedBy)
-        const approvedByIds = [...new Set(
-            leaves.map(l => l.approvedBy).filter(Boolean)
-        )];
-        const approvedByMap = {};
-        for (const id of approvedByIds) {
+        // Resolve approvedBy and rejectedBy: match _id in Staff first, then User (same as Approved By)
+        const approvedByIds = [...new Set(leaves.map(l => toId(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(leaves.map(l => toId(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
             const staff = await Staff.findById(id).select('name email').lean();
             if (staff) {
-                approvedByMap[id.toString()] = { name: staff.name, email: staff.email || null };
+                resolvedMap[key] = { name: staff.name, email: staff.email || null };
             } else {
                 const user = await User.findById(id).select('name email').lean();
                 if (user) {
-                    approvedByMap[id.toString()] = { name: user.name, email: user.email || null };
+                    resolvedMap[key] = { name: user.name, email: user.email || null };
                 }
             }
         }
         leaves.forEach(l => {
-            if (l.approvedBy) {
-                l.approvedBy = approvedByMap[l.approvedBy.toString()] || null;
-            }
+            const aid = toId(l.approvedBy);
+            const rid = toId(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) l.rejectedBy = resolvedMap[rid.toString()] || null;
         });
 
         res.json(leaves);
@@ -413,26 +418,28 @@ const getLoanRequests = async (req, res) => {
 
         const loans = await Loan.find(query).sort({ createdAt: -1 }).lean();
 
-        // Resolve approvedBy: Loan model refs User; also check Staff for consistency
-        const approvedByIds = [...new Set(
-            loans.map(l => l.approvedBy).filter(Boolean)
-        )];
-        const approvedByMap = {};
-        for (const id of approvedByIds) {
+        // Resolve approvedBy and rejectedBy: Loan refs User first, then Staff (same as Approved By)
+        const approvedByIds = [...new Set(loans.map(l => toId(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(loans.map(l => toId(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
             const user = await User.findById(id).select('name email').lean();
             if (user) {
-                approvedByMap[id.toString()] = { name: user.name, email: user.email || null };
+                resolvedMap[key] = { name: user.name, email: user.email || null };
             } else {
                 const staff = await Staff.findById(id).select('name email').lean();
                 if (staff) {
-                    approvedByMap[id.toString()] = { name: staff.name, email: staff.email || null };
+                    resolvedMap[key] = { name: staff.name, email: staff.email || null };
                 }
             }
         }
         loans.forEach(l => {
-            if (l.approvedBy) {
-                l.approvedBy = approvedByMap[l.approvedBy.toString()] || null;
-            }
+            const aid = toId(l.approvedBy);
+            const rid = toId(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) l.rejectedBy = resolvedMap[rid.toString()] || null;
         });
 
         res.json(loans);
@@ -500,7 +507,30 @@ const getExpenseRequests = async (req, res) => {
             if (endDate) query.date.$lte = new Date(endDate);
         }
 
-        const expenses = await Expense.find(query).sort({ createdAt: -1 });
+        const expenses = await Expense.find(query).sort({ createdAt: -1 }).lean();
+        // Resolve approvedBy and rejectedBy: Expense refs Staff first, then User (same as Approved By)
+        const approvedByIds = [...new Set(expenses.map(e => toId(e.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(expenses.map(e => toId(e.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
+            const staff = await Staff.findById(id).select('name email').lean();
+            if (staff) {
+                resolvedMap[key] = { name: staff.name, email: staff.email || null };
+            } else {
+                const user = await User.findById(id).select('name email').lean();
+                if (user) {
+                    resolvedMap[key] = { name: user.name, email: user.email || null };
+                }
+            }
+        }
+        expenses.forEach(e => {
+            const aid = toId(e.approvedBy);
+            const rid = toId(e.rejectedBy);
+            if (aid) e.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) e.rejectedBy = resolvedMap[rid.toString()] || null;
+        });
         res.json(expenses);
     } catch (error) {
         console.error('Get Expense Requests Error:', error);
@@ -825,6 +855,7 @@ const getPayslipRequests = async (req, res) => {
 
         const requests = await PayslipRequest.find(query)
             .populate('approvedBy', 'name email')
+            .populate('rejectedBy', 'name email')
             .populate('payrollId', 'month year netPay grossSalary')
             .sort({ createdAt: -1 })
             .skip(skip)

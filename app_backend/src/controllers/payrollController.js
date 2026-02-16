@@ -2,7 +2,33 @@ const Payroll = require('../models/Payroll');
 const Staff = require('../models/Staff');
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
+const Company = require('../models/Company');
 const mongoose = require('mongoose');
+const { getEffectiveFineConfig } = require('../utils/fineCalculationHelper');
+const { calculateFineAmount } = require('../utils/fineCalculationHelper');
+const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
+const { calculateWorkHoursFromShift } = require('../utils/leaveAttendanceHelper');
+
+/**
+ * Get fine amount for a single attendance record.
+ * Uses record.fineAmount when set; otherwise computes from record.lateMinutes or record.fineHours
+ * (e.g. Excel-imported records that have fineHours but no fineAmount).
+ * @param {Object} record - Attendance document
+ * @param {number} dailySalary - Net daily salary for shift-based formula
+ * @param {number} shiftHours - Shift duration in hours
+ * @param {Object} fineConfig - From getEffectiveFineConfig(company)
+ * @returns {number} Fine amount (>= 0)
+ */
+function getRecordFineAmount(record, dailySalary, shiftHours, fineConfig) {
+    const existing = Number(record.fineAmount);
+    if (existing > 0) return existing;
+    const minutes = Number(record.lateMinutes) || Number(record.fineHours) || 0;
+    if (minutes <= 0) return 0;
+    if (!fineConfig || !fineConfig.enabled || !dailySalary || dailySalary <= 0 || !shiftHours || shiftHours <= 0) {
+        return 0;
+    }
+    return calculateFineAmount(minutes, 'lateArrival', fineConfig, dailySalary, shiftHours);
+}
 
 // @desc    Get Payrolls (Payslips)
 // @route   GET /api/payrolls
@@ -135,21 +161,43 @@ const getPayrollStats = async (req, res) => {
                 ],
                 date: { $gte: startOfMonth, $lte: endOfMonth }
             });
-            // Fine amount from Present, Approved, or Half Day (late login fine applies to half day too)
+
+            // Get staff salary structure for correct proration and for fine fallback (must select +salary)
+            let thisMonthGross = 0;
+            let thisMonthNet = 0;
+
+            const staffForProration = await Staff.findById(staffId).select('+salary');
+            console.log(`[getPayrollStats] staffForProration found: ${!!staffForProration}, has salary: ${!!(staffForProration && staffForProration.salary)}`);
+
+            // Total fine: use record.fineAmount when set; for records with fineHours/lateMinutes but no fineAmount (e.g. Excel import), compute from fine config
+            const staffRef = staffForProration || await Staff.findById(staffId);
+            const company = await Company.findById(staffRef?.businessId).lean();
+            const fineConfig = company ? getEffectiveFineConfig(company) : null;
+            const shiftTimings = company && staffRef ? getShiftTimings(company, staffRef) : {};
+            const shiftHours = Math.max(0, calculateWorkHoursFromShift(shiftTimings.startTime || '09:30', shiftTimings.endTime || '18:30') || 9);
+            const dailySalaryForFine = thisMonthWorkingDays > 0
+                ? (staffForProration?.salary
+                    ? (() => {
+                        const s = staffForProration.salary;
+                        const gf = (s.basicSalary || 0) + (s.dearnessAllowance || 0) + (s.houseRentAllowance || 0) + (s.specialAllowance || 0);
+                        const epf = (s.employerPFRate || 0) / 100 * (s.basicSalary || 0);
+                        const eesi = (s.employerESIRate || 0) / 100 * gf;
+                        const gross = gf + epf + eesi;
+                        const empPF = (s.employeePFRate || 0) / 100 * (s.basicSalary || 0);
+                        const empESI = (s.employeeESIRate || 0) / 100 * gross;
+                        return (gross - empPF - empESI) / thisMonthWorkingDays;
+                    })()
+                    : (Number(payroll.netPay) / thisMonthWorkingDays))
+                : 0;
+
             const totalFineAmount = attendanceRecords
                 .filter(r => {
                     const s = (r.status || '').trim().toLowerCase();
                     const lt = (r.leaveType || '').trim().toLowerCase();
                     return s === 'present' || s === 'approved' || s === 'half day' || lt === 'half day';
                 })
-                .reduce((sum, record) => sum + (record.fineAmount || 0), 0);
+                .reduce((sum, record) => sum + getRecordFineAmount(record, dailySalaryForFine, shiftHours, fineConfig), 0);
 
-            // Get staff salary structure for correct proration (must select +salary)
-            let thisMonthGross = 0;
-            let thisMonthNet = 0;
-
-            const staffForProration = await Staff.findById(staffId).select('+salary');
-            console.log(`[getPayrollStats] staffForProration found: ${!!staffForProration}, has salary: ${!!(staffForProration && staffForProration.salary)}`);
             if (staffForProration && staffForProration.salary) {
                 console.log(`[getPayrollStats] Using salary structure for proration`);
                 const s = staffForProration.salary;
@@ -300,7 +348,7 @@ const getPayrollStats = async (req, res) => {
         // STEP 3: Calculate Prorated Gross Salary
         const thisMonthGross = proratedGrossFixed + proratedEmployerPF + proratedEmployerESI;
         
-        // Get fine amount from attendance records
+        // Get fine amount from attendance records (use fineAmount when set; else compute from fineHours/lateMinutes for Excel-imported etc.)
         const Attendance = require('../models/Attendance');
         const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
         const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
@@ -311,14 +359,18 @@ const getPayrollStats = async (req, res) => {
             ],
             date: { $gte: startOfMonth, $lte: endOfMonth }
         });
-        // Fine amount from Present, Approved, or Half Day (late login fine applies to half day too)
+        const companyNoPayroll = await Company.findById(staff.businessId).lean();
+        const fineConfigNoPayroll = companyNoPayroll ? getEffectiveFineConfig(companyNoPayroll) : null;
+        const shiftTimingsNoPayroll = companyNoPayroll && staff ? getShiftTimings(companyNoPayroll, staff) : {};
+        const shiftHoursNoPayroll = Math.max(0, calculateWorkHoursFromShift(shiftTimingsNoPayroll.startTime || '09:30', shiftTimingsNoPayroll.endTime || '18:30') || 9);
+        const dailySalaryNoPayrollForFine = thisMonthWorkingDays > 0 ? (netSalary / thisMonthWorkingDays) : 0;
         const totalFineAmount = attendanceRecords
             .filter(r => {
-                const s = (r.status || '').trim().toLowerCase();
+                const st = (r.status || '').trim().toLowerCase();
                 const lt = (r.leaveType || '').trim().toLowerCase();
-                return s === 'present' || s === 'approved' || s === 'half day' || lt === 'half day';
+                return st === 'present' || st === 'approved' || st === 'half day' || lt === 'half day';
             })
-            .reduce((sum, record) => sum + (record.fineAmount || 0), 0);
+            .reduce((sum, record) => sum + getRecordFineAmount(record, dailySalaryNoPayrollForFine, shiftHoursNoPayroll, fineConfigNoPayroll), 0);
 
         // STEP 4: Recalculate Employee Deductions on PRORATED gross
         const proratedEmployeePF = (s.employeePFRate || 0) / 100 * proratedBasicSalary;
@@ -729,5 +781,6 @@ module.exports = {
     markPayrollAsPaid,
     updatePayroll,
     processPayroll,
-    calculateAttendanceStats
+    calculateAttendanceStats,
+    getRecordFineAmount
 };

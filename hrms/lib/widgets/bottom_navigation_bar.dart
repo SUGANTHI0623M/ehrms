@@ -55,9 +55,7 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
           });
         }
       }
-    } catch (e) {
-      debugPrint('Error checking role: $e');
-    }
+    } catch (_) {}
   }
 
   void _handleNavigation(BuildContext context, int index) {
