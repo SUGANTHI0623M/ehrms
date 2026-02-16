@@ -11,10 +11,15 @@ let _initialized = false;
 
 function init() {
     if (_initialized) return admin.app();
-    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    // Prefer env; then app_backend/firebase-service-account.json (works when PM2 runs from src/scripts)
+    const appBackendPath = path.join(__dirname, '..', '..', 'firebase-service-account.json');
+    const cwdPath = path.join(process.cwd(), 'firebase-service-account.json');
+    let credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
         process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-        path.join(process.cwd(), 'firebase-service-account.json');
-    console.log('[FCM] Init: credPath=', credPath, 'exists=', fs.existsSync(credPath));
+        appBackendPath;
+    if (!credPath || !fs.existsSync(credPath)) {
+        credPath = fs.existsSync(cwdPath) ? cwdPath : (credPath || appBackendPath);
+    }
     if (!fs.existsSync(credPath)) {
         console.warn('[FCM] Service account file not found:', credPath, '- push notifications disabled');
         return null;
