@@ -71,6 +71,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   // Template & Rule State
   Map<String, dynamic>? _attendanceTemplate;
+  /// Branch data from /attendance/today (status, geofence) for check-in/out validation.
+  Map<String, dynamic>? _branchData;
   bool _attendanceStatusFetched =
       false; // true only after first fetch completes (avoids flashing "not mapped")
   bool?
@@ -467,9 +469,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               responseBody.containsKey('data')) {
             data = responseBody['data'];
             template = responseBody['template'];
+            final branch = responseBody['branch'];
 
             setState(() {
               _attendanceTemplate = template;
+              _branchData = branch is Map<String, dynamic> ? branch : null;
               _isOnLeave = responseBody['isOnLeave'] ?? false;
               _leaveMessage = responseBody['leaveMessage'] as String?;
               _halfDayLeave =
@@ -1480,6 +1484,100 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Icon in light bubble
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: iconColor.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(iconData, size: 48, color: iconColor),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Material(
+                      color: AppColors.error,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).pop(),
+                        borderRadius: BorderRadius.circular(12),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 14),
+                          child: Text(
+                            'OK',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Shows a popup alert for check-in/check-out validation failures (blocks marking attendance).
+  /// Uses the same UI style as the "You are late" / "You are early" dialog.
+  Future<void> _showValidationAlert(String message) async {
+    if (!mounted) return;
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        const String title = 'Cannot mark attendance';
+        const IconData iconData = Icons.warning_amber_rounded;
+        final Color iconColor = AppColors.error;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 340),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -2638,14 +2736,61 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     if (isCompleted || isAdminMarked) return;
 
-    if (_attendanceTemplate == null) {
-      SnackBarUtils.showSnackBar(
-        context,
-        'Template not mapped. Contact HR.',
-        isError: true,
+    // --- Check-in/check-out validation: show popup and block if any check fails ---
+    if (_staffHasAttendanceTemplate != true) {
+      await _showValidationAlert(
+        'Attendance template is not assigned. Contact HR.',
       );
       return;
     }
+    if (_attendanceTemplate == null) {
+      await _showValidationAlert('Template not mapped. Contact HR.');
+      return;
+    }
+    if (_branchData == null) {
+      await _showValidationAlert('Branch not assigned.');
+      return;
+    }
+    final branchStatus =
+        (_branchData!['status']?.toString().trim().toUpperCase()) ?? '';
+    if (branchStatus != 'ACTIVE') {
+      await _showValidationAlert('Your branch is not active.');
+      return;
+    }
+    final geofence = _branchData!['geofence'] as Map<String, dynamic>?;
+    final geofenceEnabled = geofence?['enabled'] == true;
+    if (!geofenceEnabled) {
+      await _showValidationAlert(
+        'Geo fence is not set for your branch.',
+      );
+      return;
+    }
+    final branchLat = geofence?['latitude'];
+    final branchLng = geofence?['longitude'];
+    final bool latLngSet =
+        branchLat != null &&
+        branchLng != null &&
+        (branchLat is num || (branchLat is String && branchLat.toString().trim().isNotEmpty)) &&
+        (branchLng is num || (branchLng is String && branchLng.toString().trim().isNotEmpty));
+    if (!latLngSet) {
+      await _showValidationAlert(
+        'Lat and long is not set for the branch.',
+      );
+      return;
+    }
+    if (_attendanceTemplate!['isActive'] == false) {
+      await _showValidationAlert(
+        'Attendance template is not active. Contact HR.',
+      );
+      return;
+    }
+    final shiftStart = _getShiftStartTimeFromDb();
+    final shiftEnd = _getShiftEndTimeFromDb();
+    if (shiftStart == null || shiftStart.isEmpty || shiftEnd == null || shiftEnd.isEmpty) {
+      await _showValidationAlert('Shift timing not set. Contact HR.');
+      return;
+    }
+    // --- End validation ---
 
     // Half-day leave: block check-in/out during leave half and show specific red snackbar
     final bool isSecondHalfLeave =

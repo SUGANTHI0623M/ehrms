@@ -1066,15 +1066,25 @@ const getTodayAttendance = async (req, res) => {
         const Company = require('../models/Company');
         const company = await Company.findById(req.staff.businessId);
 
-        // Branch Info
+        // Branch Info (include status and geofence for app-side check-in/out validation)
         let branchInfo = null;
         if (staff.branchId) {
             const b = staff.branchId;
+            const geofenceEnabled = b.geofence?.enabled === true;
+            const lat = b.geofence?.latitude ?? b.latitude;
+            const lng = b.geofence?.longitude ?? b.longitude;
             branchInfo = {
                 name: b.branchName || b.name,
-                latitude: b.geofence?.latitude || b.latitude,
-                longitude: b.geofence?.longitude || b.longitude,
-                radius: b.geofence?.radius || b.radius || 100
+                latitude: lat,
+                longitude: lng,
+                radius: b.geofence?.radius ?? b.radius ?? 100,
+                status: b.status || 'ACTIVE',
+                geofence: {
+                    enabled: geofenceEnabled,
+                    latitude: lat,
+                    longitude: lng,
+                    radius: b.geofence?.radius ?? b.radius ?? 100
+                }
             };
         }
 
