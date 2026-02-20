@@ -112,13 +112,18 @@ FineCalculationResult calculateFine({
   double? dailyNetSalary,
   String? staffLabel,
 }) {
+  final shiftStartStr = shiftTiming?.startTime ?? "09:30";
+  final shiftEndStr = shiftTiming?.endTime ?? "18:30";
+  debugPrint('[Fine TEST] calculateFine called: punchIn=$punchInTime, date=$attendanceDate, shiftStart=$shiftStartStr, shiftEnd=$shiftEndStr, enabled=${fineSettings.enabled}, calculationType=${fineSettings.calculationType}, dailySalary=$dailySalary');
+
   // If fine settings are disabled, return zero
   if (!fineSettings.enabled) {
+    debugPrint('[Fine TEST] => skip (fine disabled), lateMinutes=0, fineAmount=0');
     return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
   // Parse shift start time (format: "HH:mm")
-  final startParts = (shiftTiming?.startTime ?? "09:30").split(':');
+  final startParts = shiftStartStr.split(':');
   final shiftHours = int.parse(startParts[0]);
   final shiftMinutes = int.parse(startParts[1]);
 
@@ -143,6 +148,7 @@ FineCalculationResult calculateFine({
   // If punch-in is before or within grace time, no fine
   if (punchInTime.isBefore(graceTimeEnd) ||
       punchInTime.isAtSameMomentAs(graceTimeEnd)) {
+    debugPrint('[Fine TEST] => within grace (graceMinutes=$graceTimeMinutes, graceEnd=$graceTimeEnd), lateMinutes=0, fineAmount=0');
     return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
@@ -151,6 +157,7 @@ FineCalculationResult calculateFine({
   final lateMinutes = punchInTime.difference(shiftStartDate).inMinutes;
 
   if (lateMinutes <= 0) {
+    debugPrint('[Fine TEST] => lateMinutes<=0, fineAmount=0');
     return FineCalculationResult(lateMinutes: 0, fineHours: 0, fineAmount: 0);
   }
 
@@ -190,6 +197,7 @@ FineCalculationResult calculateFine({
     final staffPart = staffLabel != null && staffLabel.isNotEmpty ? 'staff=$staffLabel | ' : '';
     debugPrint('[Fine FORMULA] $staffPart dailySalary=$dailySalary | lateMinutes=$lateMinutes | $formulaLog | => fineAmount=$fineAmount');
   }
+  debugPrint('[Fine TEST] => result: lateMinutes=$lateMinutes, fineAmount=$fineAmount, shiftHoursTotal=$shiftHoursTotal');
 
   return FineCalculationResult(
     lateMinutes: lateMinutes,
@@ -215,6 +223,8 @@ double calculatePayrollFine({
   required FineSettings fineSettings,
   double? dailyNetSalary,
 }) {
+  debugPrint('[Fine TEST] calculatePayrollFine: records=${attendanceRecords.length}, dailySalary=$dailySalary, shiftHours=$shiftHours, enabled=${fineSettings.enabled}');
+
   if (!fineSettings.enabled) {
     // If fine settings are disabled, use existing fine amounts if available
     // ONLY for Present or Approved status
@@ -228,6 +238,7 @@ double calculatePayrollFine({
       
       total += (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
     }
+    debugPrint('[Fine TEST] calculatePayrollFine => (disabled) totalFine=$total');
     return total;
   }
 
@@ -265,13 +276,18 @@ double calculatePayrollFine({
       // Round to 2 decimal places
       fineAmount = (fineAmount * 100).round() / 100;
       totalFine += fineAmount;
+      debugPrint('[Fine TEST] payroll record: date=${record['date']}, lateMinutes=$lateMinutes, fineAmount=$fineAmount');
     } else {
       // Use existing fineAmount if available (for backward compatibility)
       final existingFine = (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
       totalFine += existingFine;
+      if (existingFine > 0) {
+        debugPrint('[Fine TEST] payroll record: date=${record['date']}, using existing fineAmount=$existingFine');
+      }
     }
   }
 
+  debugPrint('[Fine TEST] calculatePayrollFine => totalFine=$totalFine');
   return totalFine;
 }
 

@@ -374,6 +374,26 @@ const getBusinessTimezone = (company) => {
     return (tz && typeof tz === 'string' && tz.trim()) ? tz.trim() : DEFAULT_BUSINESS_TIMEZONE;
 };
 
+/**
+ * Get the UTC Date for "attendance day at HH:mm" in business timezone.
+ * Shift times (e.g. 10:00) are in business local time; server may be in UTC, so we must build
+ * shift boundaries in business TZ to avoid production (UTC server) showing lateMinutes=0 when
+ * the same punch-in is correctly late on local (IST server).
+ * @param {Date} attendanceDate - UTC midnight of the attendance day (e.g. from startOfDay)
+ * @param {string} timeStr - Time in HH:mm format (e.g. '10:00', '19:00')
+ * @param {string} timeZone - IANA timezone e.g. 'Asia/Kolkata'
+ * @returns {Date} UTC moment when it is timeStr in that timezone on the attendance calendar day
+ */
+function getShiftBoundaryAsUTCDate(attendanceDate, timeStr, timeZone) {
+    const useTz = (timeZone && String(timeZone).trim()) || DEFAULT_BUSINESS_TIMEZONE;
+    const local = getLocalHoursMinutes(attendanceDate, useTz);
+    const minutesFromMidnightAtDate = local.hour * 60 + local.minute;
+    const startOfDayInTZ = new Date(attendanceDate.getTime() - minutesFromMidnightAtDate * 60 * 1000);
+    const [h, m] = (timeStr || '00:00').split(':').map(Number);
+    const shiftMinutes = (h || 0) * 60 + (m || 0);
+    return new Date(startOfDayInTZ.getTime() + shiftMinutes * 60 * 1000);
+}
+
 const getShiftTimings = (company, staff = null) => {
     // Default shift timings
     let startTime = '09:30';
@@ -945,5 +965,6 @@ module.exports = {
     calculateHalfDayEarlyFine,
     getShiftTimings,
     calculateWorkHoursFromShift,
-    getBusinessTimezone
+    getBusinessTimezone,
+    getShiftBoundaryAsUTCDate
 };

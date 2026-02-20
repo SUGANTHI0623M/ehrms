@@ -234,13 +234,23 @@ const { getEffectiveFineConfig, calculateFineAmount } = require('../utils/fineCa
 
 // Helper function to calculate fine for late arrival.
 // Uses formula: Fine = (Daily Salary ÷ Shift Hours) × (Late Minutes ÷ 60). Applies fineRules when present.
-function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours, fineConfig = null) {
-    const [shiftHours_val, shiftMins] = shiftStartTime.split(':').map(Number);
-    const shiftStart = new Date(attendanceDate);
-    shiftStart.setHours(shiftHours_val, shiftMins, 0, 0);
-    const graceTimeEnd = new Date(shiftStart);
-    graceTimeEnd.setMinutes(graceTimeEnd.getMinutes() + gracePeriodMinutes);
-    if (punchInTime <= graceTimeEnd) return { lateMinutes: 0, fineAmount: 0 };
+// When businessTimezone is provided, shift boundaries are built in that TZ (fixes production UTC server showing lateMinutes=0).
+function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, dailySalary, shiftHours, fineConfig = null, businessTimezone = null) {
+    let shiftStart;
+    if (businessTimezone) {
+        const { getShiftBoundaryAsUTCDate } = require('../utils/leaveAttendanceHelper');
+        shiftStart = getShiftBoundaryAsUTCDate(attendanceDate, shiftStartTime, businessTimezone);
+    } else {
+        const [shiftHours_val, shiftMins] = shiftStartTime.split(':').map(Number);
+        shiftStart = new Date(attendanceDate);
+        shiftStart.setHours(shiftHours_val, shiftMins, 0, 0);
+    }
+    const graceTimeEnd = new Date(shiftStart.getTime() + gracePeriodMinutes * 60 * 1000);
+    console.log('[Fine] Late check: punchInTime=', punchInTime?.toISOString?.(), 'shiftStart(UTC)=', shiftStart?.toISOString?.(), 'graceTimeEnd(UTC)=', graceTimeEnd?.toISOString?.(), 'graceMinutes=', gracePeriodMinutes);
+    if (punchInTime <= graceTimeEnd) {
+        console.log('[Fine] => within grace or before shift, lateMinutes=0');
+        return { lateMinutes: 0, fineAmount: 0 };
+    }
     const lateMinutes = Math.max(0, Math.round((punchInTime.getTime() - shiftStart.getTime()) / (1000 * 60)));
     if (lateMinutes <= 0) return { lateMinutes, fineAmount: 0 };
     if (fineConfig && fineConfig.enabled === false) return { lateMinutes, fineAmount: 0 };
@@ -250,10 +260,18 @@ function calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePer
 
 // Helper function to calculate fine for early exit.
 // Uses formula: Fine = (Daily Salary ÷ Shift Hours) × (Early Minutes ÷ 60). Applies fineRules when present.
-function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours, fineConfig = null) {
-    const [endHours, endMins] = shiftEndTime.split(':').map(Number);
-    const shiftEnd = new Date(attendanceDate);
-    shiftEnd.setHours(endHours, endMins, 0, 0);
+// When businessTimezone is provided, shift end is built in that TZ (consistent with late calculation).
+function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySalary, shiftHours, fineConfig = null, businessTimezone = null) {
+    let shiftEnd;
+    if (businessTimezone) {
+        const { getShiftBoundaryAsUTCDate } = require('../utils/leaveAttendanceHelper');
+        shiftEnd = getShiftBoundaryAsUTCDate(attendanceDate, shiftEndTime, businessTimezone);
+    } else {
+        const [endHours, endMins] = shiftEndTime.split(':').map(Number);
+        shiftEnd = new Date(attendanceDate);
+        shiftEnd.setHours(endHours, endMins, 0, 0);
+    }
+    console.log('[Fine] Early check: punchOutTime=', punchOutTime?.toISOString?.(), 'shiftEnd(UTC)=', shiftEnd?.toISOString?.());
     if (punchOutTime >= shiftEnd) return { earlyMinutes: 0, fineAmount: 0 };
     const earlyMinutes = Math.max(0, Math.round((shiftEnd.getTime() - punchOutTime.getTime()) / (1000 * 60)));
     if (earlyMinutes <= 0) return { earlyMinutes, fineAmount: 0 };
@@ -266,13 +284,16 @@ function calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, dailySal
 // @param {Object} leave - Optional approved leave (for Half Day session-aware calculation)
 async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, template, staff, company, leave = null) {
     try {
-        console.log('[Fine] calculateCombinedFine called', { hasPunchIn: !!punchInTime, hasPunchOut: !!punchOutTime, date: attendanceDate, staffId: staff?._id?.toString() });
+        const checkInStr = punchInTime ? punchInTime.toISOString() : null;
+        const checkOutStr = punchOutTime ? punchOutTime.toISOString() : null;
+        console.log('[Fine] calculateCombinedFine called', { checkInTime: checkInStr, checkOutTime: checkOutStr, date: attendanceDate?.toISOString?.(), staffId: staff?._id?.toString() });
         const fineConfig = getEffectiveFineConfig(company || {});
         const isHalfDay = leave && String(leave.leaveType || '').trim().toLowerCase() === 'half day';
         // Use halfDaySession enum values ('First Half Day' / 'Second Half Day') - fallback to converting session numbers
         const session = isHalfDay ? (leave.halfDaySession || leave.halfDayType || (leave.session === '1' ? 'First Half Day' : leave.session === '2' ? 'Second Half Day' : null)) : null;
-        const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
+        const { getShiftTimings, getBusinessTimezone } = require('../utils/leaveAttendanceHelper');
         const dbShiftTimings = getShiftTimings(company, staff);
+        const businessTimezone = getBusinessTimezone(company);
         const dbShiftStartTime = dbShiftTimings.startTime;
         const dbShiftEndTime = dbShiftTimings.endTime;
         const dbGracePeriodMinutes = dbShiftTimings.gracePeriodMinutes ?? fineConfig?.graceTimeMinutes ?? 0;
@@ -344,7 +365,7 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             console.log('[Fine] dailySalary missing or 0; late/early minutes will still be computed, fineAmount will be 0');
         }
 
-        console.log('[Fine] Config: source=payroll.fineCalculation', 'enabled=', fineConfig?.enabled, 'calculationType=', fineConfig?.calculationType || 'shiftBased', 'dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime);
+        console.log('[Fine] Config: source=payroll.fineCalculation', 'enabled=', fineConfig?.enabled, 'calculationType=', fineConfig?.calculationType || 'shiftBased', 'dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime, 'businessTimezone=', businessTimezone);
 
         let lateFine;
         if (isHalfDay && (session === 'First Half Day' || session === 'Second Half Day')) {
@@ -352,7 +373,7 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             const halfDayGrace = session === 'First Half Day' ? 0 : gracePeriodMinutes;
             lateFine = calculateHalfDayLateFine(punchInTime, attendanceDate, session, halfDayGrace, effectiveDailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime, fineConfig, dbShiftTimings.halfDaySettings);
         } else {
-            lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, effectiveDailySalary, shiftHours, fineConfig);
+            lateFine = calculateLateFine(punchInTime, attendanceDate, shiftStartTime, gracePeriodMinutes, effectiveDailySalary, shiftHours, fineConfig, businessTimezone);
         }
         let earlyFine = { earlyMinutes: 0, fineAmount: 0 };
         if (punchOutTime) {
@@ -360,7 +381,7 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
                 const { calculateHalfDayEarlyFine } = require('../utils/leaveAttendanceHelper');
                 earlyFine = calculateHalfDayEarlyFine(punchOutTime, attendanceDate, session, effectiveDailySalary, shiftHours, dbShiftStartTime, dbShiftEndTime, fineConfig, dbShiftTimings.halfDaySettings);
             } else {
-                earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, effectiveDailySalary, shiftHours, fineConfig);
+                earlyFine = calculateEarlyFine(punchOutTime, attendanceDate, shiftEndTime, effectiveDailySalary, shiftHours, fineConfig, businessTimezone);
             }
         }
 
@@ -380,15 +401,16 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             earlyFineAmount
         };
         console.log('[Fine] Result:', JSON.stringify(out));
-        // Formula summary log for debugging
-        console.log('[Fine FORMULA] Summary: dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime,
+        // Formula summary with check-in/check-out times for debugging why lateMinutes might be 0
+        console.log('[Fine FORMULA] Summary: checkInTime=', checkInStr, 'checkOutTime=', checkOutStr,
+            '| dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime, 'businessTimezone=', businessTimezone,
             '| lateMinutes=', lateFine.lateMinutes, 'lateFineAmount=', lateFineAmount,
             '| earlyMinutes=', earlyFine.earlyMinutes, 'earlyFineAmount=', earlyFineAmount,
             '| totalFineAmount=', fineAmount);
-        // Clear log for testing fine amount and formula
         const formulaDesc = (fineConfig && fineConfig.calculationType) ? fineConfig.calculationType : 'shiftBased';
         console.log('[Fine AMOUNT TEST] --- Formula: ' + formulaDesc + ' ---');
-        console.log('[Fine AMOUNT TEST] Inputs: dailySalary=' + effectiveDailySalary + ', shiftHours=' + shiftHours + ', shiftStart=' + shiftStartTime + ', shiftEnd=' + shiftEndTime);
+        console.log('[Fine AMOUNT TEST] Times: checkInTime=' + checkInStr + ' | checkOutTime=' + (checkOutStr || 'null') + ' | attendanceDate=' + (attendanceDate?.toISOString?.() || ''));
+        console.log('[Fine AMOUNT TEST] Inputs: dailySalary=' + effectiveDailySalary + ', shiftHours=' + shiftHours + ', shiftStart=' + shiftStartTime + ', shiftEnd=' + shiftEndTime + ', businessTimezone=' + businessTimezone);
         console.log('[Fine AMOUNT TEST] Late: minutes=' + lateFine.lateMinutes + ' => fineAmount=' + lateFineAmount + ' | Early: minutes=' + earlyFine.earlyMinutes + ' => fineAmount=' + earlyFineAmount);
         console.log('[Fine AMOUNT TEST] Formula (shiftBased): totalFineAmount = (dailySalary/shiftHours)*(lateMinutes/60) + (dailySalary/shiftHours)*(earlyMinutes/60) = lateFineAmount + earlyFineAmount');
         console.log('[Fine AMOUNT TEST] Result: totalFineAmount = ' + lateFineAmount + ' + ' + earlyFineAmount + ' = ' + fineAmount);
@@ -651,7 +673,7 @@ const checkIn = async (req, res) => {
             existing.fineHours = fineResult.fineHours ?? 0;
             existing.fineAmount = fineResult.fineAmount ?? 0;
             existing.workHours = 0;
-            console.log('[Fine CHECK-IN] (half-day update) INSERTING: lateMinutes=', existing.lateMinutes, 'earlyMinutes=', existing.earlyMinutes, 'fineAmount=', existing.fineAmount);
+            console.log('[Fine CHECK-IN] (half-day update) INSERTING: checkInTime=', existing.punchIn?.toISOString?.(), 'checkOutTime=null', 'lateMinutes=', existing.lateMinutes, 'earlyMinutes=', existing.earlyMinutes, 'fineAmount=', existing.fineAmount);
             await existing.save();
             await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
             const response = existing.toObject ? existing.toObject() : existing;
@@ -704,7 +726,7 @@ const checkIn = async (req, res) => {
         // Always calculate fine so lateMinutes/fineAmount are set (0 when on time or within grace)
         const fineResult = await calculateCombinedFine(now, null, startOfDay, fineTemplate, staff, company, activeLeave);
 
-        console.log('[Fine CHECK-IN] INSERTING: lateMinutes=', fineResult.lateMinutes, 'earlyMinutes=', fineResult.earlyMinutes, 'fineAmount=', fineResult.fineAmount);
+        console.log('[Fine CHECK-IN] INSERTING: checkInTime=', now.toISOString(), 'checkOutTime=null', 'lateMinutes=', fineResult.lateMinutes, 'earlyMinutes=', fineResult.earlyMinutes, 'fineAmount=', fineResult.fineAmount);
         // Create initial attendance record. Store businessId from staff (staffs collection).
         const businessIdToStore = staff.businessId;
         console.log('[Attendance checkIn] storing in attendances: businessId=', businessIdToStore?.toString(), '(from staffs collection; body businessId=', bodyBusinessId ?? 'not sent', ')');
@@ -997,7 +1019,7 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     attendance.fineHours = fineResult.fineHours ?? ((Number(attendance.lateMinutes) || 0) + (Number(attendance.earlyMinutes) || 0));
     attendance.fineAmount = totalFineAmount;
 
-    console.log('[Fine CHECK-OUT] lateFineAmount=', lateFineAmount, 'earlyFineAmount=', earlyFineAmount, 'totalFineAmount=', totalFineAmount, 'INSERTING: lateMinutes=', attendance.lateMinutes, 'earlyMinutes=', attendance.earlyMinutes, 'fineHours=', attendance.fineHours, 'fineAmount=', attendance.fineAmount);
+    console.log('[Fine CHECK-OUT] checkInTime=', attendance.punchIn?.toISOString?.(), 'checkOutTime=', now.toISOString(), 'lateFineAmount=', lateFineAmount, 'earlyFineAmount=', earlyFineAmount, 'totalFineAmount=', totalFineAmount, 'INSERTING: lateMinutes=', attendance.lateMinutes, 'earlyMinutes=', attendance.earlyMinutes, 'fineHours=', attendance.fineHours, 'fineAmount=', attendance.fineAmount);
     console.log('[Fine AMOUNT TEST] CHECK-OUT stored: lateMinutes=' + attendance.lateMinutes + ' lateFineAmount=' + lateFineAmount + ', earlyMinutes=' + attendance.earlyMinutes + ' earlyFineAmount=' + earlyFineAmount + ', totalFineAmount=' + totalFineAmount + ' (formula: lateFine + earlyFine)');
 
     await attendance.save();
