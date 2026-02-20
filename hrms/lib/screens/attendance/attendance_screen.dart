@@ -2707,7 +2707,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           //fine formula
-          if (1 == 0)
+          if (1 == 1)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

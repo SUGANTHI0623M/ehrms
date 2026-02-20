@@ -385,6 +385,13 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             '| lateMinutes=', lateFine.lateMinutes, 'lateFineAmount=', lateFineAmount,
             '| earlyMinutes=', earlyFine.earlyMinutes, 'earlyFineAmount=', earlyFineAmount,
             '| totalFineAmount=', fineAmount);
+        // Clear log for testing fine amount and formula
+        const formulaDesc = (fineConfig && fineConfig.calculationType) ? fineConfig.calculationType : 'shiftBased';
+        console.log('[Fine AMOUNT TEST] --- Formula: ' + formulaDesc + ' ---');
+        console.log('[Fine AMOUNT TEST] Inputs: dailySalary=' + effectiveDailySalary + ', shiftHours=' + shiftHours + ', shiftStart=' + shiftStartTime + ', shiftEnd=' + shiftEndTime);
+        console.log('[Fine AMOUNT TEST] Late: minutes=' + lateFine.lateMinutes + ' => fineAmount=' + lateFineAmount + ' | Early: minutes=' + earlyFine.earlyMinutes + ' => fineAmount=' + earlyFineAmount);
+        console.log('[Fine AMOUNT TEST] Formula (shiftBased): totalFineAmount = (dailySalary/shiftHours)*(lateMinutes/60) + (dailySalary/shiftHours)*(earlyMinutes/60) = lateFineAmount + earlyFineAmount');
+        console.log('[Fine AMOUNT TEST] Result: totalFineAmount = ' + lateFineAmount + ' + ' + earlyFineAmount + ' = ' + fineAmount);
         return out;
     } catch (error) {
         console.error('[Fine] Calculation Error', error);
@@ -991,6 +998,7 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     attendance.fineAmount = totalFineAmount;
 
     console.log('[Fine CHECK-OUT] lateFineAmount=', lateFineAmount, 'earlyFineAmount=', earlyFineAmount, 'totalFineAmount=', totalFineAmount, 'INSERTING: lateMinutes=', attendance.lateMinutes, 'earlyMinutes=', attendance.earlyMinutes, 'fineHours=', attendance.fineHours, 'fineAmount=', attendance.fineAmount);
+    console.log('[Fine AMOUNT TEST] CHECK-OUT stored: lateMinutes=' + attendance.lateMinutes + ' lateFineAmount=' + lateFineAmount + ', earlyMinutes=' + attendance.earlyMinutes + ' earlyFineAmount=' + earlyFineAmount + ', totalFineAmount=' + totalFineAmount + ' (formula: lateFine + earlyFine)');
 
     await attendance.save();
 
