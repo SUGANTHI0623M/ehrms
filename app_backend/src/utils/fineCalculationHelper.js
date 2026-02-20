@@ -64,24 +64,28 @@ function calculateFineAmount(minutes, applyToType, fineConfig, dailySalary, shif
     let formulaUsed = '';
 
     if (matchingRule) {
+        const hourlyRate = shiftHours > 0 && dailySalary != null ? dailySalary / shiftHours : 0;
+        const hours = minutes / 60;
         amount = applyRuleAmount(matchingRule, minutes, dailySalary, shiftHours);
-        formulaUsed = `rule type=${matchingRule.type} applyTo=${matchingRule.applyTo}`;
+        formulaUsed = `rule type=${matchingRule.type} applyTo=${matchingRule.applyTo || 'both'} | dailySalary=${dailySalary} shiftHours=${shiftHours} hourlyRate=${hourlyRate.toFixed(2)} minutes=${minutes} hours=${hours.toFixed(2)}`;
     } else {
         const calcType = fineConfig.calculationType || 'shiftBased';
         if (calcType === 'fixedPerHour' && (fineConfig.finePerHour != null && fineConfig.finePerHour > 0)) {
-            amount = fineConfig.finePerHour * (minutes / 60);
-            formulaUsed = `fixedPerHour: Fine = finePerHour(${fineConfig.finePerHour}) × (minutes/60) = ${fineConfig.finePerHour} × (${minutes}/60)`;
+            const hours = minutes / 60;
+            amount = fineConfig.finePerHour * hours;
+            formulaUsed = `fixedPerHour: Fine = finePerHour × (minutes÷60) = ${fineConfig.finePerHour} × (${minutes}÷60) = ${fineConfig.finePerHour} × ${hours.toFixed(2)}`;
         } else if (calcType === 'shiftBased' && dailySalary != null && shiftHours > 0) {
             const hourlyRate = dailySalary / shiftHours;
-            amount = hourlyRate * (minutes / 60);
-            formulaUsed = `shiftBased: Fine = (DailySalary ÷ ShiftHours) × (Minutes ÷ 60) = (${dailySalary} ÷ ${shiftHours}) × (${minutes} ÷ 60) = ${hourlyRate.toFixed(2)} × ${(minutes / 60).toFixed(2)}`;
+            const hours = minutes / 60;
+            amount = hourlyRate * hours;
+            formulaUsed = `shiftBased: Fine = (DailySalary÷ShiftHours) × (Minutes÷60) = (${dailySalary}÷${shiftHours}) × (${minutes}÷60) = ${hourlyRate.toFixed(2)} × ${hours.toFixed(2)}`;
         } else {
             formulaUsed = `no formula applied: calcType=${calcType} dailySalary=${dailySalary} shiftHours=${shiftHours}`;
         }
     }
 
     const result = Math.round((amount || 0) * 100) / 100;
-    console.log(logPrefix, 'FORMULA', applyToType, 'minutes=', minutes, formulaUsed, '=> fineAmount=', result);
+    console.log(logPrefix, 'FORMULA', applyToType, '| minutes=', minutes, '|', formulaUsed, '| => fineAmount=', result);
     return result;
 }
 

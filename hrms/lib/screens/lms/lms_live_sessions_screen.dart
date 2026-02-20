@@ -34,6 +34,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
   bool _isLoading = true;
   List<dynamic> _departments = [];
   List<dynamic> _employees = [];
+
   /// Staff ID for creator check (trainerId in session is Staff id).
   String? _currentUserId;
 
@@ -159,10 +160,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
     if (widget.embeddedInShell) {
       return Column(
         children: [
-          Container(
-            color: AppColors.surface,
-            child: tabBar,
-          ),
+          Container(color: AppColors.surface, child: tabBar),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
@@ -179,7 +177,10 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                 ),
               ],
@@ -193,7 +194,10 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
     return Scaffold(
       appBar: AppBar(
         leading: const MenuIconButton(),
-        title: const Text('My Live Sessions', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'My Live Sessions',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
         actions: [
@@ -225,7 +229,9 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
         currentIndex: 0,
         onTap: (index) {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: index)),
+            MaterialPageRoute(
+              builder: (_) => DashboardScreen(initialIndex: index),
+            ),
             (route) => route.isFirst,
           );
         },
@@ -276,7 +282,8 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
               delegate: SliverChildBuilderDelegate((context, index) {
                 final session = sessions[index];
                 final status = _getStatus(session);
-                final hasLeft = session['mySessionLog']?['left'] == true ||
+                final hasLeft =
+                    session['mySessionLog']?['left'] == true ||
                     session['myAttendance']?['left'] == true;
                 return _SessionCard(
                   session: session,
@@ -288,8 +295,10 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
                   onEdit: () => _showScheduleModal(context, session: session),
                   onDelete: () => _deleteSession(session),
                   onStartSession: () => _updateSessionStatus(session, 'Live'),
-                  onCancelSession: () => _updateSessionStatus(session, 'Cancelled'),
-                  onEndSession: () => _updateSessionStatus(session, 'Completed'),
+                  onCancelSession: () =>
+                      _updateSessionStatus(session, 'Cancelled'),
+                  onEndSession: () =>
+                      _updateSessionStatus(session, 'Completed'),
                   onWatchRecording: () => _openUrl(session['recordingUrl']),
                 );
               }, childCount: sessions.length),
@@ -328,8 +337,8 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
           status == 'Cancelled'
               ? 'Session cancelled'
               : status == 'Completed'
-                  ? 'Session ended'
-                  : 'Session started',
+              ? 'Session ended'
+              : 'Session started',
         );
         _loadSessions();
       } else {
@@ -359,11 +368,16 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
             Navigator.pop(ctx);
             if (res['success'] == true) {
               SnackBarUtils.showSnackBar(
-                  context, 'Session log saved. You have left the session.');
+                context,
+                'Session log saved. You have left the session.',
+              );
               _loadSessions();
             } else {
               SnackBarUtils.showSnackBar(
-                  context, res['message'] ?? 'Failed', isError: true);
+                context,
+                res['message'] ?? 'Failed',
+                isError: true,
+              );
             }
           }
         },
@@ -502,14 +516,12 @@ class _SessionCard extends StatelessWidget {
                     color: isLive
                         ? Colors.green
                         : isUpcoming
-                            ? Colors.blue
-                            : Colors.grey,
+                        ? Colors.blue
+                        : Colors.grey,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    hasLeft && isLive
-                        ? 'You left'
-                        : status,
+                    hasLeft && isLive ? 'You left' : status,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -630,7 +642,6 @@ class _SessionCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _ScheduleSessionSheet extends StatefulWidget {
@@ -937,7 +948,8 @@ class _LeaveSessionSheet extends StatefulWidget {
     String feedbackSummary,
     String? issues,
     int? rating,
-  ) onSubmit;
+  )
+  onSubmit;
 
   const _LeaveSessionSheet({
     required this.sessionTitle,
@@ -1067,7 +1079,8 @@ class _LeaveSessionSheetState extends State<_LeaveSessionSheet> {
                         color: Colors.amber,
                       ),
                       onPressed: () => setState(
-                          () => _rating = _rating == star ? null : star),
+                        () => _rating = _rating == star ? null : star,
+                      ),
                     ),
                   );
                 }),
@@ -1077,7 +1090,9 @@ class _LeaveSessionSheetState extends State<_LeaveSessionSheet> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _submitting ? null : () => Navigator.pop(context),
+                      onPressed: _submitting
+                          ? null
+                          : () => Navigator.pop(context),
                       child: const Text('Cancel'),
                     ),
                   ),

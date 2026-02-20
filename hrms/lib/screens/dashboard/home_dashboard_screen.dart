@@ -167,7 +167,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           final data = result['data'];
           final stats = data['stats'];
           final activeLoansList = stats?['activeLoansList'];
-          final loansList = activeLoansList is List ? activeLoansList : <dynamic>[];
+          final loansList = activeLoansList is List
+              ? activeLoansList
+              : <dynamic>[];
           setState(() {
             _stats = stats;
             _recentLeaves = data['recentLeaves'] ?? [];
@@ -355,20 +357,30 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
       // Present days = till today only (same as backend / salary overview)
       if (presentDays == 0 && attendanceRecords.isNotEmpty) {
-        final todayDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+        final todayDate = DateTime(
+          DateTime.now().year,
+          DateTime.now().month,
+          DateTime.now().day,
+        );
         for (final record in attendanceRecords) {
           final recordDateStr = record['date'] as String?;
           if (recordDateStr != null) {
             try {
               final recordDate = DateTime.parse(recordDateStr).toLocal();
-              final recordDay = DateTime(recordDate.year, recordDate.month, recordDate.day);
+              final recordDay = DateTime(
+                recordDate.year,
+                recordDate.month,
+                recordDate.day,
+              );
               if (recordDay.isAfter(todayDate)) continue; // Skip future dates
             } catch (_) {}
           }
           final status = (record['status'] as String? ?? '')
               .trim()
               .toLowerCase();
-          if (status == 'present' || status == 'approved' || status == 'half day') {
+          if (status == 'present' ||
+              status == 'approved' ||
+              status == 'half day') {
             final leaveType = (record['leaveType'] as String? ?? '')
                 .trim()
                 .toLowerCase();
@@ -445,9 +457,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
       // Daily salary = Monthly NET salary / This month working days (1 day salary = net/this month WD)
       double? dailySalary;
-      final thisMonthWorkingDays = workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
+      final thisMonthWorkingDays =
+          workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
       if (thisMonthWorkingDays > 0) {
-        dailySalary = calculatedSalary.monthly.netMonthlySalary / thisMonthWorkingDays;
+        dailySalary =
+            calculatedSalary.monthly.netMonthlySalary / thisMonthWorkingDays;
       }
 
       double shiftHours = 9.0;
@@ -478,7 +492,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       double totalFineAmount = 0.0;
       for (final record in attendanceRecords) {
         final status = (record['status'] as String? ?? '').trim().toLowerCase();
-        
+
         // ONLY calculate fine for Present or Approved status
         // Skip Absent, Pending, Rejected, etc.
         if (status != 'present' && status != 'approved') continue;
@@ -497,12 +511,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       punchInTime.month,
                       punchInTime.day,
                     );
+              final staffLabel =
+                  record['employeeId']?.toString() ??
+                  record['user']?.toString() ??
+                  record['date']?.toString();
               final fineResult = calculateFine(
                 punchInTime: punchInTime,
                 attendanceDate: attendanceDate,
                 shiftTiming: shiftTiming,
                 fineSettings: fineSettings,
                 dailySalary: dailySalary,
+                staffLabel: staffLabel,
               );
               lateMinutes = fineResult.lateMinutes;
               fineAmount = fineResult.fineAmount;
@@ -537,7 +556,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
 
       // 8. Prorated salary using THIS MONTH working days (same as Salary Overview)
-      final thisMonthWorkingDaysForProration = workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
+      final thisMonthWorkingDaysForProration =
+          workingDaysInfo.workingDaysFullMonth ?? workingDaysInfo.workingDays;
       final proratedSalary = calculateProratedSalary(
         calculatedSalary,
         thisMonthWorkingDaysForProration,
@@ -1612,7 +1632,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           if (parts.length != 3) continue;
           final dayYear = int.tryParse(parts[0]) ?? 0;
           final dayMonth = int.tryParse(parts[1]) ?? 0;
-          if (dayYear != _selectedMonth.year || dayMonth != _selectedMonth.month) {
+          if (dayYear != _selectedMonth.year ||
+              dayMonth != _selectedMonth.month) {
             continue;
           }
           dayStatusByDate[dateStr] = entry['status'] ?? 'Present';
@@ -1628,8 +1649,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             final punchOut = entry['punchOut'];
             if (punchIn != null && punchOut != null) {
               try {
-                final punchInTime = DateTime.parse(punchIn.toString()).toLocal();
-                final punchOutTime = DateTime.parse(punchOut.toString()).toLocal();
+                final punchInTime = DateTime.parse(
+                  punchIn.toString(),
+                ).toLocal();
+                final punchOutTime = DateTime.parse(
+                  punchOut.toString(),
+                ).toLocal();
                 final duration = punchOutTime.difference(punchInTime);
                 workHours = duration.inMinutes / 60.0; // Convert to hours
               } catch (_) {

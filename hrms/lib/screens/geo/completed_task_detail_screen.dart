@@ -187,10 +187,7 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
           ),
           title: const Text(
             'Task Completion Report',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
           centerTitle: true,
           elevation: 0,
@@ -292,7 +289,8 @@ class _CompletedTaskDetailScreenState extends State<CompletedTaskDetailScreen> {
           onTap: (index) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(
-                builder: (_) => DashboardScreen(initialIndex: index.clamp(0, 4)),
+                builder: (_) =>
+                    DashboardScreen(initialIndex: index.clamp(0, 4)),
               ),
               (route) => false,
             );

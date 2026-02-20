@@ -588,8 +588,9 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                   }
                                 : null,
                           ),
-                        // Form step: only when form template is assigned to staff
-                        if (_hasFormAssigned)
+                        // Form step: only when form template is assigned to staff (hidden when showLeadFormAfterCall is false)
+                        if (AppConstants.showLeadFormAfterCall &&
+                            _hasFormAssigned)
                           _nextStepRow(
                             icon: Icons.description_rounded,
                             label: 'Fill required form',
@@ -626,7 +627,9 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                     (!_isOtpRequiredFromSettings ||
                                         (task ?? widget.task)?.isOtpVerified ==
                                             true) &&
-                                    (!_hasFormAssigned || _formFilled)
+                                    (!AppConstants.showLeadFormAfterCall ||
+                                        !_hasFormAssigned ||
+                                        _formFilled)
                                 ? () async {
                                     if (_submittingComplete) return;
                                     setState(() => _submittingComplete = true);
@@ -648,7 +651,8 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                       } catch (e) {
                                         if (mounted) {
                                           setState(
-                                              () => _submittingComplete = false);
+                                            () => _submittingComplete = false,
+                                          );
                                           String msg =
                                               'Failed to complete task';
                                           if (e is DioException &&
@@ -726,7 +730,10 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                     size: 22,
                                   ),
                             label: Text(
-                                _submittingComplete ? 'Completing...' : 'Complete Task'),
+                              _submittingComplete
+                                  ? 'Completing...'
+                                  : 'Complete Task',
+                            ),
                           ),
                         ),
                       ],
@@ -864,7 +871,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                     ? Icons.gps_fixed_rounded
                     : Icons.location_on_rounded,
                 size: 18,
-                color: title == 'Source' ? Colors.green : Colors.red,
+                color: title == 'Source' ? AppColors.green : Colors.red,
               ),
               const SizedBox(width: 6),
               Text(
@@ -895,7 +902,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                   ? Icons.gps_fixed_rounded
                   : Icons.location_on_rounded,
               size: 18,
-              color: title == 'Source' ? Colors.green : Colors.red,
+              color: title == 'Source' ? AppColors.green : Colors.red,
             ),
             const SizedBox(width: 6),
             Text(

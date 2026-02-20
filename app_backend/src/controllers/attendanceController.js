@@ -343,13 +343,11 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             }
         }
         
-        const needSalaryForFine = fineConfig && fineConfig.enabled === true &&
-            fineConfig.calculationType !== 'fixedPerHour' && (!fineConfig.finePerHour || fineConfig.finePerHour <= 0);
-        if (needSalaryForFine && (!dailySalary || dailySalary <= 0)) {
-            console.log('[Fine] SKIP: fine enabled, shiftBased, but dailySalary missing or 0. dailySalary=', dailySalary, '=> returning all zeros');
-            return { lateMinutes: 0, earlyMinutes: 0, fineHours: 0, fineAmount: 0, lateFineAmount: 0, earlyFineAmount: 0 };
-        }
+        // Always compute late/early minutes; only fine amount needs salary (use 0 when missing)
         const effectiveDailySalary = (dailySalary && dailySalary > 0) ? dailySalary : 0;
+        if (effectiveDailySalary <= 0) {
+            console.log('[Fine] dailySalary missing or 0; late/early minutes will still be computed, fineAmount will be 0');
+        }
 
         console.log('[Fine] Config: source=payroll.fineCalculation', 'enabled=', fineConfig?.enabled, 'calculationType=', fineConfig?.calculationType || 'shiftBased', 'dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime);
 
@@ -387,6 +385,11 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             earlyFineAmount
         };
         console.log('[Fine] Result:', JSON.stringify(out));
+        // Formula summary log for debugging
+        console.log('[Fine FORMULA] Summary: dailySalary=', effectiveDailySalary, 'shiftHours=', shiftHours, 'shiftStart=', shiftStartTime, 'shiftEnd=', shiftEndTime,
+            '| lateMinutes=', lateFine.lateMinutes, 'lateFineAmount=', lateFineAmount,
+            '| earlyMinutes=', earlyFine.earlyMinutes, 'earlyFineAmount=', earlyFineAmount,
+            '| totalFineAmount=', fineAmount);
         return out;
     } catch (error) {
         console.error('[Fine] Calculation Error', error);
@@ -428,6 +431,13 @@ const checkIn = async (req, res) => {
         // Re-fetch staff with populated branch and template
         const staff = await Staff.findById(staffId).populate('branchId').populate('attendanceTemplateId');
         const template = normalizeTemplate(staff.attendanceTemplateId);
+
+        // Salary must be configured to allow check-in (required for fine/late/early storage and payroll)
+        const salaryStructure = staff.salary ? calculateSalaryStructure(staff.salary) : null;
+        const netMonthlySalary = salaryStructure?.monthly?.netMonthlySalary != null ? Number(salaryStructure.monthly.netMonthlySalary) : 0;
+        if (!staff.salary || netMonthlySalary <= 0) {
+            return res.status(400).json({ message: 'Salary not configured. Contact HR.' });
+        }
 
         // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
         const Leave = require('../models/Leave');

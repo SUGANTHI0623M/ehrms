@@ -3,6 +3,8 @@
 /// Matches the logic from backend/src/utils/fineCalculation.util.ts
 library;
 
+import 'package:flutter/foundation.dart';
+
 /// Shift timing information
 class ShiftTiming {
   final String name;
@@ -98,6 +100,7 @@ double calculateShiftHours(String startTime, String endTime) {
 /// [fineSettings] - Fine configuration settings
 /// [dailySalary] - One day's salary (for shift-based calculation)
 /// [dailyNetSalary] - One day's net salary (for fixedPerHour calculation, optional)
+/// [staffLabel] - Optional label for logs (e.g. staffId or employee name)
 ///
 /// Returns FineCalculationResult with lateMinutes and fineAmount
 FineCalculationResult calculateFine({
@@ -107,6 +110,7 @@ FineCalculationResult calculateFine({
   required FineSettings fineSettings,
   double? dailySalary,
   double? dailyNetSalary,
+  String? staffLabel,
 }) {
   // If fine settings are disabled, return zero
   if (!fineSettings.enabled) {
@@ -158,12 +162,14 @@ FineCalculationResult calculateFine({
 
   // Calculate fine amount
   double fineAmount = 0;
+  String formulaLog = '';
 
   if (fineSettings.calculationType == 'fixedPerHour' &&
       fineSettings.finePerHour != null) {
     // Fixed per hour calculation
     final lateHours = lateMinutes / 60;
     fineAmount = fineSettings.finePerHour! * lateHours;
+    formulaLog = 'fixedPerHour: Fine = finePerHour × (minutes÷60) = ${fineSettings.finePerHour} × ($lateMinutes÷60) = ${fineSettings.finePerHour} × ${lateHours.toStringAsFixed(2)}';
   } else {
     // Shift-based calculation (default)
     // Daily Salary = Monthly Gross Salary / Working Days
@@ -174,11 +180,16 @@ FineCalculationResult calculateFine({
       final hourlyRate = dailySalary / shiftHoursTotal;
       final lateHours = lateMinutes / 60;
       fineAmount = hourlyRate * lateHours;
+      formulaLog = 'shiftBased: Fine = (DailySalary÷ShiftHours) × (Minutes÷60) = ($dailySalary÷$shiftHoursTotal) × ($lateMinutes÷60) = ${hourlyRate.toStringAsFixed(2)} × ${lateHours.toStringAsFixed(2)}';
     }
   }
 
   // Round to 2 decimal places
   fineAmount = (fineAmount * 100).round() / 100;
+  if (formulaLog.isNotEmpty) {
+    final staffPart = staffLabel != null && staffLabel.isNotEmpty ? 'staff=$staffLabel | ' : '';
+    debugPrint('[Fine FORMULA] $staffPart dailySalary=$dailySalary | lateMinutes=$lateMinutes | $formulaLog | => fineAmount=$fineAmount');
+  }
 
   return FineCalculationResult(
     lateMinutes: lateMinutes,

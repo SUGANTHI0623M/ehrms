@@ -27,12 +27,7 @@ class _LmsContentViewerState extends State<LmsContentViewer> {
 
   String? _getVideoId() {
     final m = widget.material;
-    var url =
-        m['url'] ??
-        m['filePath'] ??
-        m['link'] ??
-        m['externalUrl'] ??
-        '';
+    var url = m['url'] ?? m['filePath'] ?? m['link'] ?? m['externalUrl'] ?? '';
     url = url.toString().trim();
     if (url.isEmpty) return null;
     if (url.contains('v=')) return url.split('v=')[1]?.split('&')[0];
@@ -68,7 +63,8 @@ class _LmsContentViewerState extends State<LmsContentViewer> {
 
   /// YouTube embed HTML with referrerpolicy to fix Error 153. Load with baseUrl so Referer is sent.
   String _buildYouTubeEmbedHtml(String videoId) {
-    final embedUrl = 'https://www.youtube-nocookie.com/embed/$videoId'
+    final embedUrl =
+        'https://www.youtube-nocookie.com/embed/$videoId'
         '?enablejsapi=1&rel=0&modestbranding=1&playsinline=1&autoplay=0&origin=https://www.youtube.com';
     return '''
 <!DOCTYPE html>

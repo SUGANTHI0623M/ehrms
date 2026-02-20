@@ -81,7 +81,9 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
       final questions = group['questions'] as List? ?? [];
       final lessonTitle = group['lessonTitle']?.toString() ?? 'Course';
       for (final q in questions) {
-        final qMap = q is Map ? Map<String, dynamic>.from(q as Map) : <String, dynamic>{};
+        final qMap = q is Map
+            ? Map<String, dynamic>.from(q as Map)
+            : <String, dynamic>{};
         qMap['lessonTitle'] = lessonTitle;
         final id = qMap['id']?.toString() ?? qMap['_id']?.toString();
         if (id != null) qMap['id'] = id;
@@ -91,12 +93,18 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
     return list;
   }
 
-  void _selectAnswer(String questionId, String answer, {bool isMultiple = false}) {
+  void _selectAnswer(
+    String questionId,
+    String answer, {
+    bool isMultiple = false,
+  }) {
     setState(() {
       final current = _selectedAnswers[questionId] ?? [];
       if (isMultiple) {
         if (current.contains(answer)) {
-          _selectedAnswers[questionId] = current.where((a) => a != answer).toList();
+          _selectedAnswers[questionId] = current
+              .where((a) => a != answer)
+              .toList();
         } else {
           _selectedAnswers[questionId] = [...current, answer];
         }
@@ -129,9 +137,16 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
         if (res['success'] == true && res['data'] != null) {
           _isFinished = true;
           _results = res['data'] as Map<String, dynamic>;
-          SnackBarUtils.showSnackBar(context, 'Assessment submitted. Score: ${_results!['score']}%');
+          SnackBarUtils.showSnackBar(
+            context,
+            'Assessment submitted. Score: ${_results!['score']}%',
+          );
         } else {
-          SnackBarUtils.showSnackBar(context, res['message'] ?? 'Submission failed', isError: true);
+          SnackBarUtils.showSnackBar(
+            context,
+            res['message'] ?? 'Submission failed',
+            isError: true,
+          );
         }
       });
     }
@@ -142,7 +157,10 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
     if (_loading) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Final Assessment'),
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.textPrimary,
@@ -154,7 +172,10 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
     if (_course == null || _flatQuestions.isEmpty) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Final Assessment'),
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.textPrimary,
@@ -200,7 +221,10 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('Assessment Complete'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -236,9 +260,17 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildScoreChip('Your Score', '$score%', passed ? Colors.green : Colors.red),
+                        _buildScoreChip(
+                          'Your Score',
+                          '$score%',
+                          passed ? Colors.green : Colors.red,
+                        ),
                         const SizedBox(width: 24),
-                        _buildScoreChip('Passing Mark', '$passingScore%', Colors.grey),
+                        _buildScoreChip(
+                          'Passing Mark',
+                          '$passingScore%',
+                          Colors.grey,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -249,7 +281,9 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                           onPressed: () {
                             Navigator.of(context).pushReplacement(
                               MaterialPageRoute(
-                                builder: (_) => LmsCourseDetailScreen(courseId: widget.courseId),
+                                builder: (_) => LmsCourseDetailScreen(
+                                  courseId: widget.courseId,
+                                ),
                               ),
                             );
                           },
@@ -264,7 +298,10 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                         OutlinedButton(
                           onPressed: () {
                             Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: 2)),
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    DashboardScreen(initialIndex: 2),
+                              ),
                               (r) => r.isFirst,
                             );
                           },
@@ -287,14 +324,19 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                 final idx = entry.key;
                 final r = entry.value as Map<String, dynamic>;
                 final q = _flatQuestions.firstWhere(
-                  (q) => (q['id']?.toString() ?? q['_id']?.toString()) == r['questionId']?.toString(),
+                  (q) =>
+                      (q['id']?.toString() ?? q['_id']?.toString()) ==
+                      r['questionId']?.toString(),
                   orElse: () => <String, dynamic>{'questionText': 'Question'},
                 );
                 final isCorrect = r['isCorrect'] == true;
-                final fmt = (a) => a is List ? (a as List).join(', ') : a?.toString() ?? '—';
+                final fmt = (a) =>
+                    a is List ? (a as List).join(', ') : a?.toString() ?? '—';
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
-                  color: isCorrect ? Colors.green.withOpacity(0.05) : Colors.red.withOpacity(0.05),
+                  color: isCorrect
+                      ? Colors.green.withOpacity(0.05)
+                      : Colors.red.withOpacity(0.05),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -305,29 +347,50 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                             Expanded(
                               child: Text(
                                 'Q${idx + 1}. ${q['questionText'] ?? 'Question'}',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
-                                color: isCorrect ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+                                color: isCorrect
+                                    ? Colors.green.withOpacity(0.2)
+                                    : Colors.red.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 '${r['marksAwarded'] ?? 0}/${r['marksTotal'] ?? 1}',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
-                                  color: isCorrect ? Colors.green.shade800 : Colors.red.shade800,
+                                  color: isCorrect
+                                      ? Colors.green.shade800
+                                      : Colors.red.shade800,
                                 ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Text('Your answer: ${fmt(r['userAnswer'])}', style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                        Text(
+                          'Your answer: ${fmt(r['userAnswer'])}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
+                        ),
                         if (!isCorrect)
-                          Text('Correct: ${fmt(r['correctAnswer'])}', style: TextStyle(fontSize: 13, color: Colors.green.shade700)),
+                          Text(
+                            'Correct: ${fmt(r['correctAnswer'])}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -349,8 +412,22 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
       ),
       child: Column(
         children: [
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w600)),
-          Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -360,16 +437,22 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
     final question = _flatQuestions[_currentIndex];
     final id = question['id']?.toString() ?? question['_id']?.toString() ?? '';
     final qType = (question['type'] ?? 'MCQ').toString();
-    final options = question['options'] as List? ?? (qType == 'True / False' ? ['True', 'False'] : []);
+    final options =
+        question['options'] as List? ??
+        (qType == 'True / False' ? ['True', 'False'] : []);
     final answers = _selectedAnswers[id] ?? [];
     final progress = ((_currentIndex + 1) / _flatQuestions.length) * 100;
     final minutes = _timeRemaining ~/ 60;
     final seconds = _timeRemaining % 60;
-    final canNext = (answers.isNotEmpty || qType == 'Short Answer') && !_isSubmitting;
+    final canNext =
+        (answers.isNotEmpty || qType == 'Short Answer') && !_isSubmitting;
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('Final Assessment'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -378,12 +461,18 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
             margin: const EdgeInsets.only(right: 16),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: _timeRemaining < 300 ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+              color: _timeRemaining < 300
+                  ? Colors.red.withOpacity(0.1)
+                  : Colors.grey.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                Icon(Icons.timer, size: 18, color: _timeRemaining < 300 ? Colors.red : Colors.grey[700]),
+                Icon(
+                  Icons.timer,
+                  size: 18,
+                  color: _timeRemaining < 300 ? Colors.red : Colors.grey[700],
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
@@ -415,14 +504,21 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                       ),
                       const Spacer(),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           question['lessonTitle']?.toString() ?? '',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
                         ),
                       ),
                     ],
@@ -431,7 +527,9 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                   LinearProgressIndicator(
                     value: progress / 100,
                     backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.primary,
+                    ),
                   ),
                 ],
               ),
@@ -444,7 +542,10 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                   children: [
                     Text(
                       question['questionText']?.toString() ?? 'Question',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     if (qType == 'Short Answer')
@@ -464,7 +565,8 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                         final isSelected = answers.contains(optStr);
                         return CheckboxListTile(
                           value: isSelected,
-                          onChanged: (_) => _selectAnswer(id, optStr, isMultiple: true),
+                          onChanged: (_) =>
+                              _selectAnswer(id, optStr, isMultiple: true),
                           title: Text(optStr),
                           controlAffinity: ListTileControlAffinity.leading,
                         );
@@ -472,7 +574,8 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                     else
                       ...options.map((opt) {
                         final optStr = opt.toString();
-                        final isSelected = answers.isNotEmpty && answers[0] == optStr;
+                        final isSelected =
+                            answers.isNotEmpty && answers[0] == optStr;
                         return RadioListTile<String>(
                           value: optStr,
                           groupValue: answers.isNotEmpty ? answers[0] : null,
@@ -489,7 +592,9 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 TextButton.icon(
-                  onPressed: _currentIndex > 0 ? () => setState(() => _currentIndex--) : null,
+                  onPressed: _currentIndex > 0
+                      ? () => setState(() => _currentIndex--)
+                      : null,
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('Previous'),
                 ),
@@ -504,7 +609,11 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
                         }
                       : null,
                   icon: const Icon(Icons.arrow_forward),
-                  label: Text(_currentIndex == _flatQuestions.length - 1 ? 'Finish Assessment' : 'Next'),
+                  label: Text(
+                    _currentIndex == _flatQuestions.length - 1
+                        ? 'Finish Assessment'
+                        : 'Next',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,

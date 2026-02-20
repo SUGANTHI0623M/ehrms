@@ -534,12 +534,16 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 );
               }
 
+              final staffLabel = record['employeeId']?.toString() ??
+                  record['user']?.toString() ??
+                  record['date']?.toString();
               final fineResult = calculateFine(
                 punchInTime: punchInTime,
                 attendanceDate: attendanceDate,
                 shiftTiming: shiftTiming,
                 fineSettings: fineSettings,
                 dailySalary: dailySalary,
+                staffLabel: staffLabel,
               );
 
               lateMinutes = fineResult.lateMinutes;

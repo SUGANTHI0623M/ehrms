@@ -1,12 +1,12 @@
 // hrms/lib/config/constants.dart
 class AppConstants {
   /// Production API – use for release builds.
-  static const String baseUrl = 'https://ehrms.askeva.net/api';
+ // static const String baseUrl = 'https://ehrms.askeva.net/api';
 
   /// Local dev – backend on port 9001. Use your machine's IP for physical device.
   /// For LMS (and all) data to match the web for the same user, point [baseUrl]
   /// to the same backend the web frontend uses (e.g. production or same dev server).
-  //static const String baseUrl = 'http://192.168.16.107:9001/api';
+  static const String baseUrl = 'http://192.168.16.107:9001/api';
 
   // Android emulator: use 10.0.2.2 to reach host
   // stati
@@ -32,6 +32,10 @@ class AppConstants {
   /// When true, attendance selfie is verified against profile photo (face matching).
   /// When false, only on-device face detection runs; no server-side face matching.
   static const bool enableAttendanceFaceMatching = false;
+
+  /// When true, show the lead/form fill step on arrived screen after getting a call (task).
+  /// When false, form step is hidden and task can be completed without filling the form (code remains, just not shown).
+  static const bool showLeadFormAfterCall = false;
 
   /// Resolve LMS file path to full URL (handles relative paths and full URLs).
   static String getLmsFileUrl(String? path) {

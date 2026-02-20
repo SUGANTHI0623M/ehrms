@@ -71,6 +71,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   // Template & Rule State
   Map<String, dynamic>? _attendanceTemplate;
+
   /// Branch data from /attendance/today (status, geofence) for check-in/out validation.
   Map<String, dynamic>? _branchData;
   bool _attendanceStatusFetched =
@@ -167,14 +168,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final result = await _attendanceService.getFineCalculation();
       if (!mounted) return;
       if (result['success'] == true && result['data'] != null) {
-        setState(() => _fineCalculation = result['data'] as Map<String, dynamic>?);
-        final fc = result['data'] as Map<String, dynamic>?;
-        if (fc != null) {
-          final formula = fc['formula']?.toString().trim();
-          final method = fc['calculationMethod'] ?? fc['calculationType'] ?? 'shiftBased';
-          final rules = fc['fineRules'];
-          debugPrint("[Attendance] Fine calculation formula: ${formula ?? 'method=$method, rules=$rules'}");
-        }
+        setState(
+          () => _fineCalculation = result['data'] as Map<String, dynamic>?,
+        );
       } else {
         setState(() => _fineCalculation = null);
       }
@@ -487,8 +483,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             });
           } else {
             data = responseBody;
-            if (responseBody is Map<String, dynamic> && responseBody.containsKey('checkedIn')) {
-              setState(() => _checkedInFromApi = responseBody['checkedIn'] as bool?);
+            if (responseBody is Map<String, dynamic> &&
+                responseBody.containsKey('checkedIn')) {
+              setState(
+                () => _checkedInFromApi = responseBody['checkedIn'] as bool?,
+              );
             }
           }
         }
@@ -701,11 +700,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final approvedAt = leaveDetails?['approvedAt'];
     final approvedByObj = leaveDetails?['approvedBy'] as Map<String, dynamic>?;
     final approvedByName = approvedByObj?['name'] as String?;
-    final displayStatus = AttendanceDisplayUtil.formatAttendanceDisplayStatus(
+    String displayStatus = AttendanceDisplayUtil.formatAttendanceDisplayStatus(
       status,
       leaveType,
       session,
     );
+    if (status == 'Pending') {
+      displayStatus = 'Waiting for Approval';
+    }
     final isLateIn = _isLateCheckIn(punchIn);
     final isLateOut = _isLateCheckOut(punchOut);
     final isEarlyOut = _isEarlyCheckOut(punchOut);
@@ -717,8 +719,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final fineHours = record['fineHours'] as num?;
     final fineAmount = record['fineAmount'] as num?;
     final hasFineInfo =
-        (lateMinutes != null && lateMinutes > 0) ||
-        (earlyMinutes != null && earlyMinutes > 0) ||
+        lateMinutes != null ||
+        earlyMinutes != null ||
+        (fineHours != null && fineHours > 0) ||
         (fineAmount != null && fineAmount > 0);
 
     // Extract location details
@@ -1036,9 +1039,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               // Work Hours
                               _buildDetailRow(
                                 'Work Hours',
-                                workHours != null
-                                    ? '${workHours.toInt()} minutes'
-                                    : 'N/A',
+                                _formatWorkHoursWithUnits(
+                                  workHours is num ? workHours as num? : null,
+                                ),
                                 Icons.access_time,
                               ),
                               if (isLowHours) ...[
@@ -1110,8 +1113,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                         ],
                                       ),
                                       const SizedBox(height: 12),
-                                      if (lateMinutes != null &&
-                                          lateMinutes > 0) ...[
+                                      if (lateMinutes != null) ...[
                                         _buildFineRow(
                                           'Late Minutes',
                                           '${lateMinutes.toInt()} min',
@@ -1120,8 +1122,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                         ),
                                         const SizedBox(height: 8),
                                       ],
-                                      if (earlyMinutes != null &&
-                                          earlyMinutes > 0) ...[
+                                      if (earlyMinutes != null) ...[
                                         _buildFineRow(
                                           'Early Minutes',
                                           '${earlyMinutes.toInt()} min',
@@ -1182,9 +1183,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 const SizedBox(height: 16),
                               ],
 
-                              // Location - Punch In
+                              // Location - Punch In (only when location is present)
                               if (punchInAddress != null &&
-                                  punchInAddress.isNotEmpty) ...[
+                                  punchInAddress.trim().isNotEmpty) ...[
                                 _buildDetailRow(
                                   'Check-in Location',
                                   punchInAddress,
@@ -1193,9 +1194,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 const SizedBox(height: 16),
                               ],
 
-                              // Location - Punch Out
+                              // Location - Punch Out (only when location is present)
                               if (punchOutAddress != null &&
-                                  punchOutAddress.isNotEmpty) ...[
+                                  punchOutAddress.trim().isNotEmpty) ...[
                                 _buildDetailRow(
                                   'Check-out Location',
                                   punchOutAddress,
@@ -2028,6 +2029,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return workHours < 9;
   }
 
+  /// Formats work hours (value from API is in minutes) with unit "min" / "mins".
+  String _formatWorkHoursWithUnits(num? workHours) {
+    if (workHours == null) return 'N/A';
+    final mins = workHours.toDouble();
+    final m = mins.round();
+    if (m == 0) return '0 mins';
+    return '$m min${m == 1 ? '' : 's'}';
+  }
+
   /*
   // OLD calendar day builder - kept for reference (uses different color logic)
   Widget _buildCustomDay(DateTime day) {
@@ -2100,7 +2110,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final status = _dayStatusByDate[dateStr];
       final hasLeaveType = _dayLeaveTypeByDate.containsKey(dateStr);
       // Never treat as present when record is Pending/Absent/Rejected (trust attendance list over presentDates)
-      final isAbsentStatus = (status ?? '').toString().toLowerCase() == 'absent';
+      final isAbsentStatus =
+          (status ?? '').toString().toLowerCase() == 'absent';
       final isPresentStatus =
           (status == 'Present' ||
               status == 'Approved' ||
@@ -2616,13 +2627,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (formula != null && formula.toString().trim().isNotEmpty) {
       return formula.toString().trim();
     }
-    final method = fc['calculationMethod'] ?? fc['calculationType'] ?? 'shiftBased';
+    final method =
+        fc['calculationMethod'] ?? fc['calculationType'] ?? 'shiftBased';
     final rules = fc['fineRules'];
     final enabled = fc['enabled'] == true;
     final applyFines = fc['applyFines'] != false;
-    final parts = <String>['Fine calculation Formula: method=$method', 'enabled=$enabled', 'applyFines=$applyFines'];
+    final parts = <String>[
+      'Fine calculation Formula: method=$method',
+      'enabled=$enabled',
+      'applyFines=$applyFines',
+    ];
     if (rules is List && rules.isNotEmpty) {
-      final ruleDesc = rules.map((r) => '${r['type'] ?? ''}(${r['applyTo'] ?? 'both'})').join(', ');
+      final ruleDesc = rules
+          .map((r) => '${r['type'] ?? ''}(${r['applyTo'] ?? 'both'})')
+          .join(', ');
       parts.add('rules: $ruleDesc');
     }
     return parts.join('; ');
@@ -2760,9 +2778,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final geofence = _branchData!['geofence'] as Map<String, dynamic>?;
     final geofenceEnabled = geofence?['enabled'] == true;
     if (!geofenceEnabled) {
-      await _showValidationAlert(
-        'Geo fence is not set for your branch.',
-      );
+      await _showValidationAlert('Geo fence is not set for your branch.');
       return;
     }
     final branchLat = geofence?['latitude'];
@@ -2770,12 +2786,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final bool latLngSet =
         branchLat != null &&
         branchLng != null &&
-        (branchLat is num || (branchLat is String && branchLat.toString().trim().isNotEmpty)) &&
-        (branchLng is num || (branchLng is String && branchLng.toString().trim().isNotEmpty));
+        (branchLat is num ||
+            (branchLat is String && branchLat.toString().trim().isNotEmpty)) &&
+        (branchLng is num ||
+            (branchLng is String && branchLng.toString().trim().isNotEmpty));
     if (!latLngSet) {
-      await _showValidationAlert(
-        'Lat and long is not set for the branch.',
-      );
+      await _showValidationAlert('Lat and long is not set for the branch.');
       return;
     }
     if (_attendanceTemplate!['isActive'] == false) {
@@ -2786,7 +2802,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     final shiftStart = _getShiftStartTimeFromDb();
     final shiftEnd = _getShiftEndTimeFromDb();
-    if (shiftStart == null || shiftStart.isEmpty || shiftEnd == null || shiftEnd.isEmpty) {
+    if (shiftStart == null ||
+        shiftStart.isEmpty ||
+        shiftEnd == null ||
+        shiftEnd.isEmpty) {
       await _showValidationAlert('Shift timing not set. Contact HR.');
       return;
     }
@@ -2857,8 +2876,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             parts[1],
           );
           final graceEnd = shiftStartOnly.add(Duration(minutes: gracePeriod));
+          // Late = check-in after grace window. Late minutes always from shift start (not grace end).
           if (now.isAfter(graceEnd) && allowLateEntry == false) {
-            final lateMinutes = now.difference(graceEnd).inMinutes;
+            final diffMs = now.difference(shiftStartOnly).inMilliseconds;
+            final lateMinutes = (diffMs / (60 * 1000)).round().clamp(0, 999);
             alertMessage =
                 "You are $lateMinutes minute${lateMinutes == 1 ? '' : 's'} late. Shift start: $shiftStartStr.";
           }
@@ -2963,7 +2984,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     String status = _attendanceData?['status'] ?? 'Not Marked';
 
     // Prefer API's checkedIn so we show Check Out when backend found today's check-in (handles date/timezone)
-    final isCheckedIn = _checkedInFromApi ?? (punchIn != null && punchOut == null);
+    final isCheckedIn =
+        _checkedInFromApi ?? (punchIn != null && punchOut == null);
     final isCompleted = punchIn != null && punchOut != null;
 
     // Check if this is admin-marked attendance (status is Present/Approved but no punch times)
@@ -3461,7 +3483,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     ),
                 ],
               ),
-              if (address != null && address.isNotEmpty)
+              if (address != null && address.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Row(
@@ -3773,12 +3795,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   punchOutSelfieUrl != null &&
                   punchOutSelfieUrl.toString().startsWith('http');
 
-              // Extract location
+              // Extract location (only show when non-empty)
               String? locationAddress;
               if (record['location'] != null &&
-                  record['location']['punchIn'] != null &&
-                  record['location']['punchIn']['address'] != null) {
-                locationAddress = record['location']['punchIn']['address'];
+                  record['location']['punchIn'] != null) {
+                final addr = record['location']['punchIn']['address'];
+                if (addr != null && addr.toString().trim().isNotEmpty) {
+                  locationAddress = addr.toString();
+                }
               }
 
               return GestureDetector(
@@ -3796,89 +3820,73 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Left Side: Selfie + Info
+                      // Left Side: Selfie (only when present) + Info
                       Expanded(
                         child: Row(
                           children: [
-                            // Selfie Images
-                            Row(
-                              children: [
-                                // Punch In
-                                GestureDetector(
-                                  onTap: () {
-                                    if (hasPunchInSelfie) {
-                                      _showSelfieDialog(
-                                        punchInSelfieUrl,
-                                        "Check-in Selfie",
-                                      );
-                                    }
-                                  },
-                                  child: Container(
-                                    width: 38,
-                                    height: 38,
-                                    margin: const EdgeInsets.only(right: 4),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.green.withOpacity(0.5),
-                                        width: 1.5,
-                                      ),
-                                      image: hasPunchInSelfie
-                                          ? DecorationImage(
-                                              image: NetworkImage(
-                                                punchInSelfieUrl,
-                                              ),
-                                              fit: BoxFit.cover,
-                                            )
-                                          : null,
-                                      color: hasPunchInSelfie
-                                          ? null
-                                          : AppColors.primary.withOpacity(0.1),
-                                    ),
-                                    child: !hasPunchInSelfie
-                                        ? Icon(
-                                            Icons.person,
-                                            size: 18,
-                                            color: AppColors.primary,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-
-                                // Punch Out (if exists)
-                                if (hasPunchOutSelfie)
-                                  GestureDetector(
-                                    onTap: () {
-                                      _showSelfieDialog(
-                                        punchOutSelfieUrl,
-                                        "Check-out Selfie",
-                                      );
-                                    },
-                                    child: Container(
-                                      width: 38,
-                                      height: 38,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.red.withOpacity(0.5),
-                                          width: 2,
-                                        ),
-                                        image: DecorationImage(
-                                          image: NetworkImage(
-                                            punchOutSelfieUrl,
+                            // Selfie Images - only show circles when a photo exists (no placeholder)
+                            if (hasPunchInSelfie || hasPunchOutSelfie)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (hasPunchInSelfie)
+                                    GestureDetector(
+                                      onTap: () {
+                                        _showSelfieDialog(
+                                          punchInSelfieUrl,
+                                          "Check-in Selfie",
+                                        );
+                                      },
+                                      child: Container(
+                                        width: 38,
+                                        height: 38,
+                                        margin: const EdgeInsets.only(right: 4),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.green.withOpacity(
+                                              0.5,
+                                            ),
+                                            width: 1.5,
                                           ),
-                                          fit: BoxFit.cover,
+                                          image: DecorationImage(
+                                            image: NetworkImage(
+                                              punchInSelfieUrl,
+                                            ),
+                                            fit: BoxFit.cover,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  )
-                                else
-                                  const SizedBox(
-                                    width: 4,
-                                  ), // Spacer if no second image
-                              ],
-                            ),
+                                  if (hasPunchOutSelfie)
+                                    GestureDetector(
+                                      onTap: () {
+                                        _showSelfieDialog(
+                                          punchOutSelfieUrl,
+                                          "Check-out Selfie",
+                                        );
+                                      },
+                                      child: Container(
+                                        width: 38,
+                                        height: 38,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.red.withOpacity(0.5),
+                                            width: 2,
+                                          ),
+                                          image: DecorationImage(
+                                            image: NetworkImage(
+                                              punchOutSelfieUrl,
+                                            ),
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
 
                             // Text Info
                             Expanded(

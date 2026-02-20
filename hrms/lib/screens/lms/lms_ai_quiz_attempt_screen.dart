@@ -89,7 +89,10 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
     if (_loading) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Practice Quiz'),
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.textPrimary,
@@ -101,7 +104,10 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
     if (_quiz == null) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Quiz'),
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.textPrimary,
@@ -130,7 +136,10 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
     if (questions.isEmpty) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Quiz'),
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.textPrimary,
@@ -146,7 +155,10 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('Practice Quiz'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -276,7 +288,8 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
     final score = _results!['score'] ?? _results!['earnedPoints'] ?? 0;
     final totalPoints = _results!['totalPoints'] ?? 0;
     final passed = _results!['passed'] ?? false;
-    final percentage = _results!['proficiency'] as int? ??
+    final percentage =
+        _results!['proficiency'] as int? ??
         (totalPoints > 0 ? ((score / totalPoints) * 100).round() : 0);
     final c = _quiz?['courseId'];
     final courseId = c is Map ? c['_id']?.toString() : c?.toString();
@@ -284,8 +297,9 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
     List<Map<String, dynamic>> questionResults = [];
     if (_results!['questionResults'] is List) {
       questionResults = List<Map<String, dynamic>>.from(
-        (_results!['questionResults'] as List)
-            .map((e) => Map<String, dynamic>.from(e as Map)),
+        (_results!['questionResults'] as List).map(
+          (e) => Map<String, dynamic>.from(e as Map),
+        ),
       );
     } else {
       final questions = (_quiz?['questions'] as List?) ?? [];
@@ -300,14 +314,21 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
           'userAnswer': userAnswer,
           'correct': correct,
           'correctAnswer': correctAnswer,
-          'rationale': q['rationale'] ?? (correctAnswer.isNotEmpty ? 'The correct answer is $correctAnswer.' : null),
+          'rationale':
+              q['rationale'] ??
+              (correctAnswer.isNotEmpty
+                  ? 'The correct answer is $correctAnswer.'
+                  : null),
         });
       }
     }
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('Quiz Complete'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -414,7 +435,10 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: correct ? Colors.green.shade50 : Colors.red.shade50,
                     borderRadius: BorderRadius.circular(6),
@@ -424,7 +448,9 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: correct ? Colors.green.shade800 : Colors.red.shade800,
+                      color: correct
+                          ? Colors.green.shade800
+                          : Colors.red.shade800,
                     ),
                   ),
                 ),
@@ -442,10 +468,7 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
             const SizedBox(height: 12),
             Text(
               question,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 12),
             Text(

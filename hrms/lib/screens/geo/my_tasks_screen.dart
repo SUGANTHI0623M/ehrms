@@ -253,17 +253,18 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                     _filterStartDate == null && _filterEndDate == null
                         ? 'Date range (From - To)'
                         : _filterStartDate != null && _filterEndDate != null
-                            ? '${DateFormat('dd/MM/yy').format(_filterStartDate!)} - ${DateFormat('dd/MM/yy').format(_filterEndDate!)}'
-                            : _filterStartDate != null
-                                ? 'From ${DateFormat('dd/MM/yy').format(_filterStartDate!)}'
-                                : 'To ${DateFormat('dd/MM/yy').format(_filterEndDate!)}',
+                        ? '${DateFormat('dd/MM/yy').format(_filterStartDate!)} - ${DateFormat('dd/MM/yy').format(_filterEndDate!)}'
+                        : _filterStartDate != null
+                        ? 'From ${DateFormat('dd/MM/yy').format(_filterStartDate!)}'
+                        : 'To ${DateFormat('dd/MM/yy').format(_filterEndDate!)}',
                     style: const TextStyle(fontSize: 12),
                     overflow: TextOverflow.ellipsis,
                   ),
                   onPressed: () async {
                     final now = DateTime.now();
                     final initialStart = _filterStartDate ?? now;
-                    final initialEnd = _filterEndDate ?? _filterStartDate ?? now;
+                    final initialEnd =
+                        _filterEndDate ?? _filterStartDate ?? now;
                     final range = await showDateRangePicker(
                       context: context,
                       firstDate: DateTime(2020),
@@ -329,8 +330,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
         .toList();
     if (toExport.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Select at least one task to export')),
+        const SnackBar(content: Text('Select at least one task to export')),
       );
       return;
     }
@@ -407,15 +407,25 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           TextCellValue(_cellStr(t.startTime)),
           TextCellValue(_cellStr(t.arrivalTime)),
           TextCellValue(t.tripDistanceKm != null ? '${t.tripDistanceKm}' : ''),
-          TextCellValue(t.tripDurationSeconds != null ? '${t.tripDurationSeconds}' : ''),
+          TextCellValue(
+            t.tripDurationSeconds != null ? '${t.tripDurationSeconds}' : '',
+          ),
           TextCellValue(t.isOtpRequired ? 'Yes' : 'No'),
           TextCellValue(t.isGeoFenceRequired ? 'Yes' : 'No'),
           TextCellValue(t.isPhotoRequired ? 'Yes' : 'No'),
           TextCellValue(t.isFormRequired ? 'Yes' : 'No'),
-          TextCellValue(t.isOtpVerified == true ? 'Yes' : (t.isOtpVerified == false ? 'No' : '')),
+          TextCellValue(
+            t.isOtpVerified == true
+                ? 'Yes'
+                : (t.isOtpVerified == false ? 'No' : ''),
+          ),
           TextCellValue(_cellStr(t.otpVerifiedAt)),
-          TextCellValue(t.photoProof == true ? 'Yes' : (t.photoProof == false ? 'No' : '')),
-          TextCellValue(t.formFilled == true ? 'Yes' : (t.formFilled == false ? 'No' : '')),
+          TextCellValue(
+            t.photoProof == true ? 'Yes' : (t.photoProof == false ? 'No' : ''),
+          ),
+          TextCellValue(
+            t.formFilled == true ? 'Yes' : (t.formFilled == false ? 'No' : ''),
+          ),
           TextCellValue(_cellStr(t.photoProofUrl)),
           TextCellValue(_cellStr(t.photoProofUploadedAt)),
           TextCellValue(_cellStr(t.photoProofAddress)),
@@ -423,10 +433,22 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           TextCellValue(_cellStr(t.taskExitStatus)),
           TextCellValue(t.requireApprovalOnComplete ? 'Yes' : 'No'),
           TextCellValue(t.autoApprove ? 'Yes' : 'No'),
-          TextCellValue(t.startBatteryPercent != null ? '${t.startBatteryPercent}' : ''),
-          TextCellValue(t.arrivalBatteryPercent != null ? '${t.arrivalBatteryPercent}' : ''),
-          TextCellValue(t.photoProofBatteryPercent != null ? '${t.photoProofBatteryPercent}' : ''),
-          TextCellValue(t.completedBatteryPercent != null ? '${t.completedBatteryPercent}' : ''),
+          TextCellValue(
+            t.startBatteryPercent != null ? '${t.startBatteryPercent}' : '',
+          ),
+          TextCellValue(
+            t.arrivalBatteryPercent != null ? '${t.arrivalBatteryPercent}' : '',
+          ),
+          TextCellValue(
+            t.photoProofBatteryPercent != null
+                ? '${t.photoProofBatteryPercent}'
+                : '',
+          ),
+          TextCellValue(
+            t.completedBatteryPercent != null
+                ? '${t.completedBatteryPercent}'
+                : '',
+          ),
         ];
         sheet.appendRow(row);
         sno++;
@@ -449,15 +471,17 @@ class _MyTasksScreenState extends State<MyTasksScreen>
           _exporting = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${toExport.length} task(s) to Excel')),
+          SnackBar(
+            content: Text('Exported ${toExport.length} task(s) to Excel'),
+          ),
         );
       }
     } catch (e, stack) {
       if (mounted) {
         setState(() => _exporting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     }
   }

@@ -250,13 +250,14 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             _totalDistanceCovered += distance;
           }
 
-          final movementType = MovementClassificationService().addLocationAndClassify(
-            lat: location.latitude!,
-            lng: location.longitude!,
-            time: DateTime.now(),
-            accuracyM: location.accuracy,
-            inBackground: false,
-          );
+          final movementType = MovementClassificationService()
+              .addLocationAndClassify(
+                lat: location.latitude!,
+                lng: location.longitude!,
+                time: DateTime.now(),
+                accuracyM: location.accuracy,
+                inBackground: false,
+              );
           final newActivityType = _movementTypeToEventType(movementType);
           if (_currentActivity != movementType) {
             _addTrackingEvent(newActivityType, DateTime.now());

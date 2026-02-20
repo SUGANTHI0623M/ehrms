@@ -100,279 +100,280 @@ class _SalaryStructureDetailScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                  // Header with title and subtitle
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.account_balance_wallet,
-                                  color: AppColors.primary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Salary Structure Overview',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Current salary structure configuration and calculated values',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Main table container with header and all sections
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.grey.shade200,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
+                    // Header with title and subtitle
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Table Header (shown once at top)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 10,
-                            horizontal: 16,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(16),
-                              topRight: Radius.circular(16),
-                            ),
-                            border: Border(
-                              bottom: BorderSide(
-                                color: AppColors.primary.withOpacity(0.2),
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          child: Row(
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  'Component',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.account_balance_wallet,
                                     color: AppColors.primary,
+                                    size: 20,
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Salary Structure Overview',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Per Month',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  'Per Year',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
-                                  ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Current salary structure configuration and calculated values',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[600],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        // Fixed Components Section
-                        _buildSectionCard(
-                          '(A) Fixed Components',
-                          [
-                            _buildTableRow(
-                              'Basic',
-                              _salaryStructure!.monthly.basicSalary,
-                              _salaryStructure!.monthly.basicSalary * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'DA (Dearness Allowance)',
-                              _salaryStructure!.monthly.dearnessAllowance,
-                              _salaryStructure!.monthly.dearnessAllowance * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'HRA (House Rent Allowance)',
-                              _salaryStructure!.monthly.houseRentAllowance,
-                              _salaryStructure!.monthly.houseRentAllowance * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'Special Allowances',
-                              _salaryStructure!.monthly.specialAllowance,
-                              _salaryStructure!.monthly.specialAllowance * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'ESI (Employer) ${_salaryInputs?.employerESIRate.toStringAsFixed(2) ?? '0.00'}%',
-                              _salaryStructure!.monthly.employerESI,
-                              _salaryStructure!.monthly.employerESI * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'PF (Employer) ${_salaryInputs?.employerPFRate.toStringAsFixed(0) ?? '0'}%',
-                              _salaryStructure!.monthly.employerPF,
-                              _salaryStructure!.monthly.employerPF * 12,
-                              currencyFormat,
-                            ),
-                          ],
-                          _buildTableRow(
-                            'Gross Salary',
-                            _salaryStructure!.monthly.grossSalary,
-                            _salaryStructure!.yearly.annualGrossSalary,
-                            currencyFormat,
-                            isTotal: true,
-                            backgroundColor: Colors.blue.shade50,
-                          ),
-                        ),
-                        // Variables Section
-                        _buildSectionCard('(B) Variables (Performance based)', [
-                          _buildTableRow(
-                            '*Incentive (${_salaryInputs?.incentiveRate.toStringAsFixed(0) ?? '0'}%)',
-                            0,
-                            _salaryStructure!.yearly.annualIncentive,
-                            currencyFormat,
-                            showDash: true,
-                          ),
-                        ], null),
-                        // Benefits Section
-                        _buildSectionCard(
-                          '(C) Benefits (Yearly)',
-                          [
-                            _buildTableRow(
-                              'Medical Insurance',
-                              0,
-                              _salaryStructure!.yearly.medicalInsuranceAmount,
-                              currencyFormat,
-                              showDash: true,
-                            ),
-                            _buildTableRow(
-                              'Gratuity (${_salaryInputs?.gratuityRate.toStringAsFixed(2) ?? '0.00'}%)',
-                              0,
-                              _salaryStructure!.yearly.annualGratuity,
-                              currencyFormat,
-                              showDash: true,
-                            ),
-                            _buildTableRow(
-                              'Statutory Bonus (${_salaryInputs?.statutoryBonusRate.toStringAsFixed(2) ?? '0.00'}%)',
-                              0,
-                              _salaryStructure!.yearly.annualStatutoryBonus,
-                              currencyFormat,
-                              showDash: true,
-                            ),
-                          ],
-                          _buildTableRow(
-                            'Total Benefits (C)',
-                            0,
-                            _salaryStructure!.yearly.totalAnnualBenefits,
-                            currencyFormat,
-                            isTotal: true,
-                            backgroundColor: Colors.blue.shade50,
-                            showDash: true,
-                          ),
-                        ),
-                        // Allowances Section
-                        _buildSectionCard('(D) Allowances', [
-                          _buildTableRow(
-                            'Mobile Allowances',
-                            _salaryInputs?.mobileAllowanceType == 'monthly'
-                                ? (_salaryStructure!
-                                          .yearly
-                                          .annualMobileAllowance /
-                                      12)
-                                : 0,
-                            _salaryStructure!.yearly.annualMobileAllowance,
-                            currencyFormat,
-                            showDash:
-                                _salaryInputs?.mobileAllowanceType == 'yearly',
-                          ),
-                        ], null),
-                        // Employee Deductions Section
-                        _buildSectionCard(
-                          'Employee Deductions',
-                          [
-                            _buildTableRow(
-                              'Employee contribution to PF (${_salaryInputs?.employeePFRate.toStringAsFixed(0) ?? '0'}%)',
-                              _salaryStructure!.monthly.employeePF,
-                              _salaryStructure!.monthly.employeePF * 12,
-                              currencyFormat,
-                            ),
-                            _buildTableRow(
-                              'Employee contribution to ESI (${_salaryInputs?.employeeESIRate.toStringAsFixed(2) ?? '0.00'}%)',
-                              _salaryStructure!.monthly.employeeESI,
-                              _salaryStructure!.monthly.employeeESI * 12,
-                              currencyFormat,
-                            ),
-                          ],
-                          _buildTableRow(
-                            'Total Deductions',
-                            _salaryStructure!.monthly.totalMonthlyDeductions,
-                            _salaryStructure!.monthly.totalMonthlyDeductions *
-                                12,
-                            currencyFormat,
-                            isTotal: true,
-                            backgroundColor: Colors.red.shade50,
-                          ),
-                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Net Salary Section
-                  _buildNetSalaryCard(
-                    _salaryStructure!.monthly.netMonthlySalary,
-                    _salaryStructure!.yearly.annualNetSalary,
-                    currencyFormat,
-                  ),
-                  const SizedBox(height: 12),
-                  // Total CTC Section
-                  _buildCTCCard(_salaryStructure!.totalCTC, currencyFormat),
-                ],
+                    const SizedBox(height: 16),
+                    // Main table container with header and all sections
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade200),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          // Table Header (shown once at top)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(16),
+                                topRight: Radius.circular(16),
+                              ),
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: AppColors.primary.withOpacity(0.2),
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    'Component',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    'Per Month',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    'Per Year',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Fixed Components Section
+                          _buildSectionCard(
+                            '(A) Fixed Components',
+                            [
+                              _buildTableRow(
+                                'Basic',
+                                _salaryStructure!.monthly.basicSalary,
+                                _salaryStructure!.monthly.basicSalary * 12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'DA (Dearness Allowance)',
+                                _salaryStructure!.monthly.dearnessAllowance,
+                                _salaryStructure!.monthly.dearnessAllowance *
+                                    12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'HRA (House Rent Allowance)',
+                                _salaryStructure!.monthly.houseRentAllowance,
+                                _salaryStructure!.monthly.houseRentAllowance *
+                                    12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'Special Allowances',
+                                _salaryStructure!.monthly.specialAllowance,
+                                _salaryStructure!.monthly.specialAllowance * 12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'ESI (Employer) ${_salaryInputs?.employerESIRate.toStringAsFixed(2) ?? '0.00'}%',
+                                _salaryStructure!.monthly.employerESI,
+                                _salaryStructure!.monthly.employerESI * 12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'PF (Employer) ${_salaryInputs?.employerPFRate.toStringAsFixed(0) ?? '0'}%',
+                                _salaryStructure!.monthly.employerPF,
+                                _salaryStructure!.monthly.employerPF * 12,
+                                currencyFormat,
+                              ),
+                            ],
+                            _buildTableRow(
+                              'Gross Salary',
+                              _salaryStructure!.monthly.grossSalary,
+                              _salaryStructure!.yearly.annualGrossSalary,
+                              currencyFormat,
+                              isTotal: true,
+                              backgroundColor: Colors.blue.shade50,
+                            ),
+                          ),
+                          // Variables Section
+                          _buildSectionCard('(B) Variables (Performance based)', [
+                            _buildTableRow(
+                              '*Incentive (${_salaryInputs?.incentiveRate.toStringAsFixed(0) ?? '0'}%)',
+                              0,
+                              _salaryStructure!.yearly.annualIncentive,
+                              currencyFormat,
+                              showDash: true,
+                            ),
+                          ], null),
+                          // Benefits Section
+                          _buildSectionCard(
+                            '(C) Benefits (Yearly)',
+                            [
+                              _buildTableRow(
+                                'Medical Insurance',
+                                0,
+                                _salaryStructure!.yearly.medicalInsuranceAmount,
+                                currencyFormat,
+                                showDash: true,
+                              ),
+                              _buildTableRow(
+                                'Gratuity (${_salaryInputs?.gratuityRate.toStringAsFixed(2) ?? '0.00'}%)',
+                                0,
+                                _salaryStructure!.yearly.annualGratuity,
+                                currencyFormat,
+                                showDash: true,
+                              ),
+                              _buildTableRow(
+                                'Statutory Bonus (${_salaryInputs?.statutoryBonusRate.toStringAsFixed(2) ?? '0.00'}%)',
+                                0,
+                                _salaryStructure!.yearly.annualStatutoryBonus,
+                                currencyFormat,
+                                showDash: true,
+                              ),
+                            ],
+                            _buildTableRow(
+                              'Total Benefits (C)',
+                              0,
+                              _salaryStructure!.yearly.totalAnnualBenefits,
+                              currencyFormat,
+                              isTotal: true,
+                              backgroundColor: Colors.blue.shade50,
+                              showDash: true,
+                            ),
+                          ),
+                          // Allowances Section
+                          _buildSectionCard('(D) Allowances', [
+                            _buildTableRow(
+                              'Mobile Allowances',
+                              _salaryInputs?.mobileAllowanceType == 'monthly'
+                                  ? (_salaryStructure!
+                                            .yearly
+                                            .annualMobileAllowance /
+                                        12)
+                                  : 0,
+                              _salaryStructure!.yearly.annualMobileAllowance,
+                              currencyFormat,
+                              showDash:
+                                  _salaryInputs?.mobileAllowanceType ==
+                                  'yearly',
+                            ),
+                          ], null),
+                          // Employee Deductions Section
+                          _buildSectionCard(
+                            'Employee Deductions',
+                            [
+                              _buildTableRow(
+                                'Employee contribution to PF (${_salaryInputs?.employeePFRate.toStringAsFixed(0) ?? '0'}%)',
+                                _salaryStructure!.monthly.employeePF,
+                                _salaryStructure!.monthly.employeePF * 12,
+                                currencyFormat,
+                              ),
+                              _buildTableRow(
+                                'Employee contribution to ESI (${_salaryInputs?.employeeESIRate.toStringAsFixed(2) ?? '0.00'}%)',
+                                _salaryStructure!.monthly.employeeESI,
+                                _salaryStructure!.monthly.employeeESI * 12,
+                                currencyFormat,
+                              ),
+                            ],
+                            _buildTableRow(
+                              'Total Deductions',
+                              _salaryStructure!.monthly.totalMonthlyDeductions,
+                              _salaryStructure!.monthly.totalMonthlyDeductions *
+                                  12,
+                              currencyFormat,
+                              isTotal: true,
+                              backgroundColor: Colors.red.shade50,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Net Salary Section
+                    _buildNetSalaryCard(
+                      _salaryStructure!.monthly.netMonthlySalary,
+                      _salaryStructure!.yearly.annualNetSalary,
+                      currencyFormat,
+                    ),
+                    const SizedBox(height: 12),
+                    // Total CTC Section
+                    _buildCTCCard(_salaryStructure!.totalCTC, currencyFormat),
+                  ],
+                ),
               ),
             ),
-              ),
       bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
@@ -384,9 +385,7 @@ class _SalaryStructureDetailScreenState
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.08),
-          ),
+          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.08)),
           child: Text(
             title,
             style: TextStyle(

@@ -252,7 +252,25 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         _isStatusLoading = false;
         _isLoading = false;
       });
-      SnackBarUtils.showSnackBar(context, state.message, isError: true);
+      final msg = state.message;
+      if (msg.contains('Salary not configured')) {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cannot Check In'),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        SnackBarUtils.showSnackBar(context, msg, isError: true);
+      }
     } else if (state is AttendanceCheckInSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);

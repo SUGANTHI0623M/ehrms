@@ -2,6 +2,7 @@ const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
 const User = require('../models/User');
 const LeaveTemplate = require('../models/LeaveTemplate');
+const Attendance = require('../models/Attendance');
 const mongoose = require('mongoose');
 const { markAttendanceForApprovedLeave, calculateAvailableLeaves } = require('../utils/leaveAttendanceHelper');
 
@@ -348,6 +349,22 @@ const createLeave = async (req, res) => {
             const endUtc = `${endDate.getUTCFullYear()}-${endDate.getUTCMonth()}-${endDate.getUTCDate()}`;
             if (startUtc !== endUtc) {
                 return res.status(400).json({ success: false, error: { message: 'Half Day leave can only be applied for a single date' } });
+            }
+            // Session 1 only: block if user has already checked in for that date (attendance has punchIn)
+            if (session === '1') {
+                const startOfDay = new Date(startDate);
+                const endOfDay = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate(), 23, 59, 59, 999));
+                const todayAttendance = await Attendance.findOne({
+                    $or: [{ employeeId: currentStaffId }, { user: currentStaffId }],
+                    date: { $gte: startOfDay, $lte: endOfDay },
+                    punchIn: { $exists: true, $ne: null }
+                });
+                if (todayAttendance) {
+                    return res.status(400).json({
+                        success: false,
+                        error: { message: 'You are already check in for session 1' }
+                    });
+                }
             }
         }
 

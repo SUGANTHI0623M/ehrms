@@ -32,6 +32,7 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   Map<String, dynamic>? _scoresData;
   List<dynamic> _heatmap = [];
   String? _loadError;
+
   /// Selected day key (yyyy-MM-dd) for heatmap; when set, that cell is shown in black like web.
   String? _selectedHeatmapKey;
 
@@ -58,7 +59,8 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
           _loadError = null;
         } else {
           if (_scoresData == null) {
-            _loadError = scoresRes['message']?.toString() ??
+            _loadError =
+                scoresRes['message']?.toString() ??
                 'Could not load dashboard. Pull to retry.';
           }
         }
@@ -221,9 +223,11 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     const SizedBox(height: 12),
                     if (_heatmapLoading)
                       const Center(
-                          child: Padding(
-                              padding: EdgeInsets.all(24),
-                              child: CircularProgressIndicator()))
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
                     else if (_heatmap.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 24),
@@ -301,14 +305,15 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                 ),
               )
             else
-              ..._recentProgressList(courses)
-                  .map(
-                    (c) => _RecentProgressItem(
-                      title: c['title'] ?? 'Course',
-                      progress: (c['progress'] is num) ? (c['progress'] as num).round() : 0,
-                      status: _progressStatusLabel(c),
-                    ),
-                  ),
+              ..._recentProgressList(courses).map(
+                (c) => _RecentProgressItem(
+                  title: c['title'] ?? 'Course',
+                  progress: (c['progress'] is num)
+                      ? (c['progress'] as num).round()
+                      : 0,
+                  status: _progressStatusLabel(c),
+                ),
+              ),
             const SizedBox(height: 24),
             _buildUpcomingDeadlines(),
           ],
@@ -339,7 +344,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
 
   String _progressStatusLabel(Map<String, dynamic> c) {
     final status = c['status']?.toString() ?? '';
-    final progress = (c['progress'] is num) ? (c['progress'] as num).toDouble() : 0.0;
+    final progress = (c['progress'] is num)
+        ? (c['progress'] as num).toDouble()
+        : 0.0;
     if (status == 'Completed') return 'Completed';
     if (progress > 0) return 'In Progress';
     return 'Not Started';
@@ -406,7 +413,11 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
           children: [
             Row(
               children: [
-                Icon(Icons.emoji_events_outlined, color: Colors.amber[700], size: 22),
+                Icon(
+                  Icons.emoji_events_outlined,
+                  color: Colors.amber[700],
+                  size: 22,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Quiz performance',
@@ -431,7 +442,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                           value: completionPercent / 100,
                           strokeWidth: 6,
                           backgroundColor: const Color(0xFFe5e7eb),
-                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF22c55e)),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF22c55e),
+                          ),
                         ),
                       ),
                       Column(
@@ -501,19 +514,25 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   Widget _buildUpcomingDeadlines() {
     final coursesRaw = _scoresData?['courses'];
     final courses = coursesRaw is List ? coursesRaw : <dynamic>[];
-    final deadlines = courses
-        .where((c) =>
-            c is Map &&
-            c['dueDate'] != null &&
-            (c['status']?.toString() != 'Completed'))
-        .map((c) {
-      final m = Map<String, dynamic>.from(c as Map);
-      m['daysRemaining'] = _int(m['daysRemaining']);
-      return m;
-    }).toList()
-      ..sort(
-        (a, b) => (a['daysRemaining'] as int).compareTo(b['daysRemaining'] as int),
-      );
+    final deadlines =
+        courses
+            .where(
+              (c) =>
+                  c is Map &&
+                  c['dueDate'] != null &&
+                  (c['status']?.toString() != 'Completed'),
+            )
+            .map((c) {
+              final m = Map<String, dynamic>.from(c as Map);
+              m['daysRemaining'] = _int(m['daysRemaining']);
+              return m;
+            })
+            .toList()
+          ..sort(
+            (a, b) => (a['daysRemaining'] as int).compareTo(
+              b['daysRemaining'] as int,
+            ),
+          );
 
     final top5 = deadlines.take(5).toList();
 
@@ -559,8 +578,8 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
             final daysText = days < 0
                 ? '${-days}d overdue'
                 : days == 0
-                    ? 'Due today'
-                    : '${days}d left';
+                ? 'Due today'
+                : '${days}d left';
             final isSoon = days >= 0 && days <= 7;
 
             return Card(
@@ -589,9 +608,14 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                       ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color: isSoon ? Colors.orange.withOpacity(0.2) : border.withOpacity(0.15),
+                        color: isSoon
+                            ? Colors.orange.withOpacity(0.2)
+                            : border.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -651,10 +675,19 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   ];
 
   static const _daysLast12Months = 371;
+
   /// Match web frontend: CELL_MIN = 14, CELL_GAP = 4
   static const _cellSize = 14.0;
   static const _cellGap = 4.0;
-  static const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // DateTime.weekday 1..7
+  static const _weekdayNames = [
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ]; // DateTime.weekday 1..7
 
   /// Build date -> activity level (0-4) map from API heatmap. Matches frontend/bb logic.
   Map<String, int> _buildActivityLevelMap() {
@@ -665,13 +698,17 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
       final score = (h['activityScore'] is num)
           ? (h['activityScore'] as num).toDouble()
           : (h['totalMinutes'] is num)
-              ? (h['totalMinutes'] as num).toDouble()
-              : 0.0;
+          ? (h['totalMinutes'] as num).toDouble()
+          : 0.0;
       int level = 0;
-      if (score > 60) level = 4;
-      else if (score > 40) level = 3;
-      else if (score > 20) level = 2;
-      else if (score > 0) level = 1;
+      if (score > 60)
+        level = 4;
+      else if (score > 40)
+        level = 3;
+      else if (score > 20)
+        level = 2;
+      else if (score > 0)
+        level = 1;
       map[date] = level;
     }
     return map;
@@ -680,7 +717,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
   /// GitHub-style heatmap: 371 days (last 12 months), weeks as columns, 7 rows (Sun–Sat), month labels, legend.
   Widget _buildHeatmapGrid() {
     final now = DateTime.now();
-    final rangeStart = now.subtract(const Duration(days: _daysLast12Months - 1));
+    final rangeStart = now.subtract(
+      const Duration(days: _daysLast12Months - 1),
+    );
     final levelMap = _buildActivityLevelMap();
     final numWeeks = (_daysLast12Months / 7).ceil();
 
@@ -697,11 +736,14 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                 padding: const EdgeInsets.only(left: 32),
                 child: Row(
                   children: List.generate(numWeeks, (col) {
-                    final firstDayOfWeek = rangeStart.add(Duration(days: col * 7));
+                    final firstDayOfWeek = rangeStart.add(
+                      Duration(days: col * 7),
+                    );
                     final prevWeek = col > 0
                         ? rangeStart.add(Duration(days: (col - 1) * 7))
                         : null;
-                    final showMonth = prevWeek == null ||
+                    final showMonth =
+                        prevWeek == null ||
                         firstDayOfWeek.month != prevWeek.month;
                     return SizedBox(
                       width: _cellSize + _cellGap,
@@ -730,7 +772,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: List.generate(7, (row) {
-                        final dayOfFirstWeek = rangeStart.add(Duration(days: row));
+                        final dayOfFirstWeek = rangeStart.add(
+                          Duration(days: row),
+                        );
                         final wd = dayOfFirstWeek.weekday; // 1=Mon .. 7=Sun
                         final label = _weekdayNames[wd - 1];
                         return SizedBox(
@@ -754,7 +798,9 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                   Column(
                     children: List.generate(7, (row) {
                       return Padding(
-                        padding: EdgeInsets.only(bottom: row < 6 ? _cellGap : 0),
+                        padding: EdgeInsets.only(
+                          bottom: row < 6 ? _cellGap : 0,
+                        ),
                         child: Row(
                           children: List.generate(numWeeks, (col) {
                             final dayIndex = col * 7 + row;
@@ -767,36 +813,60 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
                             final d = rangeStart.add(Duration(days: dayIndex));
                             final key = DateFormat('yyyy-MM-dd').format(d);
                             final level = levelMap[key] ?? 0;
-                            final isToday = key == DateFormat('yyyy-MM-dd').format(now);
+                            final isToday =
+                                key == DateFormat('yyyy-MM-dd').format(now);
                             final isSelected = key == _selectedHeatmapKey;
                             final cellColor = isSelected
                                 ? Colors.black
                                 : _heatColors[level];
                             return Padding(
                               padding: EdgeInsets.only(
-                                  right: col < numWeeks - 1 ? _cellGap : 0),
+                                right: col < numWeeks - 1 ? _cellGap : 0,
+                              ),
                               child: Builder(
                                 builder: (cellContext) {
                                   return GestureDetector(
                                     onTap: () {
-                                      final box = cellContext.findRenderObject() as RenderBox?;
+                                      final box =
+                                          cellContext.findRenderObject()
+                                              as RenderBox?;
                                       if (box != null && box.hasSize) {
-                                        final position = box.localToGlobal(Offset.zero);
-                                        setState(() => _selectedHeatmapKey = key);
-                                        _showHeatmapPopup(context, key, d, now, position, box.size);
+                                        final position = box.localToGlobal(
+                                          Offset.zero,
+                                        );
+                                        setState(
+                                          () => _selectedHeatmapKey = key,
+                                        );
+                                        _showHeatmapPopup(
+                                          context,
+                                          key,
+                                          d,
+                                          now,
+                                          position,
+                                          box.size,
+                                        );
                                       }
                                     },
                                     child: Tooltip(
-                                      message: _heatmapTooltip(key, level, d, now),
+                                      message: _heatmapTooltip(
+                                        key,
+                                        level,
+                                        d,
+                                        now,
+                                      ),
                                       child: Container(
                                         width: _cellSize,
                                         height: _cellSize,
                                         decoration: BoxDecoration(
                                           color: cellColor,
-                                          borderRadius: BorderRadius.circular(3),
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
                                           border: isToday
                                               ? Border.all(
-                                                  color: const Color(0xFF22c55e),
+                                                  color: const Color(
+                                                    0xFF22c55e,
+                                                  ),
                                                   width: 2,
                                                 )
                                               : null,
@@ -840,10 +910,14 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
       final assessments = point['assessmentsAttempted'] ?? 0;
       final live = point['liveSessionsAttended'] ?? 0;
       if (mins > 0) sb.write('\n${mins} min learned');
-      if (lessons > 0) sb.write('\n$lessons lesson${lessons != 1 ? 's' : ''} completed');
-      if (quizzes > 0) sb.write('\n$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
-      if (assessments > 0) sb.write('\n$assessments assessment${assessments != 1 ? 's' : ''}');
-      if (live > 0) sb.write('\n$live live session${live != 1 ? 's' : ''} attended');
+      if (lessons > 0)
+        sb.write('\n$lessons lesson${lessons != 1 ? 's' : ''} completed');
+      if (quizzes > 0)
+        sb.write('\n$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
+      if (assessments > 0)
+        sb.write('\n$assessments assessment${assessments != 1 ? 's' : ''}');
+      if (live > 0)
+        sb.write('\n$live live session${live != 1 ? 's' : ''} attended');
     }
     if (level == 0 && point == null) sb.write('\nNo activity');
     return sb.toString();
@@ -860,16 +934,32 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     }
     final lines = <String>[];
     if (point != null) {
-      final mins = (point['totalMinutes'] is num) ? (point['totalMinutes'] as num).toInt() : 0;
-      final lessons = (point['lessonsCompleted'] is num) ? (point['lessonsCompleted'] as num).toInt() : 0;
-      final quizzes = (point['quizzesAttempted'] is num) ? (point['quizzesAttempted'] as num).toInt() : 0;
-      final assessments = (point['assessmentsAttempted'] is num) ? (point['assessmentsAttempted'] as num).toInt() : 0;
-      final live = (point['liveSessionsAttended'] is num) ? (point['liveSessionsAttended'] as num).toInt() : 0;
+      final mins = (point['totalMinutes'] is num)
+          ? (point['totalMinutes'] as num).toInt()
+          : 0;
+      final lessons = (point['lessonsCompleted'] is num)
+          ? (point['lessonsCompleted'] as num).toInt()
+          : 0;
+      final quizzes = (point['quizzesAttempted'] is num)
+          ? (point['quizzesAttempted'] as num).toInt()
+          : 0;
+      final assessments = (point['assessmentsAttempted'] is num)
+          ? (point['assessmentsAttempted'] as num).toInt()
+          : 0;
+      final live = (point['liveSessionsAttended'] is num)
+          ? (point['liveSessionsAttended'] as num).toInt()
+          : 0;
       if (mins > 0) lines.add('${mins} min learned');
-      if (lessons > 0) lines.add('$lessons lesson${lessons != 1 ? 's' : ''} completed');
-      if (quizzes > 0) lines.add('$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
-      if (assessments > 0) lines.add('$assessments assessment${assessments != 1 ? 's' : ''} attempted');
-      if (live > 0) lines.add('$live live session${live != 1 ? 's' : ''} attended');
+      if (lessons > 0)
+        lines.add('$lessons lesson${lessons != 1 ? 's' : ''} completed');
+      if (quizzes > 0)
+        lines.add('$quizzes quiz${quizzes != 1 ? 'zes' : ''} attempted');
+      if (assessments > 0)
+        lines.add(
+          '$assessments assessment${assessments != 1 ? 's' : ''} attempted',
+        );
+      if (live > 0)
+        lines.add('$live live session${live != 1 ? 's' : ''} attended');
     }
     if (lines.isEmpty) lines.add('No activity');
     return lines;
@@ -895,7 +985,10 @@ class _LmsLearningEngineTabState extends State<LmsLearningEngineTab> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final centerX = cellPosition.dx + cellSize.width / 2;
-    final left = (centerX - popupWidth / 2).clamp(8.0, screenWidth - popupWidth - 8);
+    final left = (centerX - popupWidth / 2).clamp(
+      8.0,
+      screenWidth - popupWidth - 8,
+    );
 
     late OverlayEntry overlayEntry;
     overlayEntry = OverlayEntry(
@@ -1066,10 +1159,7 @@ class _StatCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     value,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

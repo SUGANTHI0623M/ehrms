@@ -49,6 +49,8 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
   String? _categoryFilter;
   String _librarySearch = '';
   String? _libraryCategoryFilter;
+  final TextEditingController _courseSearchController = TextEditingController();
+  final TextEditingController _librarySearchController = TextEditingController();
 
   int get _tabCount => widget.embeddedInShell ? 3 : 2;
 
@@ -107,6 +109,8 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _courseSearchController.dispose();
+    _librarySearchController.dispose();
     super.dispose();
   }
 
@@ -250,9 +254,23 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
+                    controller: _courseSearchController,
                     decoration: InputDecoration(
                       hintText: 'Search your courses...',
                       prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _courseSearchController,
+                        builder: (_, value, __) {
+                          if (value.text.isEmpty) return const SizedBox.shrink();
+                          return IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () {
+                              _courseSearchController.clear();
+                              setState(() => _searchTerm = '');
+                            },
+                          );
+                        },
+                      ),
                       filled: true,
                       fillColor: AppColors.surface,
                       border: OutlineInputBorder(
@@ -395,9 +413,23 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
+                    controller: _librarySearchController,
                     decoration: InputDecoration(
                       hintText: 'Search library...',
                       prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _librarySearchController,
+                        builder: (_, value, __) {
+                          if (value.text.isEmpty) return const SizedBox.shrink();
+                          return IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () {
+                              _librarySearchController.clear();
+                              setState(() => _librarySearch = '');
+                            },
+                          );
+                        },
+                      ),
                       filled: true,
                       fillColor: AppColors.surface,
                       border: OutlineInputBorder(

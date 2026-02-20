@@ -89,11 +89,14 @@ class _ProfileScreenState extends State<ProfileScreen>
           if (data is Map) {
             _userData = Map<String, dynamic>.from(data);
             // Update stored user with branchName so app drawer shows branch
-            final branchName = data['branchName']?.toString() ??
+            final branchName =
+                data['branchName']?.toString() ??
                 (data['staffData'] is Map
                     ? ((data['staffData'] as Map)['branchId'] is Map
-                        ? ((data['staffData'] as Map)['branchId'] as Map)['branchName']?.toString()
-                        : null)
+                          ? ((data['staffData'] as Map)['branchId']
+                                    as Map)['branchName']
+                                ?.toString()
+                          : null)
                     : null);
             if (branchName != null && branchName.isNotEmpty) {
               _updateStoredUserBranchName(branchName);
@@ -441,7 +444,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         !_profileImageError;
     final joiningDate = _staffData?['joiningDate'];
     final role = _profile?['role'] ?? _staffData?['role'] ?? 'N/A';
-    final branchName = _userData?['branchName']?.toString() ??
+    final branchName =
+        _userData?['branchName']?.toString() ??
         (_staffData?['branchId'] is Map
             ? (_staffData!['branchId'] as Map)['branchName']?.toString()
             : null) ??
@@ -580,8 +584,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Icon(Icons.work_outline_rounded,
-                            color: Colors.white70, size: 14),
+                        Icon(
+                          Icons.work_outline_rounded,
+                          color: Colors.white70,
+                          size: 14,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           role,
@@ -593,8 +600,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(width: 16),
-                        Icon(Icons.location_on_outlined,
-                            color: Colors.white70, size: 14),
+                        Icon(
+                          Icons.location_on_outlined,
+                          color: Colors.white70,
+                          size: 14,
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -636,7 +646,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                 const SizedBox(height: 12),
               if (phone.isNotEmpty)
                 _buildHeaderInfoRow(Icons.phone_outlined, phone),
-              if (phone.isNotEmpty && dept.isNotEmpty) const SizedBox(height: 12),
+              if (phone.isNotEmpty && dept.isNotEmpty)
+                const SizedBox(height: 12),
               if (dept.isNotEmpty)
                 _buildHeaderInfoRow(Icons.business_outlined, dept),
             ],
@@ -3442,7 +3453,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _addrLine1Controller = TextEditingController(text: d['address']?['line1']);
     _cityController = TextEditingController(text: d['address']?['city']);
     _stateController = TextEditingController(text: d['address']?['state']);
-    _postalCodeController = TextEditingController(text: d['address']?['postalCode']);
+    _postalCodeController = TextEditingController(
+      text: d['address']?['postalCode'],
+    );
     _countryController = TextEditingController(text: d['address']?['country']);
     _bankNameController = TextEditingController(
       text: d['bankDetails']?['bankName'],
@@ -3532,7 +3545,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             const Divider(),
             Expanded(
               child: SingleChildScrollView(
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.only(
                   bottom: MediaQuery.of(context).viewInsets.bottom + 24,
                 ),

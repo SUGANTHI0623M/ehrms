@@ -6,10 +6,10 @@ import '../../utils/salary_structure_calculator.dart';
 import '../../utils/attendance_display_util.dart';
 
 /// Month Salary Details Screen
-/// 
+///
 /// IMPORTANT: This screen does NOT calculate any salary or days count.
 /// All calculations are done in the Salary Overview Screen and passed via constructor.
-/// 
+///
 /// ARCHITECTURE:
 /// 1. Salary Overview Screen:
 ///    - Fetches backend stats with priority: backend > attendance API > local calculation
@@ -19,15 +19,15 @@ import '../../utils/attendance_display_util.dart';
 ///    - Calculates fine amount using grace time logic (ONLY for Present/Approved)
 ///    - Calls calculateProratedSalary() utility to get prorated values
 ///    - Passes ALL calculated values to this screen
-/// 
+///
 /// 2. This Screen (Month Salary Details):
 ///    - Receives ALL calculated values via constructor parameters
 ///    - Only fetches attendance records for DISPLAY purposes (daily breakdown)
 ///    - Does NOT recalculate present days, fines, or salary
 ///    - Ensures 100% consistency with salary overview
-/// 
+///
 /// VALUES USED FROM SALARY OVERVIEW (DO NOT RECALCULATE):
-/// 
+///
 /// ┌─────────────────────────────────────────────────────────────────────┐
 /// │ VALUE FROM OVERVIEW           │ HOW IT'S CALCULATED IN OVERVIEW     │
 /// ├─────────────────────────────────────────────────────────────────────┤
@@ -70,13 +70,13 @@ import '../../utils/attendance_display_util.dart';
 /// │ widget.halfDayPaidLeaveCount  │ From backend stats (if available)  │
 /// │ widget.leaveDays              │ From backend stats (if available)  │
 /// └─────────────────────────────────────────────────────────────────────┘
-/// 
+///
 /// WHAT THIS SCREEN FETCHES:
 /// - Attendance records: ONLY for display in daily breakdown (not for calculation)
 /// - Holidays: ONLY for display purposes
 /// - Week off dates: ONLY for display purposes
 /// - Leave dates: ONLY for display purposes
-/// 
+///
 /// RESULT: 100% consistency between Salary Overview and Salary Details screens
 class MonthSalaryDetailsScreen extends StatefulWidget {
   final int month;
@@ -87,6 +87,7 @@ class MonthSalaryDetailsScreen extends StatefulWidget {
   final ProratedSalary proratedSalary;
   final double presentDays;
   final double totalFine;
+
   /// Per-day late login fine (date yyyy-MM-dd -> amount) from Salary Overview for Daily Breakdown.
   final Map<String, double>? dailyFineAmounts;
   final int? halfDayPaidLeaveCount;
@@ -130,13 +131,13 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
   }
 
   /// Loads attendance records for display purposes only
-  /// 
+  ///
   /// NOTE: This does NOT calculate or affect salary in any way.
   /// Attendance records are only fetched to show:
   /// - Daily breakdown list (date, status, salary earned that day)
   /// - Fine breakdown list (dates with fines)
   /// - Status chips count (Present: X, Half Day: Y, etc.)
-  /// 
+  ///
   /// All salary calculations use values from Salary Overview Screen.
   Future<void> _loadData() async {
     setState(() {
@@ -195,9 +196,9 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final monthName = DateFormat('MMMM yyyy').format(
-      DateTime(widget.year, widget.month),
-    );
+    final monthName = DateFormat(
+      'MMMM yyyy',
+    ).format(DateTime(widget.year, widget.month));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -210,49 +211,49 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error.isNotEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.grey.shade500,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _error,
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 14,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: _loadData,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Colors.grey.shade500,
                     ),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: _buildContent(monthName),
+                    const SizedBox(height: 16),
+                    Text(
+                      _error,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 14,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _loadData,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  ],
                 ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: _buildContent(monthName),
+            ),
     );
   }
 
   Widget _buildContent(String monthName) {
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
-    
+
     // ========================================================================
     // SALARY CALCULATION - USES VALUES FROM SALARY OVERVIEW (NO RECALCULATION)
     // ========================================================================
@@ -260,7 +261,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     // This screen only DISPLAYS those pre-calculated values.
 
     // This Month Net Salary = Prorated Net Salary from overview
-    // Formula (calculated in overview): 
+    // Formula (calculated in overview):
     //   Prorated Gross - Prorated Deductions - Fine Amount
     final rawThisMonthNet = widget.proratedSalary.proratedNetSalary;
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
@@ -269,13 +270,16 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     // Formula (calculated in overview):
     //   Sum of fines for Present/Approved days only (EXCLUDES Absent, Pending)
     final totalFines = widget.totalFine;
-    
+
     // Use SAME day counts as Salary Overview (from widget) so chips match "Present Days (till today)" and calculation
     final presentForChips = widget.presentDays;
     final halfDaysForChips = widget.halfDayPaidLeaveCount ?? 0;
     final leaveForChips = widget.leaveDays ?? 0.0;
     final workingTillToday = widget.workingDaysInfo.workingDays;
-    final absentForChips = (workingTillToday - presentForChips).clamp(0.0, double.infinity);
+    final absentForChips = (workingTillToday - presentForChips).clamp(
+      0.0,
+      double.infinity,
+    );
 
     // Pending count from records only (overview doesn't show it; keep for chip if needed)
     int pendingDaysCount = 0;
@@ -301,7 +305,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             pendingDaysCount,
           ),
           const SizedBox(height: 16),
-          
+
           // Info Card
           _buildInfoCard(currencyFormat),
           const SizedBox(height: 16),
@@ -373,10 +377,19 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             spacing: 16,
             runSpacing: 8,
             children: [
-              _buildStatChip('Present: ${_formatDayChip(presentDays)}', Colors.green),
+              _buildStatChip(
+                'Present: ${_formatDayChip(presentDays)}',
+                Colors.green,
+              ),
               _buildStatChip('Half Day: $halfDays', Colors.blue),
-              _buildStatChip('Leave: ${_formatDayChip(leaveDays)}', Colors.orange),
-              _buildStatChip('Absent: ${_formatDayChip(absentDays)}', Colors.red),
+              _buildStatChip(
+                'Leave: ${_formatDayChip(leaveDays)}',
+                Colors.orange,
+              ),
+              _buildStatChip(
+                'Absent: ${_formatDayChip(absentDays)}',
+                Colors.red,
+              ),
               if (pendingDays > 0)
                 _buildStatChip('Pending: $pendingDays', Colors.orange),
             ],
@@ -419,7 +432,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
   }
 
   /// Builds the info card showing salary calculation breakdown
-  /// 
+  ///
   /// ALL VALUES ARE FROM SALARY OVERVIEW - NO CALCULATION DONE HERE
   /// This card only DISPLAYS the values calculated in Salary Overview Screen
   Widget _buildInfoCard(NumberFormat currencyFormat) {
@@ -449,13 +462,33 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
           ),
           const SizedBox(height: 12),
           // ALL VALUES BELOW ARE FROM SALARY OVERVIEW (widget.xxx)
-          _buildInfoRow('Monthly Gross', currencyFormat.format(widget.calculatedSalary.monthly.grossSalary)),
-          _buildInfoRow('Monthly Net', currencyFormat.format(widget.calculatedSalary.monthly.netMonthlySalary)),
-          _buildInfoRow('Working Days', '${widget.workingDaysInfo.workingDays}'),
+          _buildInfoRow(
+            'Monthly Gross',
+            currencyFormat.format(widget.calculatedSalary.monthly.grossSalary),
+          ),
+          _buildInfoRow(
+            'Monthly Net',
+            currencyFormat.format(
+              widget.calculatedSalary.monthly.netMonthlySalary,
+            ),
+          ),
+          _buildInfoRow(
+            'Working Days',
+            '${widget.workingDaysInfo.workingDays}',
+          ),
           if (widget.workingDaysInfo.workingDaysFullMonth != null)
-            _buildInfoRow('This Month Working Days', '${widget.workingDaysInfo.workingDaysFullMonth}'),
-          _buildInfoRow('1 day gross', currencyFormat.format(_dailyGrossFromMonthly(widget))),
-          _buildInfoRow('Daily Salary (1 day net)', currencyFormat.format(widget.dailySalary)),
+            _buildInfoRow(
+              'This Month Working Days',
+              '${widget.workingDaysInfo.workingDaysFullMonth}',
+            ),
+          _buildInfoRow(
+            '1 day gross',
+            currencyFormat.format(_dailyGrossFromMonthly(widget)),
+          ),
+          _buildInfoRow(
+            'Daily Salary (1 day net)',
+            currencyFormat.format(widget.dailySalary),
+          ),
           Padding(
             padding: const EdgeInsets.only(left: 12, top: 2, bottom: 4),
             child: Text(
@@ -464,9 +497,16 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             ),
           ),
           const Divider(height: 16),
-          _buildInfoRow('Present Days (till today)', widget.presentDays.toStringAsFixed(1)),
-          if (widget.halfDayPaidLeaveCount != null && widget.halfDayPaidLeaveCount! > 0)
-            _buildInfoRow('Half day paid leave', '${widget.halfDayPaidLeaveCount}'),
+          _buildInfoRow(
+            'Present Days (till today)',
+            widget.presentDays.toStringAsFixed(1),
+          ),
+          if (widget.halfDayPaidLeaveCount != null &&
+              widget.halfDayPaidLeaveCount! > 0)
+            _buildInfoRow(
+              'Half day paid leave',
+              '${widget.halfDayPaidLeaveCount}',
+            ),
           if (widget.leaveDays != null && widget.leaveDays! > 0)
             _buildInfoRow(
               'Leave days',
@@ -474,14 +514,30 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                   ? '${widget.leaveDays!.toInt()}'
                   : widget.leaveDays!.toStringAsFixed(1),
             ),
-          _buildInfoRow('Attendance %', '${widget.proratedSalary.attendancePercentage.toStringAsFixed(1)}%'),
-          _buildInfoRow('Prorated Gross', currencyFormat.format(widget.proratedSalary.proratedGrossSalary)),
-          _buildInfoRow('Prorated Deductions', '- ${currencyFormat.format(widget.proratedSalary.proratedDeductions)}'),
-          _buildInfoRow('Late Login Fine', '- ${currencyFormat.format(widget.totalFine)}'),
+          _buildInfoRow(
+            'Attendance %',
+            '${widget.proratedSalary.attendancePercentage.toStringAsFixed(1)}%',
+          ),
+          _buildInfoRow(
+            'Prorated Gross',
+            currencyFormat.format(widget.proratedSalary.proratedGrossSalary),
+          ),
+          _buildInfoRow(
+            'Prorated Deductions',
+            '- ${currencyFormat.format(widget.proratedSalary.proratedDeductions)}',
+          ),
+          _buildInfoRow(
+            'Late Login Fine',
+            '- ${currencyFormat.format(widget.totalFine)}',
+          ),
           const Divider(height: 16),
           _buildInfoRow(
             'This Month Net',
-            currencyFormat.format(widget.proratedSalary.proratedNetSalary < 0 ? 0 : widget.proratedSalary.proratedNetSalary),
+            currencyFormat.format(
+              widget.proratedSalary.proratedNetSalary < 0
+                  ? 0
+                  : widget.proratedSalary.proratedNetSalary,
+            ),
             isBold: true,
           ),
           const SizedBox(height: 8),
@@ -500,7 +556,8 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
 
   /// 1 day gross = Monthly gross / This month working days (same way as daily net)
   double _dailyGrossFromMonthly(MonthSalaryDetailsScreen w) {
-    final wd = w.workingDaysInfo.workingDaysFullMonth ?? w.workingDaysInfo.workingDays;
+    final wd =
+        w.workingDaysInfo.workingDaysFullMonth ?? w.workingDaysInfo.workingDays;
     return wd > 0 ? w.calculatedSalary.monthly.grossSalary / wd : 0;
   }
 
@@ -533,7 +590,9 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
 
   Widget _buildDailyBreakdown(NumberFormat currencyFormat, String monthName) {
     final lastDay = DateTime(widget.year, widget.month + 1, 0).day;
-    final holidayDateSet = _holidays.map((d) => DateFormat('yyyy-MM-dd').format(d)).toSet();
+    final holidayDateSet = _holidays
+        .map((d) => DateFormat('yyyy-MM-dd').format(d))
+        .toSet();
 
     return Container(
       decoration: BoxDecoration(
@@ -579,29 +638,24 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: lastDay,
-            separatorBuilder: (context, index) => Divider(
-              height: 1,
-              color: Colors.grey.shade200,
-            ),
+            separatorBuilder: (context, index) =>
+                Divider(height: 1, color: Colors.grey.shade200),
             itemBuilder: (context, index) {
               final day = index + 1;
               final date = DateTime(widget.year, widget.month, day);
               final dateStr = DateFormat('yyyy-MM-dd').format(date);
-              
+
               // Find attendance record for this date
-              final record = _attendanceRecords.firstWhere(
-                (r) {
-                  try {
-                    final d = DateTime.parse(r['date']).toLocal();
-                    return d.year == widget.year &&
-                        d.month == widget.month &&
-                        d.day == day;
-                  } catch (e) {
-                    return false;
-                  }
-                },
-                orElse: () => null,
-              );
+              final record = _attendanceRecords.firstWhere((r) {
+                try {
+                  final d = DateTime.parse(r['date']).toLocal();
+                  return d.year == widget.year &&
+                      d.month == widget.month &&
+                      d.day == day;
+                } catch (e) {
+                  return false;
+                }
+              }, orElse: () => null);
 
               // Determine if it's a holiday, week off, or leave
               final isHoliday = holidayDateSet.contains(dateStr);
@@ -633,12 +687,13 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
   }) {
     final dayName = DateFormat('EEE').format(date);
     final dateStr = DateFormat('dd MMM').format(date);
-    
+
     String status = 'Not Marked';
     Color statusColor = Colors.grey;
     double salaryForDay = 0;
     double fineAmount = 0; // Initialize fine amount
-    int fineMinutes = 0; // From attendances collection: fineHours (total min) or lateMinutes
+    int fineMinutes =
+        0; // From attendances collection: fineHours (total min) or lateMinutes
     IconData statusIcon = Icons.help_outline;
 
     if (isHoliday) {
@@ -650,8 +705,12 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
       statusColor = Colors.purple;
       statusIcon = Icons.weekend;
     } else if (record != null) {
-      final recordStatus = (record['status'] as String? ?? '').trim().toLowerCase();
-      final leaveType = (record['leaveType'] as String? ?? '').trim().toLowerCase();
+      final recordStatus = (record['status'] as String? ?? '')
+          .trim()
+          .toLowerCase();
+      final leaveType = (record['leaveType'] as String? ?? '')
+          .trim()
+          .toLowerCase();
       final isHalfDay = recordStatus == 'half day' || leaveType == 'half day';
 
       if (recordStatus == 'present' || recordStatus == 'approved') {
@@ -669,12 +728,18 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
           statusIcon = Icons.check_circle;
           salaryForDay = widget.dailySalary;
         }
-        
+
         // Prefer per-day fine from Overview (includes client-calculated when backend missing); else from record
         final dateKey = DateFormat('yyyy-MM-dd').format(date);
-        fineAmount = widget.dailyFineAmounts?[dateKey] ?? (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
+        fineAmount =
+            widget.dailyFineAmounts?[dateKey] ??
+            (record['fineAmount'] as num?)?.toDouble() ??
+            0.0;
         // Fine duration in minutes from attendances collection (fineHours = total min, lateMinutes = late only)
-        fineMinutes = (record['lateMinutes'] as num?)?.toInt() ?? (record['fineHours'] as num?)?.toInt() ?? 0;
+        fineMinutes =
+            (record['lateMinutes'] as num?)?.toInt() ??
+            (record['fineHours'] as num?)?.toInt() ??
+            0;
       } else if (recordStatus == 'on leave') {
         status = 'On Leave';
         statusColor = Colors.blue;
@@ -715,11 +780,14 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     // Don't show for Absent, Week Off, Holiday, Pending, Future, Not Marked
     bool canShowDetails = false;
     if (record != null && !isWeekOff && !isHoliday) {
-      final recordStatus = (record['status'] as String? ?? '').trim().toLowerCase();
+      final recordStatus = (record['status'] as String? ?? '')
+          .trim()
+          .toLowerCase();
       // Show details only for Present, Approved, or On Leave
-      canShowDetails = recordStatus == 'present' || 
-                      recordStatus == 'approved' || 
-                      recordStatus == 'on leave';
+      canShowDetails =
+          recordStatus == 'present' ||
+          recordStatus == 'approved' ||
+          recordStatus == 'on leave';
     }
 
     return InkWell(
@@ -747,16 +815,13 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                   ),
                   Text(
                     dayName,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 12),
-            
+
             // Status
             Expanded(
               child: Row(
@@ -777,7 +842,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 ],
               ),
             ),
-            
+
             // Salary/Fine on right side
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -824,7 +889,10 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 if (salaryForDay > 0 && fineAmount > 0) ...[
                   const SizedBox(height: 2),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(4),
@@ -841,15 +909,11 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 ],
               ],
             ),
-            
+
             // Only show chevron if details can be shown
             if (canShowDetails) ...[
               const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: Colors.grey.shade400,
-              ),
+              Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
             ],
           ],
         ),
@@ -884,19 +948,18 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
 
     final recordStatus = (status as String).trim().toLowerCase();
     final recordLeaveType = (leaveType as String? ?? '').trim().toLowerCase();
-    final isHalfDay = recordStatus == 'half day' || recordLeaveType == 'half day';
-    
+    final isHalfDay =
+        recordStatus == 'half day' || recordLeaveType == 'half day';
+
     // Calculate salary ONLY for Present/Approved status
     // EXCLUDE Absent and Pending from salary and fine calculation
     double salaryForDay = 0;
     double actualFineAmount = 0;
     int actualLateMinutes = lateMinutes;
-    
+
     if (recordStatus == 'present' || recordStatus == 'approved') {
-      salaryForDay = isHalfDay
-          ? widget.dailySalary * 0.5
-          : widget.dailySalary;
-      
+      salaryForDay = isHalfDay ? widget.dailySalary * 0.5 : widget.dailySalary;
+
       // Get fine and late minutes ONLY from database (no client-side calculation)
       actualFineAmount = fineAmount;
       actualLateMinutes = lateMinutes;
@@ -932,15 +995,13 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            
+
             // Header
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: AppColors.primary.withOpacity(0.1),
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey.shade200),
-                ),
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -979,7 +1040,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 ],
               ),
             ),
-            
+
             // Details
             Expanded(
               child: SingleChildScrollView(
@@ -1022,12 +1083,16 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                           const Divider(height: 16),
                           _buildDetailRow(
                             'Net Salary (After Fine)',
-                            currencyFormat.format(salaryForDay - actualFineAmount),
+                            currencyFormat.format(
+                              salaryForDay - actualFineAmount,
+                            ),
                             valueColor: Colors.green.shade700,
                             isBold: true,
                           ),
                         ],
-                        if (salaryForDay == 0 && recordStatus != 'present' && recordStatus != 'approved') ...[
+                        if (salaryForDay == 0 &&
+                            recordStatus != 'present' &&
+                            recordStatus != 'approved') ...[
                           const Divider(height: 16),
                           _buildDetailRow(
                             'Note',
@@ -1038,9 +1103,9 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                         ],
                       ],
                     ),
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // Attendance Section
                     _buildDetailSection(
                       'Attendance Details',
@@ -1069,20 +1134,12 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                         ],
                       ],
                     ),
-                    
+
                     if (address != null) ...[
                       const SizedBox(height: 20),
-                      _buildDetailSection(
-                        'Location',
-                        Icons.location_on,
-                        [
-                          _buildDetailRow(
-                            'Address',
-                            address,
-                            isFullWidth: true,
-                          ),
-                        ],
-                      ),
+                      _buildDetailSection('Location', Icons.location_on, [
+                        _buildDetailRow('Address', address, isFullWidth: true),
+                      ]),
                     ],
                   ],
                 ),
@@ -1094,7 +1151,11 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     );
   }
 
-  Widget _buildDetailSection(String title, IconData icon, List<Widget> children) {
+  Widget _buildDetailSection(
+    String title,
+    IconData icon,
+    List<Widget> children,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1120,9 +1181,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey.shade200),
           ),
-          child: Column(
-            children: children,
-          ),
+          child: Column(children: children),
         ),
       ],
     );
@@ -1143,10 +1202,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1166,10 +1222,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                 Expanded(
                   child: Text(
                     label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                   ),
                 ),
                 const SizedBox(width: 16),
