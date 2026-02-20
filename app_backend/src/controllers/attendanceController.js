@@ -99,22 +99,17 @@ function getShiftFromCompanySettings(company, shiftName = null) {
         }
         matchedShift = shifts[0]; // Use first shift as default
     }
-    
-    // Extract grace time
-    let gracePeriodMinutes = 0;
-    if (matchedShift.graceTime) {
-        if (matchedShift.graceTime.unit === 'hours') {
-            gracePeriodMinutes = (matchedShift.graceTime.value || 0) * 60;
-        } else {
-            gracePeriodMinutes = matchedShift.graceTime.value || 0;
-        }
-    }
-    
-    return {
-        startTime: matchedShift.startTime || "09:30",
-        endTime: matchedShift.endTime || "18:30",
-        gracePeriodMinutes: gracePeriodMinutes
-    };
+    return matchedShift;
+}
+
+// True when company has no shifts config (use template) or staff has a matching shift assigned.
+function isShiftAssignedForStaff(company, staff) {
+    const shifts = company?.settings?.attendance?.shifts;
+    if (!shifts || !Array.isArray(shifts) || shifts.length === 0) return true;
+    const staffShiftName = (staff.shiftName || '').toString().trim();
+    if (!staffShiftName) return false;
+    const match = shifts.some(s => (s.name || '').toString().trim().toLowerCase() === staffShiftName.toLowerCase());
+    return match;
 }
 
 function normalizeTemplate(templateDoc) {
@@ -439,10 +434,13 @@ const checkIn = async (req, res) => {
             return res.status(400).json({ message: 'Salary not configured. Contact HR.' });
         }
 
-        // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
-        const Leave = require('../models/Leave');
         const Company = require('../models/Company');
         const company = await Company.findById(staff.businessId);
+        if (!isShiftAssignedForStaff(company, staff)) {
+            return res.status(403).json({ message: 'Shift not assigned. Contact HR.' });
+        }
+        // PRIORITY 1: Check if On Approved Leave (highest priority - blocks all other rules)
+        const Leave = require('../models/Leave');
         const { canCheckInWithHalfDayLeave, getShiftTimings, getBusinessTimezone } = require('../utils/leaveAttendanceHelper');
         const shiftForCheckIn = getShiftTimings(company, staff);
         const businessTimezone = getBusinessTimezone(company);
@@ -761,6 +759,11 @@ const checkOut = async (req, res) => {
 
     try {
         const staff = await Staff.findById(staffId).populate('branchId').populate('attendanceTemplateId');
+        const Company = require('../models/Company');
+        const company = await Company.findById(staff.businessId);
+        if (!isShiftAssignedForStaff(company, staff)) {
+            return res.status(403).json({ message: 'Shift not assigned. Contact HR.' });
+        }
         const template = normalizeTemplate(staff.attendanceTemplateId);
 
         // Find today's attendance
@@ -1331,16 +1334,17 @@ const getTodayAttendance = async (req, res) => {
             }
         }
 
+        const shiftAssigned = isShiftAssignedForStaff(company, staff);
         const finalTemplate = staff?.attendanceTemplateId ? normalizeTemplate(staff.attendanceTemplateId) : {};
         
-        // Merge shift timings from company settings into template (already loaded above as dbShiftTimingsForLeave)
-        if (dbShiftTimingsForLeave.startTime) {
+        // Merge shift timings from company settings into template only when shift is assigned
+        if (shiftAssigned && dbShiftTimingsForLeave.startTime) {
             finalTemplate.shiftStartTime = dbShiftTimingsForLeave.startTime;
         }
-        if (dbShiftTimingsForLeave.endTime) {
+        if (shiftAssigned && dbShiftTimingsForLeave.endTime) {
             finalTemplate.shiftEndTime = dbShiftTimingsForLeave.endTime;
         }
-        if (dbShiftTimingsForLeave.gracePeriodMinutes !== undefined) {
+        if (shiftAssigned && dbShiftTimingsForLeave.gracePeriodMinutes !== undefined) {
             finalTemplate.gracePeriodMinutes = dbShiftTimingsForLeave.gracePeriodMinutes;
         }
         
@@ -1390,6 +1394,7 @@ const getTodayAttendance = async (req, res) => {
             data: attendance,
             branch: branchInfo,
             template: finalTemplate,
+            shiftAssigned,
             isOnLeave: isOnLeave,
             leaveMessage: finalLeaveMessage,
             leaveInfo: activeLeave,

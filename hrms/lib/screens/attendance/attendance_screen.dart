@@ -84,6 +84,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Map<String, dynamic>? _halfDayLeave;
   bool _checkInAllowed = true;
   bool _checkOutAllowed = true;
+  bool _shiftAssigned = true;
   bool _isHoliday = false;
   bool _isWeeklyOff = false;
   Map<String, dynamic>? _holidayInfo;
@@ -476,6 +477,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   responseBody['halfDayLeave'] as Map<String, dynamic>?;
               _checkInAllowed = responseBody['checkInAllowed'] ?? true;
               _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
+              _shiftAssigned = responseBody['shiftAssigned'] as bool? ?? true;
               _isHoliday = responseBody['isHoliday'] ?? false;
               _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
               _holidayInfo = responseBody['holidayInfo'];
@@ -1036,12 +1038,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               ],
                               const SizedBox(height: 16),
 
-                              // Work Hours
+                              // Work Hours (show raw value e.g. 0.02)
                               _buildDetailRow(
                                 'Work Hours',
-                                _formatWorkHoursWithUnits(
-                                  workHours is num ? workHours as num? : null,
-                                ),
+                                workHours is num
+                                    ? (workHours as num).toDouble().toStringAsFixed(2)
+                                    : 'N/A',
                                 Icons.access_time,
                               ),
                               if (isLowHours) ...[
@@ -1115,8 +1117,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                       const SizedBox(height: 12),
                                       if (lateMinutes != null) ...[
                                         _buildFineRow(
-                                          'Late Minutes',
-                                          '${lateMinutes.toInt()} min',
+                                          'Late check-in mins',
+                                          '${lateMinutes.toInt()}',
                                           Icons.schedule,
                                           Colors.orange,
                                         ),
@@ -1124,8 +1126,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                       ],
                                       if (earlyMinutes != null) ...[
                                         _buildFineRow(
-                                          'Early Minutes',
-                                          '${earlyMinutes.toInt()} min',
+                                          'Early checkout mins',
+                                          '${earlyMinutes.toInt()}',
                                           Icons.exit_to_app,
                                           Colors.red,
                                         ),
@@ -2765,6 +2767,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _showValidationAlert('Template not mapped. Contact HR.');
       return;
     }
+    if (_shiftAssigned != true) {
+      await _showValidationAlert('Shift not assigned. Contact HR.');
+      return;
+    }
     if (_branchData == null) {
       await _showValidationAlert('Branch not assigned.');
       return;
@@ -2806,7 +2812,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         shiftStart.isEmpty ||
         shiftEnd == null ||
         shiftEnd.isEmpty) {
-      await _showValidationAlert('Shift timing not set. Contact HR.');
+      await _showValidationAlert(
+        _shiftAssigned == true
+            ? 'Shift timings not set. Contact HR.'
+            : 'Shift not assigned. Contact HR.',
+      );
       return;
     }
     // --- End validation ---
