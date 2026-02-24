@@ -9,8 +9,19 @@ const staffSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone: { type: String },
+    alternativePhone: { type: String },
+    countryCode: { type: String, trim: true },
     designation: { type: String },
     department: { type: String },
+    staffType: {
+        type: String,
+        enum: ['Full Time', 'Part Time', 'Contract', 'Intern'],
+        default: 'Full Time'
+    },
+    role: {
+        type: String,
+        enum: ['Intern', 'Employee']
+    },
     shiftName: { type: String },
     attendanceTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'AttendanceTemplate' },
     leaveTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'LeaveTemplate' },
@@ -48,8 +59,24 @@ const staffSchema = new mongoose.Schema({
     // Reference to candidate for education, experience, and documents
     candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate' },
 
+    // Hierarchy
+    jobOpeningId: { type: mongoose.Schema.Types.ObjectId, ref: 'JobOpening' },
+    managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+    teamLeaderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+    hierarchyLevel: { type: Number, min: 1, max: 3, default: 3 },
+
+    // Offer Letter
+    offerLetterUrl: { type: String },
+    offerLetterParsedAt: { type: Date },
+
     // Tasks module visibility – when true, show Tasks in app drawer
     locationAccess: { type: Boolean, default: false },
+
+    // LMS access (employee portal "My Learning" visibility)
+    lmsAccessEnabled: { type: Boolean, default: true },
+
+    // Two-Factor Authentication
+    twoFactorEnabled: { type: Boolean, default: false },
 
     // FCM token for push notifications (set by app via POST /api/notifications/fcm-token)
     fcmToken: { type: String },

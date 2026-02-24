@@ -19,13 +19,25 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final ApiClient _api = ApiClient();
 
-  Future<Map<String, dynamic>> login(String email, String password) async {
+  Future<Map<String, dynamic>> login(String email, String password, {String? otp}) async {
     try {
+      final requestBody = <String, dynamic>{'email': email, 'password': password};
+      if (otp != null && otp.isNotEmpty) requestBody['otp'] = otp;
       final response = await _api.dio.post<Map<String, dynamic>>(
         '/auth/login',
-        data: {'email': email, 'password': password},
+        data: requestBody,
       );
       final body = response.data ?? {};
+
+      // 2FA: backend asks for OTP before issuing token
+      if (body['requiresOTP'] == true) {
+        return {
+          'success': true,
+          'requiresOTP': true,
+          'message': body['message'] as String? ?? 'OTP has been sent to your email.',
+        };
+      }
+
       final data = body['data'];
 
       final prefs = await SharedPreferences.getInstance();

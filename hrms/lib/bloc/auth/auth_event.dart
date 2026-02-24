@@ -28,3 +28,13 @@ class AuthLogoutRequested extends AuthEvent {
 class AuthProfileRequested extends AuthEvent {
   const AuthProfileRequested();
 }
+
+/// Fired when the user submits their OTP after a 2FA challenge.
+class Auth2FALoginRequested extends AuthEvent {
+  final String email;
+  final String password;
+  final String otp;
+  const Auth2FALoginRequested({required this.email, required this.password, required this.otp});
+  @override
+  List<Object?> get props => [email, password, otp];
+}

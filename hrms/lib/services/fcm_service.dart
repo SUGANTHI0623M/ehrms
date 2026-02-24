@@ -9,6 +9,7 @@ import '../screens/attendance/attendance_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
 
 /// Handles FCM: permission, token, foreground/background/terminated messages.
+/// Receives notifications sent from web backend (leave/expense/payslip/loan/attendance approve/reject).
 /// Call [init] from main() after Firebase.initializeApp().
 /// Set [navigatorKey] so notification taps can open screens (e.g. by module).
 class FcmService {
@@ -21,7 +22,9 @@ class FcmService {
   static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
 
   static void _log(String message) {
-    // Logging disabled for performance
+    if (kDebugMode) {
+      debugPrint('$_logTag $message');
+    }
   }
 
   /// Initialize FCM: permission, token, handlers. Call once after Firebase.initializeApp().
@@ -100,7 +103,25 @@ class FcmService {
 
   static void _onForegroundMessage(RemoteMessage message) {
     _log('foreground message: title=${message.notification?.title} body=${message.notification?.body} data=${message.data}');
-    _log('foreground: when app is in foreground Android often does NOT show system tray notification – only this callback runs. Put app in background to see tray notification.');
+    if (message.data.isEmpty) return;
+    final title = message.notification?.title ?? 'Notification';
+    final body = message.notification?.body ?? '';
+    final data = message.data;
+    final context = navigatorKey?.currentContext;
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(body.isNotEmpty ? body : title),
+          action: SnackBarAction(
+            label: 'View',
+            onPressed: () {
+              _handleNotificationData(Map<String, dynamic>.from(data));
+            },
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   static void _onNotificationOpened(RemoteMessage message) {
@@ -109,7 +130,7 @@ class FcmService {
   }
 
   static Future<void> _handleNotificationData(Map<String, dynamic> data) async {
-    _log('handleNotificationData: $data');
+    _log('handleNotificationData: module=${data['module']} type=${data['type']} data=$data');
     if (navigatorKey?.currentContext == null) {
       _log('handleNotificationData: no navigator context, skip navigation');
       return;
@@ -143,6 +164,7 @@ class FcmService {
 
     // Leave: My Requests, tab 0
     if (module == 'leave' || type == 'leave_approved' || type == 'leave_rejected' || module == 'requests' && (type == 'leave_approved' || type == 'leave_rejected')) {
+      _log('handleNotificationData: navigating to MyRequestsScreen tab 0 (leave)');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => MyRequestsScreen(initialTabIndex: 0),
@@ -152,6 +174,7 @@ class FcmService {
     }
     // Loan: My Requests, tab 1
     if (module == 'loan' || type == 'loan_approved' || type == 'loan_rejected') {
+      _log('handleNotificationData: navigating to MyRequestsScreen tab 1 (loan)');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => MyRequestsScreen(initialTabIndex: 1),
@@ -161,6 +184,7 @@ class FcmService {
     }
     // Expense: My Requests, tab 2
     if (module == 'expense' || type == 'expense_approved' || type == 'expense_rejected') {
+      _log('handleNotificationData: navigating to MyRequestsScreen tab 2 (expense)');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => MyRequestsScreen(initialTabIndex: 2),
@@ -170,6 +194,7 @@ class FcmService {
     }
     // Payslip: My Requests, tab 3
     if (module == 'payslip' || type == 'payslip_approved' || type == 'payslip_rejected') {
+      _log('handleNotificationData: navigating to MyRequestsScreen tab 3 (payslip)');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => MyRequestsScreen(initialTabIndex: 3),
@@ -179,6 +204,7 @@ class FcmService {
     }
     // Attendance: Attendance screen
     if (module == 'attendance' || type == 'attendance_approved' || type == 'attendance_rejected') {
+      _log('handleNotificationData: navigating to AttendanceScreen');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => AttendanceScreen(),
@@ -188,6 +214,7 @@ class FcmService {
     }
     // Performance: Performance module
     if (module == 'performance' || type.startsWith('self_review') || type.startsWith('manager_review') || type.startsWith('hr_review')) {
+      _log('handleNotificationData: navigating to PerformanceModuleScreen');
       navigatorKey?.currentState?.push(
         MaterialPageRoute<void>(
           builder: (_) => PerformanceModuleScreen(),
@@ -195,6 +222,7 @@ class FcmService {
       );
       return;
     }
+    _log('handleNotificationData: no route matched module=$module type=$type');
   }
 
   /// Call this to get the current FCM token (e.g. after login, to send to backend).

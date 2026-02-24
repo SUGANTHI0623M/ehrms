@@ -106,7 +106,7 @@ const findOrCreateUserByEmail = async (rawEmail) => {
 
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, otp } = req.body;
 
         // Validate required fields
         if (!email || !password) {
@@ -207,6 +207,66 @@ const login = async (req, res) => {
         if (user.role && user.role.toLowerCase() === 'candidate') {
             return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
         }
+
+        // ── Two-Factor Authentication ──────────────────────────────────────────
+        if (staff && staff.twoFactorEnabled === true) {
+            if (!otp) {
+                // No OTP yet — generate one, save it, send email, ask the client to prompt for OTP
+                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+                // Load user with select to allow setting extra fields
+                const userForOtp = await User.findById(user._id);
+                userForOtp.loginOTP = generatedOtp;
+                userForOtp.loginOTPExpiry = otpExpiry;
+                await userForOtp.save();
+
+                console.log(`[2FA] OTP generated for ${emailNorm}: ${generatedOtp}`);
+
+                // Send 2FA OTP email
+                try {
+                    await sendOTPEmail(user.email, generatedOtp, 'two-factor-login');
+                } catch (emailErr) {
+                    console.error('[2FA] Failed to send OTP email:', emailErr.message);
+                    // Continue — return requiresOTP even if email fails (logged above)
+                }
+
+                return res.json({
+                    success: true,
+                    requiresOTP: true,
+                    message: 'OTP has been sent to your registered email. Please enter the OTP to complete login.'
+                });
+            }
+
+            // OTP was provided — verify it
+            const userForVerify = await User.findById(user._id);
+            if (!userForVerify.loginOTP || !userForVerify.loginOTPExpiry) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'No OTP found. Please try logging in again.' }
+                });
+            }
+            if (userForVerify.loginOTP !== otp.toString()) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'Invalid OTP. Please check the code sent to your email.' }
+                });
+            }
+            if (new Date() > userForVerify.loginOTPExpiry) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'OTP has expired. Please try logging in again.' }
+                });
+            }
+
+            // OTP is valid — clear it so it cannot be reused
+            userForVerify.loginOTP = undefined;
+            userForVerify.loginOTPExpiry = undefined;
+            await userForVerify.save();
+
+            console.log(`[2FA] OTP verified successfully for ${emailNorm}`);
+        }
+        // ──────────────────────────────────────────────────────────────────────
 
         // Generate Token
         // Use consistent secret with middleware

@@ -711,7 +711,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       displayStatus = 'Waiting for Approval';
     }
     final isLateIn = _isLateCheckIn(punchIn);
-    final isLateOut = _isLateCheckOut(punchOut);
     final isEarlyOut = _isEarlyCheckOut(punchOut);
     final isLowHours = _isLowWorkHours(workHours);
 
@@ -970,39 +969,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 _formatTime(punchOut),
                                 Icons.logout_rounded,
                               ),
-                              if (isLateOut) ...[
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.blue),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.schedule,
-                                        size: 16,
-                                        color: Colors.blue,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Late Check-out',
-                                        style: TextStyle(
-                                          color: Colors.blue,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
                               if (isEarlyOut) ...[
                                 const SizedBox(height: 8),
                                 Container(
@@ -2707,7 +2673,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           //fine formula
-          if (1 == 1)
+          if (1 == 0)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

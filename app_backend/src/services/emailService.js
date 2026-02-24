@@ -55,24 +55,40 @@ if (!useSendPulse && !process.env.SENDGRID_API_KEY && process.env.EMAIL_HOST && 
 }
 
 /**
- * Send a password reset OTP email
- * @param {string} toEmail
+ * Build OTP email HTML based on type.
  * @param {string} otp
+ * @param {'password-reset'|'two-factor-login'} type
  */
-const OTP_HTML = (otp) => `
+const OTP_HTML = (otp, type = 'password-reset') => {
+    const isTwoFactor = type === 'two-factor-login';
+    const title = isTwoFactor ? 'Two-Factor Authentication Login' : 'Password Reset Request';
+    const intro = isTwoFactor
+        ? 'You are attempting to login to your ASKEVA HRMS account with Two-Factor Authentication enabled.'
+        : 'We received a request to reset the password for your ASKEVA HRMS account.';
+    const footer = isTwoFactor
+        ? 'If you did not attempt to login, please contact support immediately as your account may be compromised.'
+        : 'If you did not request a password reset, you can safely ignore this email.';
+    return `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h2>Password Reset Request</h2>
-        <p>We received a request to reset the password for your ASKEVA HRMS account.</p>
+        <h2>${title}</h2>
+        <p>${intro}</p>
         <p>Your One-Time Password (OTP) is:</p>
         <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
         <p>This OTP is valid for <strong>10 minutes</strong>. Do not share it with anyone.</p>
-        <p>If you did not request a password reset, you can safely ignore this email.</p>
+        <p>${footer}</p>
         <br/>
         <p>Regards,<br/>ASKEVA HRMS Team</p>
     </div>
 `;
+};
 
-const sendOTPEmail = async (toEmail, otp) => {
+/**
+ * Send an OTP email for password reset or 2FA login.
+ * @param {string} toEmail
+ * @param {string} otp
+ * @param {'password-reset'|'two-factor-login'} type
+ */
+const sendOTPEmail = async (toEmail, otp, type = 'password-reset') => {
     if (!toEmail || !otp) {
         console.error('[EmailService] ❌ Missing email or OTP');
         return { success: false, error: 'Email or OTP is missing' };
@@ -86,17 +102,17 @@ const sendOTPEmail = async (toEmail, otp) => {
         return { success: false, error: 'Email configuration missing' };
     }
 
+    const isTwoFactor = type === 'two-factor-login';
+    const subject = isTwoFactor
+        ? 'Two-Factor Authentication Login OTP - ASKEVA HRMS'
+        : 'Your ASKEVA HRMS Password Reset OTP';
+    const html = OTP_HTML(otp, type);
+
     // Prefer SendPulse when configured (HTTPS, no firewall issues)
     if (useSendPulse) {
         try {
             console.log(`[EmailService] Sending OTP via SendPulse to: ${toEmail} from: ${fromEmail}`);
-            const result = await sendpulseService.sendEmail(
-                toEmail,
-                'Your ASKEVA HRMS Password Reset OTP',
-                OTP_HTML(otp),
-                fromEmail,
-                fromName
-            );
+            const result = await sendpulseService.sendEmail(toEmail, subject, html, fromEmail, fromName);
             if (result.success) {
                 console.log(`[EmailService] ✅ OTP email sent via SendPulse to ${toEmail}`);
                 return { success: true, messageId: result.messageId };
@@ -113,13 +129,7 @@ const sendOTPEmail = async (toEmail, otp) => {
     if (sgMail) {
         try {
             console.log(`[EmailService] Sending OTP via SendGrid to: ${toEmail}`);
-            const msg = {
-                to: toEmail,
-                from: { email: fromEmail, name: fromName },
-                subject: 'Your ASKEVA HRMS Password Reset OTP',
-                html: OTP_HTML(otp)
-            };
-            await sgMail.send(msg);
+            await sgMail.send({ to: toEmail, from: { email: fromEmail, name: fromName }, subject, html });
             console.log(`[EmailService] ✅ OTP email sent via SendGrid to ${toEmail}`);
             return { success: true };
         } catch (error) {
@@ -139,8 +149,8 @@ const sendOTPEmail = async (toEmail, otp) => {
     const mailOptions = {
         from: `"${fromName}" <${fromEmail}>`,
         to: toEmail,
-        subject: 'Your ASKEVA HRMS Password Reset OTP',
-        html: OTP_HTML(otp)
+        subject,
+        html
     };
 
     try {

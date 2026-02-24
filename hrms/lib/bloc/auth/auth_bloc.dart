@@ -13,6 +13,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       : _repo = repository ?? AuthRepository(),
         super(AuthInitial()) {
     on<AuthLoginRequested>(_onLoginRequested);
+    on<Auth2FALoginRequested>(_on2FALoginRequested);
     on<AuthGoogleLoginRequested>(_onGoogleLoginRequested);
     on<AuthLogoutRequested>(_onLogoutRequested);
     on<AuthProfileRequested>(_onProfileRequested);
@@ -23,10 +24,33 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _onLoginRequested(AuthLoginRequested event, Emitter<AuthState> emit) async {
     emit(AuthLoadInProgress());
     final result = await _repo.login(event.email, event.password);
-    if (result['success'] == true) {
+    if (result['requiresOTP'] == true) {
+      emit(AuthRequires2FA(
+        email: event.email,
+        password: event.password,
+        message: result['message'] as String? ?? 'OTP sent to your email.',
+      ));
+    } else if (result['success'] == true) {
       emit(AuthLoginSuccess(data: result['data']));
     } else {
       emit(AuthFailure(message: result['message'] as String? ?? 'Login failed'));
+    }
+  }
+
+  Future<void> _on2FALoginRequested(Auth2FALoginRequested event, Emitter<AuthState> emit) async {
+    emit(AuthLoadInProgress());
+    final result = await _repo.login(event.email, event.password, otp: event.otp);
+    if (result['success'] == true && result['requiresOTP'] != true) {
+      emit(AuthLoginSuccess(data: result['data']));
+    } else if (result['requiresOTP'] == true) {
+      // OTP invalid or expired — stay on 2FA screen with error
+      emit(AuthRequires2FA(
+        email: event.email,
+        password: event.password,
+        message: result['message'] as String? ?? 'Invalid OTP. Please try again.',
+      ));
+    } else {
+      emit(AuthFailure(message: result['message'] as String? ?? 'OTP verification failed'));
     }
   }
 

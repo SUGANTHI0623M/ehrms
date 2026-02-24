@@ -9,9 +9,10 @@ class AuthRepository {
 
   final AuthService _auth;
 
-  /// Login with email/password. Returns { success, data?, message? }.
-  Future<Map<String, dynamic>> login(String email, String password) async {
-    return _auth.login(email, password);
+  /// Login with email/password. If [otp] is provided, it is a 2FA verification login.
+  /// Returns { success, data?, requiresOTP?, message? }.
+  Future<Map<String, dynamic>> login(String email, String password, {String? otp}) async {
+    return _auth.login(email, password, otp: otp);
   }
 
   /// After Google Sign-In, verify with backend. Returns { success, data?, message? }.

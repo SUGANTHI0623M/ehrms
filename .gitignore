@@ -80,6 +80,8 @@ bb/
 bbb/
 frontend/
 
+new_app/
+
 
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/
