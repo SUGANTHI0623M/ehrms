@@ -8,7 +8,7 @@ const { createRateLimitHandler } = require('./src/utils/rateLimitHandler');
 const connectDB = require('./src/config/db');
 const cors = require('cors');
 const helmet = require('helmet');
-//index
+
 const authRoutes = require('./src/routes/authRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
@@ -41,7 +41,7 @@ app.use(helmet());
 const allowedOrigins = [
   
     'https://ehrms.askeva.net', 'http://ehrms.askeva.net',
-    'http://localhost:8080', 'http://127.0.0.1:8080',
+   
    
 ];
 
