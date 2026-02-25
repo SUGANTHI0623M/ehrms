@@ -921,6 +921,19 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
     );
   }
 
+  /// Work hours from API are in minutes; legacy may be hours. Format as "X mins".
+  String _formatWorkHoursAsMins(num workHours) {
+    final d = workHours.toDouble();
+    if (d <= 0) return '0 mins';
+    int mins;
+    if (d < 24 && (d - d.truncate()).abs() > 0.001) {
+      mins = (d * 60).round();
+    } else {
+      mins = d.round();
+    }
+    return '$mins min${mins == 1 ? '' : 's'}';
+  }
+
   void _showDayDetails(
     DateTime date,
     dynamic record,
@@ -1116,7 +1129,7 @@ class _MonthSalaryDetailsScreenState extends State<MonthSalaryDetailsScreen> {
                         if (workHours != null)
                           _buildDetailRow(
                             'Work Hours',
-                            '${(workHours as num).toStringAsFixed(2)} hrs',
+                            _formatWorkHoursAsMins(workHours as num),
                           ),
                         if (actualLateMinutes > 0 && actualFineAmount > 0) ...[
                           const Divider(height: 16),

@@ -6,7 +6,20 @@ const Loan = require('../models/Loan');
 const Payroll = require('../models/Payroll');
 const Company = require('../models/Company');
 const HolidayTemplate = require('../models/HolidayTemplate');
+const Announcement = require('../models/Announcement');
 const { calculateAttendanceStats } = require('./payrollController');
+
+/** Get month/day for comparison (birthday/anniversary). */
+function getMonthDay(d) {
+    return [d.getMonth(), d.getDate()];
+}
+
+/** Next occurrence of month/day in or after refDate (for upcoming). */
+function nextOccurrence(refDate, month, day) {
+    const thisYear = new Date(refDate.getFullYear(), month, day);
+    if (thisYear >= refDate) return thisYear;
+    return new Date(refDate.getFullYear() + 1, month, day);
+}
 
 // @desc    Get Dashboard Stats for generic use (kept for compatibility)
 const getDashboardStats = async (req, res) => {
@@ -118,6 +131,99 @@ const getEmployeeDashboardStats = async (req, res) => {
         }).select('loanType amount purpose emi remainingAmount startDate endDate createdAt').sort({ createdAt: -1 });
 
         const activeLoans = activeLoansList.length;
+
+        // 4b. Today's announcements (web: audienceType/targetStaffIds/publishDate/status published; legacy: assignedTo/effectiveDate/Active)
+        let todayAnnouncements = [];
+        if (staff && staff.businessId) {
+            const announcementDateFilter = {
+                $and: [
+                    { $or: [{ publishDate: { $exists: true, $lte: endOfToday } }, { effectiveDate: { $exists: true, $lte: endOfToday } }] },
+                    { $or: [{ expiryDate: null }, { expiryDate: { $exists: false } }, { expiryDate: { $gte: startOfToday } }] },
+                    { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: startOfToday } }] },
+                ],
+            };
+            const announcementAudienceFilter = {
+                $or: [
+                    { audienceType: { $exists: false } },
+                    { audienceType: null },
+                    { audienceType: 'all' },
+                    { audienceType: { $ne: 'specific' } },
+                    { audienceType: 'specific', targetStaffIds: staffId },
+                    { assignedTo: { $exists: false } },
+                    { assignedTo: null },
+                    { assignedTo: [] },
+                    { assignedTo: { $size: 0 } },
+                    { assignedTo: staffId },
+                ],
+            };
+            todayAnnouncements = await Announcement.find({
+                businessId: staff.businessId,
+                status: { $in: ['published', 'Active'] },
+                $and: [announcementDateFilter, announcementAudienceFilter],
+            })
+                .sort({ publishDate: -1, effectiveDate: -1, createdAt: -1 })
+                .limit(20)
+                .select('title subject description fromName coverImage publishDate effectiveDate endDate expiryDate createdAt')
+                .lean();
+            console.log('[Dashboard] todayAnnouncements: staffId=%s, staffName=%s, businessId=%s, count=%d, titles=%s', staffId, staff?.name, staff.businessId, todayAnnouncements.length, todayAnnouncements.map(a => a.title).join(', ') || '(none)');
+        }
+
+        // 4c. Today's and upcoming celebrations (birthdays, work anniversaries) – same business
+        const todayCelebrations = [];
+        const upcomingCelebrations = [];
+        const todayMonth = now.getMonth();
+        const todayDay = now.getDate();
+        const upcomingDays = 30;
+
+        if (staff && staff.businessId) {
+            const allStaff = await Staff.find({
+                businessId: staff.businessId,
+                status: 'Active',
+                $or: [{ dob: { $ne: null, $exists: true } }, { joiningDate: { $ne: null, $exists: true } }],
+            })
+                .select('name avatar dob joiningDate')
+                .lean();
+
+            for (const s of allStaff) {
+                if (s.dob) {
+                    const d = new Date(s.dob);
+                    const bMonth = d.getMonth();
+                    const bDay = d.getDate();
+                    const nextBday = nextOccurrence(now, bMonth, bDay);
+                    const daysLeft = Math.ceil((nextBday - now) / (24 * 60 * 60 * 1000));
+                    const isToday = bMonth === todayMonth && bDay === todayDay;
+                    const item = {
+                        type: 'birthday',
+                        name: s.name,
+                        date: s.dob,
+                        displayDate: `${bDay} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][bMonth]}`,
+                        daysLeft: isToday ? 0 : daysLeft,
+                        avatar: s.avatar,
+                    };
+                    if (isToday) todayCelebrations.push(item);
+                    else if (daysLeft > 0 && daysLeft <= upcomingDays) upcomingCelebrations.push(item);
+                }
+                if (s.joiningDate) {
+                    const d = new Date(s.joiningDate);
+                    const jMonth = d.getMonth();
+                    const jDay = d.getDate();
+                    const nextAnniv = nextOccurrence(now, jMonth, jDay);
+                    const daysLeft = Math.ceil((nextAnniv - now) / (24 * 60 * 60 * 1000));
+                    const isToday = jMonth === todayMonth && jDay === todayDay;
+                    const item = {
+                        type: 'anniversary',
+                        name: s.name,
+                        date: s.joiningDate,
+                        displayDate: `${jDay} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][jMonth]}`,
+                        daysLeft: isToday ? 0 : daysLeft,
+                        avatar: s.avatar,
+                    };
+                    if (isToday) todayCelebrations.push(item);
+                    else if (daysLeft > 0 && daysLeft <= upcomingDays) upcomingCelebrations.push(item);
+                }
+            }
+            upcomingCelebrations.sort((a, b) => a.daysLeft - b.daysLeft);
+        }
 
         // 5. Payroll info - Use same calculation logic as salary module (till present)
         const payroll = await Payroll.findOne({
@@ -270,7 +376,10 @@ const getEmployeeDashboardStats = async (req, res) => {
                     payrollStatus: payrollStatus
                 },
                 recentLeaves: recentLeaves,
-                upcomingTasks: []
+                upcomingTasks: [],
+                todayAnnouncements: todayAnnouncements,
+                todayCelebrations: todayCelebrations,
+                upcomingCelebrations: upcomingCelebrations,
             }
         });
 

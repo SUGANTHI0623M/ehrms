@@ -23,6 +23,8 @@ class AttendanceStatusLoaded extends AttendanceState {
   final bool isCheckedIn;
   final bool isCompleted;
   final bool isToday;
+  /// Punch-in time (when isCheckedIn) for working hours and "Checked in at" display.
+  final DateTime? punchInTime;
   const AttendanceStatusLoaded({
     this.branchData,
     this.checkInAllowed = true,
@@ -32,6 +34,7 @@ class AttendanceStatusLoaded extends AttendanceState {
     this.isCheckedIn = false,
     this.isCompleted = false,
     this.isToday = true,
+    this.punchInTime,
   });
   @override
   List<Object?> get props => [
@@ -43,6 +46,7 @@ class AttendanceStatusLoaded extends AttendanceState {
     isCheckedIn,
     isCompleted,
     isToday,
+    punchInTime,
   ];
 }
 

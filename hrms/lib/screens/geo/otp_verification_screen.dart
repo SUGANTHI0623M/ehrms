@@ -1,4 +1,6 @@
 // OTP Verification screen – customer card, 4-digit OTP input, Verify & Complete.
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
@@ -65,30 +67,38 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   String get _enteredOtp => _controllers.map((c) => c.text).join();
 
   Future<void> _sendOtp() async {
-    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
+    if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) {
+      developer.log('OTP verification: skip send - taskMongoId is null or empty', name: 'OtpVerificationScreen');
+      return;
+    }
+    final taskId = widget.taskMongoId!;
+    final email = widget.task.customer?.effectiveEmail ?? '(no email)';
+    developer.log('OTP verification: sending OTP for taskId=$taskId, customerEmail=${email.isNotEmpty ? email.replaceAll(RegExp(r'(?<=.).(?=.*@)'), '*') : "(none)"}', name: 'OtpVerificationScreen');
     setState(() {
       _sendingOtp = true;
       _error = null;
     });
     try {
-      await TaskService().sendOtp(widget.taskMongoId!);
+      await TaskService().sendOtp(taskId);
+      developer.log('OTP verification: OTP sent successfully for taskId=$taskId', name: 'OtpVerificationScreen');
       if (mounted) {
         setState(() {
           _sendingOtp = false;
           _otpSent = true;
         });
-        final email = widget.task.customer?.effectiveEmail;
+        final displayEmail = widget.task.customer?.effectiveEmail;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              email != null && email.isNotEmpty
-                  ? 'OTP sent to ${email.replaceAll(RegExp(r'(?<=.).(?=.*@)'), '*')}'
+              displayEmail != null && displayEmail.isNotEmpty
+                  ? 'OTP sent to ${displayEmail.replaceAll(RegExp(r'(?<=.).(?=.*@)'), '*')}'
                   : 'OTP sent to customer email',
             ),
           ),
         );
       }
     } catch (e) {
+      developer.log('OTP verification: failed to send OTP for taskId=$taskId', name: 'OtpVerificationScreen', error: e);
       if (mounted) {
         final msg = e.toString();
         String errMsg;

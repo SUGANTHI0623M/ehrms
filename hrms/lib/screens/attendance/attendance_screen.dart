@@ -298,7 +298,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
               num? workHours = entry['workHours'] as num?;
 
-              // Calculate workHours from punchIn and punchOut if not already present
+              // Calculate workHours (in minutes) from punchIn and punchOut if not already present
               if (workHours == null) {
                 final punchIn = entry['punchIn'];
                 final punchOut = entry['punchOut'];
@@ -312,7 +312,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     ).toLocal();
                     final duration = punchOutTime.difference(punchInTime);
                     if (duration.inMinutes > 0) {
-                      workHours = duration.inMinutes / 60.0;
+                      workHours = duration.inMinutes; // store as minutes
                     }
                   } catch (_) {
                     // Ignore parse errors; leave workHours null
@@ -707,11 +707,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       leaveType,
       session,
     );
-    if (status == 'Pending') {
+    // Only show "Waiting for Approval" when user has punched in (not for leave-related Pending without punch)
+    if (status == 'Pending' && punchIn != null) {
       displayStatus = 'Waiting for Approval';
     }
-    final isLateIn = _isLateCheckIn(punchIn);
-    final isEarlyOut = _isEarlyCheckOut(punchOut);
+    final isLateIn = _isLateCheckIn(punchIn, record: record);
+    final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
     final isLowHours = _isLowWorkHours(workHours);
 
     // Fine information
@@ -777,6 +778,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -790,6 +792,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             minChildSize: 0.5,
             maxChildSize: 0.95,
             builder: (context, scrollController) => Container(
+              color: Colors.white,
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -928,7 +931,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 _formatTime(punchIn),
                                 Icons.login_rounded,
                               ),
-                              if (isLateIn) ...[
+                              // Only show Late Check-in tag when backend did not set lateMinutes to 0 (align with Fine Details)
+                              if (isLateIn &&
+                                  (record['lateMinutes'] == null ||
+                                      (record['lateMinutes'] as num?)?.toDouble() != 0)) ...[
                                 const SizedBox(height: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
@@ -1004,12 +1010,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               ],
                               const SizedBox(height: 16),
 
-                              // Work Hours (show raw value e.g. 0.02)
+                              // Work Hours (stored in minutes in DB; show with unit e.g. "234 mins")
                               _buildDetailRow(
                                 'Work Hours',
-                                workHours is num
-                                    ? (workHours as num).toDouble().toStringAsFixed(2)
-                                    : 'N/A',
+                                _formatWorkHoursWithUnits(workHours is num ? workHours : null),
                                 Icons.access_time,
                               ),
                               if (isLowHours) ...[
@@ -1911,6 +1915,70 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return null;
   }
 
+  /// Working session timings for a specific record (e.g. from history). Use when evaluating late/early for that record.
+  /// Session 1 leave → works Session 2. Session 2 leave → works Session 1.
+  /// Treats as half-day when status is 'Half Day' OR record has halfDaySession/session (e.g. "Present (HA)" with session).
+  Map<String, String>? _getWorkingSessionTimingsForRecord(
+      Map<String, dynamic>? record) {
+    if (record == null) return null;
+    final status = (record['status'] ?? '').toString().trim().toLowerCase();
+    final leaveDetails = record['leaveDetails'] as Map<String, dynamic>?;
+    final leaveType =
+        (leaveDetails?['leaveType'] ?? record['leaveType'])?.toString().trim().toLowerCase();
+    final rawSession = (leaveDetails?['session'] ?? record['session'])?.toString().trim();
+    final hasHalfDaySession = (record['halfDaySession'] ?? leaveDetails?['halfDaySession']) != null;
+    final isHalfDay = status == 'half day' ||
+        leaveType == 'half day' ||
+        hasHalfDaySession ||
+        rawSession == '1' ||
+        rawSession == '2';
+    if (!isHalfDay) return null;
+    final b = _getHalfDaySessionBoundaries();
+    if (b == null) return null;
+    String? session = (leaveDetails?['session'] ?? record['session'])
+        ?.toString()
+        .trim();
+    if (session != '1' && session != '2') {
+      final hd =
+          (record['halfDaySession'] ?? leaveDetails?['halfDaySession'])
+              ?.toString()
+              .trim()
+              .toLowerCase();
+      if (hd == 'first half day' || hd == 'first half') {
+        session = '1';
+      } else if (hd == 'second half day' || hd == 'second half') {
+        session = '2';
+      } else {
+        return null;
+      }
+    }
+    if (session == '1') {
+      return {'startTime': b['session2Start']!, 'endTime': b['session2End']!};
+    }
+    return {'startTime': b['session1Start']!, 'endTime': b['session1End']!};
+  }
+
+  /// Grace period for late check-in when evaluating a specific record (half-day: Session 1 leave = no grace).
+  int _getGracePeriodMinutesForLateCheckInForRecord(
+      Map<String, dynamic>? record) {
+    if (record == null) return _getGracePeriodMinutes();
+    if (_getWorkingSessionTimingsForRecord(record) == null) {
+      return _getGracePeriodMinutes();
+    }
+    final leaveDetails = record['leaveDetails'] as Map<String, dynamic>?;
+    final session = (leaveDetails?['session'] ?? record['session'] ??
+            record['halfDaySession'])
+        ?.toString()
+        .trim();
+    final sessionLower = session?.toLowerCase();
+    if (session == '1' ||
+        sessionLower == 'first half day' ||
+        sessionLower == 'first half') {
+      return 0;
+    }
+    return _getGracePeriodMinutes();
+  }
+
   /// For half-day Session 1 leave (employee works Session 2): no grace. Otherwise use template grace.
   int _getGracePeriodMinutesForLateCheckIn() {
     final session =
@@ -1920,18 +1988,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return _getGracePeriodMinutes();
   }
 
-  // Helper to determine if late
-  bool _isLateCheckIn(String? punchInTime) {
+  // Helper to determine if late. Pass [record] when evaluating a specific record (e.g. history) so half-day uses that record's session.
+  bool _isLateCheckIn(String? punchInTime, {Map<String, dynamic>? record}) {
     if (punchInTime == null) return false;
     try {
       final punchIn = DateTime.parse(punchInTime).toLocal();
 
-      // For Half Day: use working session start time, otherwise use full-day shift start from DB
-      final sessionTimings = _getWorkingSessionTimings();
+      // For Half Day: use working session start from record or current context
+      final sessionTimings = record != null
+          ? _getWorkingSessionTimingsForRecord(record)
+          : _getWorkingSessionTimings();
       final shiftStartStr =
           sessionTimings?['startTime'] ?? _getShiftStartTime();
       final parts = shiftStartStr.split(':').map(int.parse).toList();
-      final gracePeriod = _getGracePeriodMinutesForLateCheckIn();
+      final gracePeriod = record != null
+          ? _getGracePeriodMinutesForLateCheckInForRecord(record)
+          : _getGracePeriodMinutesForLateCheckIn();
 
       final shiftStart = DateTime(
         punchIn.year,
@@ -1947,12 +2019,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  bool _isLateCheckOut(String? punchOutTime) {
+  bool _isLateCheckOut(String? punchOutTime, {Map<String, dynamic>? record}) {
     if (punchOutTime == null) return false;
     try {
       final punchOut = DateTime.parse(punchOutTime).toLocal();
 
-      final shiftEndStr = _getShiftEndTime();
+      final sessionTimings = record != null
+          ? _getWorkingSessionTimingsForRecord(record)
+          : _getWorkingSessionTimings();
+      final shiftEndStr =
+          sessionTimings?['endTime'] ?? _getShiftEndTime();
       final parts = shiftEndStr.split(':').map(int.parse).toList();
 
       final shiftEnd = DateTime(
@@ -1969,12 +2045,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  bool _isEarlyCheckOut(String? punchOutTime) {
+  bool _isEarlyCheckOut(String? punchOutTime, {Map<String, dynamic>? record}) {
     if (punchOutTime == null) return false;
     try {
       final punchOut = DateTime.parse(punchOutTime).toLocal();
 
-      final shiftEndStr = _getShiftEndTime();
+      final sessionTimings = record != null
+          ? _getWorkingSessionTimingsForRecord(record)
+          : _getWorkingSessionTimings();
+      final shiftEndStr =
+          sessionTimings?['endTime'] ?? _getShiftEndTime();
       final parts = shiftEndStr.split(':').map(int.parse).toList();
 
       final shiftEnd = DateTime(
@@ -1991,19 +2071,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  bool _isLowWorkHours(num? workHours) {
-    if (workHours == null) return false;
-    // Assuming < 9 hours is low
-    return workHours < 9;
+  /// Normalizes workHours to minutes. API stores in minutes; legacy values may be in hours (0–24 decimal).
+  int? _workHoursToMinutes(num? workHours) {
+    if (workHours == null) return null;
+    final d = workHours.toDouble();
+    if (d <= 0) return 0;
+    // Legacy: value in (0, 24] with fraction treated as hours
+    if (d < 24 && (d - d.truncate()).abs() > 0.001) {
+      return (d * 60).round();
+    }
+    return d.round();
   }
 
-  /// Formats work hours (value from API is in minutes) with unit "min" / "mins".
+  bool _isLowWorkHours(num? workHours) {
+    final mins = _workHoursToMinutes(workHours);
+    if (mins == null) return false;
+    // Low when < 9 hours (540 minutes)
+    return mins < 540;
+  }
+
+  /// Formats work hours with unit "min" / "mins". Value from API is in minutes.
   String _formatWorkHoursWithUnits(num? workHours) {
-    if (workHours == null) return 'N/A';
-    final mins = workHours.toDouble();
-    final m = mins.round();
-    if (m == 0) return '0 mins';
-    return '$m min${m == 1 ? '' : 's'}';
+    final mins = _workHoursToMinutes(workHours);
+    if (mins == null) return 'N/A';
+    if (mins == 0) return '0 mins';
+    return '$mins min${mins == 1 ? '' : 's'}';
   }
 
   /*
@@ -2829,6 +2921,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     final now = DateTime.now();
+    // Block check-in after shift end time (full-day or half-day working session end)
+    if (!isCheckedIn) {
+      final sessionTimings = _getWorkingSessionTimings();
+      final shiftEndStrForBlock =
+          sessionTimings?['endTime'] ?? _getShiftEndTimeFromDb();
+      if (shiftEndStrForBlock != null && shiftEndStrForBlock.isNotEmpty) {
+        try {
+          final parts = shiftEndStrForBlock.split(':').map(int.parse).toList();
+          final shiftEndForBlock = DateTime(
+            now.year,
+            now.month,
+            now.day,
+            parts[0],
+            parts[1],
+          );
+          if (now.isAfter(shiftEndForBlock)) {
+            SnackBarUtils.showSnackBar(
+              context,
+              'Check-in not allowed after shift end time ($shiftEndStrForBlock).',
+              isError: true,
+            );
+            return;
+          }
+        } catch (_) {}
+      }
+    }
     String? alertMessage;
     if (!isCheckedIn) {
       final allowLateEntry =
@@ -2970,7 +3088,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         (status == 'Present' || status == 'Approved');
 
     final isLate =
-        _isLateCheckIn(punchIn) &&
+        _isLateCheckIn(punchIn, record: _attendanceData) &&
         !(_attendanceTemplate?['allowLateEntry'] ??
             _attendanceTemplate?['lateEntryAllowed'] ??
             true);
@@ -3165,231 +3283,241 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         isHalfDayLeave &&
         ((!isCheckedIn && !_checkInAllowed) ||
             (isCheckedIn && !_checkOutAllowed));
+
     return Opacity(
-      opacity: punchDisabled ? 0.65 : 1.0,
-      child: IgnorePointer(
-        ignoring: punchDisabled,
-        child: GestureDetector(
-          onTap: () {
-            if (!isCompleted && !isAdminMarked && !punchDisabled) {
-              _openMarkAttendanceScreen();
-            }
-          },
-          child: Card(
-            elevation: 0,
-            color: punchDisabled ? Colors.grey.shade100 : Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: punchDisabled
-                  ? BorderSide(color: Colors.grey.shade300)
-                  : BorderSide.none,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (halfDayCheckInAllowed)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.blue.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              size: 20,
-                              color: Colors.blue.shade700,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                // Prefer half-day session message; never show generic "Enjoy your leave" when in working half
-                                (_halfDayLeave?['message']
-                                                ?.toString()
-                                                .trim()
-                                                .isNotEmpty ==
-                                            true
-                                        ? _halfDayLeave!['message']!
-                                              .toString()
-                                              .trim()
-                                        : null) ??
-                                    ((_leaveMessage ?? '').trim().isNotEmpty &&
-                                            !(_leaveMessage ?? '').contains(
-                                              'Enjoy your leave',
-                                            )
-                                        ? _leaveMessage!.trim()
-                                        : null) ??
-                                    'Check-in allowed',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.blue.shade800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  _buildAttendanceRow(
-                    'Punch In',
-                    _formatTime(punchIn),
-                    Icons.login_rounded,
-                    AppColors.success,
-                    address: punchInAddress,
-                    isPlaceholder: punchIn == null,
-                    isLate: isLate,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12.0),
-                    child: Divider(height: 1, color: AppColors.divider),
-                  ),
-                  _buildAttendanceRow(
-                    'Punch Out',
-                    _formatTime(punchOut),
-                    Icons.logout_rounded,
-                    AppColors.error,
-                    address: punchOutAddress,
-                    isPlaceholder: punchOut == null,
-                  ),
-                  const SizedBox(height: 20),
-                  // Show button only if not completed and not admin-marked (tap card also opens screen); when punchDisabled show "You are on leave" instead
-                  if (!isCompleted && !isAdminMarked)
-                    SizedBox(
-                      width: double.infinity,
-                      child: punchDisabled
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.08),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.blue.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  _isFirstHalfLeave
-                                      ? 'You are on leave - First Half'
-                                      : 'You are on leave - Second Half',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.blue.shade800,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : ElevatedButton.icon(
-                              onPressed: _openMarkAttendanceScreen,
-                              icon: Icon(
-                                (_attendanceTemplate?['requireSelfie'] ?? true)
-                                    ? Icons.camera_alt
-                                    : Icons.touch_app,
-                              ),
-                              label: Text(
-                                isCheckedIn
-                                    ? (_attendanceTemplate?['requireSelfie'] ??
-                                              true)
-                                          ? 'Selfie Check Out'
-                                          : 'Check Out'
-                                    : (_attendanceTemplate?['requireSelfie'] ??
-                                          true)
-                                    ? 'Selfie Check In'
-                                    : 'Check In',
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isCheckedIn
-                                    ? AppColors.error
-                                    : AppColors.primary,
-                                foregroundColor: Colors.white,
+          opacity: punchDisabled ? 0.65 : 1.0,
+          child: IgnorePointer(
+            ignoring: punchDisabled,
+            child: GestureDetector(
+              onTap: () {
+                if (!isCompleted && !isAdminMarked && !punchDisabled) {
+                  _openMarkAttendanceScreen();
+                }
+              },
+              child: Card(
+                elevation: 0,
+                color: punchDisabled ? Colors.grey.shade100 : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: punchDisabled
+                      ? BorderSide(color: Colors.grey.shade300)
+                      : BorderSide.none,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (halfDayCheckInAllowed)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16.0),
+                              child: Container(
                                 padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
+                                  vertical: 10,
+                                  horizontal: 12,
                                 ),
-                                shape: RoundedRectangleBorder(
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.blue.withOpacity(0.2),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      size: 20,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        // Prefer half-day session message; never show generic "Enjoy your leave" when in working half
+                                        (_halfDayLeave?['message']
+                                                        ?.toString()
+                                                        .trim()
+                                                        .isNotEmpty ==
+                                                    true
+                                                ? _halfDayLeave!['message']!
+                                                      .toString()
+                                                      .trim()
+                                                : null) ??
+                                            ((_leaveMessage ?? '')
+                                                        .trim()
+                                                        .isNotEmpty &&
+                                                    !(_leaveMessage ?? '')
+                                                        .contains(
+                                                          'Enjoy your leave',
+                                                        )
+                                                ? _leaveMessage!.trim()
+                                                : null) ??
+                                            'Check-in allowed',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                    )
-                  // Completed State Logic or Admin-Marked Attendance
-                  else if (isCompleted || isAdminMarked)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  status == 'Pending'
-                                      ? Icons.hourglass_bottom_rounded
-                                      : status == 'Approved' ||
-                                            status == 'Present'
-                                      ? Icons.check_circle
-                                      : Icons.info_outline,
-                                  color: status == 'Pending'
-                                      ? Colors.orange
-                                      : status == 'Approved' ||
-                                            status == 'Present'
-                                      ? AppColors.success
-                                      : Colors.blue,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  status == 'Pending'
-                                      ? 'Waiting for Approval'
-                                      : status,
-                                  style: TextStyle(
-                                    color: status == 'Pending'
-                                        ? Colors.orange
-                                        : status == 'Approved' ||
-                                              status == 'Present'
-                                        ? AppColors.success
-                                        : Colors.blue,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // Show remark if admin-marked and has remarks
-                            if (isAdminMarked &&
-                                _attendanceData?['remarks'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8.0),
-                                child: Text(
-                                  _attendanceData!['remarks'],
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
-                                    fontStyle: FontStyle.italic,
-                                  ),
+                          _buildAttendanceRow(
+                            'Punch In',
+                            _formatTime(punchIn),
+                            Icons.login_rounded,
+                            AppColors.success,
+                            address: punchInAddress,
+                            isPlaceholder: punchIn == null,
+                            isLate: isLate,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                            child: Divider(height: 1, color: AppColors.divider),
+                          ),
+                          _buildAttendanceRow(
+                            'Punch Out',
+                            _formatTime(punchOut),
+                            Icons.logout_rounded,
+                            AppColors.error,
+                            address: punchOutAddress,
+                            isPlaceholder: punchOut == null,
+                          ),
+                          const SizedBox(height: 20),
+                          // Show button only if not completed and not admin-marked (tap card also opens screen); when punchDisabled show "You are on leave" instead
+                          if (!isCompleted && !isAdminMarked)
+                            SizedBox(
+                              width: double.infinity,
+                              child: punchDisabled
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withOpacity(0.08),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: Colors.blue.withOpacity(0.2),
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          _isFirstHalfLeave
+                                              ? 'You are on leave - First Half'
+                                              : 'You are on leave - Second Half',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.blue.shade800,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : ElevatedButton.icon(
+                                      onPressed: _openMarkAttendanceScreen,
+                                      icon: Icon(
+                                        (_attendanceTemplate?['requireSelfie'] ??
+                                                true)
+                                            ? Icons.camera_alt
+                                            : Icons.touch_app,
+                                      ),
+                                      label: Text(
+                                        isCheckedIn
+                                            ? (_attendanceTemplate?['requireSelfie'] ??
+                                                      true)
+                                                  ? 'Selfie Check Out'
+                                                  : 'Check Out'
+                                            : (_attendanceTemplate?['requireSelfie'] ??
+                                                  true)
+                                            ? 'Selfie Check In'
+                                            : 'Check In',
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isCheckedIn
+                                            ? AppColors.error
+                                            : AppColors.primary,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                    ),
+                            )
+                          // Completed State Logic or Admin-Marked Attendance
+                          else if (isCompleted || isAdminMarked)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          status == 'Pending'
+                                              ? Icons.hourglass_bottom_rounded
+                                              : status == 'Approved' ||
+                                                    status == 'Present'
+                                              ? Icons.check_circle
+                                              : Icons.info_outline,
+                                          color: status == 'Pending'
+                                              ? Colors.orange
+                                              : status == 'Approved' ||
+                                                    status == 'Present'
+                                              ? AppColors.success
+                                              : Colors.blue,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          status == 'Pending'
+                                              ? 'Waiting for Approval'
+                                              : status,
+                                          style: TextStyle(
+                                            color: status == 'Pending'
+                                                ? Colors.orange
+                                                : status == 'Approved' ||
+                                                      status == 'Present'
+                                                ? AppColors.success
+                                                : Colors.blue,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    // Show remark if admin-marked and has remarks
+                                    if (isAdminMarked &&
+                                        _attendanceData?['remarks'] != null)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(top: 8.0),
+                                        child: Text(
+                                          _attendanceData!['remarks'],
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                          ],
-                        ),
+                            ),
+                        ],
                       ),
                     ),
-                ],
               ),
             ),
           ),
-        ),
-      ),
-    );
+        );
   }
 
   Widget _buildAttendanceRow(
@@ -3591,8 +3719,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   r['status'] == 'On Leave')) {
             return false;
           }
-          // Check for late check-in OR late check-out
-          return _isLateCheckIn(r['punchIn']) || _isLateCheckOut(r['punchOut']);
+          // Check for late check-in OR late check-out (pass record for half-day timings)
+          return _isLateCheckIn(r['punchIn'], record: r) ||
+              _isLateCheckOut(r['punchOut'], record: r);
         }).toList();
       } else if (_activeFilter == 'Low Hours') {
         // Filter for low work hours
@@ -3605,7 +3734,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   r['status'] == 'On Leave')) {
             return false;
           }
-          // Calculate workHours if not present
+          // Calculate workHours (in minutes) if not present
           num? workHours = r['workHours'];
           if (workHours == null &&
               r['punchIn'] != null &&
@@ -3614,7 +3743,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               final punchIn = DateTime.parse(r['punchIn']).toLocal();
               final punchOut = DateTime.parse(r['punchOut']).toLocal();
               final duration = punchOut.difference(punchIn);
-              workHours = duration.inMinutes / 60.0;
+              workHours = duration.inMinutes;
             } catch (_) {
               // If parsing fails, skip this record
               return false;
@@ -3631,11 +3760,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Fallback: filters work on the paginated _historyList (if month data not available)
       displayList = _historyList.where((r) {
         if (_activeFilter == 'Late Check-in' || _activeFilter == 'Late') {
-          // Check for late check-in OR late check-out
-          return _isLateCheckIn(r['punchIn']) || _isLateCheckOut(r['punchOut']);
+          // Check for late check-in OR late check-out (pass record for half-day timings)
+          return _isLateCheckIn(r['punchIn'], record: r) ||
+              _isLateCheckOut(r['punchOut'], record: r);
         } else if (_activeFilter == 'Late Check-out' ||
             _activeFilter == 'Late Out') {
-          return _isLateCheckOut(r['punchOut']);
+          return _isLateCheckOut(r['punchOut'], record: r);
         } else if (_activeFilter == 'Low Work Hours' ||
             _activeFilter == 'Low Hours') {
           return _isLowWorkHours(r['workHours']);
@@ -3700,9 +3830,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               final punchIn = record['punchIn'];
               final punchOut = record['punchOut'];
               final workHours = record['workHours'];
-              final isLateIn = _isLateCheckIn(punchIn);
-              final isLateOut = _isLateCheckOut(punchOut);
-              final isEarlyOut = _isEarlyCheckOut(punchOut);
+              final isLateIn = _isLateCheckIn(punchIn, record: record);
+              final isLateOut = _isLateCheckOut(punchOut, record: record);
+              final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
               final isLowHours = _isLowWorkHours(workHours);
 
               // Define status and tags before usage
@@ -3722,7 +3852,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   _attendanceTemplate?['allowOvertime'] ??
                   true;
 
-              if (isLateIn && !allowLate) tags.add('Late In');
+              // Align with Fine Details: don't show Late In when backend set lateMinutes to 0
+              final lateMins = record['lateMinutes'] as num?;
+              if (isLateIn && !allowLate && (lateMins == null || lateMins.toDouble() != 0)) {
+                tags.add('Late In');
+              }
               if (isLateOut && !(allowOvertime || allowEarly)) {
                 tags.add('Late Out');
               }
@@ -3745,7 +3879,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   );
               Color statusColor = Colors.green;
 
-              if (status == 'Pending') {
+              // Only show "Waiting for Approval" when user has punched in (not for leave-related Pending without punch)
+              if (status == 'Pending' && punchIn != null) {
                 displayStatus = 'Waiting for Approval';
                 statusColor = Colors.orange;
               } else if (status == 'Absent' || status == 'Rejected') {

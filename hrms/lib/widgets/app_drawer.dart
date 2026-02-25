@@ -13,6 +13,8 @@ import '../screens/geo/my_tasks_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
 import '../screens/lms/lms_shell_screen.dart';
+import '../screens/announcements/announcements_screen.dart';
+
 
 class AppDrawer extends StatefulWidget {
   /// Current tab index when used from Dashboard (0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance).
@@ -170,6 +172,16 @@ class _AppDrawerState extends State<AppDrawer> {
                     },
                   ),
                 // My Learning and Live Sessions hidden from drawer
+                _buildDrawerItem(
+                  icon: Icons.campaign_rounded,
+                  title: 'Announcements',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(const AnnouncementsScreen()),
+                    );
+                  },
+                ),
                 if (false) ...[
                   _buildDrawerItem(
                     icon: Icons.school_rounded,
@@ -192,6 +204,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     },
                   ),
                 ],
+             
                 _buildDrawerItem(
                   icon: Icons.settings_rounded,
                   title: 'Settings',

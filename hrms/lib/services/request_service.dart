@@ -67,6 +67,27 @@ class RequestService {
     return 'Request failed';
   }
 
+  // --- ANNOUNCEMENTS ---
+
+  /// All announcements for the logged-in employee (assigned to them or company-wide).
+  Future<Map<String, dynamic>> getAnnouncementsForEmployee() async {
+    try {
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/announcements/for-employee',
+      );
+      final body = response.data;
+      if (body != null && body['success'] == true) {
+        return {'success': true, 'data': body['data'] ?? []};
+      }
+      return {'success': false, 'message': body?['message'] ?? 'Error fetching announcements'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
   // --- LEAVE ---
 
   Future<Map<String, dynamic>> getLeaveTypes({

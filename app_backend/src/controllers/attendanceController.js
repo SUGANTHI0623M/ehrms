@@ -359,8 +359,12 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
             }
         }
         
-        // Always compute late/early minutes; only fine amount needs salary (use 0 when missing)
-        const effectiveDailySalary = (dailySalary && dailySalary > 0) ? dailySalary : 0;
+        // For half-day: fine is based on half-day salary (1 day salary / 2). Full-day: use full daily salary.
+        let effectiveDailySalary = (dailySalary && dailySalary > 0) ? dailySalary : 0;
+        if (isHalfDay && effectiveDailySalary > 0) {
+            effectiveDailySalary = effectiveDailySalary / 2;
+            console.log('[Fine] Half-day: using half-day salary for fine (dailySalary/2)=', effectiveDailySalary);
+        }
         if (effectiveDailySalary <= 0) {
             console.log('[Fine] dailySalary missing or 0; late/early minutes will still be computed, fineAmount will be 0');
         }
@@ -951,11 +955,11 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
         };
     }
 
-    // Calculate Work Hours: duration in minutes then convert to hours for storage
+    // Calculate Work Hours: store duration in minutes in attendances collection
     if (attendance.punchIn) {
         const durationMs = now - new Date(attendance.punchIn);
         const minutes = Math.round(durationMs / (1000 * 60));
-        attendance.workHours = Math.round((minutes / 60) * 100) / 100; // store in hours
+        attendance.workHours = minutes; // store in minutes
 
         // Record Overtime if allowed
         if (template.allowOvertime) {

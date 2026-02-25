@@ -6,6 +6,10 @@ import 'package:intl/intl.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/cloud_punch_card.dart';
+import '../../services/fcm_service.dart';
+import '../announcements/announcements_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/geo/live_tracking_service.dart';
 import '../geo/live_tracking_screen.dart';
@@ -53,6 +57,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   final SalaryService _salaryService = SalaryService();
 
   List<dynamic> _recentLeaves = [];
+  // ignore: unused_field - kept for when Active Loans card is shown again
   List<dynamic> _activeLoans = [];
   bool _isLoadingDashboard = false;
   bool _isRefreshingInBackground = false;
@@ -64,14 +69,21 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   // Salary calculation data (same logic as Salary Overview "This Month Net")
   double _calculatedMonthSalary = 0;
+  // ignore: unused_field - kept for when Present Days / salary breakdown is shown again
   int _workingDaysForSalary =
       0; // Full-month working days used for salary (same as Salary Overview)
 
-  // Active loans count (from loan request module)
+  // Active loans count (from loan request module); kept for when Active Loans card is shown again
+  // ignore: unused_field
   int _activeLoansCount = 0;
 
   bool _isCandidate = false;
   bool _liveTrackingActive = false;
+
+  List<dynamic> _todayAnnouncements = [];
+  List<dynamic> _todayCelebrations = [];
+  List<dynamic> _upcomingCelebrations = [];
+  int _fcmNotificationCount = 0;
 
   @override
   void initState() {
@@ -162,6 +174,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       _fetchActiveLoans();
 
       final result = await dashboardFuture;
+      final fcmList = await FcmService.getStoredNotifications();
       if (mounted) {
         if (result['success']) {
           final data = result['data'];
@@ -176,8 +189,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             _activeLoans = loansList;
             _activeLoansCount = loansList.length;
             _todayAttendance = stats?['attendanceToday'];
+            _todayAnnouncements = data['todayAnnouncements'] is List ? data['todayAnnouncements'] as List : [];
+            _todayCelebrations = data['todayCelebrations'] is List ? data['todayCelebrations'] as List : [];
+            _upcomingCelebrations = data['upcomingCelebrations'] is List ? data['upcomingCelebrations'] as List : [];
+            _fcmNotificationCount = fcmList.length;
           });
           _calculateSalaryFromModule();
+        } else {
+          setState(() => _fcmNotificationCount = fcmList.length);
         }
         setState(() {
           _isLoadingDashboard = false;
@@ -592,9 +611,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     // Stats extraction
     final pendingLeaves = _stats?['pendingLeaves']?.toString() ?? '0';
 
-    // Use active loans count from loan request module
-    final activeLoansCount = _activeLoansCount.toString();
-
     // Use calculated salary from salary module (same logic as Salary Overview); show backend value until client calc completes
     String monthSalary = '';
     final salaryValue = _calculatedMonthSalary > 0
@@ -605,15 +621,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       final formatter = NumberFormat('#,##0.00');
       monthSalary = formatter.format(salaryValue);
     }
-    final salaryStatus = _stats?['payrollStatus'] ?? 'Pending';
-
-    // Present days from dashboard stats (only 'Present' status); working days from salary calc (full month, same as Salary Overview)
-    // Use same working/present days as payslip and salary overview (from backend)
+    // Present days from dashboard stats (only 'Present' status); used for This Month Net subtitle
     final presentDays =
         _stats?['attendanceSummary']?['presentDays']?.toString() ?? '0';
-    final totalDaysForCard =
-        _stats?['attendanceSummary']?['totalDays']?.toString() ??
-        (_workingDaysForSalary > 0 ? _workingDaysForSalary.toString() : '0');
 
     final content = RefreshIndicator(
       onRefresh: _loadData,
@@ -627,46 +637,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             _buildWelcomeCard(),
             const SizedBox(height: 32),
 
-            // 2. Summary Cards
-            GridView.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.6,
-              children: [
-                _buildSummaryCard(
-                  title: 'Pending Leaves',
-                  value: pendingLeaves,
-                  isWide: isWide,
-                ),
-                _buildActiveLoansCard(
-                  activeLoansCount: activeLoansCount,
-                  activeLoans: _activeLoans,
-                  isWide: isWide,
-                ),
-                _buildSummaryCard(
-                  title: 'This Month Net',
-                  value: monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
-                  subValue: presentDays != '0'
-                      ? '$presentDays days present'
-                      : (salaryStatus == 'Pending' ? 'Pending' : ''),
-                  isWide: isWide,
-                ),
-                if (!_isCandidate)
-                  _buildSummaryCard(
-                    title: 'Present Days',
-                    value: presentDays,
-                    subValue: 'Out of $totalDaysForCard working days',
-                    isWide: isWide,
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 32),
-
-            // 3. Quick Actions
+            // 2. Quick Actions
             const Text(
               'Quick Actions',
               style: TextStyle(
@@ -701,6 +672,43 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
             const SizedBox(height: 32),
 
+            // 3. Summary Cards (Pending Leaves & This Month Net in same row, celebration-style UI)
+            Row(
+              children: [
+                Expanded(
+                  child: _buildCelebrationStyleSummaryCard(
+                    title: 'Pending Leaves',
+                    value: pendingLeaves,
+                    subValue: null,
+                    accentColor: const Color(0xFF6366F1),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildCelebrationStyleSummaryCard(
+                    title: 'This Month Net',
+                    value: monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
+                    subValue: presentDays != '0' ? '$presentDays days present' : null,
+                    accentColor: const Color(0xFF059669),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 32),
+
+            // Announcements (above Celebrations)
+            if (_todayAnnouncements.isNotEmpty) ...[
+              _buildTodayAnnouncementsCard(),
+              const SizedBox(height: 32),
+            ],
+
+            // Celebrations (below Quick Actions)
+            if (_todayCelebrations.isNotEmpty || _upcomingCelebrations.isNotEmpty) ...[
+              _buildCelebrationsCard(),
+              const SizedBox(height: 32),
+            ],
+
             // 4. Recent Leaves & Attendance
             isWide
                 ? Row(
@@ -728,7 +736,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     );
     if (widget.embeddedInDashboard) {
       return Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.white,
         appBar: AppBar(
           leading: const MenuIconButton(),
           title: const Text(
@@ -737,7 +745,24 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           ),
           centerTitle: true,
           elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: AppColors.primary,
           actions: [
+            IconButton(
+              icon: _buildNotificationIcon(_fcmNotificationCount),
+              tooltip: 'Notifications',
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationsScreen(),
+                  ),
+                );
+                if (mounted) {
+                  final list = await FcmService.getStoredNotifications();
+                  setState(() => _fcmNotificationCount = list.length);
+                }
+              },
+            ),
             if (_isRefreshingInBackground)
               const Padding(
                 padding: EdgeInsets.only(right: 8),
@@ -763,7 +788,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       );
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         leading: const MenuIconButton(),
         title: const Text(
@@ -772,7 +797,24 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ),
         centerTitle: true,
         elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: AppColors.primary,
         actions: [
+          IconButton(
+            icon: _buildNotificationIcon(_fcmNotificationCount),
+            tooltip: 'Notifications',
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const NotificationsScreen(),
+                ),
+              );
+              if (mounted) {
+                final list = await FcmService.getStoredNotifications();
+                setState(() => _fcmNotificationCount = list.length);
+              }
+            },
+          ),
           if (_isRefreshingInBackground)
             const Padding(
               padding: EdgeInsets.only(right: 8),
@@ -798,15 +840,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Widget _buildWelcomeCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.primary,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+            color: AppColors.primary.withOpacity(0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -818,6 +860,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Text(
               _companyName.isNotEmpty ? _companyName : '',
@@ -837,16 +886,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   'Welcome',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withOpacity(0.95),
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   _userName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -854,6 +904,332 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificationIcon(int count) {
+    const size = 26.0;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Image.asset(
+            'assets/images/notification_icon.png',
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+          ),
+          if (count > 0)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Container(
+                width: count > 9 ? 20 : 16,
+                height: count > 9 ? 20 : 16,
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x40000000),
+                      blurRadius: 2,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  count > 99 ? '99+' : count.toString(),
+                  style: TextStyle(
+                    fontSize: count > 9 ? 9 : 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static final List<Color> _announcementAccentColors = [
+    const Color(0xFF6366F1), // indigo
+    const Color(0xFF0EA5E9), // sky
+    const Color(0xFF8B5CF6), // violet
+    const Color(0xFFEC4899), // pink
+    const Color(0xFFF59E0B), // amber
+  ];
+
+  Widget _buildDashboardAnnouncementTile(dynamic a, int i) {
+    final map = a is Map<String, dynamic> ? a : <String, dynamic>{};
+    final accent = _announcementAccentColors[i % _announcementAccentColors.length];
+    final title = map['title']?.toString() ?? 'Announcement';
+    final dateValue = map['publishDate'] ?? map['effectiveDate'];
+    DateTime? date;
+    if (dateValue != null) {
+      if (dateValue is String) date = DateTime.tryParse(dateValue);
+      else if (dateValue is Map && dateValue['\$date'] != null) date = DateTime.tryParse(dateValue['\$date'].toString());
+    }
+    final dateStr = date != null ? DateFormat('d MMM y, h:mm a').format(date) : '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: accent, width: 4)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withOpacity(0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 15,
+              color: accent,
+            ),
+          ),
+          if (dateStr.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule_rounded, size: 14, color: accent.withOpacity(0.8)),
+                  const SizedBox(width: 4),
+                  Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: accent.withOpacity(0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTodayAnnouncementsCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Image.asset(
+                    'assets/images/announcement_img.png',
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(width: 14),
+                  const Text(
+                    "Today's Announcements",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF312E81),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ..._todayAnnouncements.take(5).toList().asMap().entries.map((entry) {
+                final i = entry.key;
+                final a = entry.value;
+                return _buildDashboardAnnouncementTile(a, i);
+              }),
+              if (_todayAnnouncements.length > 5)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AnnouncementsScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.list_rounded, size: 18, color: Color(0xFF6366F1)),
+                    label: const Text(
+                      'View all announcements',
+                      style: TextStyle(
+                        color: Color(0xFF6366F1),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCelebrationsCard() {
+    final todayList = _todayCelebrations;
+    final upcomingList = _upcomingCelebrations;
+
+    final allItems = <Widget>[
+      ...todayList.take(5).map((c) => _buildCelebrationTile(c, isToday: true)),
+      ...upcomingList.take(5).map((c) => _buildCelebrationTile(c, isToday: false)),
+    ];
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Image.asset(
+                    'assets/images/celebrations_icon.png',
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(width: 14),
+                  const Text(
+                    'Upcoming Celebrations',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF831843),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ...allItems,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCelebrationTile(dynamic c, {required bool isToday}) {
+    final name = c['name']?.toString() ?? '—';
+    final displayDate = c['displayDate']?.toString() ?? '';
+    final daysLeft = (c['daysLeft'] is int) ? c['daysLeft'] as int : 0;
+    final type = c['type']?.toString() ?? 'birthday';
+    final typeLabel = type == 'anniversary' ? 'Work Anniversary' : 'Birthday';
+    final subtitle = isToday
+        ? '$typeLabel · Today'
+        : '$typeLabel · ${daysLeft == 1 ? '1 day left' : '$daysLeft days left'}';
+    final accentColor = isToday ? const Color(0xFFEC4899) : const Color(0xFFF59E0B);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: accentColor, width: 4)),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withOpacity(0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: accentColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (displayDate.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Text(
+                displayDate,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: accentColor.withOpacity(0.9),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -906,6 +1282,98 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     return buttons;
   }
 
+  /// Celebration-style card: rounded corners, soft shadow. Optional [icon] or [imageAsset] for left graphic.
+  /// When [iconGradientColors] is set with [icon], the icon is drawn with a gradient (mixed colors).
+  Widget _buildCelebrationStyleSummaryCard({
+    required String title,
+    required String value,
+    String? subValue,
+    required Color accentColor,
+    IconData? icon,
+    List<Color>? iconGradientColors,
+    String? imageAsset,
+  }) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            color: accentColor,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: title == 'This Month Net' ? 16 : 18,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF1E293B),
+          ),
+        ),
+        if (subValue != null && subValue.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            subValue,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ],
+    );
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withOpacity(0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: (icon != null || imageAsset != null)
+          ? Row(
+              children: [
+                if (icon != null)
+                  iconGradientColors != null && iconGradientColors.length >= 2
+                      ? ShaderMask(
+                          blendMode: BlendMode.srcIn,
+                          shaderCallback: (bounds) => LinearGradient(
+                            colors: iconGradientColors,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ).createShader(bounds),
+                          child: Icon(icon, size: 44, color: Colors.white),
+                        )
+                      : Icon(icon, size: 44, color: accentColor)
+                else
+                  Image.asset(
+                    imageAsset!,
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.contain,
+                  ),
+                const SizedBox(width: 12),
+                Expanded(child: content),
+              ],
+            )
+          : content,
+    );
+  }
+
+  // ignore: unused_element - kept for when summary cards layout is reverted
   Widget _buildSummaryCard({
     required String title,
     required String value,
@@ -966,6 +1434,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     );
   }
 
+  // ignore: unused_element - kept for when Active Loans card is shown again
   Widget _buildActiveLoansCard({
     required String activeLoansCount,
     required List<dynamic> activeLoans,
@@ -1279,8 +1748,29 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             ],
           ),
           const SizedBox(height: 24),
+          // Today punch in/out and status above the cloud
           _buildTodayAttendanceSubCard(),
           const SizedBox(height: 20),
+          // Cloud: no card wrapper, more visible; no check-in/check-out button
+          if (_todayAttendance != null &&
+              _todayAttendance!['punchIn'] != null &&
+              _todayAttendance!['punchOut'] == null)
+            Builder(
+              builder: (context) {
+                DateTime punchInTime = DateTime.now();
+                try {
+                  punchInTime = DateTime.parse(
+                    _todayAttendance!['punchIn'].toString(),
+                  ).toLocal();
+                } catch (_) {}
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: CloudPunchCard(
+                    punchInTime: punchInTime,
+                  ),
+                );
+              },
+            ),
           _buildMonthStatsRow(
             workingDays: stats?['workingDays']?.toString() ?? '0',
             thisMonthWorkingDays: stats?['thisMonthWorkingDays']?.toString(),
@@ -1390,7 +1880,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   ),
                   child: Text(
                     _todayAttendance != null
-                        ? (_todayAttendance?['status'] == 'Pending'
+                        ? (_todayAttendance?['status'] == 'Pending' &&
+                                  _todayAttendance?['punchIn'] != null
                               ? 'Waiting for Approval'
                               : AttendanceDisplayUtil.formatAttendanceDisplayStatus(
                                   _todayAttendance?['status'] ?? 'Present',
@@ -1570,6 +2061,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     );
   }
 
+  /// Normalizes workHours to minutes (API stores in minutes; legacy may be hours 0–24).
+  int? _workHoursToMinutes(num? workHours) {
+    if (workHours == null) return null;
+    final d = workHours.toDouble();
+    if (d <= 0) return 0;
+    if (d < 24 && (d - d.truncate()).abs() > 0.001) {
+      return (d * 60).round();
+    }
+    return d.round();
+  }
+
   Widget _buildSimpleCalendar() {
     final now = DateTime.now();
     final firstDayOfMonth = DateTime(
@@ -1643,7 +2145,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           }
           num? workHours = entry['workHours'] as num?;
 
-          // Calculate workHours from punchIn and punchOut if not available
+          // Calculate workHours (in minutes) from punchIn and punchOut if not available
           if (workHours == null) {
             final punchIn = entry['punchIn'];
             final punchOut = entry['punchOut'];
@@ -1656,7 +2158,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   punchOut.toString(),
                 ).toLocal();
                 final duration = punchOutTime.difference(punchInTime);
-                workHours = duration.inMinutes / 60.0; // Convert to hours
+                if (duration.inMinutes > 0) {
+                  workHours = duration.inMinutes; // store in minutes
+                }
               } catch (_) {
                 // If parsing fails, leave workHours as null
               }
@@ -2016,7 +2520,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 }
               }
 
-              isLowHours = workHours != null && workHours < 9;
+              // workHours from API/local are in minutes; low when < 9 hours (540 mins)
+              final workHoursMins = _workHoursToMinutes(workHours);
+              isLowHours = workHoursMins != null && workHoursMins < 540;
               isFuture = DateTime(
                 dayDate.year,
                 dayDate.month,
