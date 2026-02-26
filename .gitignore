@@ -52,6 +52,10 @@ Thumbs.db
 **/uploads/**
 backend/uploads/
 app_backend/uploads/
+# Firebase / Google Cloud secrets (never commit)
+app_backend/firebase-service-account.json
+**/firebase-service-account*.json
+**/*-service-account.json
 
 # Python venv and DeepFace (create on server; weights downloaded at runtime)
 app_backend/face_verify/venv/
