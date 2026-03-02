@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../services/lms_service.dart';
 import '../../utils/snackbar_utils.dart' show SnackBarUtils;
+import '../../utils/error_message_utils.dart';
 import '../dashboard/dashboard_screen.dart';
 import 'lms_course_detail_screen.dart';
 
@@ -144,7 +145,7 @@ class _LmsAssessmentScreenState extends State<LmsAssessmentScreen> {
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            res['message'] ?? 'Submission failed',
+            ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Submission failed'),
             isError: true,
           );
         }

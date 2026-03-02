@@ -87,7 +87,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
                     },
                   ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

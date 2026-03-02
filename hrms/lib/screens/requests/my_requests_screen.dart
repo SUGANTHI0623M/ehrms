@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:hrms/utils/snackbar_utils.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +12,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
@@ -520,7 +522,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to fetch leaves',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch leaves'),
           isError: true,
         );
       }
@@ -1345,7 +1347,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to submit leave',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit leave'),
           isError: true,
         );
       }
@@ -1837,7 +1839,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to fetch loan requests',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch loan requests'),
           isError: true,
         );
       }
@@ -2401,7 +2403,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to submit loan request',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit loan request'),
           isError: true,
         );
       }
@@ -2693,7 +2695,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to fetch expense requests',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch expense requests'),
           isError: true,
         );
       }
@@ -3495,7 +3497,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to submit expense claim',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit expense claim'),
           isError: true,
         );
       }
@@ -3821,42 +3823,74 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to fetch payslip requests',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch payslip requests'),
           isError: true,
         );
       }
     }
   }
 
-  Future<void> _viewPayslip(String requestId) async {
+  Future<void> _viewPayslip(String? requestId, {String? payslipUrl}) async {
+    if (requestId == null || requestId.isEmpty) {
+      SnackBarUtils.showSnackBar(context, 'Invalid payslip request id', isError: true);
+      return;
+    }
+    bool loadingShown = false;
     try {
-      // Show loading
+      String? url = payslipUrl;
+      if (url == null || url.isEmpty) {
+        loadingShown = true;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(child: CircularProgressIndicator()),
+        );
+        final result = await _requestService.viewPayslipRequest(requestId);
+        if (mounted) {
+          Navigator.pop(context);
+          loadingShown = false;
+        }
+        url = result['payslipUrl']?.toString();
+        if (url == null || url.isEmpty) {
+          SnackBarUtils.showSnackBar(
+            context,
+            ErrorMessageUtils.sanitizeForDisplay(
+              result['message']?.toString(),
+              fallback: 'Payslip not available yet',
+            ),
+            isError: true,
+          );
+          return;
+        }
+      }
+
+      // View: fetch PDF from link and open in system viewer (don't open URL in browser to avoid download)
+      loadingShown = true;
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
-      final result = await _requestService.viewPayslipRequest(requestId);
-
+      final result = await _requestService.getPdfBytesFromUrl(url);
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-
-        if (result['success'] && result['data'] != null) {
-          // For viewing, we'll show a dialog with PDF viewer
-          // For now, we'll download and open it
-          _openPdf(result['data'], 'view');
-        } else {
-          SnackBarUtils.showSnackBar(
-            context,
-            result['message'] ?? 'Failed to view payslip',
-            isError: true,
-          );
-        }
+        Navigator.pop(context);
+        loadingShown = false;
+      }
+      if (result['success'] == true && result['data'] != null) {
+        _openPdf(result['data'] as List<int>, 'view');
+      } else {
+        SnackBarUtils.showSnackBar(
+          context,
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Unable to load payslip',
+          ),
+          isError: true,
+        );
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog if still open
+        if (loadingShown) Navigator.pop(context);
         SnackBarUtils.showSnackBar(
           context,
           'Error viewing payslip: ${e.toString()}',
@@ -3914,34 +3948,61 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   Future<void> _downloadPayslip(
     String requestId,
     String month,
-    int year,
-  ) async {
+    int year, {
+    String? payslipUrl,
+  }) async {
     try {
-      // Show loading
+      String? url = payslipUrl;
+      if (url == null || url.isEmpty) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(child: CircularProgressIndicator()),
+        );
+        final result = await _requestService.downloadPayslipRequest(requestId);
+        if (mounted) Navigator.pop(context);
+        url = result['payslipUrl']?.toString();
+        if (url == null || url.isEmpty) {
+          SnackBarUtils.showSnackBar(
+            context,
+            ErrorMessageUtils.sanitizeForDisplay(
+              result['message']?.toString(),
+              fallback: 'Payslip not available yet',
+            ),
+            isError: true,
+          );
+          return;
+        }
+      }
+
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
+      final result = await _requestService.getPdfBytesFromUrl(url);
+      if (mounted) Navigator.pop(context);
 
-      final result = await _requestService.downloadPayslipRequest(requestId);
-
-      if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-
-        if (result['success'] && result['data'] != null) {
-          _openPdf(result['data'], 'download', month: month, year: year);
-        } else {
-          SnackBarUtils.showSnackBar(
-            context,
-            result['message'] ?? 'Failed to download payslip',
-            isError: true,
-          );
-        }
+      if (result['success'] == true && result['data'] != null) {
+        _openPdf(
+          result['data'] as List<int>,
+          'download',
+          month: month,
+          year: year,
+        );
+      } else {
+        SnackBarUtils.showSnackBar(
+          context,
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to download payslip',
+          ),
+          isError: true,
+        );
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog if still open
+        Navigator.pop(context);
         SnackBarUtils.showSnackBar(
           context,
           'Error downloading payslip: ${e.toString()}',
@@ -4113,6 +4174,20 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     final isApproved =
         req['status'] == 'Approved' || req['status'] == 'Generated';
 
+    // Payslip URL from payroll (when approved and generated)
+    final payroll = req['payrollId'];
+    final String? payslipUrl = payroll is Map
+        ? (payroll['payslipUrl']?.toString().trim())
+        : null;
+    final bool hasPayslipUrl =
+        payslipUrl != null && payslipUrl.isNotEmpty;
+
+    // Status label: approved but not yet generated vs approved and viewable
+    String statusLabel = req['status'] ?? '';
+    if (isApproved && !hasPayslipUrl) {
+      statusLabel = 'Approved - wait for generation';
+    }
+
     final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => _showPayslipDetails(req),
@@ -4180,7 +4255,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            req['status'] ?? '',
+                            statusLabel,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -4221,13 +4296,13 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                         approvedBy,
                       ),
                     ],
-                    // View / Download actions – enabled only when payslip is generated/approved
-                    if (isApproved) ...[
+                    // View / Download actions – only when payslip is approved and URL is available
+                    if (isApproved && hasPayslipUrl) ...[
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          // View payslip
+                          // View payslip (opens URL)
                           IconButton(
                             tooltip: 'View Payslip',
                             icon: const Icon(
@@ -4236,16 +4311,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                             ),
                             color: AppColors.primary,
                             onPressed: () {
-                              final requestId = req['_id']?.toString();
-                              if (requestId != null && requestId.isNotEmpty) {
-                                _viewPayslip(requestId);
-                              } else {
-                                SnackBarUtils.showSnackBar(
-                                  context,
-                                  'Invalid payslip request id',
-                                  isError: true,
-                                );
-                              }
+                              _viewPayslip(
+                                req['_id']?.toString(),
+                                payslipUrl: payslipUrl,
+                              );
                             },
                           ),
                           const SizedBox(width: 4),
@@ -4264,11 +4333,8 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                                 );
                                 return;
                               }
-
-                              // Derive month/year for file naming – fall back gracefully
                               String monthName = 'Month';
                               int year = DateTime.now().year;
-
                               if (req['month'] != null && req['year'] != null) {
                                 monthName = _getMonthName(req['month']);
                                 final yr = req['year'];
@@ -4280,19 +4346,20 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                                   year = int.tryParse(yr) ?? year;
                                 }
                               } else {
-                                // Try to parse from period text if available
                                 final period = _getPeriodText(req);
                                 final parts = period.split(' ');
-                                if (parts.isNotEmpty) {
-                                  monthName = parts[0];
-                                }
+                                if (parts.isNotEmpty) monthName = parts[0];
                                 if (parts.length > 1) {
                                   final yr = int.tryParse(parts[1]);
                                   if (yr != null) year = yr;
                                 }
                               }
-
-                              _downloadPayslip(requestId, monthName, year);
+                              _downloadPayslip(
+                                requestId,
+                                monthName,
+                                year,
+                                payslipUrl: payslipUrl,
+                              );
                             },
                           ),
                         ],
@@ -4592,6 +4659,7 @@ class RequestPayslipDialog extends StatefulWidget {
 class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   final _formKey = GlobalKey<FormState>();
   final RequestService _requestService = RequestService();
+  final AuthService _authService = AuthService();
 
   bool _isBulkMode = false;
   String _month = 'January';
@@ -4602,6 +4670,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   bool _isSubmitting = false;
   List<dynamic> _existingRequests = [];
   final Set<String> _selectedMonths = {};
+  DateTime? _joiningDate;
 
   final List<String> _months = [
     'January',
@@ -4621,13 +4690,40 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   @override
   void initState() {
     super.initState();
-    _loadExistingRequests();
+    _loadJoiningDateAndExistingRequests();
   }
 
-  Future<void> _loadExistingRequests() async {
+  /// Parse joining date from API/prefs (ISO string or { "$date": "..." }).
+  static DateTime? _parseJoiningDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    String? str;
+    if (value is String) {
+      str = value;
+    } else if (value is Map && value.containsKey(r'$date')) {
+      str = value[r'$date']?.toString();
+    }
+    if (str == null || str.isEmpty) return null;
+    return DateTime.tryParse(str);
+  }
+
+  Future<void> _loadJoiningDateAndExistingRequests() async {
+    final profileResult = await _authService.getProfile();
+    DateTime? joining;
+    if (profileResult['success'] == true && profileResult['data'] is Map) {
+      final data = profileResult['data'] as Map<String, dynamic>;
+      final staffData = data['staffData'];
+      if (staffData is Map && staffData.containsKey('joiningDate')) {
+        joining = _parseJoiningDate(staffData['joiningDate']);
+      }
+      if (joining == null && data.containsKey('joiningDate')) {
+        joining = _parseJoiningDate(data['joiningDate']);
+      }
+    }
     final result = await _requestService.getPayslipRequests();
     if (mounted) {
       setState(() {
+        _joiningDate = joining;
         if (result['success'] && result['data'] != null) {
           if (result['data'] is Map) {
             _existingRequests = result['data']['requests'] ?? [];
@@ -4635,8 +4731,55 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
             _existingRequests = result['data'];
           }
         }
+        _clampMonthAndYearToAllowed();
       });
     }
+  }
+
+  int get _currentYear => DateTime.now().year;
+  int get _currentMonth => DateTime.now().month;
+  int get _joiningYear => _joiningDate?.year ?? _currentYear;
+  int get _joiningMonth => _joiningDate?.month ?? 1;
+
+  List<int> get _allowedYears {
+    final joinYear = _joiningYear;
+    final end = _currentYear;
+    if (joinYear > end) return [end];
+    return List.generate(end - joinYear + 1, (i) => joinYear + i);
+  }
+
+  int get _selectedYear {
+    final y = int.tryParse(_yearController.text) ?? _currentYear;
+    final allowed = _allowedYears;
+    if (allowed.isEmpty) return _currentYear;
+    if (y < allowed.first) return allowed.first;
+    if (y > allowed.last) return allowed.last;
+    return y;
+  }
+
+  List<String> get _allowedMonthsForSelectedYear {
+    final year = _selectedYear;
+    int first = 1;
+    int last = 12;
+    if (year == _joiningYear) first = _joiningMonth;
+    if (year == _currentYear) last = _currentMonth;
+    if (first > last) return [];
+    return _months.sublist(first - 1, last);
+  }
+
+  void _clampMonthAndYearToAllowed() {
+    final allowedYears = _allowedYears;
+    if (allowedYears.isEmpty) return;
+    int year = int.tryParse(_yearController.text) ?? _currentYear;
+    if (year < allowedYears.first || year > allowedYears.last) {
+      _yearController.text = allowedYears.last.toString();
+    }
+    final allowedMonths = _allowedMonthsForSelectedYear;
+    if (allowedMonths.isEmpty) return;
+    if (!allowedMonths.contains(_month)) {
+      _month = allowedMonths.last;
+    }
+    _selectedMonths.removeWhere((m) => !allowedMonths.contains(m));
   }
 
   bool _isDuplicateRequest(String month, int year) {
@@ -4653,10 +4796,9 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   }
 
   Future<void> _pickYear() async {
-    final now = DateTime.now();
-    // Years from 20 years ago up to and including current year (no future years)
-    final years = List.generate(20, (i) => now.year - 19 + i);
-    final currentYear = int.tryParse(_yearController.text) ?? now.year;
+    final years = _allowedYears;
+    if (years.isEmpty) return;
+    final currentYear = _selectedYear;
     if (!mounted) return;
     final picked = await showModalBottomSheet<int>(
       context: context,
@@ -4694,7 +4836,10 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
       },
     );
     if (picked != null && mounted) {
-      setState(() => _yearController.text = picked.toString());
+      setState(() {
+        _yearController.text = picked.toString();
+        _clampMonthAndYearToAllowed();
+      });
     }
   }
 
@@ -4755,7 +4900,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            result['message'] ?? 'Failed to submit payslip requests',
+            ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit payslip requests'),
             isError: true,
           );
         }
@@ -4789,7 +4934,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            result['message'] ?? 'Failed to submit payslip request',
+            ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit payslip request'),
             isError: true,
           );
         }
@@ -4902,7 +5047,11 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                             onSelected: (selected) {
                               setState(() {
                                 _isBulkMode = selected;
-                                if (_isBulkMode) _month = 'January';
+                                if (_isBulkMode) {
+                                  _month = _allowedMonthsForSelectedYear.isNotEmpty
+                                      ? _allowedMonthsForSelectedYear.first
+                                      : 'January';
+                                }
                               });
                             },
                           ),
@@ -4915,14 +5064,20 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
-                          initialValue: _month,
-                          items: _months
+                          value: _allowedMonthsForSelectedYear.contains(_month)
+                              ? _month
+                              : (_allowedMonthsForSelectedYear.isNotEmpty
+                                  ? _allowedMonthsForSelectedYear.first
+                                  : 'January'),
+                          items: _allowedMonthsForSelectedYear
                               .map(
                                 (e) =>
                                     DropdownMenuItem(value: e, child: Text(e)),
                               )
                               .toList(),
-                          onChanged: (val) => setState(() => _month = val!),
+                          onChanged: _allowedMonthsForSelectedYear.isEmpty
+                              ? null
+                              : (val) => setState(() => _month = val!),
                           decoration: _inputDecoration(
                             'Month',
                             Icons.calendar_month,
@@ -4944,7 +5099,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                         child: Wrap(
                           spacing: 8,
                           runSpacing: 8,
-                          children: _months.map((month) {
+                          children: _allowedMonthsForSelectedYear.map((month) {
                             final isSelected = _selectedMonths.contains(month);
                             return FilterChip(
                               label: Text(month),

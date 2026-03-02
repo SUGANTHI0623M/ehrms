@@ -22,6 +22,7 @@ import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'package:floating/floating.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
@@ -776,9 +777,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         await PresenceTrackingService().resumePresenceTracking();
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Failed to exit ride: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ErrorMessageUtils.toUserFriendlyMessage(e))),
+          );
         }
         return;
       }

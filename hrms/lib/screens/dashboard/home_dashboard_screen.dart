@@ -691,20 +691,23 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   _buildWelcomeCard(),
                   const SizedBox(height: 32),
 
-                  // 2. Summary Cards (white cards - Pending Leaves donut, This Month Net)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildPendingLeavesSummaryCard(pendingLeaves),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildThisMonthNetSummaryCard(
-                          monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
-                          presentDays,
+                  // 2. Summary Cards (white cards - Pending Leaves donut, This Month Net) — same height
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _buildPendingLeavesSummaryCard(pendingLeaves),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildThisMonthNetSummaryCard(
+                            monthSalary.isNotEmpty ? '₹$monthSalary' : '--',
+                            presentDays,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 28),
@@ -1422,6 +1425,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
             width: 48,
@@ -1441,10 +1445,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Pending Leaves',
+                  'Pending Leave Requests',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1484,6 +1490,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 48,
@@ -1497,10 +1504,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'This Month Net',
+                  'This Month Net Salary',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

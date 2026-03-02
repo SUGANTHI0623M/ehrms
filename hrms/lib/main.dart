@@ -34,22 +34,20 @@ void backgroundCallback() {
   });
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
-
-  // Catch unhandled async errors (e.g. from plugins) so release build doesn't show black screen on some devices
+void main() {
   runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
+
+    // Catch unhandled async errors (e.g. from plugins) so release build doesn't show black screen on some devices
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
       if (kReleaseMode) {
-        // In release, also log so crash reporters can capture
         debugPrint('[FlutterError] ${details.exception} ${details.stack}');
       }
     };
 
-    // Optional: show a simple error widget instead of grey screen on widget build errors (release)
     if (kReleaseMode) {
       ErrorWidget.builder = (details) => Material(
         child: Center(

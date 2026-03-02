@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'package:image_picker/image_picker.dart';
 
 class PhotoProofScreen extends StatefulWidget {
@@ -54,7 +55,7 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = 'Failed to open camera: $e');
+        setState(() => _error = ErrorMessageUtils.toUserFriendlyMessage(e));
       }
     }
   }
@@ -112,7 +113,7 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
       if (mounted) {
         setState(() {
           _uploading = false;
-          _error = 'Upload failed: $e';
+          _error = ErrorMessageUtils.toUserFriendlyMessage(e);
         });
       }
     }

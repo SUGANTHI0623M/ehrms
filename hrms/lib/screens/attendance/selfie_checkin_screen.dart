@@ -15,6 +15,7 @@ import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
 import '../../utils/request_guard.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 
 class SelfieCheckInScreen extends StatefulWidget {
   final Map<String, dynamic>? template;
@@ -269,7 +270,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
           ),
         );
       } else {
-        SnackBarUtils.showSnackBar(context, msg, isError: true);
+        SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
       }
     } else if (state is AttendanceCheckInSuccess) {
       if (!mounted) return;
@@ -277,7 +278,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       SnackBarUtils.showSnackBar(
         context,
         'Checked In Successfully!',
-        backgroundColor: AppColors.success,
+        backgroundColor: AppColors.primary,
       );
       Navigator.pop(context, true);
     } else if (state is AttendanceCheckOutSuccess) {
@@ -287,7 +288,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       SnackBarUtils.showSnackBar(
         context,
         'Checked Out Successfully!',
-        backgroundColor: AppColors.success,
+        backgroundColor: AppColors.primary,
       );
       Navigator.pop(context, true);
     } else if (state is AttendanceLoadInProgress && _isLoading) {
@@ -552,13 +553,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         final msg =
             verify['message']?.toString() ??
             'Face not matching. Please try again.';
-        SnackBarUtils.showSnackBar(context, msg, isError: true);
+        SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
         return;
       }
       SnackBarUtils.showSnackBar(
         context,
         'Photo matched',
-        backgroundColor: AppColors.success,
+        backgroundColor: AppColors.primary,
       );
     }
 

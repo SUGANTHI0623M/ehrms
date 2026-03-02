@@ -7,6 +7,7 @@ import '../../config/app_colors.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/performance_service.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 
 class SelfAssessmentFormScreen extends StatefulWidget {
   final String reviewId;
@@ -188,7 +189,7 @@ class _SelfAssessmentFormScreenState extends State<SelfAssessmentFormScreen> {
       if (mounted) {
         SnackBarUtils.showSnackBar(
           context,
-          e.toString().replaceAll('Exception: ', ''),
+          ErrorMessageUtils.toUserFriendlyMessage(e),
           isError: true,
         );
       }
@@ -228,7 +229,7 @@ class _SelfAssessmentFormScreenState extends State<SelfAssessmentFormScreen> {
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _error != null

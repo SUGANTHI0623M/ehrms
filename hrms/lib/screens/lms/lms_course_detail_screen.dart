@@ -9,6 +9,7 @@ import '../../config/app_colors.dart';
 import '../../config/constants.dart';
 import '../../services/lms_service.dart';
 import '../../utils/snackbar_utils.dart' show SnackBarUtils;
+import '../../utils/error_message_utils.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../dashboard/dashboard_screen.dart';
@@ -147,7 +148,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Failed',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed'),
           isError: true,
         );
       }
@@ -197,7 +198,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Failed to generate quiz',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed to generate quiz'),
           isError: true,
         );
       }
@@ -415,7 +416,7 @@ class _LmsCourseDetailScreenState extends State<LmsCourseDetailScreen> {
 
   Widget _buildLmsBottomNav(BuildContext context) {
     return AppBottomNavigationBar(
-      currentIndex: 0,
+      currentIndex: -1,
       onTap: (index) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(

@@ -14,6 +14,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 import '../../utils/face_detection_helper.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -105,7 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            result['message'] ?? 'Error loading profile',
+            ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Error loading profile'),
             isError: true,
           );
         }
@@ -244,7 +245,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       if (mounted) {
         SnackBarUtils.showSnackBar(
           context,
-          'Download failed: $e',
+          ErrorMessageUtils.toUserFriendlyMessage(e),
           isError: true,
         );
       }
@@ -306,7 +307,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
       bottomNavigationBar: widget.onNavigateToIndex != null
           ? null
-          : const AppBottomNavigationBar(currentIndex: 0),
+          : const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 
@@ -1488,7 +1489,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             if (context.mounted) {
               SnackBarUtils.showSnackBar(
                 context,
-                result['message'] ?? 'Failed to update profile',
+                ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to update profile'),
                 isError: true,
               );
             }
@@ -1620,7 +1621,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         SnackBarUtils.showSnackBar(
           context,
           'Image uploaded',
-          backgroundColor: AppColors.success,
+          backgroundColor: AppColors.primary,
         );
         _loadProfile();
       } else {
@@ -1710,13 +1711,13 @@ class _ProfileScreenState extends State<ProfileScreen>
         SnackBarUtils.showSnackBar(
           context,
           'Profile photo removed',
-          backgroundColor: AppColors.success,
+          backgroundColor: AppColors.primary,
         );
         _loadProfile();
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to remove photo',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to remove photo'),
           isError: true,
         );
       }
@@ -1749,13 +1750,13 @@ class _ProfileScreenState extends State<ProfileScreen>
             SnackBarUtils.showSnackBar(
               context,
               'Education updated successfully',
-              backgroundColor: AppColors.success,
+              backgroundColor: AppColors.primary,
             );
             _loadProfile();
           } else {
             SnackBarUtils.showSnackBar(
               context,
-              result['message'] ?? 'Failed to update education',
+              ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to update education'),
               isError: true,
             );
           }
@@ -1783,13 +1784,13 @@ class _ProfileScreenState extends State<ProfileScreen>
             SnackBarUtils.showSnackBar(
               context,
               'Experience updated successfully',
-              backgroundColor: AppColors.success,
+              backgroundColor: AppColors.primary,
             );
             _loadProfile();
           } else {
             SnackBarUtils.showSnackBar(
               context,
-              result['message'] ?? 'Failed to update experience',
+              ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to update experience'),
               isError: true,
             );
           }

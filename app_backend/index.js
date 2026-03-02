@@ -15,6 +15,8 @@ const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
 const assetsRoutes = require('./src/routes/assetsRoutes');
 const announcementRoutes = require('./src/routes/announcementRoutes');
+const taskRoutes = require('./src/routes/taskRoutes');
+const trackingRoutes = require('./src/routes/trackingRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -58,6 +60,8 @@ app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

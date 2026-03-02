@@ -89,9 +89,16 @@ const OTP_HTML = (otp, type = 'password-reset') => {
  * @param {'password-reset'|'two-factor-login'} type
  */
 const sendOTPEmail = async (toEmail, otp, type = 'password-reset') => {
-    if (!toEmail || !otp) {
+    const normalizedTo = (toEmail && typeof toEmail === 'string')
+        ? toEmail.trim().toLowerCase()
+        : '';
+    if (!normalizedTo || !otp) {
         console.error('[EmailService] ❌ Missing email or OTP');
         return { success: false, error: 'Email or OTP is missing' };
+    }
+    if (!normalizedTo.includes('@') || !normalizedTo.includes('.')) {
+        console.error('[EmailService] ❌ Invalid email format');
+        return { success: false, error: 'Invalid email address format' };
     }
 
     const fromEmail = process.env.SENDPULSE_FROM_EMAIL || process.env.EMAIL_FROM || process.env.EMAIL_USER;
@@ -111,10 +118,10 @@ const sendOTPEmail = async (toEmail, otp, type = 'password-reset') => {
     // Prefer SendPulse when configured (HTTPS, no firewall issues)
     if (useSendPulse) {
         try {
-            console.log(`[EmailService] Sending OTP via SendPulse to: ${toEmail} from: ${fromEmail}`);
-            const result = await sendpulseService.sendEmail(toEmail, subject, html, fromEmail, fromName);
+            console.log(`[EmailService] Sending OTP via SendPulse to: ${normalizedTo} from: ${fromEmail}`);
+            const result = await sendpulseService.sendEmail(normalizedTo, subject, html, fromEmail, fromName);
             if (result.success) {
-                console.log(`[EmailService] ✅ OTP email sent via SendPulse to ${toEmail}`);
+                console.log(`[EmailService] ✅ OTP email sent via SendPulse to ${normalizedTo}`);
                 return { success: true, messageId: result.messageId };
             }
             console.error(`[EmailService] ❌ SendPulse failed: ${result.error}`);
@@ -128,9 +135,9 @@ const sendOTPEmail = async (toEmail, otp, type = 'password-reset') => {
     // Fallback: SendGrid when API key is set
     if (sgMail) {
         try {
-            console.log(`[EmailService] Sending OTP via SendGrid to: ${toEmail}`);
-            await sgMail.send({ to: toEmail, from: { email: fromEmail, name: fromName }, subject, html });
-            console.log(`[EmailService] ✅ OTP email sent via SendGrid to ${toEmail}`);
+            console.log(`[EmailService] Sending OTP via SendGrid to: ${normalizedTo}`);
+            await sgMail.send({ to: normalizedTo, from: { email: fromEmail, name: fromName }, subject, html });
+            console.log(`[EmailService] ✅ OTP email sent via SendGrid to ${normalizedTo}`);
             return { success: true };
         } catch (error) {
             console.error('[EmailService] ❌ SendGrid failed:', error.message);
@@ -148,18 +155,18 @@ const sendOTPEmail = async (toEmail, otp, type = 'password-reset') => {
 
     const mailOptions = {
         from: `"${fromName}" <${fromEmail}>`,
-        to: toEmail,
+        to: normalizedTo,
         subject,
         html
     };
 
     try {
-        console.log(`[EmailService] Attempting to send OTP via SMTP to: ${toEmail}`);
+        console.log(`[EmailService] Attempting to send OTP via SMTP to: ${normalizedTo}`);
         console.log(`[EmailService] SMTP Host: ${transporter.options.host} Port: ${transporter.options.port} (timeout: ${smtpConnectionTimeout}ms)`);
 
         const info = await transporter.sendMail(mailOptions);
 
-        console.log(`[EmailService] ✅ OTP email sent via SMTP to ${toEmail}`);
+        console.log(`[EmailService] ✅ OTP email sent via SMTP to ${normalizedTo}`);
         console.log(`[EmailService] Message ID: ${info.messageId}`);
         return { success: true, messageId: info.messageId, response: info.response };
     } catch (error) {

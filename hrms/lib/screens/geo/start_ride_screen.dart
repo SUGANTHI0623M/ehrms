@@ -16,6 +16,7 @@ import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Optional initial destination from Select Source & Destination screen.
@@ -425,9 +426,9 @@ class _StartRideScreenState extends State<StartRideScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to start ride: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorMessageUtils.toUserFriendlyMessage(e))),
+        );
         setState(() => _startingRide = false);
       }
     }

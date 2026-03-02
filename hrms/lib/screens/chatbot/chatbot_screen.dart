@@ -40,7 +40,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       } else {
         _messages.add({
           'role': 'bot',
-          'text': 'Sorry, I encountered an error: ${result['message']}',
+          'text': 'Sorry, I encountered an error. Please try again.',
         });
       }
     });
@@ -190,7 +190,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 }

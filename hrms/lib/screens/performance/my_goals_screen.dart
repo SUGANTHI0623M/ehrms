@@ -8,6 +8,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/performance_service.dart';
+import '../../utils/error_message_utils.dart';
 
 class MyGoalsScreen extends StatefulWidget {
   final bool embeddedInModule;
@@ -291,7 +292,7 @@ class MyGoalsScreenState extends State<MyGoalsScreen> {
         ],
       ),
       body: body,
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 
@@ -730,8 +731,9 @@ class MyGoalsScreenState extends State<MyGoalsScreen> {
                           );
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Goal completed successfully'),
+                              SnackBar(
+                                content: const Text('Goal completed successfully'),
+                                backgroundColor: AppColors.primary,
                               ),
                             );
                             _fetchGoals();
@@ -841,7 +843,10 @@ class _CreateGoalSheetState extends State<_CreateGoalSheet> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Goal submitted for approval')),
+          SnackBar(
+            content: const Text('Goal submitted for approval'),
+            backgroundColor: AppColors.primary,
+          ),
         );
         widget.onCreated();
       }
@@ -849,9 +854,7 @@ class _CreateGoalSheetState extends State<_CreateGoalSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Failed: ${e.toString().replaceAll('Exception: ', '')}',
-            ),
+            content: Text(ErrorMessageUtils.toUserFriendlyMessage(e)),
           ),
         );
         setState(() => _isSubmitting = false);
@@ -1249,7 +1252,10 @@ class _UpdateProgressSheetState extends State<_UpdateProgressSheet> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Progress updated successfully')),
+          SnackBar(
+            content: const Text('Progress updated successfully'),
+            backgroundColor: AppColors.primary,
+          ),
         );
         widget.onUpdated();
       }
@@ -1257,9 +1263,7 @@ class _UpdateProgressSheetState extends State<_UpdateProgressSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Failed: ${e.toString().replaceAll('Exception: ', '')}',
-            ),
+            content: Text(ErrorMessageUtils.toUserFriendlyMessage(e)),
           ),
         );
         setState(() => _isSubmitting = false);

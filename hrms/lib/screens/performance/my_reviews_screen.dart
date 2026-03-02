@@ -147,7 +147,7 @@ class _MyReviewsScreenState extends State<MyReviewsScreen> {
         foregroundColor: AppColors.textPrimary,
       ),
       body: body,
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

@@ -17,9 +17,18 @@ import '../screens/performance/performance_module_screen.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   final data = Map<String, dynamic>.from(message.data);
-  String title = message.notification?.title ?? data['title']?.toString() ?? 'Notification';
-  String body = message.notification?.body ?? data['body']?.toString() ?? data['message']?.toString() ?? '';
-  debugPrint('[FCM] backgroundHandler: received title=$title body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}');
+  String title =
+      message.notification?.title ??
+      data['title']?.toString() ??
+      'Notification';
+  String body =
+      message.notification?.body ??
+      data['body']?.toString() ??
+      data['message']?.toString() ??
+      '';
+  debugPrint(
+    '[FCM] backgroundHandler: received title=$title body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}',
+  );
   await FcmService.storeNotification(title: title, body: body, data: data);
   debugPrint('[FCM] backgroundHandler: stored ok');
 }
@@ -54,22 +63,59 @@ class FcmService {
     debugPrint('$_logTag $message');
   }
 
+  /// Gets FCM token with retries. Often getToken fails on first try (network/Play Services cold start).
+  static Future<String?> _getTokenWithRetry({
+    int maxAttempts = 3,
+    Duration delayBetween = const Duration(seconds: 2),
+  }) async {
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final token = await _messaging.getToken();
+        if (token != null && token.isNotEmpty) return token;
+      } catch (e) {
+        _logAlways('getToken attempt $attempt/$maxAttempts failed: $e');
+        if (attempt < maxAttempts) {
+          _logAlways('getToken retrying in ${delayBetween.inSeconds}s...');
+          await Future<void>.delayed(delayBetween);
+        }
+      }
+    }
+    return null;
+  }
+
   /// Initialize FCM: permission, token, handlers. Call once after Firebase.initializeApp().
   static Future<void> init() async {
     _logAlways('init started');
-    await _requestPermission();
+    // Required for showing notifications in tray when app is in foreground
+    try {
+      await _initLocalNotifications();
+      _log('local notifications initialized');
+    } catch (e) {
+      _logAlways('_initLocalNotifications failed (continuing): $e');
+    }
+    try {
+      await _requestPermission();
+    } catch (e) {
+      _logAlways('_requestPermission failed (continuing): $e');
+    }
 
-    final token = await _messaging.getToken();
-    _logAlways('getToken: token=${token != null ? "ok(len=${token.length})" : "NULL"}');
+    final token = await _getTokenWithRetry();
+    _logAlways(
+      'getToken: token=${token != null ? "ok(len=${token.length})" : "NULL after retries"}',
+    );
     if (token != null) {
       _log('token obtained (length=${token.length}), sending to backend...');
       await sendTokenToBackend();
     } else {
-      _logAlways('token is NULL – check Firebase config / google-services.json');
+      _logAlways(
+        'token is NULL – check Firebase config / google-services.json or network',
+      );
     }
 
     _messaging.onTokenRefresh.listen((newToken) {
-      _logAlways('onTokenRefresh: token changed (len=${newToken.length}) – sending to backend');
+      _logAlways(
+        'onTokenRefresh: token changed (len=${newToken.length}) – sending to backend',
+      );
       sendTokenToBackend();
     });
 
@@ -83,18 +129,29 @@ class FcmService {
     if (initialMessage != null) {
       _log('getInitialMessage: app opened from terminated via notification');
       final data = Map<String, dynamic>.from(initialMessage.data);
-      final title = initialMessage.notification?.title ?? data['title']?.toString() ?? 'Notification';
-      final body = initialMessage.notification?.body ?? data['body']?.toString() ?? data['message']?.toString() ?? '';
+      final title =
+          initialMessage.notification?.title ??
+          data['title']?.toString() ??
+          'Notification';
+      final body =
+          initialMessage.notification?.body ??
+          data['body']?.toString() ??
+          data['message']?.toString() ??
+          '';
       await storeNotification(title: title, body: body, data: data);
       _handleNotificationData(initialMessage.data);
     } else {
       _log('getInitialMessage: none (normal launch)');
     }
-    _logAlways('init completed – foreground/background/terminated handlers attached');
+    _logAlways(
+      'init completed – foreground/background/terminated handlers attached',
+    );
   }
 
   static Future<void> _initLocalNotifications() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@drawable/ic_notification',
+    );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -117,7 +174,8 @@ class FcmService {
     if (Platform.isAndroid) {
       await _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.createNotificationChannel(
             AndroidNotificationChannel(
               _kLocalNotificationChannelId,
@@ -135,29 +193,36 @@ class FcmService {
       badge: true,
       sound: true,
     );
-    _logAlways('permission: ${settings.authorizationStatus} (0=notDetermined,1=denied,2=authorized,3=provisional)');
+    _logAlways(
+      'permission: ${settings.authorizationStatus} (0=notDetermined,1=denied,2=authorized,3=provisional)',
+    );
   }
 
   /// Sends the current FCM token to the backend so it can target this device for push.
   /// Backend should implement POST /notifications/fcm-token with body { "fcmToken": "..." }.
+  /// Uses retry for getToken to handle transient IOException/ExecutionException. Never throws.
   static Future<void> sendTokenToBackend() async {
-    final fcmToken = await _messaging.getToken();
-    if (fcmToken == null || fcmToken.isEmpty) {
-      _logAlways('sendTokenToBackend: no FCM token, skip');
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    String? authToken = prefs.getString('token');
-    if (authToken != null &&
-        (authToken.startsWith('"') || authToken.endsWith('"'))) {
-      authToken = authToken.replaceAll('"', '');
-    }
-    if (authToken == null || authToken.isEmpty) {
-      _logAlways('sendTokenToBackend: user not logged in (no auth token), skip – will retry after login');
-      return;
-    }
     try {
-      _logAlways('sendTokenToBackend: posting fcm-token (len=${fcmToken.length})');
+      final fcmToken = await _getTokenWithRetry();
+      if (fcmToken == null || fcmToken.isEmpty) {
+        _logAlways('sendTokenToBackend: no FCM token, skip');
+        return;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      String? authToken = prefs.getString('token');
+      if (authToken != null &&
+          (authToken.startsWith('"') || authToken.endsWith('"'))) {
+        authToken = authToken.replaceAll('"', '');
+      }
+      if (authToken == null || authToken.isEmpty) {
+        _logAlways(
+          'sendTokenToBackend: user not logged in (no auth token), skip – will retry after login',
+        );
+        return;
+      }
+      _logAlways(
+        'sendTokenToBackend: posting fcm-token (len=${fcmToken.length})',
+      );
       final api = ApiClient();
       api.setAuthToken(authToken);
       final response = await api.dio.post<dynamic>(
@@ -171,15 +236,22 @@ class FcmService {
         'sendTokenToBackend: success status=${response.statusCode} tokenPreview=$preview',
       );
     } catch (e, st) {
-      _logAlways('sendTokenToBackend: FAILED – $e');
+      _logAlways('sendTokenToBackend: FAILED (getToken or POST) – $e');
       if (kDebugMode) debugPrint('$_logTag sendTokenToBackend stack: $st');
     }
   }
 
   static Future<void> _onForegroundMessage(RemoteMessage message) async {
     final data = Map<String, dynamic>.from(message.data);
-    final title = message.notification?.title ?? data['title']?.toString() ?? 'Notification';
-    final body = message.notification?.body ?? data['body']?.toString() ?? data['message']?.toString() ?? '';
+    final title =
+        message.notification?.title ??
+        data['title']?.toString() ??
+        'Notification';
+    final body =
+        message.notification?.body ??
+        data['body']?.toString() ??
+        data['message']?.toString() ??
+        '';
 
     _logAlways(
       'foreground message: title=$title body=${body.length > 60 ? "${body.substring(0, 60)}..." : body}',
@@ -189,15 +261,18 @@ class FcmService {
     await storeNotification(title: title, body: body, data: data);
 
     // Show system notification (outside app – in notification tray) when app is in foreground
-    await _showForegroundSystemNotification(title: title, body: body, data: data);
+    await _showForegroundSystemNotification(
+      title: title,
+      body: body,
+      data: data,
+    );
 
     // Show in-app snackbar with primary color background
     final context = navigatorKey?.currentContext;
     if (context != null && context.mounted) {
       SystemSound.play(SystemSoundType.alert);
       final media = MediaQuery.of(context);
-      final topOffset =
-          media.padding.top + kToolbarHeight + 250;
+      final topOffset = media.padding.top + kToolbarHeight + 250;
       final snackBarHeight = 56.0;
       final bottomMargin = media.size.height - topOffset - snackBarHeight;
       final messenger = ScaffoldMessenger.of(context);
@@ -257,9 +332,11 @@ class FcmService {
       final androidDetails = AndroidNotificationDetails(
         _kLocalNotificationChannelId,
         'HRMS Notifications',
-        channelDescription: 'Notifications for leave, attendance, requests, etc.',
+        channelDescription:
+            'Notifications for leave, attendance, requests, etc.',
         importance: Importance.high,
         priority: Priority.high,
+        icon: '@drawable/ic_notification',
       );
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
@@ -279,7 +356,8 @@ class FcmService {
         payload: jsonEncode(data),
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('$_logTag _showForegroundSystemNotification: $e');
+      if (kDebugMode)
+        debugPrint('$_logTag _showForegroundSystemNotification: $e');
     }
   }
 
@@ -308,7 +386,8 @@ class FcmService {
         'receivedAt': now.toUtc().toIso8601String(),
       });
       await prefs.setString(_kFcmNotificationsKey, jsonEncode(pruned));
-      if (kDebugMode) debugPrint('$_logTag storeNotification: stored title=$title');
+      if (kDebugMode)
+        debugPrint('$_logTag storeNotification: stored title=$title');
     } catch (e) {
       debugPrint('$_logTag storeNotification ERROR: $e');
     }
@@ -350,8 +429,15 @@ class FcmService {
   static void _onNotificationOpened(RemoteMessage message) {
     _log('notification opened (background/terminated): data=${message.data}');
     final data = Map<String, dynamic>.from(message.data);
-    final title = message.notification?.title ?? data['title']?.toString() ?? 'Notification';
-    final body = message.notification?.body ?? data['body']?.toString() ?? data['message']?.toString() ?? '';
+    final title =
+        message.notification?.title ??
+        data['title']?.toString() ??
+        'Notification';
+    final body =
+        message.notification?.body ??
+        data['body']?.toString() ??
+        data['message']?.toString() ??
+        '';
     storeNotification(title: title, body: body, data: data);
     _handleNotificationData(message.data);
   }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../config/constants.dart';
+import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 import 'fcm_service.dart';
 
@@ -137,10 +138,16 @@ class AuthService {
 
   static String? _messageFromBody(dynamic body) {
     if (body is Map) {
+      String? msg;
       if (body['error'] != null && body['error']['message'] != null) {
-        return body['error']['message'] as String?;
+        msg = body['error']['message'] as String?;
+      } else {
+        msg = body['message'] as String?;
       }
-      return body['message'] as String?;
+      if (msg != null && !ErrorMessageUtils.isTechnicalMessage(msg)) {
+        return msg;
+      }
+      return null;
     }
     return null;
   }
@@ -208,32 +215,7 @@ class AuthService {
   }
 
   String _handleException(dynamic error) {
-    if (error is SocketException) {
-      // SocketException can occur even with internet if server is unreachable
-      String errorMsg = error.message.toLowerCase();
-      if (errorMsg.contains('failed host lookup') ||
-          errorMsg.contains('name resolution') ||
-          errorMsg.contains('nodename nor servname provided')) {
-        return 'Unable to reach server. Please check your internet connection or contact support if the problem persists.';
-      } else if (errorMsg.contains('connection refused') ||
-          errorMsg.contains('connection reset')) {
-        return 'Server is not responding. Please try again in a moment or contact support.';
-      } else {
-        return 'Connection error. Please check your internet connection and try again.';
-      }
-    } else if (error is TimeoutException) {
-      return 'Connection timed out. The server is taking too long to respond. Please try again.';
-    } else if (error is FormatException) {
-      // This usually happens when the backend returns HTML (like a 502 Bad Gateway) instead of JSON
-      return 'Server error: The backend server is not responding. Please try again later.';
-    }
-
-    // Convert generic error to string and clean it up
-    String msg = error.toString();
-    if (msg.startsWith('Exception: ')) {
-      msg = msg.substring(11);
-    }
-    return msg;
+    return ErrorMessageUtils.toUserFriendlyMessage(error);
   }
 
   Future<Map<String, dynamic>> getProfile() async {
@@ -443,9 +425,10 @@ class AuthService {
         data: {'email': email},
       );
       final body = response.data;
+      final success = body?['success'] == true;
       return {
-        'success': true,
-        'message': body?['message'] as String? ?? 'OTP sent successfully',
+        'success': success,
+        'message': body?['message'] as String? ?? (success ? 'OTP sent successfully' : 'Failed to send OTP'),
       };
     } on DioException catch (e) {
       return _handleDioError(e, 'Failed to send OTP', (code, body) {

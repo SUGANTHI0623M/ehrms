@@ -5,6 +5,7 @@ import '../../config/app_colors.dart';
 import '../../bloc/auth/auth_bloc.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -82,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         SnackBarUtils.showSnackBar(
           context,
-          'Google Sign-In failed: $error',
+          ErrorMessageUtils.toUserFriendlyMessage(error),
           isError: true,
         );
       }
@@ -113,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBarUtils.showSnackBar(
         context,
         'Login Successful!',
-        backgroundColor: AppColors.success,
+        backgroundColor: AppColors.primary,
         duration: const Duration(milliseconds: 400),
       );
       Navigator.pushReplacement(
@@ -125,7 +126,11 @@ class _LoginScreenState extends State<LoginScreen> {
         _lastAttemptWasGoogle = false;
         context.read<AuthBloc>().add(const AuthLogoutRequested());
       }
-      SnackBarUtils.showSnackBar(context, state.message, isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        ErrorMessageUtils.sanitizeForDisplay(state.message, fallback: 'Login failed'),
+        isError: true,
+      );
     } else if (state is AuthLoadInProgress) {
       _lastAttemptWasGoogle = false;
     }

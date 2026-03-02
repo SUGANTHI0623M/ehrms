@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../models/task.dart';
 import '../../repository/task_repository.dart';
+import '../../utils/error_message_utils.dart';
 
 part 'task_event.dart';
 part 'task_state.dart';
@@ -30,7 +31,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       final tasks = await _repo.getAssignedTasks(event.staffId);
       emit(TasksLoaded(tasks));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -40,7 +41,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       final tasks = await _repo.getAllTasks();
       emit(TasksLoaded(tasks));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -50,7 +51,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       final task = await _repo.getTaskById(event.id);
       emit(TaskDetailLoaded(task));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -71,7 +72,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       }
       emit(TasksLoaded(withCustomers));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -86,7 +87,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       );
       emit(TaskUpdateSuccess(task));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -101,7 +102,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       );
       emit(TaskUpdateSuccess(task));
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 
@@ -110,7 +111,7 @@ class TaskBloc extends Bloc<TaskEvent, TaskState> {
       await _repo.endTask(event.taskMongoId);
       emit(TaskEndSuccess());
     } catch (e) {
-      emit(TaskFailure(message: e.toString()));
+      emit(TaskFailure(message: ErrorMessageUtils.toUserFriendlyMessage(e)));
     }
   }
 }

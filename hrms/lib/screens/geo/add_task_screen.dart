@@ -13,6 +13,7 @@ import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/screens/geo/live_tracking_screen.dart';
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 
 class AddTaskScreen extends StatefulWidget {
   final String staffId;
@@ -581,9 +582,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         final msg = e.response?.data is Map
             ? (e.response!.data as Map)['message'] as String?
             : null;
+        final displayMsg = msg != null && !ErrorMessageUtils.isTechnicalMessage(msg)
+            ? msg
+            : ErrorMessageUtils.toUserFriendlyMessage(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(msg ?? 'Failed to create task: ${e.message}'),
+            content: Text(displayMsg),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -591,9 +595,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to create task: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorMessageUtils.toUserFriendlyMessage(e))),
+        );
       }
     }
   }

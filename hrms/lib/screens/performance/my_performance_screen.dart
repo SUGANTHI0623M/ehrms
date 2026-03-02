@@ -125,7 +125,7 @@ class _MyPerformanceScreenState extends State<MyPerformanceScreen> {
         foregroundColor: AppColors.textPrimary,
       ),
       body: body,
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

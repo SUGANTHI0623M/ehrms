@@ -7,6 +7,7 @@ const Payroll = require('../models/Payroll');
 const Company = require('../models/Company');
 const HolidayTemplate = require('../models/HolidayTemplate');
 const Announcement = require('../models/Announcement');
+const { audienceFilter, dateFilter, statusFilter } = require('./announcementController');
 const { calculateAttendanceStats } = require('./payrollController');
 
 /** Get month/day for comparison (birthday/anniversary). */
@@ -135,30 +136,11 @@ const getEmployeeDashboardStats = async (req, res) => {
         // 4b. Today's announcements (web: audienceType/targetStaffIds/publishDate/status published; legacy: assignedTo/effectiveDate/Active)
         let todayAnnouncements = [];
         if (staff && staff.businessId) {
-            const announcementDateFilter = {
-                $and: [
-                    { $or: [{ publishDate: { $exists: true, $lte: endOfToday } }, { effectiveDate: { $exists: true, $lte: endOfToday } }] },
-                    { $or: [{ expiryDate: null }, { expiryDate: { $exists: false } }, { expiryDate: { $gte: startOfToday } }] },
-                    { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: startOfToday } }] },
-                ],
-            };
-            const announcementAudienceFilter = {
-                $or: [
-                    { audienceType: { $exists: false } },
-                    { audienceType: null },
-                    { audienceType: 'all' },
-                    { audienceType: { $ne: 'specific' } },
-                    { audienceType: 'specific', targetStaffIds: staffId },
-                    { assignedTo: { $exists: false } },
-                    { assignedTo: null },
-                    { assignedTo: [] },
-                    { assignedTo: { $size: 0 } },
-                    { assignedTo: staffId },
-                ],
-            };
+            const announcementDateFilter = dateFilter(now, startOfToday, true);
+            const announcementAudienceFilter = audienceFilter(staffId);
             todayAnnouncements = await Announcement.find({
                 businessId: staff.businessId,
-                status: { $in: ['published', 'Active'] },
+                status: statusFilter,
                 $and: [announcementDateFilter, announcementAudienceFilter],
             })
                 .sort({ publishDate: -1, effectiveDate: -1, createdAt: -1 })

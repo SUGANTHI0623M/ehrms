@@ -5,7 +5,8 @@ const Announcement = require('../models/Announcement');
  * Build audience filter for announcements (web announcement collection).
  * - audienceType "all" (or missing) → show to all staff in business.
  * - audienceType "specific" and targetStaffIds contains this staff → show only to those staff.
- * Legacy: assignedTo empty/missing → all; else staff in assignedTo.
+ * - audienceType "specific" with targetStaffIds null/empty → show to NO ONE.
+ * Legacy: assignedTo empty/missing and not "specific" → all; assignedTo contains this staff (and not "specific") → those staff.
  */
 function audienceFilter(staffId) {
     const id = staffId && mongoose.Types.ObjectId.isValid(staffId)
@@ -18,22 +19,21 @@ function audienceFilter(staffId) {
             { audienceType: null },
             { audienceType: '' },
             { audienceType: 'all' },
-            { audienceType: { $ne: 'specific' } },
-            // Web: audienceType "specific" and this staff is in targetStaffIds array
-            ...(id ? [{ audienceType: 'specific', targetStaffIds: { $in: [id] } }] : []),
-            // Legacy: assignedTo empty or missing
-            { assignedTo: { $exists: false } },
-            { assignedTo: null },
-            { assignedTo: [] },
-            { assignedTo: { $size: 0 } },
-            // Legacy: this staff in assignedTo
-            ...(id ? [{ assignedTo: id }] : []),
+            // Web: audienceType "specific" and this staff is in targetStaffIds (array must contain id; null/empty = no one)
+            ...(id ? [{ audienceType: 'specific', targetStaffIds: id }] : []),
+            // Legacy: assignedTo empty or missing → show to all (only when NOT web "specific")
+            { $and: [{ assignedTo: { $exists: false } }, { audienceType: { $ne: 'specific' } }] },
+            { $and: [{ assignedTo: null }, { audienceType: { $ne: 'specific' } }] },
+            { $and: [{ assignedTo: [] }, { audienceType: { $ne: 'specific' } }] },
+            { $and: [{ assignedTo: { $size: 0 } }, { audienceType: { $ne: 'specific' } }] },
+            // Legacy: this staff in assignedTo (only when NOT web "specific", so "specific" docs only match via targetStaffIds)
+            ...(id ? [{ audienceType: { $ne: 'specific' }, assignedTo: id }] : []),
         ],
     };
 }
 
-/** Status: accept both web "published" and legacy "Active". */
-const statusFilter = { $in: ['published', 'Active'] };
+/** Status: only "published" announcements are shown. */
+const statusFilter = { $eq: 'published' };
 
 /**
  * Date filter: published/effective and not expired.
@@ -147,4 +147,4 @@ const getTodayAnnouncementsForEmployee = async (req, res) => {
     }
 };
 
-module.exports = { getAnnouncementsForEmployee, getTodayAnnouncementsForEmployee };
+module.exports = { getAnnouncementsForEmployee, getTodayAnnouncementsForEmployee, audienceFilter, dateFilter, statusFilter };

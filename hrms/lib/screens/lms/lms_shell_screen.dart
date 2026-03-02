@@ -45,7 +45,7 @@ class LmsShellScreen extends StatelessWidget {
           initialIndex: initialIndex,
         ),
         bottomNavigationBar: AppBottomNavigationBar(
-          currentIndex: 0,
+          currentIndex: -1,
           onTap: (index) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(

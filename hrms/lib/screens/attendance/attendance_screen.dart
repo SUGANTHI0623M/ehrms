@@ -9,6 +9,7 @@ import '../../services/auth_service.dart';
 import '../../utils/attendance_display_util.dart';
 import '../attendance/selfie_checkin_screen.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -3482,7 +3483,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           : isFirstHalfLeave
           ? 'Not allowed check-in. You are on leave on first half.'
           : (_leaveMessage ?? 'Check-in is not allowed at this time.');
-      SnackBarUtils.showSnackBar(context, msg, isError: true);
+      SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
       return;
     }
     if (isCheckedIn && _isOnLeave && !_checkOutAllowed) {
@@ -3491,7 +3492,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           : isFirstHalfLeave
           ? 'Not allowed check-out. You are on leave on first half.'
           : (_leaveMessage ?? 'Check-out is not allowed at this time.');
-      SnackBarUtils.showSnackBar(context, msg, isError: true);
+      SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
       return;
     }
 

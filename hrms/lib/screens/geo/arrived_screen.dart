@@ -16,6 +16,7 @@ import 'package:hrms/services/auth_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ArrivedScreen extends StatefulWidget {
@@ -802,11 +803,11 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
               msg = data;
             }
           } else {
-            msg = '$msg: ${e.toString()}';
+            msg = ErrorMessageUtils.toUserFriendlyMessage(e);
           }
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(msg)));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg)),
+          );
         }
         return;
       }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -58,7 +59,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _step = 1);
       SnackBarUtils.showSnackBar(
         context,
-        result['message'] ?? 'OTP sent to your email',
+        ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'OTP sent to your email'),
       );
     } else {
       SnackBarUtils.showSnackBar(
@@ -92,7 +93,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _step = 2);
       SnackBarUtils.showSnackBar(
         context,
-        result['message'] ?? 'OTP verified successfully',
+        ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'OTP verified successfully'),
       );
     } else {
       SnackBarUtils.showSnackBar(
@@ -131,13 +132,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (result['success'] == true) {
       SnackBarUtils.showSnackBar(
         context,
-        result['message'] ?? 'Password reset successfully',
+        ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Password reset successfully'),
       );
       Navigator.pop(context);
     } else {
       SnackBarUtils.showSnackBar(
         context,
-        result['message'] ?? 'Failed to reset password',
+        ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to reset password'),
         isError: true,
       );
     }

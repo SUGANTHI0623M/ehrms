@@ -9,6 +9,7 @@ import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/utils/snackbar_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
@@ -78,50 +79,30 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _sendingOtp = true;
       _error = null;
     });
-    try {
-      await TaskService().sendOtp(taskId);
+    final result = await TaskService().sendOtp(taskId);
+    if (!mounted) return;
+    setState(() => _sendingOtp = false);
+    final success = result['success'] == true;
+    final message = result['message'] as String? ?? (success ? 'OTP sent.' : 'Failed to send OTP.');
+    if (success) {
       developer.log('OTP verification: OTP sent successfully for taskId=$taskId', name: 'OtpVerificationScreen');
-      if (mounted) {
-        setState(() {
-          _sendingOtp = false;
-          _otpSent = true;
-        });
-        final displayEmail = widget.task.customer?.effectiveEmail;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              displayEmail != null && displayEmail.isNotEmpty
-                  ? 'OTP sent to ${displayEmail.replaceAll(RegExp(r'(?<=.).(?=.*@)'), '*')}'
-                  : 'OTP sent to customer email',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      developer.log('OTP verification: failed to send OTP for taskId=$taskId', name: 'OtpVerificationScreen', error: e);
-      if (mounted) {
-        final msg = e.toString();
-        String errMsg;
-        if (msg.contains('404')) {
-          errMsg =
-              'Task not found. Ensure backend is running and has latest code.';
-        } else if (msg.contains('email') || msg.contains('Email')) {
-          errMsg =
-              'Customer email is required. Please add email to customer profile.';
-        } else if (msg.contains('500') || msg.contains('Failed to send')) {
-          errMsg =
-              'Email service error. Configure SENDPULSE_* or SENDGRID_API_KEY in backend .env';
-        } else {
-          errMsg = 'Failed to send OTP';
-        }
-        setState(() {
-          _sendingOtp = false;
-          _error = errMsg;
-        });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(errMsg)));
-      }
+      setState(() {
+        _otpSent = true;
+        _error = null;
+      });
+      final displayEmail = widget.task.customer?.effectiveEmail;
+      final userMessage = displayEmail != null && displayEmail.isNotEmpty
+          ? 'OTP sent to ${displayEmail.replaceAll(RegExp(r'(?<=.).(?=.*@)'), '*')}'
+          : message;
+      SnackBarUtils.showSnackBar(
+        context,
+        userMessage,
+        backgroundColor: AppColors.success,
+      );
+    } else {
+      developer.log('OTP verification: failed to send OTP for taskId=$taskId', name: 'OtpVerificationScreen');
+      setState(() => _error = message);
+      SnackBarUtils.showSnackBar(context, message, isError: true);
     }
   }
 

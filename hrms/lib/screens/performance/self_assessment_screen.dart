@@ -115,7 +115,7 @@ class _SelfAssessmentScreenState extends State<SelfAssessmentScreen> {
         foregroundColor: AppColors.textPrimary,
       ),
       body: body,
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

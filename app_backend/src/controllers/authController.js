@@ -835,21 +835,27 @@ const forgotPassword = async (req, res) => {
 
         console.log(`[ForgotPassword] OTP saved to database for user: ${user._id}`);
 
-        // Send OTP via email (and potentially other channels later)
-        console.log(`[ForgotPassword] Sending OTP email to: ${user.email}`);
-        const emailResult = await sendOTPEmail(user.email, otp);
+        // Send OTP to normalized email (trim + lowercase) to avoid provider issues with casing/spaces for "some" recipients
+        const emailToSend = (staff.email || user.email || email).trim().toLowerCase();
+        if (!emailToSend || !emailToSend.includes('@')) {
+            console.error(`[ForgotPassword] ❌ Invalid email to send: ${emailToSend ? '(invalid format)' : '(empty)'}`);
+            return res.status(200).json({
+                success: false,
+                message: 'We couldn\'t deliver the OTP to your email. Please try again later or contact your administrator.'
+            });
+        }
+        console.log(`[ForgotPassword] Sending OTP email to: ${emailToSend}`);
+        const emailResult = await sendOTPEmail(emailToSend, otp);
 
         if (!emailResult.success) {
             console.error(`[ForgotPassword] ❌ Failed to send OTP email: ${emailResult.error}`);
-            // Still return success to user (security: don't reveal email delivery status)
-            // But log the error for debugging
             return res.status(200).json({
-                success: true,
-                message: 'OTP has been sent to your registered email address'
+                success: false,
+                message: 'We couldn\'t deliver the OTP to your email. Please try again later or contact your administrator to check email configuration.'
             });
         }
 
-        console.log(`[ForgotPassword] ✅ OTP email sent successfully to ${user.email}`);
+        console.log(`[ForgotPassword] ✅ OTP email sent successfully to ${emailToSend}`);
         console.log(`[ForgotPassword] Email Message ID: ${emailResult.messageId}`);
 
         return res.status(200).json({

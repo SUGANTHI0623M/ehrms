@@ -14,6 +14,7 @@ import '../dashboard/dashboard_screen.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../utils/snackbar_utils.dart' show SnackBarUtils;
+import '../../utils/error_message_utils.dart';
 
 class LmsLiveSessionsScreen extends StatefulWidget {
   /// When true, rendered inside LmsShellScreen (no Scaffold, app bar, drawer).
@@ -226,7 +227,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
       drawer: const AppDrawer(),
       body: body,
       bottomNavigationBar: AppBottomNavigationBar(
-        currentIndex: 0,
+        currentIndex: -1,
         onTap: (index) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
@@ -344,7 +345,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Failed',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed'),
           isError: true,
         );
       }
@@ -375,7 +376,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
             } else {
               SnackBarUtils.showSnackBar(
                 context,
-                res['message'] ?? 'Failed',
+                ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed'),
                 isError: true,
               );
             }
@@ -413,7 +414,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Delete failed',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Delete failed'),
           isError: true,
         );
       }
@@ -749,7 +750,7 @@ class _ScheduleSessionSheetState extends State<_ScheduleSessionSheet> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Failed',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed'),
           isError: true,
         );
       }

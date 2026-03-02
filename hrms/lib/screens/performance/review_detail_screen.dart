@@ -88,7 +88,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _error != null

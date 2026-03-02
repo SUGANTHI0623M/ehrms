@@ -17,6 +17,7 @@ import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
 import 'package:hrms/screens/geo/task_detail_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/utils/error_message_utils.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -479,9 +480,9 @@ class _MyTasksScreenState extends State<MyTasksScreen>
     } catch (e, stack) {
       if (mounted) {
         setState(() => _exporting = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorMessageUtils.toUserFriendlyMessage(e))),
+        );
       }
     }
   }
@@ -1406,7 +1407,7 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                 ],
               ),
         bottomNavigationBar: AppBottomNavigationBar(
-          currentIndex: 0,
+          currentIndex: -1,
           onTap: (index) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(

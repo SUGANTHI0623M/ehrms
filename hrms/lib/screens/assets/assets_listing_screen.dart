@@ -6,6 +6,7 @@ import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/asset_service.dart';
 import '../../models/asset_model.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../utils/error_message_utils.dart';
 import 'asset_details_screen.dart';
 
 class AssetsListingScreen extends StatefulWidget {
@@ -187,7 +188,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          result['message'] ?? 'Failed to fetch assets',
+          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch assets'),
           isError: true,
         );
       }
@@ -515,7 +516,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

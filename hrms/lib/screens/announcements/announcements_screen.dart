@@ -6,6 +6,7 @@ import '../../widgets/menu_icon_button.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/request_service.dart';
 import 'announcement_detail_screen.dart';
+import '../../utils/error_message_utils.dart';
 
 class AnnouncementsScreen extends StatefulWidget {
   const AnnouncementsScreen({super.key});
@@ -42,7 +43,10 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
         });
       } else {
         setState(() {
-          _error = result['message']?.toString() ?? 'Failed to load announcements';
+          _error = ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to load announcements',
+          );
           _isLoading = false;
         });
       }
@@ -86,7 +90,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                     ? _buildEmptyState(context)
                     : _buildContent(context),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: -1),
     );
   }
 

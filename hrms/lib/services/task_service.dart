@@ -292,10 +292,38 @@ class TaskService {
     return Task.fromJson(data);
   }
 
-  /// Send OTP to customer email via SendPulse.
-  Future<void> sendOtp(String taskMongoId) async {
+  /// Send OTP to customer email. Returns { success: true/false, message: string } for user-friendly success/failure feedback.
+  Future<Map<String, dynamic>> sendOtp(String taskMongoId) async {
     await _setToken();
-    await _api.dio.post<dynamic>('/tasks/$taskMongoId/send-otp');
+    try {
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/tasks/$taskMongoId/send-otp',
+      );
+      final data = response.data;
+      final success = data?['success'] == true;
+      return {
+        'success': success,
+        'message': data?['message'] as String? ??
+            (success ? 'OTP sent to customer email' : 'Failed to send OTP'),
+      };
+    } on DioException catch (e) {
+      final body = e.response?.data;
+      final msg = body is Map ? (body['message'] as String?) : null;
+      return {
+        'success': false,
+        'message': msg ??
+            (e.response?.statusCode == 404
+                ? 'Task not found.'
+                : e.response?.statusCode == 400
+                    ? 'Customer email is required. Please add email to customer.'
+                    : 'We couldn\'t deliver the OTP to the customer email. Please try again or check email configuration.'),
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Failed to send OTP. Please try again.',
+      };
+    }
   }
 
   /// Verify OTP. Returns updated task.

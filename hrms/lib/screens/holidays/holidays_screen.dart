@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
 import '../../models/holiday_model.dart';
 import '../../services/holiday_service.dart';
+import '../../utils/error_message_utils.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
@@ -69,15 +70,18 @@ class _HolidaysScreenState extends State<HolidaysScreen>
     );
 
     if (mounted) {
-      setState(() {
-        _isLoading = false;
-        if (result['success']) {
-          _holidays = result['data'];
-          _holidays.sort((a, b) => a.date.compareTo(b.date));
-        } else {
-          _errorMessage = result['message'];
-        }
-      });
+        setState(() {
+          _isLoading = false;
+          if (result['success']) {
+            _holidays = result['data'];
+            _holidays.sort((a, b) => a.date.compareTo(b.date));
+          } else {
+            _errorMessage = ErrorMessageUtils.sanitizeForDisplay(
+              result['message']?.toString(),
+              fallback: 'Failed to load holidays',
+            );
+          }
+        });
     }
   }
 

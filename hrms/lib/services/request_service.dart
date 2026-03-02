@@ -371,15 +371,26 @@ class RequestService {
   Future<Map<String, dynamic>> viewPayslipRequest(String requestId) async {
     try {
       await _setToken();
-      final response = await _api.dio.get<List<int>>(
+      final response = await _api.dio.get<Map<String, dynamic>>(
         '/requests/payslip/$requestId/view',
-        options: Options(responseType: ResponseType.bytes),
       );
-      final bytes = response.data;
-      if (bytes != null) return {'success': true, 'data': bytes};
-      return {'success': false, 'message': 'Failed to view payslip'};
+      final body = response.data;
+      if (body != null && body['success'] == true && body['payslipUrl'] != null) {
+        return {'success': true, 'payslipUrl': body['payslipUrl']};
+      }
+      return {
+        'success': false,
+        'message': body != null && body['error'] is Map
+            ? (body['error']['message'] ?? 'Payslip not available yet')
+            : 'Failed to view payslip',
+      };
     } on DioException catch (e) {
-      return {'success': false, 'message': _dioMessage(e)};
+      final msg = e.response?.data is Map
+          ? (e.response?.data as Map)['error'] is Map
+              ? ((e.response?.data as Map)['error'] as Map)['message']?.toString()
+              : null
+          : null;
+      return {'success': false, 'message': msg ?? _dioMessage(e)};
     } catch (e) {
       return {'success': false, 'message': _handleException(e)};
     }
@@ -388,13 +399,41 @@ class RequestService {
   Future<Map<String, dynamic>> downloadPayslipRequest(String requestId) async {
     try {
       await _setToken();
-      final response = await _api.dio.get<List<int>>(
+      final response = await _api.dio.get<Map<String, dynamic>>(
         '/requests/payslip/$requestId/download',
+      );
+      final body = response.data;
+      if (body != null && body['success'] == true && body['payslipUrl'] != null) {
+        return {'success': true, 'payslipUrl': body['payslipUrl']};
+      }
+      return {
+        'success': false,
+        'message': body != null && body['error'] is Map
+            ? (body['error']['message'] ?? 'Payslip not available yet')
+            : 'Failed to download payslip',
+      };
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data as Map)['error'] is Map
+              ? ((e.response?.data as Map)['error'] as Map)['message']?.toString()
+              : null
+          : null;
+      return {'success': false, 'message': msg ?? _dioMessage(e)};
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
+  /// Fetches PDF bytes from a full URL (e.g. Cloudinary payslipUrl). No auth.
+  Future<Map<String, dynamic>> getPdfBytesFromUrl(String url) async {
+    try {
+      final response = await _api.dio.get<List<int>>(
+        url,
         options: Options(responseType: ResponseType.bytes),
       );
       final bytes = response.data;
       if (bytes != null) return {'success': true, 'data': bytes};
-      return {'success': false, 'message': 'Failed to download payslip'};
+      return {'success': false, 'message': 'No data received'};
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {

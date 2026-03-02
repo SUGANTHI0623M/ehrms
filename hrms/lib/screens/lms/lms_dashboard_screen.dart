@@ -7,6 +7,7 @@ import '../../config/app_colors.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../../config/constants.dart';
+import '../../utils/error_message_utils.dart';
 import '../../services/lms_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
@@ -225,7 +226,7 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
       drawer: const AppDrawer(),
       body: body,
       bottomNavigationBar: AppBottomNavigationBar(
-        currentIndex: 0,
+        currentIndex: -1,
         onTap: (index) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: index)),
@@ -527,11 +528,21 @@ class _LmsDashboardScreenState extends State<LmsDashboardScreen>
       await _loadCourses();
       if (mounted) _tabController.animateTo(0);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enrolled successfully')),
+        SnackBar(
+          content: const Text('Enrolled successfully'),
+          backgroundColor: AppColors.primary,
+        ),
       );
     } else {
+      final msg = res['message']?.toString() ?? 'Enroll failed';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['message']?.toString() ?? 'Enroll failed')),
+        SnackBar(
+          content: Text(
+            ErrorMessageUtils.isTechnicalMessage(msg)
+                ? 'Something went wrong. Please try again.'
+                : msg,
+          ),
+        ),
       );
     }
   }

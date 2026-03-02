@@ -856,10 +856,36 @@ const getPayslipRequests = async (req, res) => {
         const requests = await PayslipRequest.find(query)
             .populate('approvedBy', 'name email')
             .populate('rejectedBy', 'name email')
-            .populate('payrollId', 'month year netPay grossSalary')
+            .populate('payrollId', 'month year netPay grossSalary payslipUrl')
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(limitNum);
+            .limit(limitNum)
+            .lean();
+
+        // If request is Approved/Generated but has no payrollId or payroll has no payslipUrl,
+        // look up Payroll by employeeId+month+year and attach so app can show View/Download
+        for (const req of requests) {
+            if ((req.status === 'Approved' || req.status === 'Generated') &&
+                (!req.payrollId || !(req.payrollId.payslipUrl || req.payrollId.payslip_url))) {
+                const payroll = await Payroll.findOne({
+                    employeeId: req.employeeId,
+                    month: req.month,
+                    year: req.year
+                })
+                    .select('month year netPay grossSalary payslipUrl')
+                    .lean();
+                if (payroll && (payroll.payslipUrl || payroll.payslip_url)) {
+                    req.payrollId = {
+                        _id: payroll._id,
+                        month: payroll.month,
+                        year: payroll.year,
+                        netPay: payroll.netPay,
+                        grossSalary: payroll.grossSalary,
+                        payslipUrl: payroll.payslipUrl || payroll.payslip_url
+                    };
+                }
+            }
+        }
 
         const total = await PayslipRequest.countDocuments(query);
 
@@ -884,6 +910,7 @@ const getPayslipRequests = async (req, res) => {
 // @desc    View Payslip for Approved Request
 // @route   GET /api/requests/payslip/:id/view
 // @access  Private
+// Uses payroll.payslipUrl when available (no salary calculation or PDF generation).
 const viewPayslipRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -895,10 +922,9 @@ const viewPayslipRequest = async (req, res) => {
             });
         }
 
-        // Find the payslip request
         const request = await PayslipRequest.findById(id)
             .populate('employeeId', 'name employeeId')
-            .populate('payrollId');
+            .populate('payrollId', 'month year payslipUrl');
 
         if (!request) {
             return res.status(404).json({
@@ -907,7 +933,6 @@ const viewPayslipRequest = async (req, res) => {
             });
         }
 
-        // Check if request is approved
         if (request.status !== 'Approved' && request.status !== 'Generated') {
             return res.status(400).json({
                 success: false,
@@ -915,57 +940,25 @@ const viewPayslipRequest = async (req, res) => {
             });
         }
 
-        // Find payroll record for the requested month/year
-        // Month is now stored as number (1-12)
-        const monthNumber = typeof request.month === 'number' ? request.month : parseInt(request.month, 10);
-
-        if (isNaN(monthNumber) || monthNumber < 1 || monthNumber > 12) {
-            return res.status(400).json({
-                success: false,
-                error: { message: 'Invalid month in request' }
-            });
+        const payroll = request.payrollId;
+        let payslipUrl = payroll && (payroll.payslipUrl || payroll.payslip_url);
+        if (!payslipUrl && request.month != null && request.year != null) {
+            const employeeId = request.employeeId?._id || request.employeeId;
+            const lookup = await Payroll.findOne({
+                employeeId,
+                month: request.month,
+                year: request.year
+            }).select('payslipUrl').lean();
+            payslipUrl = lookup && (lookup.payslipUrl || lookup.payslip_url);
+        }
+        if (payslipUrl && typeof payslipUrl === 'string' && payslipUrl.trim()) {
+            return res.json({ success: true, payslipUrl: payslipUrl.trim() });
         }
 
-        // ALWAYS recalculate payroll from scratch - don't use existing payroll records
-        // This ensures we use the correct calculation method based on current attendance data
-        const employeeId = request.employeeId?._id || request.employeeId;
-        console.log(`[viewPayslipRequest] ========== STARTING PAYROLL REGENERATION ==========`);
-        console.log(`[viewPayslipRequest] Employee ID: ${employeeId}`);
-        console.log(`[viewPayslipRequest] Month: ${monthNumber}, Year: ${request.year}`);
-        console.log(`[viewPayslipRequest] Business ID: ${request.businessId}`);
-        
-        let payroll;
-        try {
-            payroll = await _generatePayrollForPayslip(employeeId, monthNumber, request.year, request.businessId);
-            console.log(`[viewPayslipRequest] Payroll generated successfully: ${payroll._id}`);
-            
-            // Update payslip request with the generated payroll ID
-            await PayslipRequest.findByIdAndUpdate(id, { payrollId: payroll._id });
-            console.log(`[viewPayslipRequest] Payslip request updated with payroll ID: ${payroll._id}`);
-        } catch (generateError) {
-            console.error('[viewPayslipRequest] Error generating payroll:', generateError);
-            console.error('[viewPayslipRequest] Error stack:', generateError.stack);
-            return res.status(500).json({
-                success: false,
-                error: { 
-                    message: `Failed to generate payroll: ${generateError.message || 'Unable to calculate payroll for the requested period. Please ensure salary structure and attendance data are available.'}` 
-                }
-            });
-        }
-
-        // Generate PDF buffer using the freshly generated payroll
-        console.log(`[viewPayslipRequest] Generating PDF for payroll ID: ${payroll._id}`);
-        const pdfBuffer = await payslipGeneratorService.generatePayslipPDF(payroll._id.toString());
-        console.log(`[viewPayslipRequest] PDF generated successfully, size: ${pdfBuffer.length} bytes`);
-
-        // Set response headers for PDF viewing (inline)
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline; filename="payslip.pdf"');
-        res.setHeader('Content-Length', pdfBuffer.length.toString());
-        res.setHeader('Cache-Control', 'private, max-age=3600');
-
-        // Send PDF buffer
-        res.send(pdfBuffer);
+        return res.status(400).json({
+            success: false,
+            error: { message: 'Approved – wait for generation. Payslip will be available once generated.' }
+        });
     } catch (error) {
         console.error('View Payslip Request Error:', error);
         res.status(500).json({
@@ -978,6 +971,7 @@ const viewPayslipRequest = async (req, res) => {
 // @desc    Download Payslip for Approved Request
 // @route   GET /api/requests/payslip/:id/download
 // @access  Private
+// Uses payroll.payslipUrl when available (no salary calculation or PDF generation).
 const downloadPayslipRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -989,10 +983,9 @@ const downloadPayslipRequest = async (req, res) => {
             });
         }
 
-        // Find the payslip request
         const request = await PayslipRequest.findById(id)
             .populate('employeeId', 'name employeeId')
-            .populate('payrollId');
+            .populate('payrollId', 'month year payslipUrl');
 
         if (!request) {
             return res.status(404).json({
@@ -1001,7 +994,6 @@ const downloadPayslipRequest = async (req, res) => {
             });
         }
 
-        // Check if request is approved
         if (request.status !== 'Approved' && request.status !== 'Generated') {
             return res.status(400).json({
                 success: false,
@@ -1009,61 +1001,25 @@ const downloadPayslipRequest = async (req, res) => {
             });
         }
 
-        // Find payroll record for the requested month/year
-        // Month is now stored as number (1-12)
-        const monthNumber = typeof request.month === 'number' ? request.month : parseInt(request.month, 10);
-
-        if (isNaN(monthNumber) || monthNumber < 1 || monthNumber > 12) {
-            return res.status(400).json({
-                success: false,
-                error: { message: 'Invalid month in request' }
-            });
+        const payroll = request.payrollId;
+        let payslipUrl = payroll && (payroll.payslipUrl || payroll.payslip_url);
+        if (!payslipUrl && request.month != null && request.year != null) {
+            const employeeId = request.employeeId?._id || request.employeeId;
+            const lookup = await Payroll.findOne({
+                employeeId,
+                month: request.month,
+                year: request.year
+            }).select('payslipUrl').lean();
+            payslipUrl = lookup && (lookup.payslipUrl || lookup.payslip_url);
+        }
+        if (payslipUrl && typeof payslipUrl === 'string' && payslipUrl.trim()) {
+            return res.json({ success: true, payslipUrl: payslipUrl.trim() });
         }
 
-        // ALWAYS recalculate payroll from scratch - don't use existing payroll records
-        // This ensures we use the correct calculation method based on current attendance data
-        const employeeId = request.employeeId?._id || request.employeeId;
-        console.log(`[downloadPayslipRequest] ========== STARTING PAYROLL REGENERATION ==========`);
-        console.log(`[downloadPayslipRequest] Employee ID: ${employeeId}`);
-        console.log(`[downloadPayslipRequest] Month: ${monthNumber}, Year: ${request.year}`);
-        console.log(`[downloadPayslipRequest] Business ID: ${request.businessId}`);
-        
-        let payroll;
-        try {
-            payroll = await _generatePayrollForPayslip(employeeId, monthNumber, request.year, request.businessId);
-            console.log(`[downloadPayslipRequest] Payroll generated successfully: ${payroll._id}`);
-            
-            // Update payslip request with the generated payroll ID
-            await PayslipRequest.findByIdAndUpdate(id, { payrollId: payroll._id });
-            console.log(`[downloadPayslipRequest] Payslip request updated with payroll ID: ${payroll._id}`);
-        } catch (generateError) {
-            console.error('[downloadPayslipRequest] Error generating payroll:', generateError);
-            console.error('[downloadPayslipRequest] Error stack:', generateError.stack);
-            return res.status(500).json({
-                success: false,
-                error: { 
-                    message: `Failed to generate payroll: ${generateError.message || 'Unable to calculate payroll for the requested period. Please ensure salary structure and attendance data are available.'}` 
-                }
-            });
-        }
-
-        // Generate PDF buffer using the freshly generated payroll
-        console.log(`[downloadPayslipRequest] Generating PDF for payroll ID: ${payroll._id}`);
-        const pdfBuffer = await payslipGeneratorService.generatePayslipPDF(payroll._id.toString());
-        console.log(`[downloadPayslipRequest] PDF generated successfully, size: ${pdfBuffer.length} bytes`);
-
-        // Set response headers for PDF download
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        const monthName = monthNames[monthNumber - 1] || `Month${monthNumber}`;
-        const staff = request.employeeId;
-        const filename = `Payslip_${staff?.employeeId || 'Employee'}_${monthName}_${request.year}.pdf`;
-        
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Length', pdfBuffer.length.toString());
-
-        // Send PDF buffer
-        res.send(pdfBuffer);
+        return res.status(400).json({
+            success: false,
+            error: { message: 'Approved – wait for generation. Payslip will be available once generated.' }
+        });
     } catch (error) {
         console.error('Download Payslip Request Error:', error);
         res.status(500).json({

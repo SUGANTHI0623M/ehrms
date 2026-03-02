@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../services/lms_service.dart';
 import '../../utils/snackbar_utils.dart' show SnackBarUtils;
+import '../../utils/error_message_utils.dart';
 import 'lms_course_detail_screen.dart';
 import 'lms_dashboard_screen.dart';
 
@@ -77,7 +78,7 @@ class _LmsAiQuizAttemptScreenState extends State<LmsAiQuizAttemptScreen> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          res['message'] ?? 'Failed to submit',
+          ErrorMessageUtils.sanitizeForDisplay(res['message']?.toString(), fallback: 'Failed to submit'),
           isError: true,
         );
       }
