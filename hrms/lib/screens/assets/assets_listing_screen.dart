@@ -220,8 +220,9 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surfaceContainerHighest,
       drawer: const AppDrawer(),
       appBar: AppBar(
         leading: const MenuIconButton(),
@@ -238,7 +239,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
           IconButton(
             icon: Icon(
               _showFilterCard ? Icons.filter_alt : Icons.filter_alt_outlined,
-              color: _showFilterCard ? AppColors.primary : AppColors.textPrimary,
+              color: _showFilterCard ? colorScheme.primary : colorScheme.onSurface,
             ),
             onPressed: () {
               setState(() {
@@ -255,7 +256,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
           // Status filter tabs
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            color: Colors.white,
+            color: colorScheme.surface,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -280,7 +281,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                          color: isSelected ? AppColors.primary : Colors.black,
+                          color: isSelected ? colorScheme.primary : colorScheme.onSurface,
                         ),
                       ),
                     ),
@@ -296,12 +297,12 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
               margin: const EdgeInsets.symmetric(horizontal: 18),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: colorScheme.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
+                border: Border.all(color: colorScheme.outline),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: colorScheme.shadow.withOpacity(0.08),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -318,16 +319,16 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
+                            color: colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
+                            border: Border.all(color: colorScheme.outline),
                           ),
                           child: TextField(
                             controller: _searchController,
                             decoration: InputDecoration(
                               hintText: 'Search by name, type, category...',
-                              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-                              prefixIcon: Icon(Icons.search, color: Colors.grey.shade400, size: 20),
+                              hintStyle: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 13),
+                              prefixIcon: Icon(Icons.search, color: colorScheme.onSurfaceVariant, size: 20),
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                               isDense: true,
@@ -382,7 +383,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
                                       style: const TextStyle(fontSize: 13),
                                     ),
                                   );
-                                }).where((item) => item.value != null).toList(),
+                                }).where((item) => item.value != null),
                               ],
                               onChanged: (value) {
                                 setState(() {
@@ -519,17 +520,18 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
   }
 
   Widget _buildAssetCard(Asset asset) {
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => _viewAssetDetails(asset),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outline),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: colorScheme.shadow.withOpacity(0.08),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -616,16 +618,17 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
   }
 
   Widget _buildCardDetailRow(IconData icon, String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        Icon(icon, size: 14, color: colorScheme.onSurfaceVariant),
         const SizedBox(width: 6),
         Expanded(
           child: RichText(
             text: TextSpan(
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF424242),
+                color: colorScheme.onSurfaceVariant,
               ),
               children: [
                 TextSpan(
@@ -645,12 +648,13 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
   }
 
   Widget _buildPaginationControls() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: colorScheme.outline),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -661,7 +665,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
             onPressed: _page > 1
                 ? () => _fetchAssets(page: _page - 1)
                 : null,
-            color: _page > 1 ? AppColors.primary : Colors.grey,
+            color: _page > 1 ? colorScheme.primary : colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 8),
           // Page numbers
@@ -682,21 +686,21 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isCurrentPage
-                          ? AppColors.primary
+                          ? colorScheme.primary
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: isCurrentPage
-                            ? AppColors.primary
-                            : Colors.grey.shade300,
+                            ? colorScheme.primary
+                            : colorScheme.outline,
                       ),
                     ),
                     child: Text(
                       '<$pageNum>',
                       style: TextStyle(
                         color: isCurrentPage
-                            ? Colors.white
-                            : AppColors.textPrimary,
+                            ? colorScheme.onPrimary
+                            : colorScheme.onSurface,
                         fontWeight: isCurrentPage
                             ? FontWeight.bold
                             : FontWeight.normal,
@@ -715,7 +719,7 @@ class _AssetsListingScreenState extends State<AssetsListingScreen> {
             onPressed: _page < _totalPages
                 ? () => _fetchAssets(page: _page + 1)
                 : null,
-            color: _page < _totalPages ? AppColors.primary : Colors.grey,
+            color: _page < _totalPages ? colorScheme.primary : colorScheme.onSurfaceVariant,
           ),
         ],
       ),

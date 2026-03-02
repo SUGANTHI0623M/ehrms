@@ -3,6 +3,7 @@ const Staff = require('../models/Staff');
 const Company = require('../models/Company');
 const Branch = require('../models/Branch');
 const Candidate = require('../models/Candidate');
+const TaskSettings = require('../models/TaskSettings');
 const jwt = require('jsonwebtoken');
 const fs = require('fs').promises;
 const path = require('path');
@@ -105,7 +106,7 @@ const findOrCreateUserByEmail = async (rawEmail) => {
 
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, otp } = req.body;
 
         // Validate required fields
         if (!email || !password) {
@@ -194,10 +195,78 @@ const login = async (req, res) => {
             return res.status(401).json({ success: false, error: { message: 'User record not found' } });
         }
 
+        // Only Active (or On Leave) staff can login; block Deactivated
+        if (staff && (staff.status || '').toString().toLowerCase() === 'deactivated') {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Your account has been deactivated. Please contact HR.' }
+            });
+        }
+
         // Prevent candidates from logging in
         if (user.role && user.role.toLowerCase() === 'candidate') {
             return res.status(401).json({ success: false, error: { message: 'login credentials not matching' } });
         }
+
+        // ── Two-Factor Authentication ──────────────────────────────────────────
+        if (staff && staff.twoFactorEnabled === true) {
+            if (!otp) {
+                // No OTP yet — generate one, save it, send email, ask the client to prompt for OTP
+                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+                // Load user with select to allow setting extra fields
+                const userForOtp = await User.findById(user._id);
+                userForOtp.loginOTP = generatedOtp;
+                userForOtp.loginOTPExpiry = otpExpiry;
+                await userForOtp.save();
+
+                console.log(`[2FA] OTP generated for ${emailNorm}: ${generatedOtp}`);
+
+                // Send 2FA OTP email
+                try {
+                    await sendOTPEmail(user.email, generatedOtp, 'two-factor-login');
+                } catch (emailErr) {
+                    console.error('[2FA] Failed to send OTP email:', emailErr.message);
+                    // Continue — return requiresOTP even if email fails (logged above)
+                }
+
+                return res.json({
+                    success: true,
+                    requiresOTP: true,
+                    message: 'OTP has been sent to your registered email. Please enter the OTP to complete login.'
+                });
+            }
+
+            // OTP was provided — verify it
+            const userForVerify = await User.findById(user._id);
+            if (!userForVerify.loginOTP || !userForVerify.loginOTPExpiry) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'No OTP found. Please try logging in again.' }
+                });
+            }
+            if (userForVerify.loginOTP !== otp.toString()) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'Invalid OTP. Please check the code sent to your email.' }
+                });
+            }
+            if (new Date() > userForVerify.loginOTPExpiry) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: 'OTP has expired. Please try logging in again.' }
+                });
+            }
+
+            // OTP is valid — clear it so it cannot be reused
+            userForVerify.loginOTP = undefined;
+            userForVerify.loginOTPExpiry = undefined;
+            await userForVerify.save();
+
+            console.log(`[2FA] OTP verified successfully for ${emailNorm}`);
+        }
+        // ──────────────────────────────────────────────────────────────────────
 
         // Generate Token
         // Use consistent secret with middleware
@@ -207,6 +276,24 @@ const login = async (req, res) => {
         // Prepare Response
         let company = staff?.businessId || user.companyId;
         const formattedPermissions = user.roleId?.permissions || [];
+        const businessId = staff?.businessId?._id || staff?.businessId || company?._id || company;
+
+        // businessId comes from staffs collection (staff.businessId)
+        // Fetch task settings for staff's businessId (enableOtpVerification, autoApprove, etc.)
+        let taskSettings = null;
+        try {
+            if (businessId) {
+                const bid = businessId._id ?? businessId;
+                taskSettings = await TaskSettings.findOne({
+                    $or: [{ companyId: bid }, { businessId: bid }],
+                }).lean();
+            }
+            if (!taskSettings && !businessId) {
+                taskSettings = await TaskSettings.findOne().lean();
+            }
+        } catch (e) {
+            console.warn('[Auth] TaskSettings fetch failed:', e?.message);
+        }
 
         const userResponse = {
             id: user._id,
@@ -216,9 +303,13 @@ const login = async (req, res) => {
             phone: user.phone,
             companyId: company?._id || company,
             companyName: company && company.name ? company.name : undefined,
+            businessId: businessId || company?._id || company,
             permissions: formattedPermissions,
             staffId: staff?._id,
-            avatar: staff?.avatar || user.avatar
+            avatar: staff?.avatar || user.avatar,
+            locationAccess: staff?.locationAccess === true,
+            taskSettings: taskSettings?.settings || null,
+            branchName: staff?.branchId?.branchName ?? undefined,
         };
 
         // Create a refresh token (if needed by frontend, though Flutter usually uses access token for now)
@@ -266,7 +357,7 @@ const googleLogin = async (req, res) => {
             // Old logic allowed it.
         } else {
             // Check Staff by email
-            staff = await Staff.findOne({ email });
+            staff = await Staff.findOne({ email }).populate('branchId');
             if (staff && staff.userId) {
                 user = await User.findById(staff.userId).populate('roleId');
             }
@@ -274,6 +365,14 @@ const googleLogin = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User not registered. Please sign up first.' } });
+        }
+
+        // Only Active (or On Leave) staff can login; block Deactivated
+        if (staff && (staff.status || '').toString().toLowerCase() === 'deactivated') {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Your account has been deactivated. Please contact HR.' }
+            });
         }
 
         // Prevent candidates from logging in
@@ -285,6 +384,22 @@ const googleLogin = async (req, res) => {
 
         let company = staff?.businessId || user.companyId;
         const formattedPermissions = user.roleId?.permissions || [];
+        const businessId = staff?.businessId?._id || staff?.businessId || company?._id || company;
+
+        let taskSettings = null;
+        try {
+            if (businessId) {
+                const bid = businessId._id ?? businessId;
+                taskSettings = await TaskSettings.findOne({
+                    $or: [{ companyId: bid }, { businessId: bid }],
+                }).lean();
+            }
+            if (!taskSettings && !businessId) {
+                taskSettings = await TaskSettings.findOne().lean();
+            }
+        } catch (e) {
+            console.warn('[Auth] TaskSettings fetch failed (google):', e?.message);
+        }
 
         const userResponse = {
             id: user._id,
@@ -294,9 +409,13 @@ const googleLogin = async (req, res) => {
             phone: user.phone,
             companyId: company?._id || company,
             companyName: company && company.name ? company.name : undefined,
+            businessId: businessId || company?._id || company,
             permissions: formattedPermissions,
             staffId: staff?._id,
-            avatar: staff?.avatar || user.avatar
+            avatar: staff?.avatar || user.avatar,
+            locationAccess: staff?.locationAccess === true,
+            taskSettings: taskSettings?.settings || null,
+            branchName: staff?.branchId?.branchName ?? undefined,
         };
 
         res.json({
@@ -375,6 +494,7 @@ const getProfile = async (req, res) => {
             }
         }
 
+        const branchName = fullStaff?.branchId?.branchName ?? null;
         res.status(200).json({
             success: true,
             data: {
@@ -382,8 +502,10 @@ const getProfile = async (req, res) => {
                     name: fullUser.name,
                     email: fullUser.email,
                     phone: fullStaff?.phone || fullUser.phone,
-                    avatar: fullUser.avatar || fullStaff?.avatar
+                    avatar: fullUser.avatar || fullStaff?.avatar,
+                    role: fullUser.role
                 },
+                branchName: branchName,
                 staffData: fullStaff ? {
                     ...fullStaff.toObject(),
                     candidateId: candidateData || fullStaff.candidateId,
@@ -415,7 +537,11 @@ const updateProfile = async (req, res) => {
 
         if (name) user.name = name;
         if (phone) user.phone = phone;
-        if (avatar) user.avatar = avatar; // Assuming User model has avatar, otherwise update Staff
+        // Support avatar delete: when avatar/photoUrl key is present, update (including clearing to empty)
+        if ('avatar' in req.body || 'photoUrl' in req.body) {
+            const avatarVal = req.body.avatar ?? req.body.photoUrl ?? null;
+            user.avatar = (avatarVal && String(avatarVal).trim()) ? avatarVal : null;
+        }
 
         await user.save();
 
@@ -429,7 +555,10 @@ const updateProfile = async (req, res) => {
             const updateData = {};
             if (name) updateData.name = name;
             if (phone) updateData.phone = phone;
-            if (avatar) updateData.avatar = avatar;
+            if ('avatar' in req.body || 'photoUrl' in req.body) {
+                const avatarVal = req.body.avatar ?? req.body.photoUrl ?? null;
+                updateData.avatar = (avatarVal && String(avatarVal).trim()) ? avatarVal : null;
+            }
             if (gender) updateData.gender = gender;
             if (maritalStatus) updateData.maritalStatus = maritalStatus;
             if (dob) updateData.dob = dob;
@@ -1131,6 +1260,25 @@ function toUserFriendlyVerifyMessage(raw) {
     return 'Face not matching. Please try again.';
 }
 
+/**
+ * GET /auth/check-active (protected)
+ * Returns { active: boolean } for current staff. Used by app to poll every 5s; if active is false (deactivated), app logs out silently.
+ */
+const checkActive = async (req, res) => {
+    try {
+        const staffId = req.staff?._id;
+        if (!staffId) {
+            return res.status(401).json({ success: false, active: false });
+        }
+        const staff = await Staff.findById(staffId).select('status').lean();
+        const active = staff && (staff.status || '').toString().toLowerCase() !== 'deactivated';
+        return res.json({ success: true, active: !!active });
+    } catch (err) {
+        console.error('[authController] checkActive:', err.message);
+        return res.status(500).json({ success: false, active: false });
+    }
+};
+
 module.exports = {
     login,
     googleLogin,
@@ -1144,5 +1292,6 @@ module.exports = {
     resetPassword,
     changePassword,
     updateProfilePhoto,
-    verifyFace
+    verifyFace,
+    checkActive
 };

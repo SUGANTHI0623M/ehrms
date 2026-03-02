@@ -9,8 +9,9 @@ class AttendanceDisplayUtil {
     // "Sick Leave", "sick leave", "sick" -> SL
     if (normalized == 'sick' ||
         normalized == 'sick leave' ||
-        normalized.contains('sick'))
+        normalized.contains('sick')) {
       return 'SL';
+    }
     if (normalized == 'earned' || normalized.contains('earned')) return 'EL';
     // Fallback: first two letters uppercase (e.g. "Other" -> "OT")
     final trimmed = leaveType.trim();

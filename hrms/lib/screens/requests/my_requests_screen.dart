@@ -7,6 +7,8 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -14,7 +16,15 @@ import '../../widgets/menu_icon_button.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   final int initialTabIndex;
-  const MyRequestsScreen({super.key, this.initialTabIndex = 0});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const MyRequestsScreen({
+    super.key,
+    this.initialTabIndex = 0,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
@@ -23,6 +33,10 @@ class MyRequestsScreen extends StatefulWidget {
 class _MyRequestsScreenState extends State<MyRequestsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final GlobalKey<_LeaveRequestsTabState> _leaveTabKey = GlobalKey();
+  final GlobalKey<_LoanRequestsTabState> _loanTabKey = GlobalKey();
+  final GlobalKey<_ExpenseRequestsTabState> _expenseTabKey = GlobalKey();
+  final GlobalKey<_PayslipRequestsTabState> _payslipTabKey = GlobalKey();
 
   @override
   void initState() {
@@ -47,11 +61,12 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surfaceContainerHighest,
       appBar: AppBar(
         leading: const MenuIconButton(),
-        title: const Text(
+        title: Text(
           'My Requests',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
@@ -62,16 +77,16 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
             onPressed: () {
               switch (_tabController.index) {
                 case 0:
-                  leaveTabKey.currentState?.toggleFilters();
+                  _leaveTabKey.currentState?.toggleFilters();
                   break;
                 case 1:
-                  loanTabKey.currentState?.toggleFilters();
+                  _loanTabKey.currentState?.toggleFilters();
                   break;
                 case 2:
-                  expenseTabKey.currentState?.toggleFilters();
+                  _expenseTabKey.currentState?.toggleFilters();
                   break;
                 case 3:
-                  payslipTabKey.currentState?.toggleFilters();
+                  _payslipTabKey.currentState?.toggleFilters();
                   break;
               }
             },
@@ -79,13 +94,13 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: Colors.black,
-          indicatorColor: AppColors.primary,
+          labelColor: colorScheme.onPrimaryContainer,
+          unselectedLabelColor: colorScheme.onSurfaceVariant,
+          indicatorColor: colorScheme.primary,
           indicatorSize: TabBarIndicatorSize.tab,
           labelPadding: const EdgeInsets.symmetric(horizontal: 8),
           indicator: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.1),
+            color: colorScheme.primaryContainer,
             borderRadius: BorderRadius.circular(6),
           ),
           tabs: const [
@@ -99,14 +114,17 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           },
         ),
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 1,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          LeaveRequestsTab(key: leaveTabKey),
-          LoanRequestsTab(key: loanTabKey),
-          ExpenseRequestsTab(key: expenseTabKey),
-          PayslipRequestsTab(key: payslipTabKey),
+          LeaveRequestsTab(key: _leaveTabKey),
+          LoanRequestsTab(key: _loanTabKey),
+          ExpenseRequestsTab(key: _expenseTabKey),
+          PayslipRequestsTab(key: _payslipTabKey),
         ],
       ),
       floatingActionButton: _buildFab(),
@@ -121,7 +139,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           height: 40,
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
-            onPressed: () => leaveTabKey.currentState?.showApplyLeaveDialog(),
+            onPressed: () => _leaveTabKey.currentState?.showApplyLeaveDialog(),
             label: Text('Apply Leave', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -132,7 +150,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           height: 40,
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
-            onPressed: () => loanTabKey.currentState?.showRequestLoanDialog(),
+            onPressed: () => _loanTabKey.currentState?.showRequestLoanDialog(),
             label: Text('Request Loan', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -144,7 +162,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
             onPressed: () =>
-                expenseTabKey.currentState?.showClaimExpenseDialog(),
+                _expenseTabKey.currentState?.showClaimExpenseDialog(),
             label: Text('Claim Expense', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -156,7 +174,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
           child: FloatingActionButton.extended(
             foregroundColor: Colors.white,
             onPressed: () =>
-                payslipTabKey.currentState?.showRequestPayslipDialog(),
+                _payslipTabKey.currentState?.showRequestPayslipDialog(),
             label: Text('Request Payslip', style: style),
             icon: const Icon(Icons.add, size: 18),
             backgroundColor: AppColors.primary,
@@ -168,11 +186,220 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 }
 
-// Global Keys to access tab states
-final GlobalKey<_LeaveRequestsTabState> leaveTabKey = GlobalKey();
-final GlobalKey<_LoanRequestsTabState> loanTabKey = GlobalKey();
-final GlobalKey<_ExpenseRequestsTabState> expenseTabKey = GlobalKey();
-final GlobalKey<_PayslipRequestsTabState> payslipTabKey = GlobalKey();
+/// Shows a single calendar in a bottom sheet to select from-date and to-date (range) in the same calendar.
+/// Returns [DateTimeRange] with start at 00:00:00 and end at 23:59:59 of the selected days, or null if dismissed.
+Future<DateTimeRange?> showDateRangePickerSameCalendar({
+  required BuildContext context,
+  required DateTime firstDate,
+  required DateTime lastDate,
+  DateTime? initialStart,
+  DateTime? initialEnd,
+}) async {
+  final now = DateTime.now();
+  DateTime? rangeStart = initialStart != null ? DateTime(initialStart.year, initialStart.month, initialStart.day) : null;
+  DateTime? rangeEnd = initialEnd != null ? DateTime(initialEnd.year, initialEnd.month, initialEnd.day) : null;
+  DateTime focusedDay = rangeEnd ?? rangeStart ?? DateTime(now.year, now.month, now.day);
+
+  final result = await showModalBottomSheet<DateTimeRange>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (context, setModalState) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.6,
+            minChildSize: 0.4,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) => Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Select from - to date', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                        TextButton(
+                          onPressed: () {
+                            if (rangeStart != null && rangeEnd != null) {
+                              final start = rangeStart!.isAfter(rangeEnd!) ? rangeEnd! : rangeStart!;
+                              final end = rangeStart!.isAfter(rangeEnd!) ? rangeStart! : rangeEnd!;
+                              Navigator.pop(context, DateTimeRange(start: start, end: end));
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Select start and end date in the calendar')),
+                              );
+                            }
+                          },
+                          child: Text('Apply'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      child: TableCalendar(
+                        firstDay: DateTime(firstDate.year, firstDate.month, firstDate.day),
+                        lastDay: DateTime(lastDate.year, lastDate.month, lastDate.day),
+                        focusedDay: focusedDay,
+                        rangeStartDay: rangeStart,
+                        rangeEndDay: rangeEnd,
+                        rangeSelectionMode: RangeSelectionMode.enforced,
+                        onRangeSelected: (start, end, focused) {
+                          setModalState(() {
+                            rangeStart = start;
+                            rangeEnd = end;
+                            focusedDay = focused;
+                          });
+                        },
+                        onPageChanged: (focused) {
+                          setModalState(() => focusedDay = focused);
+                        },
+                        calendarFormat: CalendarFormat.month,
+                        headerStyle: HeaderStyle(
+                          formatButtonVisible: false,
+                          titleCentered: true,
+                        ),
+                        calendarStyle: CalendarStyle(
+                          rangeStartDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          rangeEndDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          rangeHighlightColor: AppColors.primary.withOpacity(0.2),
+                          selectedDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.5), shape: BoxShape.circle),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+  return result;
+}
+
+/// Reusable bottom sheet for request details (Leave, Loan, Expense, Payslip).
+class _RequestDetailBottomSheet extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color iconColor;
+  final List<Widget> children;
+
+  const _RequestDetailBottomSheet({
+    required this.title,
+    required this.icon,
+    required this.iconColor,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withOpacity(0.3),
+            blurRadius: 20,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: colorScheme.outline,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const SizedBox(width: 20),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Flexible(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: colorScheme.outline),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: children,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: colorScheme.onPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // --- LEAVE TAB ---
 
@@ -300,18 +527,19 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     }
   }
 
-  /// Pick a date; leaves and balances are shown for that date's month.
-  Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
+  /// Pick from-date and to-date in same calendar; leaves and balances are shown for that range.
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
-      initialDate: _startDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
-        _startDate = _firstDayOfMonth(picked);
-        _endDate = _lastDayOfMonth(picked);
+        _startDate = picked.start;
+        _endDate = picked.end;
       });
       _fetchLeaves();
     }
@@ -336,6 +564,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   void _showLeaveDetails(Map<String, dynamic> leave) {
+    // Debug: log leave response for Half day on / approvedBy
+    final halfDayOnValue = leave['halfDayType']?.toString().trim() ??
+        leave['halfDaySession']?.toString().trim() ??
+        (leave['session'] == '1'
+            ? 'First Half Day'
+            : leave['session'] == '2'
+                ? 'Second Half Day'
+                : '—');
     final start = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['startDate']).toLocal());
@@ -345,47 +581,59 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     final appliedDate = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['createdAt']));
-    final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
-        : '-';
+    // Resolve approvedBy / rejectedBy: backend may populate with { name, email }
+    String approvedBy = '—';
+    String rejectedBy = '—';
+    final approver = leave['approvedBy'];
+    final rejector = leave['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (leave['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy; // Backend may use approvedBy for rejector
+    }
+    final rejectionReason = leave['rejectionReason']?.toString().trim();
+    final isRejected = leave['status'] == 'Rejected';
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Leave Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _detailRow('Leave Type', leave['leaveType'] ?? ''),
-              _detailRow('Start Date', start),
-              _detailRow('End Date', end),
-              _detailRow('Days', '${leave['days']}'),
-              _detailRow('Applied Date', appliedDate),
-              _detailRow('Approved By', approvedBy),
-              _detailRow('Status', leave['status'] ?? ''),
-              if (leave['reason'] != null &&
-                  leave['reason'].toString().isNotEmpty)
-                _detailRow('Reason', leave['reason']),
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Leave Details',
+        icon: Icons.calendar_today,
+        iconColor: AppColors.primary,
+        children: [
+          _detailRow('Leave Type', leave['leaveType'] ?? ''),
+          if (leave['leaveType'] == 'Half Day')
+            _detailRow('Half day on', halfDayOnValue),
+          _detailRow('Start Date', start),
+          _detailRow('End Date', end),
+          _detailRow('Days', '${leave['days']}'),
+          _detailRow('Applied Date', appliedDate),
+          _detailRow('Status', leave['status'] ?? ''),
+          if (isRejected) ...[
+            _detailRow('Rejected By', rejectedBy),
+            if (rejectionReason != null && rejectionReason.isNotEmpty)
+              _detailRow('Rejection Reason', rejectionReason),
+          ] else
+            _detailRow('Approved By', approvedBy),
+          if (leave['reason'] != null &&
+              leave['reason'].toString().isNotEmpty)
+            _detailRow('Reason', leave['reason']),
+        ],
       ),
     );
   }
@@ -400,7 +648,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
             width: 100,
             child: Text(
               '$label:',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.black,
               ),
@@ -413,6 +661,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   Widget _buildLeaveCard(Map<String, dynamic> leave) {
+    final colorScheme = Theme.of(context).colorScheme;
     final start = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['startDate']).toLocal());
@@ -422,9 +671,15 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     final appliedDate = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['createdAt']));
-    final approvedBy = leave['approvedBy'] != null
-        ? (leave['approvedBy'] is Map ? leave['approvedBy']['name'] : 'System')
+    final approver = leave['approvedBy'];
+    final rejector = leave['rejectedBy'];
+    final isRejectedLeave = leave['status'] == 'Rejected';
+    final approvedBy = approver != null
+        ? (approver is Map ? approver['name'] : 'System')
         : '-';
+    final rejectedBy = rejector != null
+        ? (rejector is Map ? rejector['name'] : 'System')
+        : (isRejectedLeave && approver != null ? approvedBy : '-');
 
     Color statusColor = Colors.grey;
     if (leave['status'] == 'Approved') {
@@ -440,12 +695,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outline),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: colorScheme.shadow.withOpacity(0.08),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -481,10 +736,10 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                         Expanded(
                           child: Text(
                             leave['leaveType'] ?? 'Leave',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A1A1A),
+                              color: colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -530,7 +785,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedBy != '-') ...[
+                    if (isRejectedLeave && rejectedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedBy,
+                      ),
+                    ] else if (!isRejectedLeave && approvedBy != '-') ...[
                       const SizedBox(height: 4),
                       _buildCardDetailRow(
                         Icons.person,
@@ -549,22 +811,23 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   Widget _buildCardDetailRow(IconData icon, String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icon, size: 14, color: const Color(0xFF424242)),
+        Icon(icon, size: 14, color: colorScheme.onSurfaceVariant),
         const SizedBox(width: 6),
         Text(
           '$label: ',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Color(0xFF424242),
+            color: colorScheme.onSurfaceVariant,
             fontWeight: FontWeight.w600,
           ),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
+            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -574,6 +837,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
   }
 
   Widget _buildBalanceCard(dynamic balance) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       width: 140, // Slightly wider for longer text
       margin: const EdgeInsets.only(right: 12),
@@ -582,12 +846,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         vertical: 8,
       ), // Reduced vertical padding
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: colorScheme.outline),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: colorScheme.shadow.withOpacity(0.08),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -599,10 +863,10 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         children: [
           Text(
             balance['type'] ?? 'Leave',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: Colors.grey,
+              color: colorScheme.onSurfaceVariant,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -613,12 +877,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: AppColors.primary,
+              color: colorScheme.primary,
             ),
           ),
           Text(
             'Leaves Taken',
-            style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 9, color: colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -704,7 +968,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                     ),
                     const SizedBox(width: 10),
                     InkWell(
-                      onTap: _pickMonth,
+                      onTap: _pickDateRange,
                       child: Container(
                         height: 48,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -721,12 +985,12 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _startDate == null
-                                  ? 'Select month'
-                                  : DateFormat('MMM yyyy').format(_startDate!),
-                              style: const TextStyle(color: Colors.black),
+                              _startDate == null || _endDate == null
+                                  ? 'Select from - to date'
+                                  : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
+                              style: TextStyle(color: Colors.black),
                             ),
-                            if (_startDate != null)
+                            if (_startDate != null && _endDate != null)
                               IconButton(
                                 icon: const Icon(Icons.close, size: 16),
                                 onPressed: _resetToCurrentMonth,
@@ -768,7 +1032,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
                               const SizedBox(height: 16),
                               Text(
                                 'No leave requests found',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 16,
                                   color: Colors.black,
                                 ),
@@ -925,10 +1189,24 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   }
 
   Future<void> _pickDate(bool isStart) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final DateTime firstDate;
+    final DateTime initialDate;
+    if (isStart) {
+      firstDate = today;
+      initialDate = _startDate ?? now;
+    } else {
+      final startOrToday = _startDate != null && !_startDate!.isBefore(today)
+          ? _startDate!
+          : today;
+      firstDate = startOrToday;
+      initialDate = _endDate ?? _startDate ?? now;
+    }
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
+      initialDate: initialDate.isBefore(firstDate) ? firstDate : initialDate,
+      firstDate: firstDate,
       lastDate: DateTime(2030),
     );
     if (picked != null) {
@@ -938,7 +1216,6 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
           if (_isOneDay) {
             _endDate = picked;
           } else {
-            // Reset end date if it's before new start date
             if (_endDate != null && _endDate!.isBefore(_startDate!)) {
               _endDate = null;
             }
@@ -956,8 +1233,33 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
       return;
     }
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (_startDate!.isBefore(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Start date cannot be in the past. Please select today or a future date.',
+        isError: true,
+      );
+      return;
+    }
     if (!_isOneDay && _endDate == null) {
       SnackBarUtils.showSnackBar(context, 'Please select an end date');
+      return;
+    }
+    if (_endDate != null && _endDate!.isBefore(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'End date cannot be in the past. Please select today or a future date.',
+        isError: true,
+      );
+      return;
+    }
+    if (_endDate != null && _startDate != null && _endDate!.isBefore(_startDate!)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'End date must be on or after start date.',
+        isError: true,
+      );
       return;
     }
 
@@ -987,6 +1289,35 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       );
       return;
     }
+    // Check if employee already has leave (Pending or Approved) on any of the requested dates
+    final reqEnd = _endDate ?? _startDate!;
+    final existingResult = await _requestService.getLeaveRequests(
+      startDate: _startDate,
+      endDate: reqEnd,
+      limit: 100,
+    );
+    if (existingResult['success'] == true) {
+      List<dynamic> leaves = [];
+      if (existingResult['data'] is Map) {
+        leaves = (existingResult['data'] as Map)['leaves'] ?? [];
+      } else if (existingResult['data'] is List) {
+        leaves = existingResult['data'] as List;
+      }
+      final hasExisting = leaves.any((l) {
+        if (l is! Map) return false;
+        final status = (l['status'] as String?)?.trim();
+        return status == 'Pending' || status == 'Approved';
+      });
+      if (hasExisting && mounted) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'You have already applied for leave on one or more of these dates. Please choose different dates or check your existing leave requests.',
+          isError: true,
+        );
+        return;
+      }
+    }
+
     final payload = {
       'leaveType': _leaveType,
       'startDate': _startDate!.toIso8601String(),
@@ -995,16 +1326,6 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       'reason': _reasonController.text,
       'session': _leaveType == 'Half Day' ? _session : null,
     };
-    debugPrint('Leave Request Payload:');
-    debugPrint(
-      '  leaveType: ${payload['leaveType']} (type: ${payload['leaveType'].runtimeType})',
-    );
-    debugPrint('  startDate: ${payload['startDate']}');
-    debugPrint('  endDate: ${payload['endDate']}');
-    debugPrint('  days: ${payload['days']}');
-    debugPrint('  session: ${payload['session']}');
-    debugPrint('  reason: ${payload['reason']}');
-    debugPrint('Full payload: $payload');
 
     setState(() => _isSubmitting = true);
     final result = await _requestService.applyLeave(payload);
@@ -1012,9 +1333,15 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
 
     if (mounted) {
       if (result['success']) {
-        widget.onSuccess();
-        Navigator.pop(context);
-        SnackBarUtils.showSnackBar(context, 'Leave request submitted');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          final overlay = Navigator.of(context, rootNavigator: true).overlay;
+          Navigator.of(context).pop();
+          widget.onSuccess();
+          if (overlay != null && overlay.context.mounted) {
+            SnackBarUtils.showSnackBar(overlay.context, 'Leave request submitted');
+          }
+        });
       } else {
         SnackBarUtils.showSnackBar(
           context,
@@ -1074,7 +1401,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           size: 26,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Apply Leave',
                           style: TextStyle(
                             fontSize: 22,
@@ -1123,7 +1450,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
-                          value: _leaveType,
+                          initialValue: _leaveType,
                           items: _allowedTypes.map((e) {
                             final type = e['type'] as String? ?? '';
                             final days = e['days'];
@@ -1153,7 +1480,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                       ),
 
                     if (_leaveType == 'Half Day') ...[
-                      const Text(
+                      Text(
                         'Select Session',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
@@ -1189,7 +1516,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                                             : Colors.black87,
                                       ),
                                     ),
-                                    const Text(
+                                    Text(
                                       'First Half',
                                       style: TextStyle(
                                         fontSize: 10,
@@ -1231,7 +1558,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                                             : Colors.black87,
                                       ),
                                     ),
-                                    const Text(
+                                    Text(
                                       'Second Half',
                                       style: TextStyle(
                                         fontSize: 10,
@@ -1254,7 +1581,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text(
+                            Text(
                               'One Day Leave',
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
@@ -1267,8 +1594,9 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                               onChanged: (val) {
                                 setState(() {
                                   _isOneDay = val;
-                                  if (_isOneDay && _startDate != null)
+                                  if (_isOneDay && _startDate != null) {
                                     _endDate = _startDate;
+                                  }
                                 });
                               },
                             ),
@@ -1357,7 +1685,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                     TextFormField(
                       controller: _reasonController,
                       maxLines: 3,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Reason *',
                         Icons.note,
@@ -1386,7 +1714,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text('Cancel'),
+                      child: Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1411,7 +1739,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Submit Request'),
+                          : Text('Submit Request'),
                     ),
                   ),
                 ],
@@ -1465,6 +1793,9 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
     _fetchLoans();
   }
 
@@ -1523,10 +1854,12 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
@@ -1540,58 +1873,61 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
   }
 
   void _showLoanDetails(Map<String, dynamic> loan) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Loan Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _detailRow('Type', loan['loanType']),
-              _detailRow('Amount', '₹${loan['amount']}'),
-              _detailRow(
-                'Tenure',
-                '${loan['tenure'] ?? loan['tenureMonths']} Months',
-              ),
-              _detailRow('EMI', '₹${loan['emi'] ?? 0}'),
-              _detailRow('Interest Rate', '${loan['interestRate']}%'),
-              _detailRow('Purpose', loan['purpose'] ?? ''),
-              _detailRow('Status', loan['status']),
-              if (loan['approvedBy'] != null)
-                _detailRow(
-                  'Approved By',
-                  loan['approvedBy'] is Map
-                      ? loan['approvedBy']['name']
-                      : 'ID: ${loan['approvedBy']}',
-                ),
-              if (loan['createdAt'] != null)
-                _detailRow(
-                  'Requested On',
-                  DateFormat(
-                    'MMM dd, yyyy',
-                  ).format(DateTime.parse(loan['createdAt'])),
-                ),
+    String approvedBy = '—';
+    String rejectedBy = '—';
+    final approver = loan['approvedBy'];
+    final rejector = loan['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (loan['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy;
+    }
+    final rejectionReason = loan['rejectionReason']?.toString().trim();
+    final isRejected = loan['status'] == 'Rejected';
+    final requestedOn = loan['createdAt'] != null
+        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(loan['createdAt']))
+        : '—';
 
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Loan Details',
+        icon: Icons.account_balance_wallet,
+        iconColor: AppColors.primary,
+        children: [
+          _detailRow('Type', loan['loanType'] ?? ''),
+          _detailRow('Amount', '₹${loan['amount']}'),
+          _detailRow(
+            'Tenure',
+            '${loan['tenure'] ?? loan['tenureMonths']} Months',
           ),
-        ),
+          _detailRow('EMI', '₹${loan['emi'] ?? 0}'),
+          _detailRow('Interest Rate', '${loan['interestRate']}%'),
+          _detailRow('Purpose', loan['purpose'] ?? ''),
+          _detailRow('Status', loan['status'] ?? ''),
+          if (isRejected) ...[
+            _detailRow('Rejected By', rejectedBy),
+            if (rejectionReason != null && rejectionReason.isNotEmpty)
+              _detailRow('Rejection Reason', rejectionReason),
+          ] else
+            _detailRow('Approved By', approvedBy),
+          _detailRow('Requested On', requestedOn),
+        ],
       ),
     );
   }
@@ -1606,7 +1942,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
             width: 100,
             child: Text(
               '$label:',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.black,
               ),
@@ -1632,25 +1968,39 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
     }
 
     String approvedByName = '-';
-    if (loan['approvedBy'] != null) {
-      if (loan['approvedBy'] is Map) {
-        approvedByName = loan['approvedBy']['name'] ?? '-';
+    String rejectedByName = '-';
+    final approver = loan['approvedBy'];
+    final rejector = loan['rejectedBy'];
+    final isRejectedLoan = loan['status'] == 'Rejected';
+    if (approver != null) {
+      if (approver is Map) {
+        approvedByName = approver['name'] ?? '-';
       } else {
         approvedByName = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map) {
+        rejectedByName = rejector['name'] ?? '-';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (isRejectedLoan && approver != null) {
+      rejectedByName = approvedByName;
+    }
 
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => _showLoanDetails(loan),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outline),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: colorScheme.shadow.withOpacity(0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -1686,10 +2036,10 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                         Expanded(
                           child: Text(
                             loan['loanType'] ?? 'Loan',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A1A1A),
+                              color: colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1741,7 +2091,14 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedByName != '-') ...[
+                    if (isRejectedLoan && rejectedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildLoanCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedByName,
+                      ),
+                    ] else if (!isRejectedLoan && approvedByName != '-') ...[
                       const SizedBox(height: 4),
                       _buildLoanCardDetailRow(
                         Icons.person,
@@ -1766,7 +2123,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         const SizedBox(width: 6),
         Text(
           '$label: ',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             color: Color(0xFF424242),
             fontWeight: FontWeight.w600,
@@ -1775,7 +2132,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
+            style: TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1868,7 +2225,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                               _startDate == null
                                   ? 'Date'
                                   : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                              style: const TextStyle(color: Colors.black),
+                              style: TextStyle(color: Colors.black),
                             ),
                             if (_startDate != null)
                               IconButton(
@@ -1918,7 +2275,7 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
                               const SizedBox(height: 16),
                               Text(
                                 'No loan requests found',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 16,
                                   color: Colors.black,
                                 ),
@@ -2018,12 +2375,8 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
 
   String _loanType = 'Personal';
   final TextEditingController _amountController = TextEditingController();
-  final TextEditingController _tenureController = TextEditingController(
-    text: '1',
-  );
-  final TextEditingController _interestController = TextEditingController(
-    text: '0',
-  ); // Default 0
+  final TextEditingController _tenureController = TextEditingController();
+  final TextEditingController _interestController = TextEditingController();
   final TextEditingController _purposeController = TextEditingController();
   bool _isSubmitting = false;
 
@@ -2104,7 +2457,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                           size: 26,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Request Loan',
                           style: TextStyle(
                             fontSize: 22,
@@ -2137,9 +2490,9 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                   children: [
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.only(bottom: 16),
                       child: DropdownButtonFormField<String>(
-                        value: _loanType,
+                        initialValue: _loanType,
                         items: ['Personal', 'Advance', 'Emergency']
                             .map(
                               (e) => DropdownMenuItem(value: e, child: Text(e)),
@@ -2152,10 +2505,11 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _amountController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Amount (₹)',
                         Icons.currency_rupee,
@@ -2164,35 +2518,39 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                           ? 'Amount is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _tenureController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Tenure (Months)',
                         Icons.calendar_month,
                       ).copyWith(hintText: 'Enter tenure in months'),
                       validator: (val) {
-                        if (val == null || val.isEmpty)
+                        if (val == null || val.isEmpty) {
                           return 'Tenure is required';
+                        }
                         final n = int.tryParse(val);
                         if (n == null || n <= 0) return 'Must be > 0';
                         return null;
                       },
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _interestController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Interest Rate (%)',
                         Icons.percent,
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _purposeController,
                       maxLines: 3,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Purpose',
                         Icons.note,
@@ -2221,7 +2579,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text('Cancel'),
+                      child: Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2246,7 +2604,7 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Submit Request'),
+                          : Text('Submit Request'),
                     ),
                   ),
                 ],
@@ -2298,6 +2656,9 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0);
     _fetchExpenses();
   }
 
@@ -2340,10 +2701,12 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
@@ -2362,7 +2725,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             AppBar(
-              title: const Text('Proof Document'),
+              title: Text('Proof Document'),
               backgroundColor: Colors.transparent,
               elevation: 0,
               leading: IconButton(
@@ -2411,115 +2774,121 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         ? DateFormat(
             'MMM dd, yyyy',
           ).format(DateTime.parse(expense['createdAt']))
-        : '-';
+        : '—';
 
-    String approvedByName = '-';
-    if (expense['approvedBy'] != null) {
-      if (expense['approvedBy'] is Map) {
-        approvedByName = expense['approvedBy']['name'] ?? '-';
+    String approvedByName = '—';
+    String rejectedByName = '—';
+    final approver = expense['approvedBy'];
+    final rejector = expense['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedByName = approver['name'].toString().trim();
+        if (approvedByName.isEmpty) approvedByName = '—';
       } else {
         approvedByName = 'System';
       }
     }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedByName = rejector['name'].toString().trim();
+        if (rejectedByName.isEmpty) rejectedByName = '—';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (expense['status'] == 'Rejected' && approver != null) {
+      rejectedByName = approvedByName;
+    }
+    final rejectionReason = expense['rejectionReason']?.toString().trim();
+    final isRejected = expense['status'] == 'Rejected';
 
     List<dynamic> proofs = expense['proofFiles'] ?? [];
-
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Expense Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _expenseDetailRow(
-                'Type',
-                expense['type'] ?? expense['expenseType'] ?? 'Expense',
-              ),
-              _expenseDetailRow('Amount', '₹${expense['amount']}'),
-              _expenseDetailRow('Date', date),
-              _expenseDetailRow('Applied Date', appliedDate),
-              if (expense['description'] != null &&
-                  expense['description'].toString().isNotEmpty)
-                _expenseDetailRow('Description', expense['description']),
-              _expenseDetailRow('Status', expense['status'] ?? ''),
-              if (approvedByName != '-')
-                _expenseDetailRow('Approved By', approvedByName),
-              if (proofs.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Text(
-                  'Proof Files:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 5),
-                ...proofs.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final proof = entry.value;
-                  String fileName;
-                  String proofUrl;
-
-                  // Handle both Map and String types
-                  if (proof is Map) {
-                    fileName =
-                        proof['fileName']?.toString() ?? 'Proof ${index + 1}';
-                    proofUrl =
-                        proof['url']?.toString() ??
-                        proof['fileUrl']?.toString() ??
-                        proof.toString();
-                  } else {
-                    // If proof is a String (URL), extract filename or use default
-                    final urlString = proof.toString();
-                    proofUrl = urlString;
-                    // Try to extract filename from URL
-                    try {
-                      final uri = Uri.parse(urlString);
-                      fileName = uri.pathSegments.isNotEmpty
-                          ? uri.pathSegments.last
-                          : 'Proof ${index + 1}';
-                    } catch (e) {
-                      fileName = 'Proof ${index + 1}';
-                    }
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 5),
-                    child: InkWell(
-                      onTap: () => _viewProof(proofUrl),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.attach_file, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              fileName,
-                              style: const TextStyle(color: Colors.blue),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-              ],
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
+    final detailChildren = <Widget>[
+      _expenseDetailRow(
+        'Type',
+        expense['type'] ?? expense['expenseType'] ?? 'Expense',
+      ),
+      _expenseDetailRow('Amount', '₹${expense['amount']}'),
+      _expenseDetailRow('Date', date),
+      _expenseDetailRow('Applied Date', appliedDate),
+      if (expense['description'] != null &&
+          expense['description'].toString().isNotEmpty)
+        _expenseDetailRow('Description', expense['description']),
+      _expenseDetailRow('Status', expense['status'] ?? ''),
+      if (isRejected) ...[
+        _expenseDetailRow('Rejected By', rejectedByName),
+        if (rejectionReason != null && rejectionReason.isNotEmpty)
+          _expenseDetailRow('Rejection Reason', rejectionReason),
+      ] else
+        _expenseDetailRow('Approved By', approvedByName),
+      if (proofs.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        Text(
+          'Proof Files:',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
           ),
         ),
+        const SizedBox(height: 6),
+        ...proofs.asMap().entries.map((entry) {
+          final index = entry.key;
+          final proof = entry.value;
+          String fileName;
+          String proofUrl;
+          if (proof is Map) {
+            fileName =
+                proof['fileName']?.toString() ?? 'Proof ${index + 1}';
+            proofUrl =
+                proof['url']?.toString() ??
+                proof['fileUrl']?.toString() ??
+                proof.toString();
+          } else {
+            final urlString = proof.toString();
+            proofUrl = urlString;
+            try {
+              final uri = Uri.parse(urlString);
+              fileName = uri.pathSegments.isNotEmpty
+                  ? uri.pathSegments.last
+                  : 'Proof ${index + 1}';
+            } catch (e) {
+              fileName = 'Proof ${index + 1}';
+            }
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              onTap: () => _viewProof(proofUrl),
+              borderRadius: BorderRadius.circular(8),
+              child: Row(
+                children: [
+                  Icon(Icons.attach_file, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      fileName,
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Expense Details',
+        icon: Icons.receipt,
+        iconColor: AppColors.primary,
+        children: detailChildren,
       ),
     );
   }
@@ -2534,7 +2903,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
             width: 100,
             child: Text(
               '$label:',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.black,
               ),
@@ -2566,28 +2935,42 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
     }
 
     String approvedByName = '-';
-    if (expense['approvedBy'] != null) {
-      if (expense['approvedBy'] is Map) {
-        approvedByName = expense['approvedBy']['name'] ?? '-';
+    String rejectedByName = '-';
+    final approver = expense['approvedBy'];
+    final rejector = expense['rejectedBy'];
+    final isRejectedExpense = expense['status'] == 'Rejected';
+    if (approver != null) {
+      if (approver is Map) {
+        approvedByName = approver['name'] ?? '-';
       } else {
         approvedByName = 'System';
       }
+    }
+    if (rejector != null) {
+      if (rejector is Map) {
+        rejectedByName = rejector['name'] ?? '-';
+      } else {
+        rejectedByName = 'System';
+      }
+    } else if (isRejectedExpense && approver != null) {
+      rejectedByName = approvedByName;
     }
 
     List<dynamic> proofs = expense['proofFiles'] ?? [];
     bool hasProof = proofs.isNotEmpty;
 
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => _showExpenseDetails(expense),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outline),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: colorScheme.shadow.withOpacity(0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -2621,10 +3004,10 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                             expense['type'] ??
                                 expense['expenseType'] ??
                                 'Expense',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A1A1A),
+                              color: colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2700,7 +3083,14 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                         ],
                       ),
                     ],
-                    if (approvedByName != '-') ...[
+                    if (isRejectedExpense && rejectedByName != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildExpenseCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedByName,
+                      ),
+                    ] else if (!isRejectedExpense && approvedByName != '-') ...[
                       const SizedBox(height: 4),
                       _buildExpenseCardDetailRow(
                         Icons.person,
@@ -2725,7 +3115,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         const SizedBox(width: 6),
         Text(
           '$label: ',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             color: Color(0xFF424242),
             fontWeight: FontWeight.w600,
@@ -2734,7 +3124,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
+            style: TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2832,7 +3222,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                               _startDate == null
                                   ? 'Date'
                                   : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                              style: const TextStyle(color: Colors.black),
+                              style: TextStyle(color: Colors.black),
                             ),
                             if (_startDate != null)
                               IconButton(
@@ -2872,7 +3262,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                       const SizedBox(height: 16),
                       Text(
                         'No expense requests found',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           color: Colors.black,
                         ),
@@ -2989,21 +3379,62 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final initial = _date != null && !_date!.isAfter(today)
+        ? _date!
+        : now;
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: initial,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      lastDate: today,
     );
     if (picked != null) {
       setState(() => _date = picked);
     }
   }
 
+  /// Compress image file to reduce payload and avoid 413 Payload Too Large.
+  static const int _maxProofImageWidth = 1200;
+  static const int _proofImageQuality = 85;
+
+  Future<List<int>> _compressImageFile(File file) async {
+    final path = file.path.toLowerCase();
+    final isImage =
+        path.endsWith('.jpg') ||
+        path.endsWith('.jpeg') ||
+        path.endsWith('.png') ||
+        path.endsWith('.webp');
+    if (!isImage) {
+      return await file.readAsBytes();
+    }
+    final result = await FlutterImageCompress.compressWithFile(
+      file.absolute.path,
+      minWidth: _maxProofImageWidth,
+      minHeight: _maxProofImageWidth,
+      quality: _proofImageQuality,
+      format: path.endsWith('.png') ? CompressFormat.png : CompressFormat.jpeg,
+    );
+    if (result == null || result.isEmpty) {
+      return await file.readAsBytes();
+    }
+    return result;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_date == null) {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
+      return;
+    }
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (_date!.isAfter(today)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Expense date cannot be in the future. Please select today or a past date.',
+        isError: true,
+      );
       return;
     }
 
@@ -3014,30 +3445,37 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
 
     setState(() => _isSubmitting = true);
 
-    // Process file if exists
+    // Process file if exists: compress images to avoid 413 Payload Too Large
     List<String> proofFiles = [];
     if (_selectedFile != null) {
-      // Simple base64 encoding (ideally upload to cloud storage and get URL,
-      // but user requested field to upload proof document.
-      // Assuming backend handles base64 or similar.
-      // For strictly correct implementation, we should use MultipartRequest in service.
-      // BUT, given the current simplistic RequestService.applyExpense uses jsonEncode,
-      // we'll try sending base64 data URI if backend supports it or just placeholder for now.
-      // However, the backend model expects String URL.
-      // Let's implement robust Base64 conversion here as a data URI to match common patterns if backend supports it.
-      // IF backend expects ONLY Cloudinary URL, we might need to modify backend or upload here first.
-      // Let's assume for this specific user request we just need the UI and simple data passing.
+      final path = _selectedFile!.path.toLowerCase();
+      final isPdf = path.endsWith('.pdf');
+      const maxProofBytes = 5 * 1024 * 1024; // 5 MB max for PDF
 
-      final bytes = await _selectedFile!.readAsBytes();
-      final base64String = base64Encode(bytes);
-      // Determine mime type roughly
-      String mime = 'image/jpeg';
-      if (_selectedFile!.path.endsWith('.pdf')) {
-        mime = 'application/pdf';
-      } else if (_selectedFile!.path.endsWith('.png'))
-        mime = 'image/png';
-
-      proofFiles.add('data:$mime;base64,$base64String');
+      if (isPdf) {
+        final length = await _selectedFile!.length();
+        if (length > maxProofBytes) {
+          if (mounted) {
+            setState(() => _isSubmitting = false);
+            SnackBarUtils.showSnackBar(
+              context,
+              'Proof file is too large. Please use a file under 5 MB.',
+              isError: true,
+            );
+          }
+          return;
+        }
+        final bytes = await _selectedFile!.readAsBytes();
+        final base64String = base64Encode(bytes);
+        proofFiles.add('data:application/pdf;base64,$base64String');
+      } else {
+        // Image: compress to reduce payload and avoid 413
+        final bytes = await _compressImageFile(_selectedFile!);
+        final base64String = base64Encode(bytes);
+        String mime = 'image/jpeg';
+        if (path.endsWith('.png')) mime = 'image/png';
+        proofFiles.add('data:$mime;base64,$base64String');
+      }
     }
 
     final result = await _requestService.applyExpense({
@@ -3113,7 +3551,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           size: 26,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Claim Expense',
                           style: TextStyle(
                             fontSize: 22,
@@ -3146,9 +3584,9 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                   children: [
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.only(bottom: 16),
                       child: DropdownButtonFormField<String>(
-                        value: _expenseType,
+                        initialValue: _expenseType,
                         items: ['Travel', 'Food', 'Accommodation', 'Other']
                             .map(
                               (e) => DropdownMenuItem(value: e, child: Text(e)),
@@ -3161,10 +3599,11 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _amountController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Amount (₹)',
                         Icons.currency_rupee,
@@ -3173,6 +3612,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           ? 'Amount is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     InkWell(
                       onTap: _pickDate,
                       child: InputDecorator(
@@ -3191,11 +3631,11 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _descriptionController,
                       maxLines: 3,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Description',
                         Icons.note,
@@ -3204,6 +3644,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           ? 'Description is required'
                           : null,
                     ),
+                    const SizedBox(height: 16),
                     InkWell(
                       onTap: _pickFile,
                       child: InputDecorator(
@@ -3258,7 +3699,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text('Cancel'),
+                      child: Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -3283,7 +3724,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Submit Claim'),
+                          : Text('Submit Claim'),
                     ),
                   ),
                 ],
@@ -3313,6 +3754,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   final List<String> _statusOptions = [
     'All Status',
     'Pending',
+    'Approved',
     'Generated',
     'Rejected',
   ];
@@ -3335,6 +3777,9 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
     _fetchRequests();
   }
 
@@ -3557,45 +4002,55 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   void _showPayslipDetails(Map<String, dynamic> req) {
     final appliedDate = req['createdAt'] != null
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
-        : '-';
-    final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
-        : '-';
+        : '—';
+    String approvedBy = '—';
+    String rejectedBy = '—';
+    final approver = req['approvedBy'];
+    final rejector = req['rejectedBy'];
+    if (approver != null) {
+      if (approver is Map && approver['name'] != null) {
+        approvedBy = approver['name'].toString().trim();
+        if (approvedBy.isEmpty) approvedBy = '—';
+      } else {
+        approvedBy = 'System';
+      }
+    }
+    if (rejector != null) {
+      if (rejector is Map && rejector['name'] != null) {
+        rejectedBy = rejector['name'].toString().trim();
+        if (rejectedBy.isEmpty) rejectedBy = '—';
+      } else {
+        rejectedBy = 'System';
+      }
+    } else if (req['status'] == 'Rejected' && approver != null) {
+      rejectedBy = approvedBy;
+    }
+    final rejectionReason = (req['actionReason'] ?? req['rejectionReason'])?.toString().trim();
+    final isRejected = req['status'] == 'Rejected';
 
-    showDialog(
+    final children = <Widget>[
+      _payslipDetailRow('Period', _getPeriodText(req)),
+      if (req['reason'] != null && req['reason'].toString().isNotEmpty)
+        _payslipDetailRow('Reason', req['reason']),
+      _payslipDetailRow('Applied Date', appliedDate),
+      _payslipDetailRow('Status', req['status'] ?? ''),
+      if (isRejected) ...[
+        _payslipDetailRow('Rejected By', rejectedBy),
+        if (rejectionReason != null && rejectionReason.isNotEmpty)
+          _payslipDetailRow('Rejection Reason', rejectionReason),
+      ] else
+        _payslipDetailRow('Approved By', approvedBy),
+    ];
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Payslip Request Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              const SizedBox(height: 10),
-              _payslipDetailRow('Period', _getPeriodText(req)),
-              if (req['reason'] != null && req['reason'].toString().isNotEmpty)
-                _payslipDetailRow('Reason', req['reason']),
-              _payslipDetailRow('Applied Date', appliedDate),
-              _payslipDetailRow('Status', req['status'] ?? ''),
-              if (approvedBy != '-')
-                _payslipDetailRow('Approved By', approvedBy),
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RequestDetailBottomSheet(
+        title: 'Payslip Request Details',
+        icon: Icons.description,
+        iconColor: AppColors.primary,
+        children: children,
       ),
     );
   }
@@ -3610,7 +4065,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
             width: 100,
             child: Text(
               '$label:',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.black,
               ),
@@ -3626,9 +4081,15 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     final appliedDate = req['createdAt'] != null
         ? DateFormat('MMM dd, yyyy').format(DateTime.parse(req['createdAt']))
         : '-';
-    final approvedBy = req['approvedBy'] != null
-        ? (req['approvedBy'] is Map ? req['approvedBy']['name'] : 'System')
+    final approver = req['approvedBy'];
+    final rejector = req['rejectedBy'];
+    final isRejectedPayslip = req['status'] == 'Rejected';
+    final approvedBy = approver != null
+        ? (approver is Map ? approver['name'] : 'System')
         : '-';
+    final rejectedBy = rejector != null
+        ? (rejector is Map ? rejector['name'] : 'System')
+        : (isRejectedPayslip && approver != null ? approvedBy : '-');
 
     // Get month name from month number or period
     String periodText = 'Payslip Request';
@@ -3652,17 +4113,18 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     final isApproved =
         req['status'] == 'Approved' || req['status'] == 'Generated';
 
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => _showPayslipDetails(req),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outline),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: colorScheme.shadow.withOpacity(0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -3698,10 +4160,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                         Expanded(
                           child: Text(
                             periodText,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A1A1A),
+                              color: colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -3744,7 +4206,14 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                       'Applied',
                       appliedDate,
                     ),
-                    if (approvedBy != '-') ...[
+                    if (isRejectedPayslip && rejectedBy != '-') ...[
+                      const SizedBox(height: 4),
+                      _buildPayslipCardDetailRow(
+                        Icons.person_off_outlined,
+                        'Rejected By',
+                        rejectedBy,
+                      ),
+                    ] else if (!isRejectedPayslip && approvedBy != '-') ...[
                       const SizedBox(height: 4),
                       _buildPayslipCardDetailRow(
                         Icons.person,
@@ -3846,7 +4315,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         const SizedBox(width: 6),
         Text(
           '$label: ',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             color: Color(0xFF424242),
             fontWeight: FontWeight.w600,
@@ -3855,7 +4324,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF424242)),
+            style: TextStyle(fontSize: 12, color: Color(0xFF424242)),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -3874,10 +4343,12 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
   }
 
   Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
+    final picked = await showDateRangePickerSameCalendar(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialStart: _startDate,
+      initialEnd: _endDate,
     );
     if (picked != null) {
       setState(() {
@@ -3974,7 +4445,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                               _startDate == null
                                   ? 'Date'
                                   : '${DateFormat('MMM dd').format(_startDate!)} - ${DateFormat('MMM dd').format(_endDate!)}',
-                              style: const TextStyle(color: Colors.black),
+                              style: TextStyle(color: Colors.black),
                             ),
                             if (_startDate != null)
                               IconButton(
@@ -4024,7 +4495,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
                               const SizedBox(height: 16),
                               Text(
                                 'No payslip requests found',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 16,
                                   color: Colors.black,
                                 ),
@@ -4130,7 +4601,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
   final TextEditingController _reasonController = TextEditingController();
   bool _isSubmitting = false;
   List<dynamic> _existingRequests = [];
-  Set<String> _selectedMonths = {};
+  final Set<String> _selectedMonths = {};
 
   final List<String> _months = [
     'January',
@@ -4179,6 +4650,52 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
           : (reqMonth is String ? _months.indexOf(reqMonth) + 1 : 0);
       return reqMonthNumber == monthNumber && req['year'] == year;
     });
+  }
+
+  Future<void> _pickYear() async {
+    final now = DateTime.now();
+    // Years from 20 years ago up to and including current year (no future years)
+    final years = List.generate(20, (i) => now.year - 19 + i);
+    final currentYear = int.tryParse(_yearController.text) ?? now.year;
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Select Year',
+                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: years.length,
+                  itemBuilder: (context, index) {
+                    final year = years[index];
+                    return ListTile(
+                      title: Text('$year'),
+                      selected: year == currentYear,
+                      onTap: () => Navigator.pop(context, year),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null && mounted) {
+      setState(() => _yearController.text = picked.toString());
+    }
   }
 
   Future<void> _submit() async {
@@ -4329,7 +4846,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                           size: 26,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Request Payslip',
                           style: TextStyle(
                             fontSize: 22,
@@ -4365,7 +4882,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       children: [
                         Expanded(
                           child: ChoiceChip(
-                            label: const Text('Single Month'),
+                            label: Text('Single Month'),
                             selected: !_isBulkMode,
                             selectedColor: AppColors.primary.withOpacity(0.2),
                             onSelected: (selected) {
@@ -4379,7 +4896,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: ChoiceChip(
-                            label: const Text('Bulk Months'),
+                            label: Text('Bulk Months'),
                             selected: _isBulkMode,
                             selectedColor: AppColors.primary.withOpacity(0.2),
                             onSelected: (selected) {
@@ -4398,7 +4915,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: DropdownButtonFormField<String>(
-                          value: _month,
+                          initialValue: _month,
                           items: _months
                               .map(
                                 (e) =>
@@ -4413,7 +4930,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                         ),
                       ),
                     ] else ...[
-                      const Text(
+                      Text(
                         'Select Months *',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
@@ -4459,22 +4976,36 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                       const SizedBox(height: 16),
                     ],
 
-                    TextFormField(
-                      controller: _yearController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                      decoration: _inputDecoration(
-                        'Year',
-                        Icons.calendar_today,
-                      ).copyWith(hintText: 'Enter year'),
-                      validator: (val) => val == null || val.isEmpty
-                          ? 'Year is required'
-                          : null,
+                    InkWell(
+                      onTap: _pickYear,
+                      borderRadius: BorderRadius.circular(16),
+                      child: IgnorePointer(
+                        child: TextFormField(
+                          controller: _yearController,
+                          readOnly: true,
+                          style: TextStyle(fontWeight: FontWeight.w500),
+                          decoration: _inputDecoration(
+                            'Year',
+                            Icons.calendar_today,
+                          ).copyWith(
+                            hintText: 'Tap to select year',
+                            suffixIcon: const Icon(
+                              Icons.arrow_drop_down,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          validator: (val) =>
+                              val == null || val.isEmpty
+                                  ? 'Year is required'
+                                  : null,
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 20),
                     TextFormField(
                       controller: _reasonController,
                       maxLines: 3,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500),
                       decoration: _inputDecoration(
                         'Reason *',
                         Icons.note,
@@ -4503,7 +5034,7 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text('Cancel'),
+                      child: Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),

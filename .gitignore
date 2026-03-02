@@ -62,6 +62,15 @@ app_backend/firebase-service-account.json
 # Python venv and DeepFace (create on server; weights downloaded at runtime)
 app_backend/face_verify/venv/
 app_backend/face_verify/.deepface/
+app_backend/face_verify/__pycache__/
+**/__pycache__/
+
+# Test/sample data (may contain sensitive info)
+app_backend/customer_data.json
+
+# Firebase/Google Cloud credentials (never commit)
+app_backend/firebase-service-account.json
+**/firebase-service-account*.json
 
 # Temporary/Test files
 **/temp/
@@ -71,6 +80,14 @@ app_backend/face_verify/.deepface/
 
 # Separate backend project (TypeScript)
 backend/
+
+# BB backend & frontend (exclude from this repo)
+bb/
+bbb/
+frontend/
+
+new_app/
+
 
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../utils/snackbar_utils.dart';
@@ -39,19 +38,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _sendOtp() async {
     if (_email.isEmpty || !_email.contains('@') || !_email.contains('.')) {
-      if (kDebugMode) {
-        debugPrint('[ForgotPassword] Invalid email format: $_email');
-      }
       SnackBarUtils.showSnackBar(
         context,
         'Please enter a valid email address',
         isError: true,
       );
       return;
-    }
-
-    if (kDebugMode) {
-      debugPrint('[ForgotPassword] Initiating OTP send for: $_email');
     }
 
     setState(() => _isLoading = true);
@@ -63,22 +55,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
-      if (kDebugMode) {
-        debugPrint(
-          '[ForgotPassword] ✅ OTP sent successfully, moving to step 1',
-        );
-      }
       setState(() => _step = 1);
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'OTP sent to your email',
       );
     } else {
-      if (kDebugMode) {
-        debugPrint(
-          '[ForgotPassword] ❌ Failed to send OTP: ${result['message']}',
-        );
-      }
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'Failed to send OTP',
@@ -89,13 +71,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _verifyOtp() async {
     final otp = _otpController.text.trim();
-    if (kDebugMode) {
-      debugPrint('[ForgotPassword] Verifying OTP for: $_email');
-    }
     if (otp.length != 6) {
-      if (kDebugMode) {
-        debugPrint('[ForgotPassword] Invalid OTP length: ${otp.length}');
-      }
       SnackBarUtils.showSnackBar(
         context,
         'Please enter the 6-digit OTP',
@@ -113,22 +89,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
-      if (kDebugMode) {
-        debugPrint(
-          '[ForgotPassword] ✅ OTP verified successfully, moving to step 2',
-        );
-      }
       setState(() => _step = 2);
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'OTP verified successfully',
       );
     } else {
-      if (kDebugMode) {
-        debugPrint(
-          '[ForgotPassword] ❌ OTP verification failed: ${result['message']}',
-        );
-      }
       SnackBarUtils.showSnackBar(
         context,
         result['message'] ?? 'Invalid or expired OTP',
@@ -457,8 +423,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Forgot Password'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.background,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
       body: SafeArea(

@@ -10,10 +10,20 @@ import '../../services/attendance_service.dart';
 import '../../utils/salary_structure_calculator.dart';
 import '../../utils/fine_calculation_util.dart';
 import '../../utils/app_event_bus.dart';
-import 'salary_structure_detail_screen.dart';
-
+import '../../utils/attendance_display_util.dart';
 class SalaryOverviewScreen extends StatefulWidget {
-  const SalaryOverviewScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  /// When true, this tab is visible. Used to refresh once when user opens the screen.
+  final bool? isActiveTab;
+
+  const SalaryOverviewScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+    this.isActiveTab,
+  });
 
   @override
   State<SalaryOverviewScreen> createState() => _SalaryOverviewScreenState();
@@ -37,10 +47,14 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   ProratedSalary? _proratedSalary;
   WorkingDaysInfo? _workingDaysInfo;
   double _presentDays = 0;
+  int _halfDayPaidLeaveCount = 0;
+  double _leaveDays = 0;
   Map<String, dynamic>? _staffSalary;
   Map<String, dynamic>? _currentPayroll;
   List<dynamic> _attendanceRecords = [];
   List<DateTime> _holidays = [];
+  Set<String> _weekOffDates = {};
+  Set<String> _leaveDates = {};
   String _weeklyOffPattern = 'standard';
   List<int> _weeklyHolidays =
       []; // Day numbers: 0=Sunday, 1=Monday, ..., 6=Saturday
@@ -49,6 +63,12 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     'lateDays': 0,
     'totalLateMinutes': 0,
   };
+  /// Per-day late login fine (date yyyy-MM-dd -> amount) for Daily Breakdown in Month Salary Details.
+  Map<String, double> _dailyFineAmounts = {};
+  /// When set, use this for "This Month Net" (from backend /payrolls/stats) so it matches payslip.
+  double? _backendThisMonthNet;
+  /// When set, use this for "This Month Gross" (from backend) for consistency.
+  double? _backendThisMonthGross;
 
   final List<String> _months = [
     'January',
@@ -76,6 +96,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       AppEventType.attendanceChanged,
     ).listen((_) => _fetchSalaryData(debounce: true));
     _fetchSalaryData();
+  }
+
+  @override
+  void didUpdateWidget(SalaryOverviewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Refresh once when user opens the salary overview tab
+    if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
+      _fetchSalaryData();
+    }
   }
 
   @override
@@ -194,11 +223,21 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           month: monthIndex,
           year: year,
         );
-        if (statsResult['stats'] != null) {
-          backendStats = statsResult['stats'];
+        final stats = statsResult['stats'] as Map<String, dynamic>?;
+        if (stats != null) {
+          backendStats = stats;
+          // Use backend's thisMonthNet/thisMonthGross when available so display matches payslip
+          final net = stats['thisMonthNet'];
+          _backendThisMonthNet = (net is num) ? net.toDouble() : null;
+          final gross = stats['thisMonthGross'];
+          _backendThisMonthGross = (gross is num) ? gross.toDouble() : null;
+        } else {
+          _backendThisMonthNet = null;
+          _backendThisMonthGross = null;
         }
       } catch (e) {
-        // Ignore errors
+        _backendThisMonthNet = null;
+        _backendThisMonthGross = null;
       }
 
       // 3. Fetch attendance for the month
@@ -223,14 +262,6 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         final attendanceData = attendanceResult['data'];
         final fetchedRecords = attendanceData['attendance'] ?? [];
 
-        double totalFineFromBackend = 0.0;
-        for (final r in fetchedRecords) {
-          if (r is Map) {
-            totalFineFromBackend +=
-                ((r['fineAmount'] as num?)?.toDouble() ?? 0.0);
-          }
-        }
-
         // Only update if we got valid data (non-empty array)
         // This prevents overwriting valid data with empty data
         if (fetchedRecords.isNotEmpty) {
@@ -253,18 +284,37 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               .whereType<DateTime>()
               .toList();
         }
+        if (attendanceData['weekOffDates'] != null) {
+          _weekOffDates = (attendanceData['weekOffDates'] as List)
+              .map((e) => e.toString())
+              .toSet();
+        }
+        if (attendanceData['leaveDates'] != null) {
+          _leaveDates = (attendanceData['leaveDates'] as List)
+              .map((e) => e.toString())
+              .toSet();
+        }
       } else {
         // API call failed (rate limit, network error, etc.) - keep existing data
         // The service should have returned cached data if available, but if not,
         // we preserve what we have
       }
 
-      // 4. Calculate present days from attendance and fine information
-      // Half day: status="half day" OR leaveType="half day" (e.g. approved half-day leave marked as Present)
-      // Present=1, Approved=1, Half Day=0.5
+      // 4. Present days: till today only (same as backend). Prefer backend/stats; fallback: compute from attendance records.
+      // EXCLUDE Absent and Pending. Count only records where date <= today.
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
+      double computedPresentDays = 0;
       if (_attendanceRecords.isNotEmpty) {
-        _presentDays = 0;
         for (final record in _attendanceRecords) {
+          final recordDateStr = record['date'] as String?;
+          if (recordDateStr != null) {
+            try {
+              final recordDate = DateTime.parse(recordDateStr).toLocal();
+              final recordDay = DateTime(recordDate.year, recordDate.month, recordDate.day);
+              if (recordDay.isAfter(todayDate)) continue; // Skip future dates – present days = till today
+            } catch (_) {}
+          }
           final status = (record['status'] as String? ?? '')
               .trim()
               .toLowerCase();
@@ -272,43 +322,97 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               .trim()
               .toLowerCase();
           final isHalfDay = status == 'half day' || leaveType == 'half day';
-          if (isHalfDay) {
-            _presentDays += 0.5;
-          } else if (status == 'present' || status == 'approved') {
-            _presentDays += 1;
+
+          if (status == 'present' || status == 'approved' || status == 'half day') {
+            if (isHalfDay) {
+              computedPresentDays += 0.5;
+            } else {
+              computedPresentDays += 1.0;
+            }
           }
         }
+      }
+      // Use backend present days when available (matches payroll calculation)
+      if (backendStats != null && backendStats['attendance'] != null) {
+        final backendAttendance =
+            backendStats['attendance'] as Map<String, dynamic>;
+        final fromBackend = (backendAttendance['presentDays'] as num?)
+            ?.toDouble();
+        _presentDays = (fromBackend != null && fromBackend >= 0)
+            ? fromBackend
+            : computedPresentDays;
+      } else if (attendanceResult['success'] == true &&
+          attendanceResult['data'] != null) {
+        final data = attendanceResult['data'] as Map<String, dynamic>;
+        final stats = data['stats'] as Map<String, dynamic>?;
+        final fromStats = (stats?['presentDays'] as num?)?.toDouble();
+        _presentDays = (fromStats != null && fromStats >= 0)
+            ? fromStats
+            : computedPresentDays;
       } else {
-        // No attendance records available
-        // Only restore previous data if we had it and this wasn't a successful update
-        if (!attendanceUpdated &&
-            (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
-          _attendanceRecords
-            ..clear()
-            ..addAll(prevAttendanceRecords);
-          _presentDays = prevPresentDays;
-          if (prevProratedSalary != null) {
-            _proratedSalary = prevProratedSalary;
-          }
-        } else {
-          // First time load or no previous data - keep as is (will show 0)
-          _presentDays = 0;
+        _presentDays = computedPresentDays;
+      }
+      // Restore previous data on failed fetch when we had data before
+      if (!attendanceUpdated &&
+          _attendanceRecords.isEmpty &&
+          (prevAttendanceRecords.isNotEmpty || prevPresentDays > 0)) {
+        _attendanceRecords
+          ..clear()
+          ..addAll(prevAttendanceRecords);
+        _presentDays = prevPresentDays;
+        if (prevProratedSalary != null) {
+          _proratedSalary = prevProratedSalary;
         }
+      } else if (!attendanceUpdated && _attendanceRecords.isEmpty) {
+        _presentDays = 0;
       }
 
       // 4a. Working days (BEFORE fine so dailySalary can use current run)
+      // Prefer backend stats, then attendance/month stats, then local calculation
+      _halfDayPaidLeaveCount = 0;
+      _leaveDays = 0;
       if (backendStats != null && backendStats['attendance'] != null) {
         final backendAttendance =
             backendStats['attendance'] as Map<String, dynamic>;
         final backendWorkingDays =
-            backendAttendance['workingDays'] as int? ?? 0;
-        final backendHolidays = backendAttendance['holidays'] as int? ?? 0;
+            (backendAttendance['workingDays'] as num?)?.toInt() ?? 0;
+        final backendHolidays =
+            (backendAttendance['holidays'] as num?)?.toInt() ?? 0;
+        final backendFullMonth =
+            (backendAttendance['workingDaysFullMonth'] as num?)?.toInt();
+        _halfDayPaidLeaveCount =
+            (backendAttendance['halfDayPaidLeaveCount'] as num?)?.toInt() ?? 0;
+        _leaveDays =
+            (backendAttendance['leaveDays'] as num?)?.toDouble() ?? 0.0;
         _workingDaysInfo = WorkingDaysInfo(
           totalDays: DateTime(year, monthIndex + 1, 0).day,
           workingDays: backendWorkingDays,
           weekends: 0,
           holidayCount: backendHolidays,
+          workingDaysFullMonth: backendFullMonth,
         );
+      } else if (attendanceResult['success'] == true &&
+          attendanceResult['data'] != null) {
+        final data = attendanceResult['data'] as Map<String, dynamic>;
+        final stats = data['stats'] as Map<String, dynamic>?;
+        final statsWorkingDays = (stats?['workingDays'] as num?)?.toInt();
+        final statsHolidays = (stats?['holidaysCount'] as num?)?.toInt();
+        if (statsWorkingDays != null && statsWorkingDays >= 0) {
+          _workingDaysInfo = WorkingDaysInfo(
+            totalDays: DateTime(year, monthIndex + 1, 0).day,
+            workingDays: statsWorkingDays,
+            weekends: stats?['weekOffs'] as int? ?? 0,
+            holidayCount: statsHolidays ?? 0,
+          );
+        } else {
+          _workingDaysInfo = calculateWorkingDays(
+            year,
+            monthIndex,
+            _holidays,
+            _weeklyOffPattern,
+            _weeklyHolidays,
+          );
+        }
       } else {
         _workingDaysInfo = calculateWorkingDays(
           year,
@@ -359,63 +463,57 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         businessSettings,
       );
 
-      // Calculate daily salary for fine calculation
+      // Daily salary = Monthly NET salary / This month working days (1 day salary = net/this month WD)
       double? dailySalary;
       if (_staffSalary != null &&
           _calculatedSalary != null &&
           _workingDaysInfo != null) {
-        // Daily Salary = Monthly Gross Salary / Working Days
-        dailySalary =
-            _calculatedSalary!.monthly.grossSalary /
-            _workingDaysInfo!.workingDays;
+        final thisMonthWorkingDays = _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+        if (thisMonthWorkingDays > 0) {
+          dailySalary = _calculatedSalary!.monthly.netMonthlySalary / thisMonthWorkingDays;
+        }
       }
 
-      // Calculate shift hours from shift timing
-      double shiftHours = 9.0; // Default 9 hours
+      // Shift hours for calculatePayrollFine (same as dashboard)
+      double shiftHours = 9.0;
       if (shiftTiming != null) {
         shiftHours = calculateShiftHours(
           shiftTiming.startTime,
           shiftTiming.endTime,
         );
       } else {
-        // Fallback: Try to get from attendance template
-        Map<String, dynamic>? attendanceTemplate;
         try {
           final todayAttendance = await _attendanceService.getTodayAttendance();
           if (todayAttendance['success'] == true &&
               todayAttendance['data'] != null) {
-            attendanceTemplate =
+            final template =
                 todayAttendance['data']['template'] as Map<String, dynamic>?;
+            if (template != null) {
+              final startTime =
+                  template['shiftStartTime'] as String? ?? '09:30';
+              final endTime = template['shiftEndTime'] as String? ?? '18:30';
+              shiftHours = calculateShiftHours(startTime, endTime);
+            }
           }
         } catch (e) {
-          // Ignore errors
-        }
-
-        if (attendanceTemplate != null) {
-          final startTime =
-              attendanceTemplate['shiftStartTime'] as String? ?? "09:30";
-          final endTime =
-              attendanceTemplate['shiftEndTime'] as String? ?? "18:30";
-          shiftHours = calculateShiftHours(startTime, endTime);
+          // Ignore
         }
       }
 
-      // Calculate fine information using the utility
+      // Calculate fine information using the utility (same logic as dashboard)
+      // ONLY for Present or Approved status
+      // EXCLUDE Absent and Pending from fine calculation
       double totalFineAmount = 0.0;
       int lateDays = 0;
       int totalLateMinutes = 0;
+      final dailyFineAmounts = <String, double>{};
 
       for (final record in _attendanceRecords) {
         final status = (record['status'] as String? ?? '').trim().toLowerCase();
-        final leaveType = (record['leaveType'] as String? ?? '')
-            .trim()
-            .toLowerCase();
-        final isCounted =
-            status == 'present' ||
-            status == 'approved' ||
-            status == 'half day' ||
-            leaveType == 'half day';
-        if (!isCounted) continue;
+        
+        // ONLY calculate fine for Present or Approved status
+        // Skip Absent, Pending, Rejected, etc.
+        if (status != 'present' && status != 'approved') continue;
         // Try to get existing fineAmount first (from backend calculation)
         final existingFineAmount =
             (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
@@ -446,12 +544,16 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 );
               }
 
+              final staffLabel = record['employeeId']?.toString() ??
+                  record['user']?.toString() ??
+                  record['date']?.toString();
               final fineResult = calculateFine(
                 punchInTime: punchInTime,
                 attendanceDate: attendanceDate,
                 shiftTiming: shiftTiming,
                 fineSettings: fineSettings,
                 dailySalary: dailySalary,
+                staffLabel: staffLabel,
               );
 
               lateMinutes = fineResult.lateMinutes;
@@ -466,55 +568,82 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             lateDays++;
             totalLateMinutes += lateMinutes;
           }
+          // Store per-day fine for Daily Breakdown (date key yyyy-MM-dd)
+          try {
+            final dateStr = record['date'] as String?;
+            if (dateStr != null && dateStr.isNotEmpty) {
+              final d = DateTime.parse(dateStr).toLocal();
+              final key = DateFormat('yyyy-MM-dd').format(d);
+              dailyFineAmounts[key] = fineAmount;
+            }
+          } catch (_) {}
         }
       }
 
-      // Alternative: Use payroll fine calculation utility for aggregation
-      // Pass Present, Approved, or Half Day (late login fine applies to half day too)
+      // Same as dashboard: use calculatePayrollFine and take max so calculation matches dashboard
+      // ONLY include Present or Approved status (exclude Absent, Pending)
       if (dailySalary != null && dailySalary > 0) {
         final attendanceRecordsList = _attendanceRecords
             .where((record) {
               final s = (record['status'] as String? ?? '')
                   .trim()
                   .toLowerCase();
-              final lt = (record['leaveType'] as String? ?? '')
-                  .trim()
-                  .toLowerCase();
-              return s == 'present' ||
-                  s == 'approved' ||
-                  s == 'half day' ||
-                  lt == 'half day';
+              // ONLY Present or Approved status
+              return s == 'present' || s == 'approved';
             })
             .map((record) => record as Map<String, dynamic>)
             .toList();
-
         final calculatedTotalFine = calculatePayrollFine(
           attendanceRecords: attendanceRecordsList,
           dailySalary: dailySalary,
           shiftHours: shiftHours,
           fineSettings: fineSettings,
         );
-
-        // Use the calculated total if it's greater (more accurate) or if backend didn't provide fines
         if (calculatedTotalFine > totalFineAmount || totalFineAmount == 0) {
           totalFineAmount = calculatedTotalFine;
         }
       }
 
+      // Use backend Late Login Fine when available (e.g. when client couldn't compute) so it matches payslip
+      double finalTotalFineAmount = totalFineAmount;
+      if (backendStats != null) {
+        final deductionComponents =
+            backendStats['deductionComponents'] as List<dynamic>?;
+        if (deductionComponents != null) {
+          for (final c in deductionComponents) {
+            final map = c as Map<String, dynamic>?;
+            if (map != null &&
+                (map['name'] as String? ?? '').toLowerCase().contains(
+                  'late login fine',
+                )) {
+              final backendFine = (map['amount'] as num?)?.toDouble() ?? 0.0;
+              if (backendFine > 0) {
+                finalTotalFineAmount = backendFine;
+                break;
+              }
+            }
+          }
+        }
+      }
+
       _fineInfo = {
-        'totalFineAmount': totalFineAmount,
+        'totalFineAmount': finalTotalFineAmount,
         'lateDays': lateDays,
         'totalLateMinutes': totalLateMinutes,
       };
+      _dailyFineAmounts = dailyFineAmounts;
 
-      // 5. Calculate prorated salary (working days and salary structure already set above, before fine)
+      // 5. Calculate prorated salary using THIS MONTH working days (so This Month Gross = presentDays * dailySalary)
       if (_calculatedSalary != null && _workingDaysInfo != null) {
-        _proratedSalary = calculateProratedSalary(
-          _calculatedSalary!,
-          _workingDaysInfo!.workingDays,
-          _presentDays,
-          _fineInfo['totalFineAmount'] as double,
-        );
+        final thisMonthWorkingDays = _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+        if (thisMonthWorkingDays > 0) {
+          _proratedSalary = calculateProratedSalary(
+            _calculatedSalary!,
+            thisMonthWorkingDays,
+            _presentDays,
+            finalTotalFineAmount,
+          );
+        }
       }
 
       // 8. Fetch current month payroll if available
@@ -598,7 +727,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             ),
         ],
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 2,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error.isNotEmpty
@@ -717,62 +849,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   const SizedBox(height: 16),
                   _buildAttendanceSummary(),
                   const SizedBox(height: 16),
-                  _buildEarningsDeductions(),
-                  const SizedBox(height: 16),
-                  _buildTotalCTC(),
-                  const SizedBox(height: 24),
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppColors.primary, AppColors.primaryDark],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const SalaryStructureDetailScreen(),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.receipt_long, color: Colors.white),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'View Full Salary Structure Details',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _buildDailyBreakdownOverview(),
                 ],
               ),
             ),
@@ -790,6 +867,12 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         (_currentPayroll!['status'] == 'Processed' ||
             _currentPayroll!['status'] == 'Paid');
 
+    // Use local prorated values for "This Month Gross" and "This Month Net" so they always
+    // match Month Salary Details (which uses the same proratedSalary). Backend thisMonthNet
+    // can differ if backend attendance records don't have fineAmount populated (Overview would
+    // show net without fine, Details would show net with fine). Prefer backend only for gross
+    // when available; for net always use local so both screens show the same take-home.
+    final thisMonthGrossDisplay = _backendThisMonthGross ?? _proratedSalary!.proratedGrossSalary;
     final rawThisMonthNet = _proratedSalary!.proratedNetSalary;
     // Do not show negative net for card display – clamp at 0
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
@@ -804,29 +887,35 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             'Monthly Gross',
             currencyFormat.format(_calculatedSalary!.monthly.grossSalary),
             isProcessed ? 'From processed payroll' : 'From salary structure',
-            Colors.green.shade50,
+            AppColors.primary,
+            textColor: Colors.white,
+            usePrimaryGradient: true,
           ),
           _buildStatCard(
             'This Month Gross',
-            currencyFormat.format(_proratedSalary!.proratedGrossSalary),
+            currencyFormat.format(thisMonthGrossDisplay),
             _workingDaysInfo != null
-                ? 'Based on $_presentDays present days out of ${_workingDaysInfo!.workingDays} working days\n${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}% attendance'
+                ? 'Based on $_presentDays present days out of ${_workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays} working days\n${_proratedSalary!.attendancePercentage.toStringAsFixed(1)}% attendance'
                 : 'Pro-rated',
-            Colors.blue.shade50,
+            Colors.black,
+            textColor: Colors.white,
           ),
           _buildStatCard(
             'Monthly Net',
             currencyFormat.format(_calculatedSalary!.monthly.netMonthlySalary),
             isProcessed ? 'From processed payroll' : 'From salary structure',
-            Colors.green.shade50,
+            AppColors.primary,
+            textColor: Colors.white,
+            usePrimaryGradient: true,
           ),
           _buildStatCard(
             'This Month Net',
             currencyFormat.format(displayThisMonthNet),
             _workingDaysInfo != null
-                ? 'Expected take-home this month\n$_presentDays days present'
+                ? 'Expected take-home this month\n$_presentDays days present (till today)'
                 : 'Expected take-home',
-            Colors.green.shade50,
+            Colors.black,
+            textColor: Colors.white,
           ),
         ];
 
@@ -843,22 +932,158 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     );
   }
 
+  /// This Month Net prominent card (same as Month Salary Details).
+  Widget _buildThisMonthNetCard() {
+    if (_calculatedSalary == null || _proratedSalary == null) {
+      return const SizedBox.shrink();
+    }
+    final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+    final rawThisMonthNet =
+        _backendThisMonthNet ?? _proratedSalary!.proratedNetSalary;
+    final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
+    final workingTillToday = _workingDaysInfo?.workingDays ?? 0;
+    final absentForChips =
+        (workingTillToday - _presentDays).clamp(0.0, double.infinity);
+    int pendingDaysCount = 0;
+    for (final record in _attendanceRecords) {
+      final status = (record['status'] as String? ?? '').trim().toLowerCase();
+      if (status == 'pending') pendingDaysCount++;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This Month Net Salary',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            currencyFormat.format(displayThisMonthNet),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Divider(color: Colors.white24, thickness: 1),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _buildOverviewStatChip(
+                'Present: ${_formatDayChip(_presentDays)}',
+                Colors.green,
+              ),
+              _buildOverviewStatChip(
+                'Half Day: $_halfDayPaidLeaveCount',
+                Colors.blue,
+              ),
+              _buildOverviewStatChip(
+                'Leave: ${_formatDayChip(_leaveDays)}',
+                Colors.orange,
+              ),
+              _buildOverviewStatChip(
+                'Absent: ${_formatDayChip(absentForChips)}',
+                Colors.red,
+              ),
+              if (pendingDaysCount > 0)
+                _buildOverviewStatChip(
+                  'Pending: $pendingDaysCount',
+                  Colors.orange,
+                ),
+            ],
+          ),
+          if (_leaveDays > 0) ...[
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Text(
+                'Leave = approved leave days this month (from attendance).',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.85),
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _formatDayChip(num value) {
+    final d = value.toDouble();
+    return d == d.roundToDouble() ? '${d.toInt()}' : d.toStringAsFixed(1);
+  }
+
+  Widget _buildOverviewStatChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatCard(
     String title,
     String value,
     String subtitle,
-    Color bgColor,
-  ) {
+    Color bgColor, {
+    Color? textColor,
+    bool usePrimaryGradient = false,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: usePrimaryGradient
+            ? LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: usePrimaryGradient ? null : bgColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200, width: 1),
+        border: usePrimaryGradient
+            ? null
+            : Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
+            color: usePrimaryGradient
+                ? AppColors.primary.withOpacity(0.3)
+                : Colors.black.withOpacity(0.05),
+            blurRadius: usePrimaryGradient ? 8 : 10,
             offset: const Offset(0, 4),
           ),
         ],
@@ -870,8 +1095,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.black,
+            style: TextStyle(
+              color: textColor ?? Colors.black,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -885,7 +1110,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             child: Text(
               value,
               style: TextStyle(
-                color: AppColors.success,
+                color: textColor ?? AppColors.success,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -895,7 +1120,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           Flexible(
             child: Text(
               subtitle,
-              style: const TextStyle(color: Colors.black, fontSize: 9),
+              style: TextStyle(color: textColor ?? Colors.black, fontSize: 9),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
@@ -911,21 +1136,28 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     }
 
     final working = _workingDaysInfo!.workingDays;
+    final thisMonthWorking = _workingDaysInfo!.workingDaysFullMonth;
     final present = _presentDays;
-    final absent = working - present;
+    final absent = (working - present).clamp(0.0, double.infinity);
+    final absentStr = absent == absent.roundToDouble()
+        ? '${absent.toInt()}'
+        : absent.toStringAsFixed(1);
     final holidays = _workingDaysInfo!.holidayCount;
     final percent = _proratedSalary!.attendancePercentage;
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
+            color: AppColors.primary.withOpacity(0.3),
+            blurRadius: 8,
             offset: const Offset(0, 4),
           ),
         ],
@@ -942,6 +1174,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
+                    color: Colors.white,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -950,12 +1183,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: Colors.white.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   '${percent.toStringAsFixed(1)}%',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
@@ -968,21 +1204,34 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 spacing: narrow ? 8 : 16,
                 runSpacing: 8,
                 children: [
-                  _buildAttStat('Working Days', '$working'),
+                  _buildAttStat('Working Days', '$working', isPrimaryCard: true),
+                  if (thisMonthWorking != null)
+                    _buildAttStat('This Month W.D.', '$thisMonthWorking', isPrimaryCard: true),
                   _buildAttStat(
                     'Present Days',
                     '$present',
                     color: Colors.green,
+                    isPrimaryCard: true,
                   ),
-                  _buildAttStat('Absent Days', '$absent', color: Colors.red),
-                  _buildAttStat('Holidays', '$holidays', color: Colors.orange),
+                  _buildAttStat('Absent Days', absentStr, color: Colors.red, isPrimaryCard: true),
+                  if (_halfDayPaidLeaveCount > 0)
+                    _buildAttStat('Half day paid leave', '$_halfDayPaidLeaveCount', isPrimaryCard: true),
+                  if (_leaveDays > 0)
+                    _buildAttStat(
+                      'Leave days',
+                      _leaveDays == _leaveDays.roundToDouble()
+                          ? '${_leaveDays.toInt()}'
+                          : _leaveDays.toStringAsFixed(1),
+                      isPrimaryCard: true,
+                    ),
+                  _buildAttStat('Holidays', '$holidays', color: Colors.orange, isPrimaryCard: true),
                 ],
               );
             },
           ),
           // Fine Summary
           if (_fineInfo['totalFineAmount'] > 0) ...[
-            const Divider(height: 24),
+            Divider(height: 24, color: Colors.white.withOpacity(0.5)),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -996,13 +1245,13 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
-                          color: Colors.red[700],
+                          color: Colors.red.shade200,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         '${_fineInfo['lateDays']} late day(s) • ${_fineInfo['totalLateMinutes']} min late',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        style: const TextStyle(fontSize: 10, color: Colors.white70),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
@@ -1016,7 +1265,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: Colors.red[700],
+                    color: Colors.red.shade200,
                   ),
                 ),
               ],
@@ -1027,293 +1276,688 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     );
   }
 
-  Widget _buildAttStat(String label, String val, {Color? color}) {
+  Widget _buildAttStat(String label, String val, {Color? color, bool isPrimaryCard = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isPrimaryCard ? Colors.white70 : Colors.grey,
+          ),
+        ),
         const SizedBox(height: 4),
         Text(
           val,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 12,
-            color: color ?? Colors.black87,
+            color: isPrimaryCard ? Colors.white : (color ?? Colors.black87),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildEarningsDeductions() {
-    if (_calculatedSalary == null) {
+  Widget _buildDailyBreakdownOverview() {
+    if (_calculatedSalary == null ||
+        _workingDaysInfo == null ||
+        _proratedSalary == null) {
       return const SizedBox.shrink();
     }
+    final thisMonthWorkingDays =
+        _workingDaysInfo!.workingDaysFullMonth ?? _workingDaysInfo!.workingDays;
+    if (thisMonthWorkingDays <= 0) return const SizedBox.shrink();
 
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
-
-    // Build earnings list from calculated salary
-    final List<Map<String, dynamic>> earnings = [];
-    if (_calculatedSalary!.monthly.basicSalary > 0) {
-      earnings.add({
-        'name': 'Basic Salary',
-        'amount': _calculatedSalary!.monthly.basicSalary,
-      });
-    }
-    if (_calculatedSalary!.monthly.dearnessAllowance > 0) {
-      earnings.add({
-        'name': 'DA',
-        'amount': _calculatedSalary!.monthly.dearnessAllowance,
-      });
-    }
-    if (_calculatedSalary!.monthly.houseRentAllowance > 0) {
-      earnings.add({
-        'name': 'HRA',
-        'amount': _calculatedSalary!.monthly.houseRentAllowance,
-      });
-    }
-    if (_calculatedSalary!.monthly.specialAllowance > 0) {
-      earnings.add({
-        'name': 'Special Allowance',
-        'amount': _calculatedSalary!.monthly.specialAllowance,
-      });
-    }
-    if (_calculatedSalary!.monthly.employerPF > 0) {
-      earnings.add({
-        'name': 'Employer PF',
-        'amount': _calculatedSalary!.monthly.employerPF,
-      });
-    }
-    if (_calculatedSalary!.monthly.employerESI > 0) {
-      earnings.add({
-        'name': 'Employer ESI',
-        'amount': _calculatedSalary!.monthly.employerESI,
-      });
-    }
-
-    // Build deductions list from calculated salary
-    final List<Map<String, dynamic>> deductions = [];
-    if (_calculatedSalary!.monthly.employeePF > 0) {
-      deductions.add({
-        'name': 'Employee PF',
-        'amount': _calculatedSalary!.monthly.employeePF,
-      });
-    }
-    if (_calculatedSalary!.monthly.employeeESI > 0) {
-      deductions.add({
-        'name': 'Employee ESI',
-        'amount': _calculatedSalary!.monthly.employeeESI,
-      });
-    }
-    if (_fineInfo['totalFineAmount'] > 0) {
-      deductions.add({
-        'name': 'Late Login Fine',
-        'amount': _fineInfo['totalFineAmount'] as double,
-      });
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Earnings
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Monthly Earnings',
-                style: TextStyle(
-                  color: Colors.green,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade100),
-                ),
-                child: Column(
-                  children: [
-                    if (earnings.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(
-                          'No earnings data',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ...((earnings as List)
-                        .map(
-                          (e) => _buildRow(
-                            e['name'] ?? 'Item',
-                            e['amount']?.toDouble() ?? 0,
-                            currencyFormat,
-                          ),
-                        )
-                        .toList()),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        // Deductions
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Monthly Deductions',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade100),
-                ),
-                child: Column(
-                  children: [
-                    if (deductions.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(
-                          'No deductions',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ...((deductions as List)
-                        .map(
-                          (e) => _buildRow(
-                            e['name'] ?? 'Item',
-                            e['amount']?.toDouble() ?? 0,
-                            currencyFormat,
-                          ),
-                        )
-                        .toList()),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRow(String label, double amount, NumberFormat format) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 2,
-            ),
-          ),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                format.format(amount),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTotalCTC() {
-    if (_calculatedSalary == null) {
-      return const SizedBox.shrink();
-    }
-
-    final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
-
-    // Get values from calculated salary structure
-    final annualGrossSalary = _calculatedSalary!.yearly.annualGrossSalary;
-    final annualIncentive = _calculatedSalary!.yearly.annualIncentive;
-    final annualBenefits = _calculatedSalary!.yearly.totalAnnualBenefits;
-    final annualMobileAllowance =
-        _calculatedSalary!.yearly.annualMobileAllowance;
-    final ctc = _calculatedSalary!.totalCTC;
+    final dailySalary = _calculatedSalary!.monthly.netMonthlySalary /
+        thisMonthWorkingDays;
+    final monthIndex = _months.indexOf(_selectedMonth);
+    final year = int.parse(_selectedYear);
+    final lastDay = DateTime(year, monthIndex + 2, 0).day;
+    final holidayDateSet = _holidays
+        .map((d) => DateFormat('yyyy-MM-dd').format(d))
+        .toSet();
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Total CTC (Annual)',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 11,
-              color: Colors.black87,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Daily Breakdown',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          _buildRow('Annual Gross Salary', annualGrossSalary, currencyFormat),
-          if (annualIncentive > 0) ...[
-            const SizedBox(height: 8),
-            _buildRow('Annual Incentive', annualIncentive, currencyFormat),
-          ],
-          if (annualBenefits > 0) ...[
-            const SizedBox(height: 8),
-            _buildRow('Annual Benefits', annualBenefits, currencyFormat),
-          ],
-          if (annualMobileAllowance > 0) ...[
-            const SizedBox(height: 8),
-            _buildRow(
-              'Mobile Allowance',
-              annualMobileAllowance,
-              currencyFormat,
-            ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Total CTC',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-              ),
-              Text(
-                currencyFormat.format(ctc),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: AppColors.primary,
-                ),
-              ),
-            ],
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: lastDay,
+            separatorBuilder: (context, index) =>
+                Divider(height: 1, color: Colors.grey.shade200),
+            itemBuilder: (context, index) {
+              final day = index + 1;
+              final date = DateTime(year, monthIndex + 1, day);
+              final dateStr = DateFormat('yyyy-MM-dd').format(date);
+
+              Map<String, dynamic>? record;
+              for (final r in _attendanceRecords) {
+                if (r == null || r is! Map) continue;
+                try {
+                  final d = DateTime.parse(r['date'].toString()).toLocal();
+                  if (d.year == year && d.month == monthIndex + 1 && d.day == day) {
+                    record = Map<String, dynamic>.from(r);
+                    break;
+                  }
+                } catch (e) {
+                  // skip
+                }
+              }
+
+              final isHoliday = holidayDateSet.contains(dateStr);
+              final isWeekOff = _weekOffDates.contains(dateStr);
+              final isLeave = _leaveDates.contains(dateStr);
+
+              // Show details only for Present, Approved, or On Leave (same as Month Salary Details)
+              final recordStatus =
+                  (record?['status'] as String? ?? '').trim().toLowerCase();
+              final canShowDetails = record != null &&
+                  !isWeekOff &&
+                  !isHoliday &&
+                  (recordStatus == 'present' ||
+                      recordStatus == 'approved' ||
+                      recordStatus == 'on leave');
+
+              return _buildDailyBreakdownDayRow(
+                date,
+                record,
+                currencyFormat,
+                dailySalary,
+                isHoliday: isHoliday,
+                isWeekOff: isWeekOff,
+                isLeave: isLeave,
+                onTapDetails: canShowDetails
+                    ? () => _showDayDetails(
+                          context,
+                          date,
+                          record!,
+                          currencyFormat,
+                          dailySalary,
+                        )
+                    : null,
+              );
+            },
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDailyBreakdownDayRow(
+    DateTime date,
+    Map<String, dynamic>? record,
+    NumberFormat currencyFormat,
+    double dailySalary, {
+    bool isHoliday = false,
+    bool isWeekOff = false,
+    bool isLeave = false,
+    VoidCallback? onTapDetails,
+  }) {
+    final dayName = DateFormat('EEE').format(date);
+    final dateStr = DateFormat('dd MMM').format(date);
+
+    String status = 'Not Marked';
+    Color statusColor = Colors.grey;
+    double salaryForDay = 0;
+    double fineAmount = 0;
+    int fineMinutes = 0;
+    IconData statusIcon = Icons.help_outline;
+
+    if (isHoliday) {
+      status = 'Holiday';
+      statusColor = Colors.orange;
+      statusIcon = Icons.celebration;
+    } else if (isWeekOff) {
+      status = 'Week Off';
+      statusColor = Colors.purple;
+      statusIcon = Icons.weekend;
+    } else if (record != null) {
+      final recordStatus =
+          (record['status'] as String? ?? '').trim().toLowerCase();
+      final leaveType =
+          (record['leaveType'] as String? ?? '').trim().toLowerCase();
+      final isHalfDay =
+          recordStatus == 'half day' || leaveType == 'half day';
+
+      if (recordStatus == 'present' || recordStatus == 'approved') {
+        if (isHalfDay) {
+          status = 'Half Day';
+          statusColor = Colors.blue;
+          statusIcon = Icons.schedule;
+          salaryForDay = dailySalary * 0.5;
+        } else {
+          status = AttendanceDisplayUtil.formatAttendanceDisplayStatus(
+            record['status'],
+            record['leaveType'],
+          );
+          statusColor = Colors.green;
+          statusIcon = Icons.check_circle;
+          salaryForDay = dailySalary;
+        }
+        final dateKey = DateFormat('yyyy-MM-dd').format(date);
+        fineAmount = _dailyFineAmounts[dateKey] ??
+            (record['fineAmount'] as num?)?.toDouble() ??
+            0.0;
+        fineMinutes = (record['lateMinutes'] as num?)?.toInt() ??
+            (record['fineHours'] as num?)?.toInt() ??
+            0;
+      } else if (recordStatus == 'on leave') {
+        status = 'On Leave';
+        statusColor = Colors.blue;
+        statusIcon = Icons.event_busy;
+        salaryForDay = 0;
+        fineAmount = 0;
+      } else if (recordStatus == 'absent' || recordStatus == 'rejected') {
+        status = 'Absent';
+        statusColor = Colors.red;
+        statusIcon = Icons.cancel;
+        salaryForDay = 0;
+        fineAmount = 0;
+      } else if (recordStatus == 'pending') {
+        status = 'Pending';
+        statusColor = Colors.orange;
+        statusIcon = Icons.pending;
+        salaryForDay = 0;
+        fineAmount = 0;
+      }
+    } else if (isLeave) {
+      status = 'On Leave';
+      statusColor = Colors.blue;
+      statusIcon = Icons.event_busy;
+    } else {
+      final now = DateTime.now();
+      if (date.isAfter(DateTime(now.year, now.month, now.day))) {
+        status = 'Future';
+        statusColor = Colors.grey;
+        statusIcon = Icons.schedule;
+      }
+    }
+
+    final canShowDetails = onTapDetails != null;
+
+    final content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: record != null ? Colors.transparent : Colors.grey.shade50,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 60,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  dateStr,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                Text(
+                  dayName,
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Row(
+              children: [
+                Icon(statusIcon, size: 16, color: statusColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: statusColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (salaryForDay > 0)
+                Text(
+                  currencyFormat.format(salaryForDay),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+              if (fineAmount > 0) ...[
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      size: 11,
+                      color: Colors.red.shade700,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        fineMinutes > 0
+                            ? 'Late login fine: ${currencyFormat.format(fineAmount)} ($fineMinutes min)'
+                            : 'Late login fine: ${currencyFormat.format(fineAmount)}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.red.shade700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              // Net row when both salary and fine exist (same as Month Salary Details)
+              if (salaryForDay > 0 && fineAmount > 0) ...[
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Net: ${currencyFormat.format(salaryForDay - fineAmount)}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (canShowDetails) ...[
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
+          ],
+        ],
+      ),
+    );
+
+    if (canShowDetails) {
+      return InkWell(
+        onTap: onTapDetails!,
+        child: content,
+      );
+    }
+    return content;
+  }
+
+  void _showDayDetails(
+    BuildContext context,
+    DateTime date,
+    Map<String, dynamic> record,
+    NumberFormat currencyFormat,
+    double dailySalary,
+  ) {
+    final dateStr = DateFormat('EEEE, dd MMMM yyyy').format(date);
+    final status = record['status'] ?? 'N/A';
+    final leaveType = record['leaveType'];
+    final punchIn = record['punchIn'];
+    final punchOut = record['punchOut'];
+    final address = record['address'];
+    final workHours = record['workHours'];
+    final lateMinutes = record['lateMinutes'] ?? 0;
+    final fineAmount = (record['fineAmount'] as num?)?.toDouble() ??
+        _dailyFineAmounts[DateFormat('yyyy-MM-dd').format(date)] ??
+        0.0;
+
+    String formatTime(String? isoString) {
+      if (isoString == null) return 'Not recorded';
+      try {
+        final dateTime = DateTime.parse(isoString).toLocal();
+        return DateFormat('hh:mm:ss a').format(dateTime);
+      } catch (e) {
+        return 'Invalid time';
+      }
+    }
+
+    final recordStatus = (status as String).trim().toLowerCase();
+    final recordLeaveType = (leaveType as String? ?? '').trim().toLowerCase();
+    final isHalfDay =
+        recordStatus == 'half day' || recordLeaveType == 'half day';
+
+    double salaryForDay = 0;
+    double actualFineAmount = 0;
+    int actualLateMinutes = lateMinutes;
+
+    if (recordStatus == 'present' || recordStatus == 'approved') {
+      salaryForDay = isHalfDay ? dailySalary * 0.5 : dailySalary;
+      actualFineAmount = fineAmount;
+      actualLateMinutes = lateMinutes;
+    } else {
+      salaryForDay = 0;
+      actualFineAmount = 0;
+      actualLateMinutes = 0;
+    }
+
+    String formatWorkHoursAsMins(num workHours) {
+      final d = workHours.toDouble();
+      if (d <= 0) return '0 mins';
+      int mins;
+      if (d < 24 && (d - d.truncate()).abs() > 0.001) {
+        mins = (d * 60).round();
+      } else {
+        mins = d.round();
+      }
+      return '$mins min${mins == 1 ? '' : 's'}';
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green),
+                    ),
+                    child: Text(
+                      AttendanceDisplayUtil.formatAttendanceDisplayStatus(
+                        status,
+                        leaveType,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildDayDetailSection(
+                      'Salary Information',
+                      Icons.account_balance_wallet,
+                      [
+                        _buildDayDetailRow(
+                          'Daily Salary Rate',
+                          currencyFormat.format(dailySalary),
+                        ),
+                        if (salaryForDay > 0)
+                          _buildDayDetailRow(
+                            'Salary Earned',
+                            currencyFormat.format(salaryForDay),
+                            valueColor: Colors.green,
+                            isBold: true,
+                          ),
+                        if (actualFineAmount > 0) ...[
+                          const Divider(height: 16),
+                          _buildDayDetailRow(
+                            'Late Login Fine',
+                            '- ${currencyFormat.format(actualFineAmount)}',
+                            valueColor: Colors.red,
+                            isBold: true,
+                          ),
+                          if (actualLateMinutes > 0)
+                            _buildDayDetailRow(
+                              'Late By',
+                              '$actualLateMinutes minutes',
+                              valueColor: Colors.red.shade600,
+                            ),
+                        ],
+                        if (salaryForDay > 0) ...[
+                          const Divider(height: 16),
+                          _buildDayDetailRow(
+                            'Net Salary (After Fine)',
+                            currencyFormat.format(salaryForDay - actualFineAmount),
+                            valueColor: Colors.green.shade700,
+                            isBold: true,
+                          ),
+                        ],
+                        if (salaryForDay == 0 &&
+                            recordStatus != 'present' &&
+                            recordStatus != 'approved') ...[
+                          const Divider(height: 16),
+                          _buildDayDetailRow(
+                            'Note',
+                            'No salary for ${status.toLowerCase()} status',
+                            valueColor: Colors.grey.shade700,
+                            isFullWidth: true,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    _buildDayDetailSection(
+                      'Attendance Details',
+                      Icons.access_time,
+                      [
+                        _buildDayDetailRow('Punch In', formatTime(punchIn)),
+                        _buildDayDetailRow('Punch Out', formatTime(punchOut)),
+                        if (workHours != null)
+                          _buildDayDetailRow(
+                            'Work Hours',
+                            formatWorkHoursAsMins(workHours as num),
+                          ),
+                        if (actualLateMinutes > 0 && actualFineAmount > 0) ...[
+                          const Divider(height: 16),
+                          _buildDayDetailRow(
+                            'Late Minutes',
+                            '$actualLateMinutes minutes',
+                            valueColor: Colors.red.shade600,
+                          ),
+                          _buildDayDetailRow(
+                            'Fine Applied',
+                            currencyFormat.format(actualFineAmount),
+                            valueColor: Colors.red,
+                            isBold: true,
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (address != null) ...[
+                      const SizedBox(height: 20),
+                      _buildDayDetailSection('Location', Icons.location_on, [
+                        _buildDayDetailRow('Address', address, isFullWidth: true),
+                      ]),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDayDetailSection(
+    String title,
+    IconData icon,
+    List<Widget> children,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDayDetailRow(
+    String label,
+    String value, {
+    Color? valueColor,
+    bool isBold = false,
+    bool isFullWidth = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: isFullWidth
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+                    color: valueColor ?? Colors.black87,
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Flexible(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+                      color: valueColor ?? Colors.black87,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
     );
   }
 

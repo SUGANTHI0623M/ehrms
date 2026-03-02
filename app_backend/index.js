@@ -14,6 +14,7 @@ const chatbotRoutes = require('./src/routes/chatbotRoutes');
 const holidayRoutes = require('./src/routes/holidayRoutes');
 const onboardingRoutes = require('./src/routes/onboardingRoutes');
 const assetsRoutes = require('./src/routes/assetsRoutes');
+const announcementRoutes = require('./src/routes/announcementRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -21,10 +22,10 @@ app.set('trust proxy', 1);
 app.use(helmet());
 //cors
 // Configure CORS
-const allowedOrigins = ['https://ehrms.askeva.io', 'http://ehrms.askeva.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+//const allowedOrigins = ['https://ehrms.askeva.io', 'http://ehrms.askeva.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
 
 // Configure CORS
-//const allowedOrigins = ['https://ehrms.askeva.net', 'http://ehrms.askeva.net', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+const allowedOrigins = ['https://ehrms.askeva.net', 'http://ehrms.askeva.net', 'http://localhost:8080', 'http://127.0.0.1:8080'];
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -56,6 +57,7 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/assets', assetsRoutes);
+app.use('/api/announcements', announcementRoutes);
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

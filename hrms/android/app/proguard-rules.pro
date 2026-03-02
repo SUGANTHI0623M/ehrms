@@ -16,4 +16,4 @@
 }
 
 # Keep MainActivity
--keep class io.askeva.ehrms.MainActivity { *; }
+-keep class io.askeva.ektahr.MainActivity { *; }

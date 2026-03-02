@@ -40,9 +40,12 @@ const loanSchema = new mongoose.Schema({
     },
     approvedBy: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User' // Web Backend refs 'Staff', but typically approval is by User/Role. We'll support both via User for now or check Reference.
+        ref: 'User'
     },
     approvedAt: Date,
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectedAt: { type: Date },
+    rejectionReason: { type: String },
     startDate: Date,
     endDate: Date,
     remainingAmount: {
@@ -58,7 +61,9 @@ const loanSchema = new mongoose.Schema({
     businessId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Company'
-    }
+    },
+    fcmNotificationSentAt: { type: Date },
+    fcmRejectionSentAt: { type: Date }
 }, {
     timestamps: true
 });

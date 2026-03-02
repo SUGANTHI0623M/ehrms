@@ -1,13 +1,25 @@
-
 //dashboard logics
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
 const Loan = require('../models/Loan');
 const Payroll = require('../models/Payroll');
-
 const Company = require('../models/Company');
 const HolidayTemplate = require('../models/HolidayTemplate');
+const Announcement = require('../models/Announcement');
+const { calculateAttendanceStats } = require('./payrollController');
+
+/** Get month/day for comparison (birthday/anniversary). */
+function getMonthDay(d) {
+    return [d.getMonth(), d.getDate()];
+}
+
+/** Next occurrence of month/day in or after refDate (for upcoming). */
+function nextOccurrence(refDate, month, day) {
+    const thisYear = new Date(refDate.getFullYear(), month, day);
+    if (thisYear >= refDate) return thisYear;
+    return new Date(refDate.getFullYear() + 1, month, day);
+}
 
 // @desc    Get Dashboard Stats for generic use (kept for compatibility)
 const getDashboardStats = async (req, res) => {
@@ -82,135 +94,14 @@ const getEmployeeDashboardStats = async (req, res) => {
             date: { $gte: startOfMonth, $lte: endOfMonth }
         });
 
-        // Calculate Present Days with specific Half Day logic
-        // Rule: Check both Attendance and Leave collections for Half Day
-        // Filter leaves by date range to avoid including leaves from other months
-        const leaveRecords = await Leave.find({
-            employeeId: staffId,
-            status: { $regex: /^approved$/i },
-            $or: [
-                { startDate: { $gte: startOfMonth, $lte: endOfMonth } },
-                { endDate: { $gte: startOfMonth, $lte: endOfMonth } },
-                { startDate: { $lte: startOfMonth }, endDate: { $gte: endOfMonth } }
-            ]
-        }).lean();
+        // Use same attendance stats as payslip and salary overview (single source of truth)
+        const attendanceStats = await calculateAttendanceStats(staffId, month, year);
+        const totalWorkingDays = attendanceStats.workingDays || 0;
+        const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? totalWorkingDays;
+        const presentDays = attendanceStats.presentDays || 0;
+        const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - presentDays);
 
-        const dateMap = {};
-
-        // 1. Process Attendance Records
-        monthAttendance.forEach(a => {
-            if (!a.date) return;
-            const d = new Date(a.date).toISOString().split('T')[0];
-            const status = (a.status || '').trim().toLowerCase();
-            const leaveType = (a.leaveType || '').trim().toLowerCase();
-            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
-        });
-
-        // 2. Process Leave Records for Half Day
-        leaveRecords.forEach(l => {
-            const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
-            if (isHalfDayLeave) {
-                const start = new Date(Math.max(new Date(l.startDate), startOfMonth));
-                const end = new Date(Math.min(new Date(l.endDate), endOfMonth));
-                let curr = new Date(start);
-                while (curr <= end) {
-                    const d = curr.toISOString().split('T')[0];
-                    if (!dateMap[d]) dateMap[d] = {};
-                    dateMap[d].hasHalfDayLeave = true;
-                    curr.setDate(curr.getDate() + 1);
-                }
-            }
-        });
-
-        // 3. Calculate Weighted Present Days
-        // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
-        // Full day present/approved (and NOT half day) -> 1.0
-        const presentDays = Object.values(dateMap).reduce((sum, data) => {
-            const status = data.attendanceStatus || '';
-            const attLeaveType = data.attendanceLeaveType || '';
-            const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
-            if (isHalfDay) return sum + 0.5;
-            if (status === 'present' || status === 'approved') return sum + 1;
-            return sum;
-        }, 0);
-
-        // --- HALF-DAY SALARY DEBUG LOGS ---
-        console.log(`[getEmployeeDashboardStats] ========== HALF-DAY SALARY DEBUG ==========`);
-        console.log(`[getEmployeeDashboardStats] staffId: ${staffId}, staff.name: ${staff?.name}`);
-        console.log(`[getEmployeeDashboardStats] month: ${month}, year: ${year}`);
-        console.log(`[getEmployeeDashboardStats] monthAttendance count: ${monthAttendance.length}`);
-        monthAttendance.forEach((a, i) => console.log(`[getEmployeeDashboardStats]   att[${i}] date: ${a.date?.toISOString?.()?.split('T')[0]}, status: "${a.status}"`));
-        console.log(`[getEmployeeDashboardStats] leaveRecords count: ${leaveRecords.length}`);
-        console.log(`[getEmployeeDashboardStats] dateMap: ${JSON.stringify(dateMap)}`);
-        console.log(`[getEmployeeDashboardStats] presentDays: ${presentDays}`);
-
-        // Fetch Business settings for week-offs
-        const company = await Company.findById(staff.businessId);
-        const businessSettings = company?.settings?.business || {};
-        const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-        const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
-
-        // Fetch holidays
-        const holidayTemplate = await HolidayTemplate.findOne({
-            businessId: staff.businessId,
-            isActive: true
-        });
-
-        let holidays = [];
-        if (holidayTemplate) {
-            holidays = (holidayTemplate.holidays || []).filter(h => {
-                const d = new Date(h.date);
-                return d.getFullYear() == year && (d.getMonth() + 1) == month;
-            });
-        }
-
-        // Calculate Working Days in Month since JoiningDate up to today
-        let totalWorkingDays = 0;
-        const joiningDate = staff.joiningDate ? new Date(staff.joiningDate) : null;
-        if (joiningDate) {
-            joiningDate.setHours(0, 0, 0, 0); // Normalize to midnight local time
-        }
-
-        const lastDayToCount = now.getDate(); // Stop at today for the current month
-
-        for (let d = 1; d <= lastDayToCount; d++) {
-            const date = new Date(year, month - 1, d);
-            date.setHours(0, 0, 0, 0); // Normalize to midnight local time
-
-            // Check if day is on or after joining date
-            if (joiningDate && date < joiningDate) {
-                continue; // Skip days before joining
-            }
-
-            const dayOfWeek = date.getDay();
-            let isWeekOff = false;
-
-            if (weeklyOffPattern === 'oddEvenSaturday') {
-                if (dayOfWeek === 0) {
-                    isWeekOff = true;
-                } else if (dayOfWeek === 6) {
-                    if (d % 2 === 0) {
-                        isWeekOff = true;
-                    }
-                }
-            } else {
-                isWeekOff = weeklyHolidays.some(h => h.day === dayOfWeek);
-            }
-
-            if (!isWeekOff) {
-                const isHoliday = holidays.some(h => {
-                    const hd = new Date(h.date);
-                    return hd.getDate() === d;
-                });
-
-                if (!isHoliday) {
-                    totalWorkingDays++;
-                }
-            }
-        }
-
-        console.log(`[getEmployeeDashboardStats] joiningDate: ${joiningDate?.toISOString?.() || 'null'}, lastDayToCount: ${lastDayToCount}`);
-        console.log(`[getEmployeeDashboardStats] totalWorkingDays: ${totalWorkingDays}`);
+        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): thisMonthWD=${thisMonthWorkingDays}, workingDaysTillToday=${totalWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
 
         // 3. Leave Metrics
         const pendingLeavesCount = await Leave.countDocuments({
@@ -241,6 +132,112 @@ const getEmployeeDashboardStats = async (req, res) => {
 
         const activeLoans = activeLoansList.length;
 
+        // 4b. Today's announcements (web: audienceType/targetStaffIds/publishDate/status published; legacy: assignedTo/effectiveDate/Active)
+        let todayAnnouncements = [];
+        if (staff && staff.businessId) {
+            const announcementDateFilter = {
+                $and: [
+                    { $or: [{ publishDate: { $exists: true, $lte: endOfToday } }, { effectiveDate: { $exists: true, $lte: endOfToday } }] },
+                    { $or: [{ expiryDate: null }, { expiryDate: { $exists: false } }, { expiryDate: { $gte: startOfToday } }] },
+                    { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: startOfToday } }] },
+                ],
+            };
+            const announcementAudienceFilter = {
+                $or: [
+                    { audienceType: { $exists: false } },
+                    { audienceType: null },
+                    { audienceType: 'all' },
+                    { audienceType: { $ne: 'specific' } },
+                    { audienceType: 'specific', targetStaffIds: staffId },
+                    { assignedTo: { $exists: false } },
+                    { assignedTo: null },
+                    { assignedTo: [] },
+                    { assignedTo: { $size: 0 } },
+                    { assignedTo: staffId },
+                ],
+            };
+            todayAnnouncements = await Announcement.find({
+                businessId: staff.businessId,
+                status: { $in: ['published', 'Active'] },
+                $and: [announcementDateFilter, announcementAudienceFilter],
+            })
+                .sort({ publishDate: -1, effectiveDate: -1, createdAt: -1 })
+                .limit(20)
+                .select('title subject description fromName coverImage publishDate effectiveDate endDate expiryDate createdAt')
+                .lean();
+            console.log('[Dashboard] todayAnnouncements: staffId=%s, staffName=%s, businessId=%s, count=%d, titles=%s', staffId, staff?.name, staff.businessId, todayAnnouncements.length, todayAnnouncements.map(a => a.title).join(', ') || '(none)');
+        }
+
+        // 4c. Today's and upcoming celebrations (birthdays, work anniversaries) – same business
+        const todayCelebrations = [];
+        const upcomingCelebrations = [];
+        const todayMonth = now.getMonth();
+        const todayDay = now.getDate();
+        const upcomingDays = 30;
+
+        if (staff && staff.businessId) {
+            const allStaff = await Staff.find({
+                businessId: staff.businessId,
+                status: 'Active',
+                $or: [{ dob: { $ne: null, $exists: true } }, { joiningDate: { $ne: null, $exists: true } }],
+            })
+                .select('name avatar dob joiningDate')
+                .lean();
+
+            for (const s of allStaff) {
+                if (s.dob) {
+                    const d = new Date(s.dob);
+                    const bMonth = d.getMonth();
+                    const bDay = d.getDate();
+                    const nextBday = nextOccurrence(now, bMonth, bDay);
+                    const daysLeft = Math.ceil((nextBday - now) / (24 * 60 * 60 * 1000));
+                    const isToday = bMonth === todayMonth && bDay === todayDay;
+                    const item = {
+                        type: 'birthday',
+                        name: s.name,
+                        date: s.dob,
+                        displayDate: `${bDay} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][bMonth]}`,
+                        daysLeft: isToday ? 0 : daysLeft,
+                        avatar: s.avatar,
+                    };
+                    if (isToday) todayCelebrations.push(item);
+                    else if (daysLeft > 0 && daysLeft <= upcomingDays) upcomingCelebrations.push(item);
+                }
+                if (s.joiningDate) {
+                    const d = new Date(s.joiningDate);
+                    const jMonth = d.getMonth();
+                    const jDay = d.getDate();
+                    const nextAnniv = nextOccurrence(now, jMonth, jDay);
+                    const yearsOfService = nextAnniv.getFullYear() - d.getFullYear();
+                    // Only show work anniversary after completing at least 1 full year from joining date.
+                    // E.g. joining 27 Feb 2026 → 1st anniversary on 27 Feb 2027 (must be on or after 27 Feb 2027).
+                    const oneYearAfterJoining = new Date(d.getFullYear() + 1, jMonth, jDay);
+                    const hasCompletedOneYear = now >= oneYearAfterJoining;
+                    if (!hasCompletedOneYear || yearsOfService < 1) {
+                        console.log('[Dashboard] Anniversary skipped: name=%s joiningDate=%s oneYearAfter=%s hasCompletedOneYear=%s yearsOfService=%d', s.name, d.toISOString().slice(0, 10), oneYearAfterJoining.toISOString().slice(0, 10), hasCompletedOneYear, yearsOfService);
+                        continue;
+                    }
+                    const daysLeft = Math.ceil((nextAnniv - now) / (24 * 60 * 60 * 1000));
+                    const isToday = jMonth === todayMonth && jDay === todayDay;
+                    const item = {
+                        type: 'anniversary',
+                        name: s.name,
+                        date: s.joiningDate,
+                        displayDate: `${jDay} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][jMonth]}`,
+                        daysLeft: isToday ? 0 : daysLeft,
+                        avatar: s.avatar,
+                        yearsOfService,
+                    };
+                    if (isToday) todayCelebrations.push(item);
+                    else if (daysLeft > 0 && daysLeft <= upcomingDays) upcomingCelebrations.push(item);
+                }
+            }
+            upcomingCelebrations.sort((a, b) => a.daysLeft - b.daysLeft);
+            console.log('[Dashboard] Celebrations: today=%d, upcoming=%d', todayCelebrations.length, upcomingCelebrations.length);
+            todayCelebrations.forEach((c, i) => console.log('[Dashboard]   today[%d]: name=%s type=%s yearsOfService=%s displayDate=%s', i, c.name, c.type, c.yearsOfService ?? 'n/a', c.displayDate));
+            upcomingCelebrations.forEach((c, i) => console.log('[Dashboard]   upcoming[%d]: name=%s type=%s yearsOfService=%s daysLeft=%s displayDate=%s', i, c.name, c.type, c.yearsOfService ?? 'n/a', c.daysLeft, c.displayDate));
+        }
+
         // 5. Payroll info - Use same calculation logic as salary module (till present)
         const payroll = await Payroll.findOne({
             employeeId: staffId,
@@ -265,11 +262,9 @@ const getEmployeeDashboardStats = async (req, res) => {
         let currentMonthSalary = 0;
         let payrollStatus = 'Pending';
 
-        // Use the same calculation logic from payrollController
-        // Note: We use totalWorkingDays and presentDays calculated above (till today, not full month)
+        // Use the same calculation logic as salary overview & payroll: proration = presentDays / this month WD (1 day salary = net/this month WD)
         if (payroll) {
-            // CORRECT METHOD: If payroll exists, recalculate using correct proration method
-            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 1;
+            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 1;
             
             // Get staff salary structure for correct proration
             if (staff && staff.salary) {
@@ -331,9 +326,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             // Net Salary = Gross Salary - Employee Deductions
             const netSalary = grossSalary - totalDeductions;
             
-            // CORRECT METHOD: Calculate prorated values based on attendance till present
-            // Use totalWorkingDays and presentDays calculated above (till today)
-            const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
+            // Same as salary overview: proration = presentDays / this month working days
+            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
             
             // STEP 1: Prorate Gross Fixed Components
             const proratedBasicSalary = basicSalary * prorationFactor;
@@ -358,8 +352,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             currentMonthSalary = proratedGrossSalary - proratedDeductions - totalFineAmount;
         }
 
-        const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
-        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} / totalWorkingDays=${totalWorkingDays})`);
+        const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
+        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} / thisMonthWD=${thisMonthWorkingDays}, same as salary overview)`);
         console.log(`[getEmployeeDashboardStats] currentMonthSalary: ${currentMonthSalary}`);
         console.log(`[getEmployeeDashboardStats] ========================================`);
 
@@ -385,14 +379,20 @@ const getEmployeeDashboardStats = async (req, res) => {
                     } : null,
                     attendanceSummary: {
                         totalDays: totalWorkingDays,
+                        thisMonthWorkingDays: thisMonthWorkingDays,
                         presentDays: presentDays,
-                        absentDays: Math.max(0, totalWorkingDays - presentDays)
+                        absentDays: absentDays,
+                        halfDayPaidLeaveCount: attendanceStats.halfDayPaidLeaveCount ?? 0,
+                        leaveDays: attendanceStats.leaveDays ?? 0
                     },
                     currentMonthSalary: currentMonthSalary,
                     payrollStatus: payrollStatus
                 },
                 recentLeaves: recentLeaves,
-                upcomingTasks: []
+                upcomingTasks: [],
+                todayAnnouncements: todayAnnouncements,
+                todayCelebrations: todayCelebrations,
+                upcomingCelebrations: upcomingCelebrations,
             }
         });
 

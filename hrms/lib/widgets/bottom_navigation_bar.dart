@@ -1,34 +1,47 @@
 // hrms/lib/widgets/bottom_navigation_bar.dart
+// Reusable custom bottom navbar with dark theme and yellow accent (reference-style).
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
 import '../screens/dashboard/dashboard_screen.dart';
 
+/// Config for a single nav item.
+class NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+
+  const NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
+}
+
+/// Reusable bottom navigation bar with dark bar, rounded top corners,
+/// and selected icon with yellow circular background.
 class AppBottomNavigationBar extends StatefulWidget {
   final int currentIndex;
   final Function(int)? onTap;
+  final List<NavItem>? items;
 
   const AppBottomNavigationBar({
     super.key,
     this.currentIndex = 0,
     this.onTap,
+    this.items,
   });
 
-  // Helper method to determine current index based on route
   static int getCurrentIndex(BuildContext context) {
     final route = ModalRoute.of(context)?.settings.name;
     if (route == null) return 0;
-
-    // Check if we're on DashboardScreen
     if (route.contains('DashboardScreen')) {
-      // Try to get the current index from the route arguments
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is int) return args;
       return 0;
     }
-
-    // For other screens, return 0 (Dashboard)
     return 0;
   }
 
@@ -53,72 +66,129 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
         final userData = jsonDecode(userString);
         if (mounted) {
           setState(() {
-            _isCandidate = (userData['role'] ?? '').toString().toLowerCase() == 'candidate';
+            _isCandidate =
+                (userData['role'] ?? '').toString().toLowerCase() ==
+                'candidate';
           });
         }
       }
-    } catch (e) {
-      debugPrint('Error checking role: $e');
-    }
+    } catch (_) {}
   }
 
   void _handleNavigation(BuildContext context, int index) {
+    HapticFeedback.lightImpact();
     if (widget.onTap != null) {
       widget.onTap!(index);
     } else {
-      // Navigate to DashboardScreen with the selected index
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => DashboardScreen(initialIndex: index),
-        ),
+        MaterialPageRoute(builder: (_) => DashboardScreen(initialIndex: index)),
         (route) => route.isFirst,
       );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.dashboard_outlined),
-        activeIcon: Icon(Icons.dashboard),
+  List<NavItem> _buildItems() {
+    final base = [
+      const NavItem(
+        icon: Icons.dashboard_outlined,
+        activeIcon: Icons.dashboard_rounded,
         label: 'Dashboard',
       ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.description_outlined),
-        activeIcon: Icon(Icons.description),
+      const NavItem(
+        icon: Icons.description_outlined,
+        activeIcon: Icons.description_rounded,
         label: 'Requests',
       ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.account_balance_wallet_outlined),
-        activeIcon: Icon(Icons.account_balance_wallet),
+      const NavItem(
+        icon: Icons.account_balance_wallet_outlined,
+        activeIcon: Icons.account_balance_wallet_rounded,
         label: 'Salary',
       ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.calendar_today_outlined),
-        activeIcon: Icon(Icons.calendar_today),
+      const NavItem(
+        icon: Icons.calendar_today_outlined,
+        activeIcon: Icons.calendar_today_rounded,
         label: 'Holidays',
       ),
     ];
-
     if (!_isCandidate) {
-      items.add(
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.access_time_outlined),
-          activeIcon: Icon(Icons.access_time_filled),
+      base.add(
+        const NavItem(
+          icon: Icons.access_time_outlined,
+          activeIcon: Icons.access_time_rounded,
           label: 'Attendance',
         ),
       );
     }
+    return base;
+  }
 
-    return BottomNavigationBar(
-      currentIndex: widget.currentIndex,
-      onTap: (index) => _handleNavigation(context, index),
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: AppColors.primary,
-      unselectedItemColor: Colors.black,
-      selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-      items: items,
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items ?? _buildItems();
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
+
+    // Nav bar background: black
+    final barBg = Colors.black;
+    final unselectedColor = const Color(0xFF94A3B8);
+    final selectedColor = AppColors.primary;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+      decoration: BoxDecoration(
+        color: barBg,
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: const Color(0xFF222222), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(items.length, (i) {
+              final item = items[i];
+              final selected = widget.currentIndex == i;
+              return Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _handleNavigation(context, i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: selected ? selectedColor : Colors.transparent,
+                      shape: BoxShape.circle,
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color: selectedColor.withOpacity(0.4),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Icon(
+                      selected ? item.activeIcon : item.icon,
+                      size: 24,
+                      color: selected ? Colors.white : unselectedColor,
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
     );
   }
 }

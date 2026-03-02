@@ -7,7 +7,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:file_picker/file_picker.dart';
 import '../../config/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../services/onboarding_service.dart';
@@ -18,7 +17,14 @@ import '../../utils/snackbar_utils.dart';
 import '../../utils/face_detection_helper.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const ProfileScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -33,7 +39,6 @@ class _ProfileScreenState extends State<ProfileScreen>
   List<dynamic> _documents = [];
   bool _isLoading = true;
   bool _isLoadingDocs = false;
-  String? _uploadingDocumentId;
   bool _profileImageError = false;
   String? _cachedAvatarUrl;
   late TabController _tabController;
@@ -81,6 +86,19 @@ class _ProfileScreenState extends State<ProfileScreen>
           final data = result['data'];
           if (data is Map) {
             _userData = Map<String, dynamic>.from(data);
+            // Update stored user with branchName so app drawer shows branch
+            final branchName =
+                data['branchName']?.toString() ??
+                (data['staffData'] is Map
+                    ? ((data['staffData'] as Map)['branchId'] is Map
+                          ? ((data['staffData'] as Map)['branchId']
+                                    as Map)['branchName']
+                                ?.toString()
+                          : null)
+                    : null);
+            if (branchName != null && branchName.isNotEmpty) {
+              _updateStoredUserBranchName(branchName);
+            }
           } else {
             _userData = null;
           }
@@ -94,6 +112,20 @@ class _ProfileScreenState extends State<ProfileScreen>
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _updateStoredUserBranchName(String branchName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userStr = prefs.getString('user');
+      if (userStr != null) {
+        final user = jsonDecode(userStr) as Map<String, dynamic>?;
+        if (user != null) {
+          user['branchName'] = branchName;
+          await prefs.setString('user', jsonEncode(user));
+        }
+      }
+    } catch (_) {}
   }
 
   Map<String, dynamic>? get _profile {
@@ -149,84 +181,6 @@ class _ProfileScreenState extends State<ProfileScreen>
 
         _isLoadingDocs = false;
       });
-    }
-  }
-
-  Future<void> _uploadDocument(Map<String, dynamic> doc) async {
-    if (_onboardingData == null || _onboardingData!['_id'] == null) {
-      SnackBarUtils.showSnackBar(
-        context,
-        'Onboarding record not found',
-        isError: true,
-      );
-      return;
-    }
-
-    final onboardingId = _onboardingData!['_id'].toString();
-    final documentId = doc['_id']?.toString();
-
-    if (documentId == null) {
-      SnackBarUtils.showSnackBar(
-        context,
-        'Document ID not found',
-        isError: true,
-      );
-      return;
-    }
-
-    try {
-      // Pick file
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'],
-      );
-
-      if (result == null || result.files.single.path == null) {
-        return; // User cancelled
-      }
-
-      final file = File(result.files.single.path!);
-      setState(() {
-        _uploadingDocumentId = documentId;
-      });
-
-      final uploadResult = await _onboardingService.uploadDocument(
-        onboardingId,
-        documentId,
-        file,
-      );
-
-      setState(() {
-        _uploadingDocumentId = null;
-      });
-
-      if (mounted) {
-        if (uploadResult['success']) {
-          SnackBarUtils.showSnackBar(
-            context,
-            'Document uploaded successfully',
-            backgroundColor: AppColors.success,
-          );
-          _loadDocuments(); // Refresh documents list
-        } else {
-          SnackBarUtils.showSnackBar(
-            context,
-            uploadResult['message'] ?? 'Failed to upload document',
-            isError: true,
-          );
-        }
-      }
-    } catch (e) {
-      setState(() {
-        _uploadingDocumentId = null;
-      });
-      if (mounted) {
-        SnackBarUtils.showSnackBar(
-          context,
-          'Error uploading document: $e',
-          isError: true,
-        );
-      }
     }
   }
 
@@ -299,34 +253,27 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      drawer: const AppDrawer(),
+      backgroundColor: colorScheme.surfaceContainerHighest,
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 3,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       appBar: AppBar(
         leading: const MenuIconButton(),
         title: const Text(
           'My Profile',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         elevation: 0,
         centerTitle: true,
-        actions: [
-          // Only show Edit Profile on Personal tab (index 0),
-          // hide it for Exp & Edu and Documents tabs as requested.
-          if (_tabController.index == 0) ...[
-            IconButton(
-              onPressed: () => _showEditProfileDialog(),
-              icon: Icon(Icons.edit_note, size: 28, color: AppColors.primary),
-              tooltip: 'Edit Profile',
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
+        actions: const [],
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: AppColors.primary,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: Colors.black,
+          indicatorColor: colorScheme.primary,
+          labelColor: colorScheme.primary,
+          unselectedLabelColor: colorScheme.onSurfaceVariant,
           indicatorSize: TabBarIndicatorSize.tab,
           labelPadding: const EdgeInsets.symmetric(horizontal: 8),
           indicator: BoxDecoration(
@@ -357,7 +304,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _buildDocumentsTab(),
               ],
             ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      bottomNavigationBar: widget.onNavigateToIndex != null
+          ? null
+          : const AppBottomNavigationBar(currentIndex: 0),
     );
   }
 
@@ -404,6 +353,13 @@ class _ProfileScreenState extends State<ProfileScreen>
             photoUrlStr.startsWith('https://')) &&
         !_profileImageError;
     final joiningDate = _staffData?['joiningDate'];
+    final role = _profile?['role'] ?? _staffData?['role'] ?? 'N/A';
+    final branchName =
+        _userData?['branchName']?.toString() ??
+        (_staffData?['branchId'] is Map
+            ? (_staffData!['branchId'] as Map)['branchName']?.toString()
+            : null) ??
+        'Main Office';
 
     return Container(
       decoration: BoxDecoration(
@@ -428,7 +384,17 @@ class _ProfileScreenState extends State<ProfileScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: _changeProfilePhoto,
+                onTap: () {
+                  if (showPhoto && photoUrlStr != null) {
+                    _showProfilePhotoOptions(
+                      photoUrl: photoUrlStr,
+                      hasPhoto: true,
+                    );
+                  } else {
+                    _changeProfilePhoto();
+                  }
+                },
+                onLongPress: () => _changeProfilePhoto(),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -446,7 +412,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         radius: 40,
                         backgroundColor: Colors.white,
                         backgroundImage: showPhoto
-                            ? NetworkImage(photoUrlStr!)
+                            ? NetworkImage(photoUrlStr)
                             : null,
                         onBackgroundImageError: showPhoto
                             ? (_, __) {
@@ -460,7 +426,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             : Text(
                                 initial,
                                 style: TextStyle(
-                                  fontSize: 32,
+                                  fontSize: 22,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.primary,
                                 ),
@@ -494,7 +460,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     Text(
                       name,
                       style: const TextStyle(
-                        fontSize: 24,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -502,7 +468,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     Text(
                       empId,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 12,
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
@@ -515,23 +481,63 @@ class _ProfileScreenState extends State<ProfileScreen>
                           _buildHeaderBadge(
                             status,
                             Colors.white.withOpacity(0.2),
+                            fontSize: 10,
                           ),
                           if (joiningDate != null) ...[
                             const SizedBox(width: 8),
                             _buildHeaderBadge(
                               'Joined: ${_formatDate(joiningDate)}',
                               Colors.white.withOpacity(0.2),
+                              fontSize: 9,
                             ),
                           ],
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.work_outline_rounded,
+                          color: Colors.white70,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          role,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.95),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(width: 16),
+                        Icon(
+                          Icons.location_on_outlined,
+                          color: Colors.white70,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            branchName,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
                     Text(
                       designation.toUpperCase(),
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        fontSize: 14,
+                        fontSize: 12,
                         color: Colors.white.withOpacity(0.9),
                         letterSpacing: 0.8,
                       ),
@@ -544,20 +550,19 @@ class _ProfileScreenState extends State<ProfileScreen>
           const SizedBox(height: 24),
           const Divider(color: Colors.white24),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.email_outlined, email),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.phone_outlined, phone),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildHeaderInfoItem(Icons.business_outlined, dept),
-              ),
+              if (email.isNotEmpty)
+                _buildHeaderInfoRow(Icons.email_outlined, email, maxLines: 2),
+              if (email.isNotEmpty && (phone.isNotEmpty || dept.isNotEmpty))
+                const SizedBox(height: 12),
+              if (phone.isNotEmpty)
+                _buildHeaderInfoRow(Icons.phone_outlined, phone),
+              if (phone.isNotEmpty && dept.isNotEmpty)
+                const SizedBox(height: 12),
+              if (dept.isNotEmpty)
+                _buildHeaderInfoRow(Icons.business_outlined, dept),
             ],
           ),
         ],
@@ -565,27 +570,29 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildHeaderInfoItem(IconData icon, String text) {
+  Widget _buildHeaderInfoRow(IconData icon, String text, {int maxLines = 1}) {
     if (text.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: Colors.white70, size: 20),
-        const SizedBox(height: 4),
-        Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontSize: 10),
-          maxLines: 1,
-          textAlign: TextAlign.center,
-          overflow: TextOverflow.ellipsis,
+        Icon(icon, color: Colors.white70, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            maxLines: maxLines,
+            textAlign: TextAlign.left,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildHeaderBadge(String text, Color color) {
+  Widget _buildHeaderBadge(String text, Color color, {double? fontSize}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(20),
@@ -593,9 +600,9 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
-          fontSize: 11,
+          fontSize: fontSize ?? 10,
           fontWeight: FontWeight.w600,
         ),
         overflow: TextOverflow.ellipsis,
@@ -631,6 +638,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                   addr['line1']?.toString().trim() ?? '',
                   addr['city']?.toString().trim() ?? '',
                   addr['state']?.toString().trim() ?? '',
+                  addr['postalCode']?.toString().trim() ?? '',
+                  addr['country']?.toString().trim() ?? '',
                 ].where((p) => p.isNotEmpty).toList();
 
                 if (parts.isEmpty) {
@@ -710,11 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             _buildCardSection(
               icon: Icons.school_outlined,
               title: 'Education',
-              trailing: IconButton(
-                onPressed: () => _showEditEducationSheet(),
-                icon: Icon(Icons.edit_outlined, color: AppColors.primary),
-                tooltip: 'Edit Education',
-              ),
+              trailing: null,
               content: education.isEmpty
                   ? const Center(
                       child: Padding(
@@ -737,11 +742,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             _buildCardSection(
               icon: Icons.business_center_outlined,
               title: 'Experience',
-              trailing: IconButton(
-                onPressed: () => _showEditExperienceSheet(),
-                icon: Icon(Icons.edit_outlined, color: AppColors.primary),
-                tooltip: 'Edit Experience',
-              ),
+              trailing: null,
               content: experience.isEmpty
                   ? const Center(
                       child: Padding(
@@ -768,13 +769,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildEduItem(Map<String, dynamic> edu) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -817,13 +819,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildExpItem(Map<String, dynamic> exp) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1032,7 +1035,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.cloud_upload_outlined,
+                          Icons.folder_outlined,
                           size: 48,
                           color: Colors.grey[400],
                         ),
@@ -1047,7 +1050,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Upload your joining documents here.',
+                          'Documents will appear here for viewing once they are available.',
                           style: TextStyle(
                             color: Colors.grey[600],
                             fontSize: 12,
@@ -1088,15 +1091,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     final isPending = status == 'PENDING';
     final isCompleted = status == 'COMPLETED';
     final isRejected = status == 'REJECTED';
-    // IMPORTANT: Show upload if status is NOT_STARTED/null OR if no URL exists
-    // This ensures all missing documents show upload button
-    final isNotStarted =
-        status == 'NOT_STARTED' || status == null || status.toString().isEmpty;
     final uploadedAt = doc['uploadedAt'];
-    final documentId = doc['_id']?.toString();
-    final isUploading = _uploadingDocumentId == documentId;
-
-    // Log document state for debugging
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1199,48 +1194,13 @@ class _ProfileScreenState extends State<ProfileScreen>
             ],
           ),
           const SizedBox(height: 12),
-          // Action buttons
-          // CRITICAL: Show Upload button if document is NOT_STARTED OR has no URL
-          // This ensures all missing documents show upload option
+          // Action buttons - view only (no upload/replace)
           Wrap(
             alignment: WrapAlignment.end,
             spacing: 4,
             runSpacing: 4,
             children: [
-              if (isNotStarted || !hasUrl) ...[
-                // Upload button - show for all documents without URL or with NOT_STARTED status
-                ElevatedButton.icon(
-                  onPressed: isUploading
-                      ? null
-                      : () {
-                          _uploadDocument(doc);
-                        },
-                  icon: isUploading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.upload, size: 18),
-                  label: Text(isUploading ? 'Uploading...' : 'Upload'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-              ] else if (isPending || isCompleted || isRejected) ...[
+              if (hasUrl && (isPending || isCompleted || isRejected)) ...[
                 // View, Download buttons (always shown)
                 TextButton.icon(
                   onPressed: () => _viewDocument(doc['url']),
@@ -1269,37 +1229,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                     minimumSize: const Size(0, 32),
                   ),
                 ),
-                // Replace button - only show for PENDING/REJECTED (not COMPLETED)
-                if (!isCompleted) ...[
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: isUploading ? null : () => _uploadDocument(doc),
-                    icon: isUploading
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.grey,
-                              ),
-                            ),
-                          )
-                        : const Icon(Icons.upload_outlined, size: 16),
-                    label: Text(
-                      isUploading ? 'Replacing...' : 'Replace',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.grey[700],
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      minimumSize: const Size(0, 32),
-                    ),
-                  ),
-                ],
               ],
             ],
           ),
@@ -1344,7 +1273,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
+          ...[
             Icon(icon, size: 10, color: badgeColor),
             const SizedBox(width: 3),
           ],
@@ -1485,16 +1414,22 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.left,
+              softWrap: true,
+              overflow: TextOverflow.clip,
+            ),
           ),
-          textAlign: TextAlign.left,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -1516,12 +1451,29 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _showEditProfileDialog() {
     final flattenedData = {..._profile ?? {}, ..._staffData ?? {}};
 
+    final photoUrl =
+        flattenedData['avatar'] ??
+        flattenedData['photoUrl'] ??
+        flattenedData['profilePic'];
+    final photoUrlStr = photoUrl?.toString().trim();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       builder: (context) => _EditProfileSheet(
         userData: flattenedData,
+        profilePhotoUrl: photoUrlStr,
+        onEditProfilePhoto: () {
+          Navigator.of(context).pop();
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _changeProfilePhoto(),
+          );
+        },
+        onDeleteProfilePhoto: () async {
+          await _deleteProfilePhoto();
+          if (context.mounted) Navigator.of(context).pop();
+        },
         onSave: (updatedData) async {
           // Separate optional password change payload
           Map<String, dynamic>? passwordChange = updatedData['passwordChange'];
@@ -1571,6 +1523,52 @@ class _ProfileScreenState extends State<ProfileScreen>
           _loadProfile();
           if (context.mounted) Navigator.pop(context);
         },
+      ),
+    );
+  }
+
+  void _showProfilePhotoOptions({
+    required String? photoUrl,
+    required bool hasPhoto,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasPhoto && photoUrl != null)
+                ListTile(
+                  leading: const Icon(Icons.visibility_outlined),
+                  title: const Text('View Full Size'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showPhotoFullScreen(photoUrl);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Update by Selfie'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _changeProfilePhoto();
+                },
+              ),
+              if (hasPhoto)
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: Colors.red[700]),
+                  title: Text('Delete Photo', style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.w600)),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _deleteProfilePhoto();
+                  },
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1637,6 +1635,96 @@ class _ProfileScreenState extends State<ProfileScreen>
       SnackBarUtils.showSnackBar(
         context,
         'Image uploaded failed',
+        isError: true,
+      );
+    }
+  }
+
+  void _showPhotoFullScreen(String photoUrl) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(
+              photoUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              },
+              errorBuilder: (_, __, ___) => const Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 64,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteProfilePhoto() async {
+    try {
+      final result = await _authService.updateProfile({
+        'avatar': '',
+        'photoUrl': '',
+      });
+      if (!mounted) return;
+      if (result['success'] == true) {
+        setState(() {
+          _userData ??= {};
+          _userData!['profile'] ??= {};
+          _userData!['profile']['avatar'] = null;
+          _userData!['profile']['photoUrl'] = null;
+          _cachedAvatarUrl = null;
+          _profileImageError = false;
+        });
+        // Clear avatar from stored user so drawer and other screens show updated state
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final userStr = prefs.getString('user');
+          if (userStr != null) {
+            final user = jsonDecode(userStr) as Map<String, dynamic>;
+            user['avatar'] = null;
+            user['photoUrl'] = null;
+            user['profilePic'] = null;
+            if (user['profile'] is Map) {
+              (user['profile'] as Map)['avatar'] = null;
+              (user['profile'] as Map)['photoUrl'] = null;
+            }
+            await prefs.setString('user', jsonEncode(user));
+          }
+        } catch (_) {}
+        SnackBarUtils.showSnackBar(
+          context,
+          'Profile photo removed',
+          backgroundColor: AppColors.success,
+        );
+        _loadProfile();
+      } else {
+        SnackBarUtils.showSnackBar(
+          context,
+          result['message'] ?? 'Failed to remove photo',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarUtils.showSnackBar(
+        context,
+        'Failed to remove photo',
         isError: true,
       );
     }
@@ -2455,29 +2543,48 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
         return false;
       }
 
-      // Validate date formats
-      try {
-        DateFormat('yyyy-MM-dd').parseStrict(durationFrom);
-      } catch (e) {
+      // Validate date formats (accept YYYY-MM-DD, DD-MM-YYYY, or ISO; normalize to YYYY-MM-DD)
+      final fromNormalized = _normalizeExperienceDate(durationFrom);
+      final toNormalized = _normalizeExperienceDate(durationTo);
+      if (fromNormalized.isEmpty || toNormalized.isEmpty) {
         SnackBarUtils.showSnackBar(
           context,
-          'Invalid date format for "From Date" in Experience ${i + 1}. Use YYYY-MM-DD format',
+          'Invalid date format for dates in Experience ${i + 1}. Use DD-MM-YYYY or YYYY-MM-DD',
           isError: true,
         );
         return false;
       }
       try {
-        DateFormat('yyyy-MM-dd').parseStrict(durationTo);
+        DateFormat('yyyy-MM-dd').parseStrict(fromNormalized);
+        DateFormat('yyyy-MM-dd').parseStrict(toNormalized);
       } catch (e) {
         SnackBarUtils.showSnackBar(
           context,
-          'Invalid date format for "To Date" in Experience ${i + 1}. Use YYYY-MM-DD format',
+          'Invalid date format for dates in Experience ${i + 1}. Use DD-MM-YYYY or YYYY-MM-DD',
           isError: true,
         );
         return false;
       }
     }
     return true;
+  }
+
+  /// Normalize experience date string to YYYY-MM-DD for API (accepts ISO, YYYY-MM-DD, DD-MM-YYYY).
+  String _normalizeExperienceDate(String value) {
+    final s = value.trim();
+    if (s.isEmpty || s == 'Present') return s;
+    try {
+      return DateFormat('yyyy-MM-dd').format(DateTime.parse(s));
+    } catch (_) {}
+    try {
+      final dt = DateFormat('yyyy-MM-dd').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('dd-MM-yyyy').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    return '';
   }
 
   List<Map<String, dynamic>> _collectExperience() {
@@ -2487,8 +2594,12 @@ class _EditExperienceSheetState extends State<_EditExperienceSheet> {
             'company': (e['company'] ?? '').toString().trim(),
             'role': (e['role'] ?? '').toString().trim(),
             'designation': (e['designation'] ?? '').toString().trim(),
-            'durationFrom': (e['durationFrom'] ?? '').toString().trim(),
-            'durationTo': (e['durationTo'] ?? '').toString().trim(),
+            'durationFrom': _normalizeExperienceDate(
+              (e['durationFrom'] ?? '').toString().trim(),
+            ),
+            'durationTo': _normalizeExperienceDate(
+              (e['durationTo'] ?? '').toString().trim(),
+            ),
             'keyResponsibilities': (e['keyResponsibilities'] ?? '')
                 .toString()
                 .trim(),
@@ -2637,20 +2748,33 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
   DateTime? _selectedFromDate;
   DateTime? _selectedToDate;
 
+  /// Normalize any date string (ISO, YYYY-MM-DD, or DD-MM-YYYY) to YYYY-MM-DD for storage and API.
+  static String _normalizeDateToApiFormat(dynamic date) {
+    if (date == null) return '';
+    if (date is DateTime) {
+      return DateFormat('yyyy-MM-dd').format(date);
+    }
+    final s = date.toString().trim();
+    if (s.isEmpty || s == 'Present') return s;
+    try {
+      final dt = DateTime.parse(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('yyyy-MM-dd').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateFormat('dd-MM-yyyy').parseStrict(s);
+      return DateFormat('yyyy-MM-dd').format(dt);
+    } catch (_) {}
+    return s;
+  }
+
   @override
   void initState() {
     super.initState();
     final e = widget.entry;
-
-    // Handle dates - convert Date objects to strings for display
-    String formatDate(dynamic date) {
-      if (date == null) return '';
-      if (date is String) return date;
-      if (date is DateTime) {
-        return DateFormat('yyyy-MM-dd').format(date);
-      }
-      return date.toString();
-    }
 
     _companyController = TextEditingController(
       text: (e['company'] ?? '').toString(),
@@ -2660,28 +2784,22 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
       text: (e['designation'] ?? '').toString(),
     );
 
-    // Parse dates
-    final fromDateStr = formatDate(e['durationFrom']);
-    final toDateStr = formatDate(e['durationTo']);
+    // Parse dates: normalize to YYYY-MM-DD so controller always has API format (avoids "Invalid date format" on save)
+    final fromDateStr = _normalizeDateToApiFormat(e['durationFrom']);
+    final toDateStr = _normalizeDateToApiFormat(e['durationTo']);
 
     _fromController = TextEditingController(text: fromDateStr);
     _toController = TextEditingController(text: toDateStr);
 
-    // Parse dates to DateTime objects if available
     if (fromDateStr.isNotEmpty && fromDateStr != 'Present') {
       try {
         _selectedFromDate = DateFormat('yyyy-MM-dd').parse(fromDateStr);
-      } catch (e) {
-        // Invalid date format, leave as null
-      }
+      } catch (_) {}
     }
-
     if (toDateStr.isNotEmpty && toDateStr != 'Present') {
       try {
         _selectedToDate = DateFormat('yyyy-MM-dd').parse(toDateStr);
-      } catch (e) {
-        // Invalid date format, leave as null
-      }
+      } catch (_) {}
     }
 
     _responsibilitiesController = TextEditingController(
@@ -3090,8 +3208,17 @@ class _EditExperienceTileState extends State<_EditExperienceTile> {
 class _EditProfileSheet extends StatefulWidget {
   final Map<String, dynamic> userData;
   final Function(Map<String, dynamic>) onSave;
+  final String? profilePhotoUrl;
+  final VoidCallback? onEditProfilePhoto;
+  final VoidCallback? onDeleteProfilePhoto;
 
-  const _EditProfileSheet({required this.userData, required this.onSave});
+  const _EditProfileSheet({
+    required this.userData,
+    required this.onSave,
+    this.profilePhotoUrl,
+    this.onEditProfilePhoto,
+    this.onDeleteProfilePhoto,
+  });
 
   @override
   State<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -3110,6 +3237,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late TextEditingController _addrLine1Controller;
   late TextEditingController _cityController;
   late TextEditingController _stateController;
+  late TextEditingController _postalCodeController;
+  late TextEditingController _countryController;
   late TextEditingController _bankNameController;
   late TextEditingController _accNumController;
   late TextEditingController _ifscController;
@@ -3147,6 +3276,29 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     return null;
   }
 
+  String? _validatePostalCode(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final v = value.trim();
+    if (v.length < 3 || v.length > 10) {
+      return 'Postal code must be 3–10 digits';
+    }
+    if (!RegExp(r'^\d+$').hasMatch(v)) {
+      return 'Postal code must contain only numbers';
+    }
+    return null;
+  }
+
+  String? _validateCountry(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    if (value.trim().length < 2) {
+      return 'Country must be at least 2 characters';
+    }
+    if (value.trim().length > 56) {
+      return 'Country name too long';
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3180,6 +3332,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _addrLine1Controller = TextEditingController(text: d['address']?['line1']);
     _cityController = TextEditingController(text: d['address']?['city']);
     _stateController = TextEditingController(text: d['address']?['state']);
+    _postalCodeController = TextEditingController(
+      text: d['address']?['postalCode'],
+    );
+    _countryController = TextEditingController(text: d['address']?['country']);
     _bankNameController = TextEditingController(
       text: d['bankDetails']?['bankName'],
     );
@@ -3220,6 +3376,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _addrLine1Controller.dispose();
     _cityController.dispose();
     _stateController.dispose();
+    _postalCodeController.dispose();
+    _countryController.dispose();
     _bankNameController.dispose();
     _accNumController.dispose();
     _ifscController.dispose();
@@ -3266,11 +3424,21 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             const Divider(),
             Expanded(
               child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 16),
                     _buildSectionTitle('Personal Information'),
+                    if (widget.onEditProfilePhoto != null ||
+                        widget.onDeleteProfilePhoto != null) ...[
+                      _buildProfilePhotoRow(),
+                      const SizedBox(height: 16),
+                    ],
                     _buildTextField(_nameController, 'Full Name', Icons.person),
                     _buildTextField(
                       _emailController,
@@ -3340,6 +3508,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       _addrLine1Controller,
                       'Address Line 1',
                       Icons.location_on,
+                      maxLines: 3,
                     ),
                     Row(
                       children: [
@@ -3360,6 +3529,19 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         ),
                       ],
                     ),
+                    _buildTextField(
+                      _postalCodeController,
+                      'Postal Code',
+                      Icons.markunread_mailbox,
+                      keyboardType: TextInputType.number,
+                      validator: _validatePostalCode,
+                    ),
+                    _buildTextField(
+                      _countryController,
+                      'Country',
+                      Icons.public,
+                      validator: _validateCountry,
+                    ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Employment IDs'),
                     _buildTextField(
@@ -3377,24 +3559,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       'Aadhaar Number',
                       Icons.perm_identity,
                     ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            _pfNumberController,
-                            'PF Number',
-                            Icons.numbers,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildTextField(
-                            _esiNumberController,
-                            'ESI Number',
-                            Icons.numbers,
-                          ),
-                        ),
-                      ],
+                    _buildTextField(
+                      _pfNumberController,
+                      'PF Number',
+                      Icons.numbers,
+                    ),
+                    _buildTextField(
+                      _esiNumberController,
+                      'ESI Number',
+                      Icons.numbers,
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Bank Details'),
@@ -3510,6 +3683,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         'line1': _addrLine1Controller.text,
                         'city': _cityController.text,
                         'state': _stateController.text,
+                        'postalCode': _postalCodeController.text.trim(),
+                        'country': _countryController.text.trim(),
                       },
                       'employmentIds': {
                         'uan': _uanController.text,
@@ -3554,13 +3729,76 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     );
   }
 
+  Widget _buildProfilePhotoRow() {
+    final photoUrl = widget.profilePhotoUrl;
+    final hasPhoto =
+        photoUrl != null &&
+        photoUrl.isNotEmpty &&
+        (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'));
+    final name = widget.userData['name']?.toString() ?? '';
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: AppColors.primary.withOpacity(0.15),
+            backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
+            child: hasPhoto
+                ? null
+                : Text(
+                    initial,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 16),
+          const Spacer(),
+          if (widget.onEditProfilePhoto != null)
+            TextButton.icon(
+              onPressed: widget.onEditProfilePhoto,
+              icon: Icon(Icons.edit, size: 18, color: AppColors.primary),
+              label: Text(
+                'Edit',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (widget.onDeleteProfilePhoto != null)
+            TextButton.icon(
+              onPressed: widget.onDeleteProfilePhoto,
+              icon: const Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Colors.red,
+              ),
+              label: const Text(
+                'Delete',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: FontWeight.bold,
           color: Colors.grey[600],
           letterSpacing: 1.2,
@@ -3577,6 +3815,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     String? Function(String?)? validator,
     bool obscureText = false,
     Widget? suffixIcon,
+    int? maxLines,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -3585,12 +3824,17 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         keyboardType: keyboardType,
         validator: validator,
         obscureText: obscureText,
-        style: const TextStyle(fontWeight: FontWeight.w500),
+        maxLines: maxLines ?? 1,
+        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 22, color: AppColors.primary),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 48,
+            minHeight: 24,
+          ),
           suffixIcon: suffixIcon,
-          labelStyle: const TextStyle(color: Colors.black),
+          labelStyle: const TextStyle(color: Colors.black, fontSize: 13),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -3603,11 +3847,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: AppColors.primary, width: 2),
           ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
-          ),
+          contentPadding: const EdgeInsets.fromLTRB(12, 16, 16, 16),
+          alignLabelWithHint: maxLines != null && maxLines > 1,
         ),
+        scrollPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
       ),
     );
   }
@@ -3692,7 +3935,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         items: options
             .map(
               (opt) => DropdownMenuItem<String>(value: opt, child: Text(opt)),

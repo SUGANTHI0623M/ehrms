@@ -15,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "io.askeva.ehrms"
+    namespace = "io.askeva.ektahr"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -29,7 +29,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.askeva.ehrms"
+        applicationId = "io.askeva.ektahr"
         minSdk = flutter.minSdkVersion  // ML Kit face detection requires minSdk 21+
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

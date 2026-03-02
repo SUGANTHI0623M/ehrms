@@ -1,15 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/app_colors.dart';
-import '../../services/attendance_service.dart';
+import '../../config/constants.dart';
 import '../../services/auth_service.dart';
+import '../../services/presence_tracking_service.dart';
+import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
+import '../../utils/request_guard.dart';
 import '../../utils/snackbar_utils.dart';
 
 class SelfieCheckInScreen extends StatefulWidget {
@@ -32,7 +36,6 @@ const String _kAttendancePermissionDialogShown =
     'attendance_permission_dialog_shown';
 
 class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
-  final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
 
   File? _imageFile;
@@ -56,8 +59,12 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
   bool _checkInAllowed = true;
   bool _checkOutAllowed = true;
   String? _halfDayLeaveMessage;
+  String? _halfDayType; // "First Half Day" | "Second Half Day" for snackbar
 
-  bool _isToday = true;
+  /// Prevents double-tap on Check In / Check Out (429 and "server busy").
+  final RequestGuard _submitGuard = RequestGuard(
+    cooldown: const Duration(milliseconds: 1500),
+  );
 
   @override
   void initState() {
@@ -72,6 +79,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
 
     _fetchAttendanceStatus();
+    final bool requireSelfie = widget.template?['requireSelfie'] ?? true;
     final bool requireGeolocation =
         widget.template?['requireGeolocation'] ?? true;
     if (requireGeolocation) {
@@ -94,83 +102,198 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text('Camera & location'),
-        content: const Text(
-          'Camera is used for your attendance selfie; location is used to record your check-in and check-out place.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.camera_alt_rounded,
+                    size: 48,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Camera & location',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.camera_alt_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Camera is used for your attendance selfie.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.location_on_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Location is used to record your check-in and check-out place.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: Material(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).pop(),
+                      borderRadius: BorderRadius.circular(12),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 14),
+                        child: Text(
+                          'OK',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
     await prefs.setBool(_kAttendancePermissionDialogShown, true);
   }
 
-  Future<void> _fetchAttendanceStatus([DateTime? date]) async {
-    DateTime targetDate = date ?? DateTime.now();
-    String formattedDate = targetDate.toIso8601String().split('T')[0];
+  void _fetchAttendanceStatus([DateTime? date]) {
+    final targetDate = date ?? DateTime.now();
+    final formattedDate = targetDate.toIso8601String().split('T')[0];
+    setState(() => _isStatusLoading = true);
+    context.read<AttendanceBloc>().add(
+      AttendanceStatusRequested(formattedDate),
+    );
+  }
 
-    // Check if we are viewing today
-    final now = DateTime.now();
-    final todayStr = now.toIso8601String().split('T')[0];
-    setState(() {
-      _isToday = formattedDate == todayStr;
-    });
-
-    // Use getAttendanceByDate if implemented, or fallback
-    // Note: You need to implement getAttendanceByDate in service or modify getTodayAttendance
-    // For now we will assume getTodayAttendance handles the current day,
-    // but we need a new method for historical data.
-    // Let's use getAttendanceByDate we just added.
-
-    final result = await _attendanceService.getAttendanceByDate(formattedDate);
-
-    if (result['success'] && mounted) {
-      final responseBody =
-          result['data']; // This is now { data: ..., branch: ... }
-
-      // Handle the nested structure
-      var data = responseBody;
-      var branch;
-      if (responseBody != null &&
-          (responseBody.containsKey('data') ||
-              responseBody.containsKey('branch'))) {
-        data = responseBody['data'];
-        branch = responseBody['branch'];
-      }
-
+  void _onAttendanceStateChanged(BuildContext context, AttendanceState state) {
+    if (state is AttendanceStatusLoaded) {
+      if (!mounted) return;
       setState(() {
-        _branchData = branch;
-        // Half-day leave: session-based check-in/check-out allowed (from backend)
-        _checkInAllowed = responseBody['checkInAllowed'] ?? true;
-        _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
-        final halfDay = responseBody['halfDayLeave'];
-        _halfDayLeaveMessage = halfDay is Map
-            ? halfDay['message'] as String?
-            : null;
-        // Logic for check-in/out button only applies to TODAY
-        if (data != null && _isToday) {
-          _isCheckedIn = data['punchIn'] != null && data['punchOut'] == null;
-          _isCompleted = data['punchIn'] != null && data['punchOut'] != null;
-        } else if (!_isToday) {
-          // Viewing past date - disable buttons or separate view
-          _isCheckedIn = false;
-          _isCompleted = true; // effectively disable actions
-        } else {
-          // No data for today yet
-          _isCheckedIn = false;
-          _isCompleted = false;
-        }
+        _branchData = state.branchData;
+        _checkInAllowed = state.checkInAllowed;
+        _checkOutAllowed = state.checkOutAllowed;
+        _halfDayLeaveMessage = state.halfDayLeaveMessage;
+        _halfDayType = state.halfDayType;
+        _isCheckedIn = state.isCheckedIn;
+        _isCompleted = state.isCompleted;
         _isStatusLoading = false;
       });
-    } else {
-      if (mounted) {
-        setState(() => _isStatusLoading = false);
+    } else if (state is AttendanceFailure) {
+      if (!mounted) return;
+      setState(() {
+        _isStatusLoading = false;
+        _isLoading = false;
+      });
+      final msg = state.message;
+      if (msg.contains('Salary not configured')) {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text('Cannot Check In'),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        SnackBarUtils.showSnackBar(context, msg, isError: true);
       }
+    } else if (state is AttendanceCheckInSuccess) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      SnackBarUtils.showSnackBar(
+        context,
+        'Checked In Successfully!',
+        backgroundColor: AppColors.success,
+      );
+      Navigator.pop(context, true);
+    } else if (state is AttendanceCheckOutSuccess) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      PresenceTrackingService().stopTracking();
+      SnackBarUtils.showSnackBar(
+        context,
+        'Checked Out Successfully!',
+        backgroundColor: AppColors.success,
+      );
+      Navigator.pop(context, true);
+    } else if (state is AttendanceLoadInProgress && _isLoading) {
+      // Submitting check-in/out: keep _isLoading true (already set in _submitAttendance).
+    } else if (state is AttendanceLoadInProgress) {
+      // Loading status: _isStatusLoading already set in _fetchAttendanceStatus.
     }
   }
 
@@ -332,13 +455,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
             children: [
               Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
               const SizedBox(width: 8),
-              const Text('Notice'),
+              Text('Notice'),
             ],
           ),
           content: Text(message),
           actions: <Widget>[
             TextButton(
-              child: const Text(
+              child: Text(
                 'OK',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
@@ -352,12 +475,26 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     );
   }
 
+  void _showHalfDayNotAllowedSnackbar() {
+    final bool isSecond = _halfDayType == 'Second Half Day';
+    final bool isFirst = _halfDayType == 'First Half Day';
+    final String half = isSecond ? 'second' : (isFirst ? 'first' : '');
+    final String action = _isCheckedIn ? 'check-out' : 'check-in';
+    final String msg = half.isNotEmpty
+        ? 'Not allowed $action. You are on leave on $half half.'
+        : (_halfDayLeaveMessage ?? 'Not allowed $action at this time.');
+    SnackBarUtils.showSnackBar(context, msg, isError: true);
+  }
+
   Future<void> _submitAttendance() async {
+    if (!_submitGuard.allow) return; // Throttle double-tap to avoid 429
+    if (_isCheckInDisabled || _isCheckOutDisabled) {
+      _showHalfDayNotAllowedSnackbar();
+      return;
+    }
     final requireSelfie = widget.template?['requireSelfie'] ?? true;
-    // Check if geolocation is required (default to true if not specified)
     final bool requireGeolocation =
         widget.template?['requireGeolocation'] ?? true;
-
     if (requireSelfie && _imageFile == null) {
       SnackBarUtils.showSnackBar(
         context,
@@ -391,8 +528,11 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       selfiePayload = 'data:image/jpeg;base64,$base64Image';
     }
 
-    // Verify selfie against profile photo when selfie is required
-    if (requireSelfie && selfiePayload != null && selfiePayload.isNotEmpty) {
+    // Verify selfie against profile photo when selfie is required (face matching disabled via constant)
+    if (AppConstants.enableAttendanceFaceMatching &&
+        requireSelfie &&
+        selfiePayload != null &&
+        selfiePayload.isNotEmpty) {
       Map<String, dynamic> verify;
       try {
         verify = await _authService.verifyFace(selfiePayload);
@@ -422,50 +562,33 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       );
     }
 
-    Map<String, dynamic> result;
-
+    if (!mounted) return;
     if (_isCheckedIn) {
-      result = await _attendanceService.checkOut(
-        _position?.latitude ?? 0.0,
-        _position?.longitude ?? 0.0,
-        _address ?? '',
-        area: _area,
-        city: _city,
-        pincode: _pincode,
-        selfie: selfiePayload,
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckOutRequested(
+          lat: _position?.latitude ?? 0.0,
+          lng: _position?.longitude ?? 0.0,
+          address: _address ?? '',
+          area: _area,
+          city: _city,
+          pincode: _pincode,
+          selfie: selfiePayload,
+        ),
       );
     } else {
-      result = await _attendanceService.checkIn(
-        _position?.latitude ?? 0.0,
-        _position?.longitude ?? 0.0,
-        _address ?? '',
-        area: _area,
-        city: _city,
-        pincode: _pincode,
-        selfie: selfiePayload,
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckInRequested(
+          lat: _position?.latitude ?? 0.0,
+          lng: _position?.longitude ?? 0.0,
+          address: _address ?? '',
+          area: _area,
+          city: _city,
+          pincode: _pincode,
+          selfie: selfiePayload,
+        ),
       );
     }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (result['success']) {
-        SnackBarUtils.showSnackBar(
-          context,
-          _isCheckedIn
-              ? 'Checked Out Successfully!'
-              : 'Checked In Successfully!',
-          backgroundColor: AppColors.success,
-        );
-
-        Navigator.pop(context, true); // Return success
-      } else {
-        SnackBarUtils.showSnackBar(
-          context,
-          result['message'] ?? 'Action failed',
-          isError: true,
-        );
-      }
-    }
+    // Success/failure handled in BlocListener (_onAttendanceStateChanged).
   }
 
   bool get _isCheckInDisabled => !_isCheckedIn && !_checkInAllowed;
@@ -477,8 +600,74 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       _isCheckInDisabled ||
       _isCheckOutDisabled;
 
+  String get _shiftStartTime =>
+      widget.template?['shiftStartTime']?.toString().trim() ?? '09:00';
+  String get _shiftEndTime =>
+      widget.template?['shiftEndTime']?.toString().trim() ?? '17:00';
+
+  Widget _buildWorkingHoursCard({
+    required IconData icon,
+    required String time,
+    required String label,
+    required ColorScheme colorScheme,
+  }) {
+    final primary = colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outline),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withOpacity(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: primary.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: primary),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            time,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    return BlocListener<AttendanceBloc, AttendanceState>(
+      listener: _onAttendanceStateChanged,
+      child: _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     // Determine button text and state
     String buttonText = 'Check In';
     Color buttonColor = AppColors.primary;
@@ -487,14 +676,25 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       buttonColor = Colors.grey;
     } else if (_isCheckedIn) {
       buttonText = 'Check Out';
-      buttonColor = AppColors.error;
+      buttonColor = AppColors.primary;
     }
 
+    final colorScheme = Theme.of(context).colorScheme;
+    final primary = colorScheme.primary;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Smart Attendance')),
+      appBar: AppBar(title: const Text('Mark attendance')),
       body: RefreshIndicator(
         onRefresh: () async {
-          await _fetchAttendanceStatus();
+          _fetchAttendanceStatus();
+          await context
+              .read<AttendanceBloc>()
+              .stream
+              .where(
+                (s) => s is AttendanceStatusLoaded || s is AttendanceFailure,
+              )
+              .first;
+          if (!mounted) return;
           if (widget.template?['requireGeolocation'] ?? true) {
             await _determinePosition();
           }
@@ -503,12 +703,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final screenHeight = MediaQuery.of(context).size.height;
-              final padding = 12.0;
-              final selfieCardHeight = (screenHeight * 0.52).clamp(
-                400.0,
-                600.0,
-              );
+              const padding = 12.0;
               return Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: padding,
@@ -517,24 +712,118 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Branch Info Card
-                    if (_branchData != null)
+                    // Full-width card with camera icon or selfie photo + retake
+                    if (widget.template?['requireSelfie'] ?? true) ...[
+                      Card(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: _imageFile != null
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  InkWell(
+                                    onTap: (_isCompleted || _isDetectingFace)
+                                        ? null
+                                        : _takeSelfie,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: AspectRatio(
+                                        aspectRatio: 3 / 4,
+                                        child: Image.file(
+                                          _imageFile!,
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: IconButton(
+                                      onPressed: (_isCompleted || _isDetectingFace)
+                                          ? null
+                                          : _takeSelfie,
+                                      icon: Icon(
+                                        Icons.refresh_rounded,
+                                        color: primary,
+                                        size: 28,
+                                      ),
+                                      tooltip: 'Retake',
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : InkWell(
+                                onTap: (_isCompleted || _isDetectingFace)
+                                    ? null
+                                    : _takeSelfie,
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 24,
+                                    horizontal: 16,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (_isDetectingFace)
+                                        SizedBox(
+                                          height: 40,
+                                          width: 40,
+                                          child: CircularProgressIndicator(
+                                            color: primary,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      else
+                                        Icon(
+                                          Icons.camera_alt_rounded,
+                                          size: 48,
+                                          color: primary,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Working hours cards
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildWorkingHoursCard(
+                            icon: Icons.login_rounded,
+                            time: _shiftStartTime,
+                            label: 'To Work Time',
+                            colorScheme: colorScheme,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildWorkingHoursCard(
+                            icon: Icons.logout_rounded,
+                            time: _shiftEndTime,
+                            label: 'Check Out Time',
+                            colorScheme: colorScheme,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Branch Info Card (compact)
+                    if (_branchData != null) ...[
                       Container(
                         margin: const EdgeInsets.only(bottom: 16),
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: colorScheme.surface,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.primary.withOpacity(0.2),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
+                          border: Border.all(color: colorScheme.outline),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -551,114 +840,73 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.textSecondary,
+                                    color: colorScheme.onSurfaceVariant,
                                   ),
+                                ),
+                                const Spacer(),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: primary.withOpacity(0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        _shiftStartTime,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w600,
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: primary.withOpacity(0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        _shiftEndTime,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w600,
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
                             Text(
                               _branchData!['name'] ?? 'Main Branch',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                                color: colorScheme.onSurface,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               _branchData!['address'] ?? '',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
-                                color: AppColors.textSecondary,
+                                color: colorScheme.onSurfaceVariant,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    const SizedBox(height: 10),
-
-                    // Selfie Preview Area - full-width, large height
-                    if (widget.template?['requireSelfie'] ?? true) ...[
-                      GestureDetector(
-                        onTap: (_isCompleted || _isDetectingFace)
-                            ? null
-                            : _takeSelfie,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              width: double.infinity,
-                              height: selfieCardHeight,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[200],
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: Colors.grey[300]!),
-                                image: _imageFile != null
-                                    ? DecorationImage(
-                                        image: FileImage(_imageFile!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
-                              ),
-                              child: _imageFile == null && !_isDetectingFace
-                                  ? Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.camera_alt_rounded,
-                                          size: 60,
-                                          color: Colors.grey[400],
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          'Tap to take selfie',
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : null,
-                            ),
-                            if (_isDetectingFace)
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black45,
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const SizedBox(
-                                          width: 32,
-                                          height: 32,
-                                          child: CircularProgressIndicator(
-                                            color: Colors.white,
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          'Detecting face...',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 10),
                     ],
 
                     // Location Info
@@ -666,9 +914,9 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.blue[50],
+                          color: colorScheme.surfaceContainerLowest,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.blue[100]!),
+                          border: Border.all(color: colorScheme.outline),
                         ),
                         child: Row(
                           children: [
@@ -678,7 +926,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'Current Location',
                                     style: TextStyle(
                                       fontSize: 12,
@@ -698,20 +946,9 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            if (_position != null)
-                                              Text(
-                                                'Lat: ${_position!.latitude.toStringAsFixed(5)}, Lng: ${_position!.longitude.toStringAsFixed(5)}',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color:
-                                                      AppColors.textSecondary,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            const SizedBox(height: 4),
                                             Text(
                                               _address ?? 'Unknown Location',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontWeight: FontWeight.bold,
                                                 color: AppColors.textPrimary,
                                                 fontSize: 14,
@@ -725,10 +962,10 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                                                 ),
                                                 child: Text(
                                                   '${_city ?? ''} - ${_pincode ?? ''}',
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 13,
                                                     color:
-                                                        AppColors.textSecondary,
+                                                        colorScheme.onSurfaceVariant,
                                                   ),
                                                 ),
                                               ),
@@ -791,7 +1028,15 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                       )
                     else
                       ElevatedButton(
-                        onPressed: _isButtonDisabled ? null : _submitAttendance,
+                        onPressed: () {
+                          if (_isButtonDisabled) {
+                            if (_isCheckInDisabled || _isCheckOutDisabled) {
+                              _showHalfDayNotAllowedSnackbar();
+                            }
+                            return;
+                          }
+                          _submitAttendance();
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _isButtonDisabled
                               ? Colors.grey
@@ -821,7 +1066,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
                                   const SizedBox(width: 8),
                                   Text(
                                     buttonText,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -839,3 +1084,4 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     );
   }
 }
+

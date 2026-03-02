@@ -1,5 +1,6 @@
 const Loan = require('../models/Loan');
 const Staff = require('../models/Staff');
+const User = require('../models/User');
 const mongoose = require('mongoose');
 
 // Helper to calculate EMI
@@ -59,12 +60,37 @@ const getLoans = async (req, res) => {
 
         const loans = await Loan.find(query)
             .populate('employeeId', 'name employeeId designation')
-            .populate('approvedBy', 'name email')
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(Number(limit));
+            .limit(Number(limit))
+            .lean();
 
         const total = await Loan.countDocuments(query);
+
+        // Resolve approvedBy and rejectedBy: Loan refs User; check User first, then Staff (same as Approved By)
+        const toId = (v) => (v != null && typeof v === 'object' && v._id != null ? v._id : v) || null;
+        const approvedByIds = [...new Set(loans.map((l) => toId(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(loans.map((l) => toId(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
+            const user = await User.findById(id).select('name email').lean();
+            if (user) {
+                resolvedMap[key] = { name: user.name, email: user.email || null };
+            } else {
+                const staff = await Staff.findById(id).select('name email').lean();
+                if (staff) {
+                    resolvedMap[key] = { name: staff.name, email: staff.email || null };
+                }
+            }
+        }
+        loans.forEach((l) => {
+            const aid = toId(l.approvedBy);
+            const rid = toId(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) l.rejectedBy = resolvedMap[rid.toString()] || null;
+        });
 
         res.json({
             success: true,

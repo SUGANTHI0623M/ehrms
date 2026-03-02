@@ -16,6 +16,9 @@ const userSchema = new mongoose.Schema({
     lastLogin: { type: Date },
     resetPasswordOTP: { type: String },
     resetPasswordOTPExpiry: { type: Date },
+    // Login 2FA OTP fields
+    loginOTP: { type: String },
+    loginOTPExpiry: { type: Date },
     avatar: { type: String },
     officeLocation: {
         latitude: Number,

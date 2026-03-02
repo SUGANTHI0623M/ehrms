@@ -6,11 +6,13 @@ class SnackBarUtils {
   static OverlayEntry? _currentEntry;
   static Timer? _timer;
 
+  /// [duration] optional; if null, defaults to 3 seconds.
   static void showSnackBar(
     BuildContext context,
     String message, {
     Color? backgroundColor,
     bool isError = false,
+    Duration? duration,
   }) {
     // Attempt to find the top-level overlay
     final overlay = Navigator.of(context, rootNavigator: true).overlay;
@@ -23,16 +25,17 @@ class SnackBarUtils {
       builder: (context) => _TopSnackBarWidget(
         message: message,
         backgroundColor: isError
-            ? AppColors.error
-            : (backgroundColor ?? AppColors.success),
+            ? const Color(0xFF9CA3AF) // light grey for failure
+            : (backgroundColor ?? AppColors.primary), // primary for success
+        isError: isError,
         onDismissed: () => _removeCurrentSnackBarSync(),
       ),
     );
 
     overlay.insert(_currentEntry!);
 
-    // Auto-dismiss after 3 seconds
-    _timer = Timer(const Duration(milliseconds: 3000), () {
+    // Auto-dismiss after [duration] or default 3 seconds
+    _timer = Timer(duration ?? const Duration(milliseconds: 3000), () {
       _removeCurrentSnackBarSync();
     });
   }
@@ -56,11 +59,13 @@ class SnackBarUtils {
 class _TopSnackBarWidget extends StatefulWidget {
   final String message;
   final Color backgroundColor;
+  final bool isError;
   final VoidCallback onDismissed;
 
   const _TopSnackBarWidget({
     required this.message,
     required this.backgroundColor,
+    required this.isError,
     required this.onDismissed,
   });
 
@@ -153,12 +158,12 @@ class _TopSnackBarWidgetState extends State<_TopSnackBarWidget>
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
-                        widget.backgroundColor == AppColors.error
+                        widget.isError
                             ? Icons.error_outline
                             : (widget.message.toLowerCase().contains('waiting')
                                   ? Icons.timer_outlined
                                   : Icons.check_circle_outline),
-                        color: Colors.white,
+                        color: widget.isError ? const Color(0xFF374151) : Colors.white,
                         size: 22,
                       ),
                     ),
@@ -169,10 +174,10 @@ class _TopSnackBarWidgetState extends State<_TopSnackBarWidget>
                         textAlign: TextAlign.left,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: widget.isError ? const Color(0xFF374151) : Colors.white,
                           fontWeight: FontWeight.w600,
-                          fontSize: 13, // Reduced font size so longer text fits
+                          fontSize: 13,
                           letterSpacing: 0.1,
                         ),
                       ),

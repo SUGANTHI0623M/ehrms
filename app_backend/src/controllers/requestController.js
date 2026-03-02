@@ -4,8 +4,13 @@ const Expense = require('../models/Expense');
 const PayslipRequest = require('../models/PayslipRequest');
 const Payroll = require('../models/Payroll');
 const Staff = require('../models/Staff');
+const User = require('../models/User');
 const Company = require('../models/Company');
 const payslipGeneratorService = require('../services/payslipGeneratorService');
+const { calculateAttendanceStats } = require('./payrollController');
+
+// Normalize ref to raw ObjectId (handles both ObjectId and populated { _id, name } so lookup works)
+const toId = (v) => (v != null && typeof v === 'object' && v._id != null ? v._id : v) || null;
 
 // Helper function to generate payroll dynamically for payslip requests
 // ALWAYS recalculates from scratch - does not use existing payroll records
@@ -37,95 +42,19 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     const finalBusinessId = businessId || staff.businessId;
     console.log(`[_generatePayrollForPayslip] Using Business ID: ${finalBusinessId}`);
 
-    // Use the same attendance calculation logic as dashboard (which is correct)
-    // This ensures working days, present days, and absent days match dashboard
+    // Single source of truth: same attendance stats as dashboard and salary overview
     const Attendance = require('../models/Attendance');
-    const HolidayTemplate = require('../models/HolidayTemplate');
-    const Company = require('../models/Company');
-    
-    // Get business settings (same as dashboard)
-    const company = await Company.findById(finalBusinessId);
-    const businessSettings = company?.settings?.business || {};
-    const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-    const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
-    
-    // Get holidays for the month (same as dashboard)
-    const holidayTemplate = await HolidayTemplate.findOne({
-        businessId: finalBusinessId,
-        isActive: true
-    });
-    
-    let holidays = [];
-    if (holidayTemplate) {
-        holidays = (holidayTemplate.holidays || []).filter(h => {
-            const d = new Date(h.date);
-            return d.getFullYear() == year && (d.getMonth() + 1) == month;
-        });
-    }
-    
-    // Calculate working days for FULL MONTH (salary/payslip always uses full month)
-    const daysInMonth = new Date(year, month, 0).getDate();
-    console.log(`[_generatePayrollForPayslip] Calculating working days for ${month}/${year} - Total days in month: ${daysInMonth}`);
-    console.log(`[_generatePayrollForPayslip] Weekly Off Pattern: ${weeklyOffPattern}`);
-    console.log(`[_generatePayrollForPayslip] Weekly Holidays: ${JSON.stringify(weeklyHolidays)}`);
-    console.log(`[_generatePayrollForPayslip] Holidays count: ${holidays.length}`);
-    
-    let totalWorkingDays = 0;
-    let weeklyOffDaysCount = 0;
-    let holidaysCount = 0;
-    
-    // Calculate working days for FULL month
-    // NOTE: Working days is the COMPANY's total working days, NOT filtered by employee joining date
-    for (let d = 1; d <= daysInMonth; d++) {
-        const date = new Date(year, month - 1, d);
-        date.setHours(0, 0, 0, 0);
-        
-        const dayOfWeek = date.getDay();
-        let isWeekOff = false;
-        
-        if (weeklyOffPattern === 'oddEvenSaturday') {
-            if (dayOfWeek === 0) {
-                isWeekOff = true; // All Sundays
-            } else if (dayOfWeek === 6) {
-                if (d % 2 === 0) {
-                    isWeekOff = true; // Even Saturdays
-                }
-            }
-        } else {
-            isWeekOff = weeklyHolidays.some(h => h.day === dayOfWeek);
-        }
-        
-        if (!isWeekOff) {
-            const isHoliday = holidays.some(h => {
-                const hd = new Date(h.date);
-                hd.setHours(0, 0, 0, 0);
-                return hd.getTime() === date.getTime();
-            });
-            
-            if (!isHoliday) {
-                totalWorkingDays++;
-            } else {
-                holidaysCount++;
-            }
-        } else {
-            weeklyOffDaysCount++;
-        }
-    }
-    
-    console.log(`[_generatePayrollForPayslip] Working Days Calculation:`);
-    console.log(`[_generatePayrollForPayslip]   - Total Days in Month: ${daysInMonth}`);
-    console.log(`[_generatePayrollForPayslip]   - Weekly Off Days: ${weeklyOffDaysCount}`);
-    console.log(`[_generatePayrollForPayslip]   - Holidays: ${holidaysCount}`);
-    console.log(`[_generatePayrollForPayslip]   - Working Days: ${totalWorkingDays}`);
-    
-    // Get attendance records for the month (same query as dashboard)
     const startOfMonth = new Date(year, month - 1, 1);
     const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
-    
-    console.log(`[_generatePayrollForPayslip] Fetching attendance for month ${month}/${year}`);
-    console.log(`[_generatePayrollForPayslip] Date range: ${startOfMonth.toISOString()} to ${endOfMonth.toISOString()}`);
-    console.log(`[_generatePayrollForPayslip] Employee ID: ${employeeId}`);
-    
+
+    const attendanceStats = await calculateAttendanceStats(employeeId, month, year);
+    const totalWorkingDays = attendanceStats.workingDays || 0;
+    const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? totalWorkingDays;
+    const presentDays = attendanceStats.presentDays || 0;
+    const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - presentDays);
+
+    console.log(`[_generatePayrollForPayslip] Attendance (same as salary overview/payroll): thisMonthWD=${thisMonthWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
+
     const monthAttendance = await Attendance.find({
         $or: [
             { employeeId: employeeId },
@@ -133,84 +62,9 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
         ],
         date: { $gte: startOfMonth, $lte: endOfMonth }
     });
-    
-    console.log(`[_generatePayrollForPayslip] Found ${monthAttendance.length} attendance records`);
-    
-    // Log attendance record details for debugging
     if (monthAttendance.length > 0) {
-        console.log(`[_generatePayrollForPayslip] Attendance Records:`);
-        monthAttendance.forEach((record, index) => {
-            console.log(`[_generatePayrollForPayslip]   Record ${index + 1}: Date=${record.date}, Status=${record.status}, EmployeeId=${record.employeeId}, User=${record.user}`);
-        });
+        console.log(`[_generatePayrollForPayslip] Attendance Records: ${monthAttendance.length}`);
     }
-    
-    // Calculate Present Days with specific Half Day logic
-    // Rule: Check both Attendance and Leave collections for Half Day
-    // Filter leaves by date range to avoid including leaves from other months
-    const leaveRecords = await Leave.find({
-        employeeId: employeeId,
-        status: { $regex: /^approved$/i },
-        $or: [
-            { startDate: { $gte: startOfMonth, $lte: endOfMonth } },
-            { endDate: { $gte: startOfMonth, $lte: endOfMonth } },
-            { startDate: { $lte: startOfMonth }, endDate: { $gte: endOfMonth } }
-        ]
-    }).lean();
-
-    const dateMap = {};
-
-    // 1. Process Attendance Records
-    monthAttendance.forEach(a => {
-        if (!a.date) return;
-        const d = new Date(a.date).toISOString().split('T')[0];
-        const status = (a.status || '').trim().toLowerCase();
-        const leaveType = (a.leaveType || '').trim().toLowerCase();
-        dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
-    });
-
-    // 2. Process Leave Records for Half Day
-    leaveRecords.forEach(l => {
-        const isHalfDayLeave = l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day';
-        if (isHalfDayLeave) {
-            const start = new Date(Math.max(new Date(l.startDate), startOfMonth));
-            const end = new Date(Math.min(new Date(l.endDate), endOfMonth));
-            let curr = new Date(start);
-            while (curr <= end) {
-                const d = curr.toISOString().split('T')[0];
-                if (!dateMap[d]) dateMap[d] = {};
-                dateMap[d].hasHalfDayLeave = true;
-                curr.setDate(curr.getDate() + 1);
-            }
-        }
-    });
-
-    // 3. Calculate Weighted Present Days
-    // Half day: status="half day" OR attendance.leaveType="half day" OR approved half-day leave -> 0.5
-    // Full day present/approved (and NOT half day) -> 1.0
-    const presentDays = Object.values(dateMap).reduce((sum, data) => {
-        const status = data.attendanceStatus || '';
-        const attLeaveType = data.attendanceLeaveType || '';
-        const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
-        if (isHalfDay) return sum + 0.5;
-        if (status === 'present' || status === 'approved') return sum + 1;
-        return sum;
-    }, 0);
-    
-    const absentDays = Math.max(0, totalWorkingDays - presentDays);
-    
-    console.log(`[_generatePayrollForPayslip] ========== ATTENDANCE CALCULATION ==========`);
-    console.log(`[_generatePayrollForPayslip] Working Days: ${totalWorkingDays}`);
-    console.log(`[_generatePayrollForPayslip] Present Days: ${presentDays}`);
-    console.log(`[_generatePayrollForPayslip] Absent Days: ${absentDays}`);
-    console.log(`[_generatePayrollForPayslip] Attendance Records Found: ${monthAttendance.length}`);
-    console.log(`[_generatePayrollForPayslip] Status breakdown:`, {
-        Present: monthAttendance.filter(a => a.status === 'Present').length,
-        Approved: monthAttendance.filter(a => a.status === 'Approved').length,
-        'Half Day': monthAttendance.filter(a => a.status === 'Half Day').length,
-        Pending: monthAttendance.filter(a => a.status === 'Pending').length,
-        Other: monthAttendance.filter(a => !['Present', 'Approved', 'Half Day', 'Pending'].includes(a.status)).length
-    });
-    console.log(`[_generatePayrollForPayslip] ==========================================`);
     
     const s = staff.salary;
     const basicSalary = s.basicSalary || 0;
@@ -236,9 +90,8 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     // Net Salary = Gross Salary - Employee Deductions
     const netSalary = grossSalary - totalDeductions;
     
-    // CORRECT METHOD: Calculate prorated values based on attendance
-    // Using workingDays and presentDays calculated above (same as dashboard logic)
-    const prorationFactor = totalWorkingDays > 0 ? presentDays / totalWorkingDays : 0;
+    // Same as salary overview & payroll: proration = presentDays / this month WD (1 day salary = net/this month WD)
+    const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
     
     // STEP 1: Prorate Gross Fixed Components
     const proratedBasicSalary = basicSalary * prorationFactor;
@@ -359,7 +212,7 @@ const _generatePayrollForPayslip = async (employeeId, month, year, businessId) =
     console.log(`[_generatePayrollForPayslip] Working Days: ${totalWorkingDays}`);
     console.log(`[_generatePayrollForPayslip] Present Days: ${presentDays}`);
     console.log(`[_generatePayrollForPayslip] Absent Days: ${absentDays}`);
-    console.log(`[_generatePayrollForPayslip] Proration Factor: ${prorationFactor.toFixed(6)} (${(prorationFactor * 100).toFixed(2)}%)`);
+    console.log(`[_generatePayrollForPayslip] Proration Factor: ${prorationFactor.toFixed(6)} (presentDays=${presentDays} / thisMonthWD=${thisMonthWorkingDays})`);
     console.log(`[_generatePayrollForPayslip] Fine Amount: ${totalFineAmount.toFixed(2)}`);
     console.log(`[_generatePayrollForPayslip] Base Salary Structure:`);
     console.log(`[_generatePayrollForPayslip]   - Basic Salary: ${basicSalary}`);
@@ -432,9 +285,10 @@ const applyLeave = async (req, res) => {
 // @desc    Get My Leave Requests
 // @route   GET /api/requests/leave
 // @access  Private
+// Resolves approvedBy name from Staff collection first, then User (same pattern as loan details).
 const getLeaveRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -447,7 +301,45 @@ const getLeaveRequests = async (req, res) => {
             query.status = status;
         }
 
-        const leaves = await Leave.find(query).sort({ createdAt: -1 });
+        // Filter by from-to date range: leave overlaps [startDate, endDate]
+        if (startDate || endDate) {
+            query.$and = query.$and || [];
+            if (startDate) {
+                query.$and.push({ endDate: { $gte: new Date(startDate) } });
+            }
+            if (endDate) {
+                query.$and.push({ startDate: { $lte: new Date(endDate) } });
+            }
+        }
+
+        const leaves = await Leave.find(query)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Resolve approvedBy and rejectedBy: match _id in Staff first, then User (same as Approved By)
+        const approvedByIds = [...new Set(leaves.map(l => toId(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(leaves.map(l => toId(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
+            const staff = await Staff.findById(id).select('name email').lean();
+            if (staff) {
+                resolvedMap[key] = { name: staff.name, email: staff.email || null };
+            } else {
+                const user = await User.findById(id).select('name email').lean();
+                if (user) {
+                    resolvedMap[key] = { name: user.name, email: user.email || null };
+                }
+            }
+        }
+        leaves.forEach(l => {
+            const aid = toId(l.approvedBy);
+            const rid = toId(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) l.rejectedBy = resolvedMap[rid.toString()] || null;
+        });
+
         res.json(leaves);
     } catch (error) {
         console.error('Get Leave Requests Error:', error);
@@ -502,9 +394,10 @@ const applyLoan = async (req, res) => {
 // @desc    Get My Loan Requests
 // @route   GET /api/requests/loan
 // @access  Private
+// Resolves approvedBy name from User first (Loan ref), then Staff if needed.
 const getLoanRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -517,7 +410,38 @@ const getLoanRequests = async (req, res) => {
             query.status = status;
         }
 
-        const loans = await Loan.find(query).sort({ createdAt: -1 });
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) query.createdAt.$lte = new Date(endDate);
+        }
+
+        const loans = await Loan.find(query).sort({ createdAt: -1 }).lean();
+
+        // Resolve approvedBy and rejectedBy: Loan refs User first, then Staff (same as Approved By)
+        const approvedByIds = [...new Set(loans.map(l => toId(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(loans.map(l => toId(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
+            const user = await User.findById(id).select('name email').lean();
+            if (user) {
+                resolvedMap[key] = { name: user.name, email: user.email || null };
+            } else {
+                const staff = await Staff.findById(id).select('name email').lean();
+                if (staff) {
+                    resolvedMap[key] = { name: staff.name, email: staff.email || null };
+                }
+            }
+        }
+        loans.forEach(l => {
+            const aid = toId(l.approvedBy);
+            const rid = toId(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) l.rejectedBy = resolvedMap[rid.toString()] || null;
+        });
+
         res.json(loans);
     } catch (error) {
         console.error('Get Loan Requests Error:', error);
@@ -564,7 +488,7 @@ const applyExpense = async (req, res) => {
 // @access  Private
 const getExpenseRequests = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, startDate, endDate } = req.query;
         const employeeId = req.staff?._id || req.user?._id;
 
         if (!employeeId) {
@@ -577,7 +501,36 @@ const getExpenseRequests = async (req, res) => {
             query.status = status;
         }
 
-        const expenses = await Expense.find(query).sort({ createdAt: -1 });
+        if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = new Date(startDate);
+            if (endDate) query.date.$lte = new Date(endDate);
+        }
+
+        const expenses = await Expense.find(query).sort({ createdAt: -1 }).lean();
+        // Resolve approvedBy and rejectedBy: Expense refs Staff first, then User (same as Approved By)
+        const approvedByIds = [...new Set(expenses.map(e => toId(e.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(expenses.map(e => toId(e.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const key = id.toString();
+            const staff = await Staff.findById(id).select('name email').lean();
+            if (staff) {
+                resolvedMap[key] = { name: staff.name, email: staff.email || null };
+            } else {
+                const user = await User.findById(id).select('name email').lean();
+                if (user) {
+                    resolvedMap[key] = { name: user.name, email: user.email || null };
+                }
+            }
+        }
+        expenses.forEach(e => {
+            const aid = toId(e.approvedBy);
+            const rid = toId(e.rejectedBy);
+            if (aid) e.approvedBy = resolvedMap[aid.toString()] || null;
+            if (rid) e.rejectedBy = resolvedMap[rid.toString()] || null;
+        });
         res.json(expenses);
     } catch (error) {
         console.error('Get Expense Requests Error:', error);
@@ -902,6 +855,7 @@ const getPayslipRequests = async (req, res) => {
 
         const requests = await PayslipRequest.find(query)
             .populate('approvedBy', 'name email')
+            .populate('rejectedBy', 'name email')
             .populate('payrollId', 'month year netPay grossSalary')
             .sort({ createdAt: -1 })
             .skip(skip)

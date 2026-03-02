@@ -12,9 +12,20 @@ const leaveSchema = new mongoose.Schema({
         enum: ['1', '2', null],
         default: null
     },
+    halfDaySession: {
+        type: String,
+        enum: ['First Half Day', 'Second Half Day', null],
+        default: null
+    },
+    // Same values as halfDaySession; some clients send halfDayType (e.g. "Second Half Day")
+    halfDayType: {
+        type: String,
+        enum: ['First Half Day', 'Second Half Day', null],
+        default: null
+    },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
-    days: { type: Number, required: true, min: 1 },
+    days: { type: Number, required: true, min: 0.5 },
     reason: { type: String, required: true },
     status: {
         type: String,
@@ -23,8 +34,14 @@ const leaveSchema = new mongoose.Schema({
     },
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
     approvedAt: { type: Date },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+    rejectedAt: { type: Date },
     rejectionReason: { type: String },
-    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
+    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+    // Set when FCM "leave approved" notification has been sent (by API or cron)
+    fcmNotificationSentAt: { type: Date },
+    // Set when FCM "leave rejected" notification has been sent
+    fcmRejectionSentAt: { type: Date }
 }, { timestamps: true });
 
 leaveSchema.index({ employeeId: 1 });

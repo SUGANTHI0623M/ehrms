@@ -77,7 +77,7 @@ class _AssetDetailsScreenState extends State<AssetDetailsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Asset Details',
           style: TextStyle(
             fontWeight: FontWeight.bold,
@@ -114,7 +114,7 @@ class _AssetDetailsScreenState extends State<AssetDetailsScreen> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('OK'),
+                        child: Text('OK'),
                       ),
                     ],
                   ),
@@ -166,7 +166,7 @@ class _AssetDetailsScreenState extends State<AssetDetailsScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 12),
-                                    const Text(
+                                    Text(
                                       'Asset Details',
                                       style: TextStyle(
                                         fontSize: 20,
@@ -290,7 +290,7 @@ class _AssetDetailsScreenState extends State<AssetDetailsScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'OK',
                                 style: TextStyle(
                                   fontSize: 16,
@@ -343,7 +343,7 @@ class _AssetDetailsScreenState extends State<AssetDetailsScreen> {
               )
             : Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textPrimary,

@@ -1,6 +1,8 @@
 const Leave = require('../models/Leave');
 const Staff = require('../models/Staff');
+const User = require('../models/User');
 const LeaveTemplate = require('../models/LeaveTemplate');
+const Attendance = require('../models/Attendance');
 const mongoose = require('mongoose');
 const { markAttendanceForApprovedLeave, calculateAvailableLeaves } = require('../utils/leaveAttendanceHelper');
 
@@ -72,17 +74,51 @@ const getLeaves = async (req, res) => {
         const skip = (Number(page) - 1) * Number(limit);
 
         const leaves = await Leave.find(query)
-            .populate('approvedBy', 'name email')
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(Number(limit));
+            .limit(Number(limit))
+            .lean();
 
         const total = await Leave.countDocuments(query);
+
+        // Resolve approvedBy and rejectedBy: check Staff first, then User (same as Approved By)
+        const toIdStr = (v) => (v && v._id != null ? v._id.toString() : v && v.toString ? v.toString() : null);
+        const approvedByIds = [...new Set(leaves.map((l) => toIdStr(l.approvedBy)).filter(Boolean))];
+        const rejectedByIds = [...new Set(leaves.map((l) => toIdStr(l.rejectedBy)).filter(Boolean))];
+        const allIds = [...new Set([...approvedByIds, ...rejectedByIds])];
+        const resolvedMap = {};
+        for (const id of allIds) {
+            const staff = await Staff.findById(id).select('name email').lean();
+            if (staff) {
+                resolvedMap[id] = { name: staff.name, email: staff.email || null };
+            } else {
+                const user = await User.findById(id).select('name email').lean();
+                if (user) {
+                    resolvedMap[id] = { name: user.name, email: user.email || null };
+                }
+            }
+        }
+        leaves.forEach((l) => {
+            const aid = toIdStr(l.approvedBy);
+            const rid = toIdStr(l.rejectedBy);
+            if (aid) l.approvedBy = resolvedMap[aid] || (l.approvedBy && typeof l.approvedBy === 'object' && l.approvedBy.name ? l.approvedBy : null);
+            if (rid) l.rejectedBy = resolvedMap[rid] || (l.rejectedBy && typeof l.rejectedBy === 'object' && l.rejectedBy.name ? l.rejectedBy : null);
+        });
+
+        // For app display "Half day on": prefer halfDayType (DB), then halfDaySession, then session
+        const leavesWithHalfDayType = leaves.map((l) => {
+            const halfDayType = l.halfDayType || l.halfDaySession ||
+                (l.leaveType === 'Half Day' && (l.session === '1' ? 'First Half Day' : l.session === '2' ? 'Second Half Day' : null));
+            if (l.leaveType === 'Half Day') {
+                console.log('[getLeaves] Half Day leave', { id: l._id, rawHalfDayType: l.halfDayType, halfDaySession: l.halfDaySession, session: l.session, resolved: halfDayType });
+            }
+            return { ...l, halfDayType: halfDayType || undefined };
+        });
 
         res.json({
             success: true,
             data: {
-                leaves,
+                leaves: leavesWithHalfDayType,
                 pagination: {
                     page: Number(page),
                     limit: Number(limit),
@@ -180,7 +216,7 @@ const getLeaveTypes = async (req, res) => {
                 // If this day of the leave falls within our filter range, count it
                 if (current >= rangeStart && current <= rangeEnd) {
                     const typeKey = normalizeToKey(l.leaveType);
-                    // Half Day is stored as days=1; count 0.5 for display
+                    // Half Day stored as days=0.5; count 0.5 per day for display
                     if (typeKey === 'halfday') {
                         group.takenCount += 0.5;
                     } else {
@@ -247,8 +283,10 @@ const normalizeLeaveType = (raw) => {
     const t = (raw || '').trim().toLowerCase();
     if (!t) return null;
     if (/^\s*half\s*day\s*(leave)?\s*$/i.test(raw) || t === 'half day') return 'Half Day';
-    if (/^\s*first\s*half\s*(leave)?\s*$/i.test(raw) || t === 'first half') return { canonical: 'Half Day', session: '1' };
-    if (/^\s*second\s*half\s*(leave)?\s*$/i.test(raw) || t === 'second half') return { canonical: 'Half Day', session: '2' };
+    if (/^\s*first\s*half\s*(leave)?\s*$/i.test(raw) || t === 'first half') return { canonical: 'Half Day', session: '1', halfDaySession: 'First Half Day' };
+    if (/^\s*second\s*half\s*(leave)?\s*$/i.test(raw) || t === 'second half') return { canonical: 'Half Day', session: '2', halfDaySession: 'Second Half Day' };
+    if (/^\s*first\s*half\s*day\s*$/i.test(raw) || (raw || '').trim() === 'First Half Day') return { canonical: 'Half Day', session: '1', halfDaySession: 'First Half Day' };
+    if (/^\s*second\s*half\s*day\s*$/i.test(raw) || (raw || '').trim() === 'Second Half Day') return { canonical: 'Half Day', session: '2', halfDaySession: 'Second Half Day' };
     if (/^\s*casual\s*(leave)?\s*$/i.test(raw) || t === 'casual') return 'Casual Leave';
     if (/^\s*sick\s*(leave)?\s*$/i.test(raw) || t === 'sick') return 'Sick Leave';
     if (/^\s*earned\s*(leave)?\s*$/i.test(raw) || t === 'earned') return 'Earned Leave';
@@ -265,7 +303,7 @@ const createLeave = async (req, res) => {
         console.log('[Leave Submit] Request Body:', JSON.stringify(req.body));
         console.log('[Leave Submit] leaveType value:', req.body?.leaveType, '(type:', typeof req.body?.leaveType, ')');
 
-        let { startDate, endDate, leaveType, reason, session } = req.body;
+        let { startDate, endDate, leaveType, reason, session, halfDaySession } = req.body;
         const currentStaffId = req.staff._id;
 
         // Normalize dates to calendar day at midnight UTC (no timezone shift)
@@ -282,8 +320,14 @@ const createLeave = async (req, res) => {
         if (normalized && typeof normalized === 'object') {
             leaveType = normalized.canonical;
             session = normalized.session;
+            if (normalized.halfDaySession) halfDaySession = normalized.halfDaySession;
         } else if (normalized) {
             leaveType = normalized;
+        }
+
+        // Half-day: accept halfDaySession from client ('First Half Day' | 'Second Half Day') and set session 1/2
+        if (leaveType === 'Half Day' && (halfDaySession === 'First Half Day' || halfDaySession === 'Second Half Day')) {
+            session = halfDaySession === 'First Half Day' ? '1' : '2';
         }
 
         const staff = await Staff.findById(currentStaffId).populate('leaveTemplateId');
@@ -292,8 +336,8 @@ const createLeave = async (req, res) => {
             return res.status(400).json({ success: false, error: { message: 'Staff profile not found' } });
         }
 
-        // Calculate days - 1 for Half Day (integer only in DB), otherwise standard calculation
-        const days = leaveType === 'Half Day' ? 1 : calculateDays(startDate, endDate);
+        // Calculate days - 0.5 for Half Day, otherwise standard calculation
+        const days = leaveType === 'Half Day' ? 0.5 : calculateDays(startDate, endDate);
 
         // Validation for Half Day
         if (leaveType === 'Half Day') {
@@ -305,6 +349,22 @@ const createLeave = async (req, res) => {
             const endUtc = `${endDate.getUTCFullYear()}-${endDate.getUTCMonth()}-${endDate.getUTCDate()}`;
             if (startUtc !== endUtc) {
                 return res.status(400).json({ success: false, error: { message: 'Half Day leave can only be applied for a single date' } });
+            }
+            // Session 1 only: block if user has already checked in for that date (attendance has punchIn)
+            if (session === '1') {
+                const startOfDay = new Date(startDate);
+                const endOfDay = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate(), 23, 59, 59, 999));
+                const todayAttendance = await Attendance.findOne({
+                    $or: [{ employeeId: currentStaffId }, { user: currentStaffId }],
+                    date: { $gte: startOfDay, $lte: endOfDay },
+                    punchIn: { $exists: true, $ne: null }
+                });
+                if (todayAttendance) {
+                    return res.status(400).json({
+                        success: false,
+                        error: { message: 'You are already check in for session 1' }
+                    });
+                }
             }
         }
 
@@ -484,6 +544,7 @@ const createLeave = async (req, res) => {
             });
         }
 
+        const halfDaySessionVal = leaveType === 'Half Day' ? (session === '1' ? 'First Half Day' : session === '2' ? 'Second Half Day' : null) : null;
         const leaveDoc = {
             employeeId: staff._id,
             businessId: staff.businessId,
@@ -492,7 +553,9 @@ const createLeave = async (req, res) => {
             endDate,
             days,
             reason,
-            session: leaveType === 'Half Day' ? session : null
+            session: leaveType === 'Half Day' ? session : null,
+            halfDaySession: halfDaySessionVal,
+            halfDayType: halfDaySessionVal
         };
         console.log('[Leave Submit] Before Leave.create - leaveType:', leaveType, '| full doc:', JSON.stringify(leaveDoc));
 
@@ -557,21 +620,60 @@ const updateLeaveStatus = async (req, res) => {
 
         // Update leave status
         leave.status = status;
-        leave.approvedBy = approverId;
-        leave.approvedAt = new Date();
-        if (status === 'Rejected' && rejectionReason) {
-            leave.rejectionReason = rejectionReason;
+        if (status === 'Approved') {
+            leave.approvedBy = approverId;
+            leave.approvedAt = new Date();
+            leave.rejectedBy = undefined;
+            leave.rejectedAt = undefined;
+            leave.rejectionReason = undefined;
+        } else if (status === 'Rejected') {
+            leave.rejectedBy = approverId;
+            leave.rejectedAt = new Date();
+            if (rejectionReason) leave.rejectionReason = rejectionReason;
+            leave.approvedBy = undefined;
+            leave.approvedAt = undefined;
         }
 
         await leave.save();
 
-        // If approved, mark attendance as "Present" for all dates in the leave period
+        // Send FCM only to the one employee who owns this leave (leave.employeeId). Never broadcast to all.
+        const fcmService = require('../services/fcmService');
+        const leaveOwnerId = leave.employeeId && leave.employeeId._id ? leave.employeeId._id : leave.employeeId;
+        const staffForNotification = await Staff.findById(leaveOwnerId).select('fcmToken _id').lean();
+        if (!staffForNotification || String(staffForNotification._id) !== String(leaveOwnerId)) {
+            console.warn('[updateLeaveStatus] Staff for leave owner not found or mismatch – skip FCM');
+        }
+        console.log('[updateLeaveStatus] Sending notification to leave owner only: employeeId=', leaveOwnerId?.toString(), 'leaveId=', leave._id?.toString());
         if (status === 'Approved') {
             try {
                 await markAttendanceForApprovedLeave(leave);
             } catch (error) {
                 console.error('[updateLeaveStatus] Error marking attendance:', error);
-                // Don't fail the request if attendance marking fails, but log it
+            }
+            try {
+                const result = await fcmService.sendLeaveApprovedNotification(leave, staffForNotification);
+                if (result.success) {
+                    leave.fcmNotificationSentAt = new Date();
+                    await leave.save();
+                    console.log('[updateLeaveStatus] FCM leave approved: SENT OK employeeId=', leaveOwnerId?.toString());
+                } else {
+                    console.warn('[updateLeaveStatus] FCM leave approved: NOT SENT –', result.error);
+                }
+            } catch (error) {
+                console.error('[updateLeaveStatus] FCM leave approved: exception –', error.message);
+            }
+        } else if (status === 'Rejected') {
+            try {
+                const result = await fcmService.sendLeaveRejectedNotification(leave, staffForNotification);
+                if (result.success) {
+                    leave.fcmRejectionSentAt = new Date();
+                    await leave.save();
+                    console.log('[updateLeaveStatus] FCM leave rejected: SENT OK employeeId=', leaveOwnerId?.toString());
+                } else {
+                    console.warn('[updateLeaveStatus] FCM leave rejected: NOT SENT –', result.error);
+                }
+            } catch (error) {
+                console.error('[updateLeaveStatus] FCM leave rejected: exception –', error.message);
             }
         }
 

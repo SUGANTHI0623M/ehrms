@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 
+/// Use [Theme.of(context).colorScheme] for theme-aware surface, background, text.
+/// Use [AppColors] for primary (from ThemeProvider) and semantic status colors.
 class AppColors {
-  // These will be updated by ThemeProvider
-  // Default to a green theme
-  static Color primary = const Color(0xFF43A047); // Green 600
-  static Color primaryDark = const Color(0xFF2E7D32); // Green 800
-  static Color primaryLight = const Color(0xFFA5D6A7); // Green 200
+  static Color primary = const Color(0xFFEFAA1F);
+  static Color primaryDark = const Color(0xFFC98E1A);
+  static Color primaryLight = const Color(0xFFF7D88F);
 
-  // Secondary/Accent Colors
   static const Color accent = Color(0xFFFFA000);
+  static Color secondary = const Color(0xFF2196F3);
+  static Color text = const Color(0xFF263238);
 
-  // Neutral Colors
-  static const Color background = Color(0xFFF5F7FA);
-  static const Color surface = Colors.white;
-  static const Color textPrimary = Color(0xFF263238);
-  static const Color textSecondary = Color(0xFF78909C);
-  static const Color divider = Color(0xFFECEFF1);
+  /// Theme-aware: updated by ThemeProvider when light/dark mode changes.
+  static Color background = const Color(0xFFF5F7FA);
+  static Color surface = Colors.white;
+  static Color textPrimary = const Color(0xFF263238);
+  static Color textSecondary = const Color(0xFF78909C);
+  static Color divider = const Color(0xFFECEFF1);
 
-  // Status Colors
   static const Color success = Color(0xFF43A047);
   static const Color warning = Color(0xFFFFB300);
   static const Color error = Color(0xFFE53935);
@@ -29,8 +29,31 @@ class AppColors {
     primaryLight = color.withOpacity(0.5);
   }
 
+  /// Called by ThemeProvider when theme mode changes so all AppColors.* are in sync.
+  static void updateForBrightness(bool isDark) {
+    if (isDark) {
+      background = const Color(0xFF121212);
+      surface = const Color(0xFF1E1E1E);
+      textPrimary = const Color(0xFFE3E3E3);
+      textSecondary = const Color(0xFFB0B0B0);
+      divider = const Color(0xFF5C5C5C);
+    } else {
+      background = const Color(0xFFF5F7FA);
+      surface = Colors.white;
+      textPrimary = const Color(0xFF263238);
+      textSecondary = const Color(0xFF78909C);
+      divider = const Color(0xFFECEFF1);
+    }
+  }
+
   static Color _getDarkerColor(Color color) {
     final hsl = HSLColor.fromColor(color);
     return hsl.withLightness((hsl.lightness - 0.1).clamp(0.0, 1.0)).toColor();
   }
+}
+
+/// Theme-aware colors from current theme. Use in build methods.
+extension ThemeColors on BuildContext {
+  ColorScheme get colorScheme => Theme.of(this).colorScheme;
+  ThemeData get theme => Theme.of(this);
 }

@@ -9,7 +9,14 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
 class HolidaysScreen extends StatefulWidget {
-  const HolidaysScreen({super.key});
+  final int? dashboardTabIndex;
+  final void Function(int index)? onNavigateToIndex;
+
+  const HolidaysScreen({
+    super.key,
+    this.dashboardTabIndex,
+    this.onNavigateToIndex,
+  });
 
   @override
   State<HolidaysScreen> createState() => _HolidaysScreenState();
@@ -51,7 +58,6 @@ class _HolidaysScreenState extends State<HolidaysScreen>
   }
 
   Future<void> _fetchHolidays() async {
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -132,7 +138,10 @@ class _HolidaysScreenState extends State<HolidaysScreen>
           ],
         ),
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(
+        currentIndex: widget.dashboardTabIndex ?? 3,
+        onNavigateToIndex: widget.onNavigateToIndex,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [_buildYearWiseTab(), _buildMonthWiseTab()],
@@ -200,8 +209,8 @@ class _HolidaysScreenState extends State<HolidaysScreen>
               onChanged: _onSearchChanged,
               decoration: InputDecoration(
                 hintText: 'Search holidays...',
-                hintStyle: const TextStyle(color: AppColors.textSecondary),
-                prefixIcon: const Icon(
+                hintStyle: TextStyle(color: AppColors.textSecondary),
+                prefixIcon: Icon(
                   Icons.search,
                   color: AppColors.textSecondary,
                 ),
@@ -240,7 +249,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                       value: year,
                       child: Text(
                         year.toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     );
                   }).toList(),
@@ -378,7 +387,9 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                         child: Center(
                           child: Text(
                             'No holidays in ${DateFormat('MMMM').format(_focusedDay)}',
-                            style: const TextStyle(color: AppColors.textSecondary),
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
                           ),
                         ),
                       ),
@@ -440,14 +451,14 @@ class _HolidaysScreenState extends State<HolidaysScreen>
               children: [
                 Text(
                   holiday.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
                 ),
                 Text(
                   holiday.dayName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,
                   ),
@@ -487,7 +498,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                     children: [
                       Text(
                         holiday.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textPrimary,
@@ -496,7 +507,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                       const SizedBox(height: 4),
                       Text(
                         holiday.formattedDate,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           color: AppColors.textSecondary,
                         ),
@@ -508,14 +519,14 @@ class _HolidaysScreenState extends State<HolidaysScreen>
               ],
             ),
             const SizedBox(height: 12),
-            const Divider(height: 1, color: AppColors.divider),
+            Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.calendar_today,
                       size: 14,
                       color: AppColors.textSecondary,
@@ -523,7 +534,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
                     const SizedBox(width: 6),
                     Text(
                       holiday.dayName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         color: AppColors.textPrimary,
                         fontWeight: FontWeight.w500,
@@ -605,11 +616,11 @@ class _HolidaysScreenState extends State<HolidaysScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+          Icon(Icons.error_outline, size: 48, color: AppColors.error),
           const SizedBox(height: 16),
           Text(
             _errorMessage!,
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: AppColors.textSecondary),
           ),
           TextButton(
             onPressed: _fetchHolidays,
@@ -628,7 +639,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
+          Icon(
             Icons.calendar_today_outlined,
             size: 64,
             color: AppColors.textSecondary,
@@ -636,7 +647,7 @@ class _HolidaysScreenState extends State<HolidaysScreen>
           const SizedBox(height: 16),
           Text(
             'No holidays found for $_selectedYear',
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: AppColors.textSecondary),
           ),
         ],
       ),

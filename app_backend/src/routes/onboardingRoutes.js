@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect } = require('../middleware/authMiddleware');
-const { getMyOnboarding, getAllOnboardings, uploadDocument } = require('../controllers/onboardingController');
+const { getMyOnboarding, getAllOnboardings, uploadDocument, createCustomer } = require('../controllers/onboardingController');
 
 // Configure multer for file uploads
 const uploadsDir = path.join(__dirname, '../../uploads');
@@ -53,6 +53,8 @@ const upload = multer({
         fileSize: 10 * 1024 * 1024 // 10MB
     }
 });
+
+router.post('/customers', createCustomer);
 
 // Get current user's onboarding
 router.get('/my-onboarding', protect, getMyOnboarding);
