@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../config/app_colors.dart';
 import '../../services/request_service.dart';
 import '../../services/auth_service.dart';
@@ -198,14 +199,21 @@ Future<DateTimeRange?> showDateRangePickerSameCalendar({
   DateTime? initialEnd,
 }) async {
   final now = DateTime.now();
-  DateTime? rangeStart = initialStart != null ? DateTime(initialStart.year, initialStart.month, initialStart.day) : null;
-  DateTime? rangeEnd = initialEnd != null ? DateTime(initialEnd.year, initialEnd.month, initialEnd.day) : null;
-  DateTime focusedDay = rangeEnd ?? rangeStart ?? DateTime(now.year, now.month, now.day);
+  DateTime? rangeStart = initialStart != null
+      ? DateTime(initialStart.year, initialStart.month, initialStart.day)
+      : null;
+  DateTime? rangeEnd = initialEnd != null
+      ? DateTime(initialEnd.year, initialEnd.month, initialEnd.day)
+      : null;
+  DateTime focusedDay =
+      rangeEnd ?? rangeStart ?? DateTime(now.year, now.month, now.day);
 
   final result = await showModalBottomSheet<DateTimeRange>(
     context: context,
     isScrollControlled: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
     builder: (ctx) {
       return StatefulBuilder(
         builder: (context, setModalState) {
@@ -215,7 +223,9 @@ Future<DateTimeRange?> showDateRangePickerSameCalendar({
             maxChildSize: 0.9,
             expand: false,
             builder: (context, scrollController) => Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -224,16 +234,33 @@ Future<DateTimeRange?> showDateRangePickerSameCalendar({
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Select from - to date', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                        Text(
+                          'Select from - to date',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         TextButton(
                           onPressed: () {
                             if (rangeStart != null && rangeEnd != null) {
-                              final start = rangeStart!.isAfter(rangeEnd!) ? rangeEnd! : rangeStart!;
-                              final end = rangeStart!.isAfter(rangeEnd!) ? rangeStart! : rangeEnd!;
-                              Navigator.pop(context, DateTimeRange(start: start, end: end));
+                              final start = rangeStart!.isAfter(rangeEnd!)
+                                  ? rangeEnd!
+                                  : rangeStart!;
+                              final end = rangeStart!.isAfter(rangeEnd!)
+                                  ? rangeStart!
+                                  : rangeEnd!;
+                              Navigator.pop(
+                                context,
+                                DateTimeRange(start: start, end: end),
+                              );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Select start and end date in the calendar')),
+                                const SnackBar(
+                                  content: Text(
+                                    'Select start and end date in the calendar',
+                                  ),
+                                ),
                               );
                             }
                           },
@@ -246,8 +273,16 @@ Future<DateTimeRange?> showDateRangePickerSameCalendar({
                     child: SingleChildScrollView(
                       controller: scrollController,
                       child: TableCalendar(
-                        firstDay: DateTime(firstDate.year, firstDate.month, firstDate.day),
-                        lastDay: DateTime(lastDate.year, lastDate.month, lastDate.day),
+                        firstDay: DateTime(
+                          firstDate.year,
+                          firstDate.month,
+                          firstDate.day,
+                        ),
+                        lastDay: DateTime(
+                          lastDate.year,
+                          lastDate.month,
+                          lastDate.day,
+                        ),
                         focusedDay: focusedDay,
                         rangeStartDay: rangeStart,
                         rangeEndDay: rangeEnd,
@@ -268,11 +303,25 @@ Future<DateTimeRange?> showDateRangePickerSameCalendar({
                           titleCentered: true,
                         ),
                         calendarStyle: CalendarStyle(
-                          rangeStartDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                          rangeEndDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                          rangeHighlightColor: AppColors.primary.withOpacity(0.2),
-                          selectedDecoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                          todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.5), shape: BoxShape.circle),
+                          rangeStartDecoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          rangeEndDecoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          rangeHighlightColor: AppColors.primary.withOpacity(
+                            0.2,
+                          ),
+                          selectedDecoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          todayDecoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.5),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
                     ),
@@ -522,7 +571,10 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch leaves'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to fetch leaves',
+          ),
           isError: true,
         );
       }
@@ -567,13 +619,14 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
 
   void _showLeaveDetails(Map<String, dynamic> leave) {
     // Debug: log leave response for Half day on / approvedBy
-    final halfDayOnValue = leave['halfDayType']?.toString().trim() ??
+    final halfDayOnValue =
+        leave['halfDayType']?.toString().trim() ??
         leave['halfDaySession']?.toString().trim() ??
         (leave['session'] == '1'
             ? 'First Half Day'
             : leave['session'] == '2'
-                ? 'Second Half Day'
-                : '—');
+            ? 'Second Half Day'
+            : '—');
     final start = DateFormat(
       'MMM dd, yyyy',
     ).format(DateTime.parse(leave['startDate']).toLocal());
@@ -632,8 +685,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
               _detailRow('Rejection Reason', rejectionReason),
           ] else
             _detailRow('Approved By', approvedBy),
-          if (leave['reason'] != null &&
-              leave['reason'].toString().isNotEmpty)
+          if (leave['reason'] != null && leave['reason'].toString().isNotEmpty)
             _detailRow('Reason', leave['reason']),
         ],
       ),
@@ -1235,7 +1287,11 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
       return;
     }
-    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final today = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
     if (_startDate!.isBefore(today)) {
       SnackBarUtils.showSnackBar(
         context,
@@ -1256,7 +1312,9 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       );
       return;
     }
-    if (_endDate != null && _startDate != null && _endDate!.isBefore(_startDate!)) {
+    if (_endDate != null &&
+        _startDate != null &&
+        _endDate!.isBefore(_startDate!)) {
       SnackBarUtils.showSnackBar(
         context,
         'End date must be on or after start date.',
@@ -1341,13 +1399,19 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
           Navigator.of(context).pop();
           widget.onSuccess();
           if (overlay != null && overlay.context.mounted) {
-            SnackBarUtils.showSnackBar(overlay.context, 'Leave request submitted');
+            SnackBarUtils.showSnackBar(
+              overlay.context,
+              'Leave request submitted',
+            );
           }
         });
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit leave'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to submit leave',
+          ),
           isError: true,
         );
       }
@@ -1839,7 +1903,10 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch loan requests'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to fetch loan requests',
+          ),
           isError: true,
         );
       }
@@ -2403,7 +2470,10 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit loan request'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to submit loan request',
+          ),
           isError: true,
         );
       }
@@ -2695,7 +2765,10 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch expense requests'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to fetch expense requests',
+          ),
           isError: true,
         );
       }
@@ -2838,8 +2911,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
           String fileName;
           String proofUrl;
           if (proof is Map) {
-            fileName =
-                proof['fileName']?.toString() ?? 'Proof ${index + 1}';
+            fileName = proof['fileName']?.toString() ?? 'Proof ${index + 1}';
             proofUrl =
                 proof['url']?.toString() ??
                 proof['fileUrl']?.toString() ??
@@ -3264,10 +3336,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                       const SizedBox(height: 16),
                       Text(
                         'No expense requests found',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.black,
-                        ),
+                        style: TextStyle(fontSize: 16, color: Colors.black),
                       ),
                     ],
                   ),
@@ -3383,9 +3452,7 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
   Future<void> _pickDate() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final initial = _date != null && !_date!.isAfter(today)
-        ? _date!
-        : now;
+    final initial = _date != null && !_date!.isAfter(today) ? _date! : now;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -3430,7 +3497,11 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
       SnackBarUtils.showSnackBar(context, 'Please select a date');
       return;
     }
-    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final today = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
     if (_date!.isAfter(today)) {
       SnackBarUtils.showSnackBar(
         context,
@@ -3497,7 +3568,10 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
       } else {
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit expense claim'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to submit expense claim',
+          ),
           isError: true,
         );
       }
@@ -3823,7 +3897,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         setState(() => _isLoading = false);
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to fetch payslip requests'),
+          ErrorMessageUtils.sanitizeForDisplay(
+            result['message']?.toString(),
+            fallback: 'Failed to fetch payslip requests',
+          ),
           isError: true,
         );
       }
@@ -3832,7 +3909,11 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
 
   Future<void> _viewPayslip(String? requestId, {String? payslipUrl}) async {
     if (requestId == null || requestId.isEmpty) {
-      SnackBarUtils.showSnackBar(context, 'Invalid payslip request id', isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        'Invalid payslip request id',
+        isError: true,
+      );
       return;
     }
     bool loadingShown = false;
@@ -3843,7 +3924,8 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
         );
         final result = await _requestService.viewPayslipRequest(requestId);
         if (mounted) {
@@ -3877,7 +3959,29 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         loadingShown = false;
       }
       if (result['success'] == true && result['data'] != null) {
-        _openPdf(result['data'] as List<int>, 'view');
+        final pdfBytes = result['data'] as List<int>;
+        // Ensure we got actual PDF bytes (not HTML error page) to avoid "something went wrong" in viewer
+        const pdfMagic = [0x25, 0x50, 0x44, 0x46]; // %PDF
+        final isPdf = pdfBytes.length >= 4 &&
+            pdfBytes[0] == pdfMagic[0] &&
+            pdfBytes[1] == pdfMagic[1] &&
+            pdfBytes[2] == pdfMagic[2] &&
+            pdfBytes[3] == pdfMagic[3];
+        if (isPdf) {
+          _openPdf(pdfBytes, 'view');
+        } else {
+          if (mounted) {
+            SnackBarUtils.showSnackBar(
+              context,
+              'Payslip could not be loaded. Opening in browser instead.',
+              isError: false,
+            );
+            final uri = Uri.tryParse(url);
+            if (uri != null && uri.hasScheme && await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          }
+        }
       } else {
         SnackBarUtils.showSnackBar(
           context,
@@ -3951,17 +4055,23 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     int year, {
     String? payslipUrl,
   }) async {
+    bool loadingShown = false;
     try {
-      String? url = payslipUrl;
+      String? url = payslipUrl?.trim();
       if (url == null || url.isEmpty) {
+        loadingShown = true;
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
         );
         final result = await _requestService.downloadPayslipRequest(requestId);
-        if (mounted) Navigator.pop(context);
-        url = result['payslipUrl']?.toString();
+        if (mounted) {
+          Navigator.pop(context);
+          loadingShown = false;
+        }
+        url = result['payslipUrl']?.toString().trim();
         if (url == null || url.isEmpty) {
           SnackBarUtils.showSnackBar(
             context,
@@ -3975,34 +4085,55 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         }
       }
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-      final result = await _requestService.getPdfBytesFromUrl(url);
-      if (mounted) Navigator.pop(context);
-
-      if (result['success'] == true && result['data'] != null) {
-        _openPdf(
-          result['data'] as List<int>,
-          'download',
-          month: month,
-          year: year,
+      // Proper download: fetch PDF bytes, save to app storage, then open in system viewer
+      if (!loadingShown) {
+        loadingShown = true;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
         );
-      } else {
+      }
+      final result = await _requestService.getPdfBytesFromUrl(url);
+      if (mounted && loadingShown) {
+        Navigator.pop(context);
+        loadingShown = false;
+      }
+
+      if (result['success'] != true || result['data'] == null) {
+        _fallbackOpenPayslipInBrowser(url);
+        return;
+      }
+
+      final bytes = result['data'] as List<int>;
+      if (bytes.length < 4) {
+        _fallbackOpenPayslipInBrowser(url);
+        return;
+      }
+      final isPdf = bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46; // %PDF
+      if (!isPdf) {
+        if (mounted) {
+          SnackBarUtils.showSnackBar(
+            context,
+            'Payslip could not be downloaded. Opening in browser instead.',
+            isError: false,
+          );
+        }
+        _fallbackOpenPayslipInBrowser(url);
+        return;
+      }
+
+      await _openPdf(bytes, 'view', month: month, year: year);
+      if (mounted) {
         SnackBarUtils.showSnackBar(
           context,
-          ErrorMessageUtils.sanitizeForDisplay(
-            result['message']?.toString(),
-            fallback: 'Failed to download payslip',
-          ),
-          isError: true,
+          'Payslip downloaded and opened.',
         );
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (loadingShown) Navigator.pop(context);
         SnackBarUtils.showSnackBar(
           context,
           'Error downloading payslip: ${e.toString()}',
@@ -4010,6 +4141,22 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         );
       }
     }
+  }
+
+  Future<void> _fallbackOpenPayslipInBrowser(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return;
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (mounted) {
+          SnackBarUtils.showSnackBar(
+            context,
+            'Payslip opened in browser. You can view or download it there.',
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _openPdf(
@@ -4086,7 +4233,9 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     } else if (req['status'] == 'Rejected' && approver != null) {
       rejectedBy = approvedBy;
     }
-    final rejectionReason = (req['actionReason'] ?? req['rejectionReason'])?.toString().trim();
+    final rejectionReason = (req['actionReason'] ?? req['rejectionReason'])
+        ?.toString()
+        .trim();
     final isRejected = req['status'] == 'Rejected';
 
     final children = <Widget>[
@@ -4179,8 +4328,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     final String? payslipUrl = payroll is Map
         ? (payroll['payslipUrl']?.toString().trim())
         : null;
-    final bool hasPayslipUrl =
-        payslipUrl != null && payslipUrl.isNotEmpty;
+    final bool hasPayslipUrl = payslipUrl != null && payslipUrl.isNotEmpty;
 
     // Status label: approved but not yet generated vs approved and viewable
     String statusLabel = req['status'] ?? '';
@@ -4762,7 +4910,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
     int first = 1;
     int last = 12;
     if (year == _joiningYear) first = _joiningMonth;
-    if (year == _currentYear) last = _currentMonth;
+    // Only completed previous months – exclude current month (payslip not ready for current month yet)
+    if (year == _currentYear) last = _currentMonth - 1;
     if (first > last) return [];
     return _months.sublist(first - 1, last);
   }
@@ -4811,9 +4960,9 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   'Select Year',
-                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    ctx,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
               Flexible(
@@ -4900,7 +5049,10 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit payslip requests'),
+            ErrorMessageUtils.sanitizeForDisplay(
+              result['message']?.toString(),
+              fallback: 'Failed to submit payslip requests',
+            ),
             isError: true,
           );
         }
@@ -4934,7 +5086,10 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
         } else {
           SnackBarUtils.showSnackBar(
             context,
-            ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString(), fallback: 'Failed to submit payslip request'),
+            ErrorMessageUtils.sanitizeForDisplay(
+              result['message']?.toString(),
+              fallback: 'Failed to submit payslip request',
+            ),
             isError: true,
           );
         }
@@ -5048,7 +5203,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                               setState(() {
                                 _isBulkMode = selected;
                                 if (_isBulkMode) {
-                                  _month = _allowedMonthsForSelectedYear.isNotEmpty
+                                  _month =
+                                      _allowedMonthsForSelectedYear.isNotEmpty
                                       ? _allowedMonthsForSelectedYear.first
                                       : 'January';
                                 }
@@ -5067,8 +5223,8 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                           value: _allowedMonthsForSelectedYear.contains(_month)
                               ? _month
                               : (_allowedMonthsForSelectedYear.isNotEmpty
-                                  ? _allowedMonthsForSelectedYear.first
-                                  : 'January'),
+                                    ? _allowedMonthsForSelectedYear.first
+                                    : 'January'),
                           items: _allowedMonthsForSelectedYear
                               .map(
                                 (e) =>
@@ -5139,20 +5295,20 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
                           controller: _yearController,
                           readOnly: true,
                           style: TextStyle(fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration(
-                            'Year',
-                            Icons.calendar_today,
-                          ).copyWith(
-                            hintText: 'Tap to select year',
-                            suffixIcon: const Icon(
-                              Icons.arrow_drop_down,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          validator: (val) =>
-                              val == null || val.isEmpty
-                                  ? 'Year is required'
-                                  : null,
+                          decoration:
+                              _inputDecoration(
+                                'Year',
+                                Icons.calendar_today,
+                              ).copyWith(
+                                hintText: 'Tap to select year',
+                                suffixIcon: const Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                          validator: (val) => val == null || val.isEmpty
+                              ? 'Year is required'
+                              : null,
                         ),
                       ),
                     ),

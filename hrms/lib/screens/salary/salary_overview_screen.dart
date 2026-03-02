@@ -51,6 +51,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   double _leaveDays = 0;
   Map<String, dynamic>? _staffSalary;
   Map<String, dynamic>? _currentPayroll;
+  /// When selected month/year is a past month, payroll from API (staffId + month + year). Null if no payroll for that month.
+  Map<String, dynamic>? _pastMonthPayroll;
   List<dynamic> _attendanceRecords = [];
   List<DateTime> _holidays = [];
   Set<String> _weekOffDates = {};
@@ -86,6 +88,18 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   ];
 
   final List<String> _years = ['2023', '2024', '2025', '2026', '2027'];
+
+  /// True when selected month/year is the current month and year (calculation applies).
+  bool _isCurrentMonth(int monthIndex, int year) {
+    final now = DateTime.now();
+    return monthIndex == now.month && year == now.year;
+  }
+
+  bool get _isSelectedCurrentMonth {
+    final monthIndex = _months.indexOf(_selectedMonth) + 1;
+    final year = int.tryParse(_selectedYear) ?? DateTime.now().year;
+    return _isCurrentMonth(monthIndex, year);
+  }
 
   @override
   void initState() {
@@ -141,6 +155,44 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     try {
       int monthIndex = _months.indexOf(_selectedMonth) + 1;
       int year = int.parse(_selectedYear);
+
+      // Past month: no calculation – use payroll for that month/year or show 0.00
+      if (!_isCurrentMonth(monthIndex, year)) {
+        _pastMonthPayroll = null;
+        _currentPayroll = null;
+        _calculatedSalary = null;
+        _proratedSalary = null;
+        _workingDaysInfo = null;
+        _backendThisMonthNet = null;
+        _backendThisMonthGross = null;
+        _presentDays = 0;
+        _attendanceRecords = [];
+        _holidays = [];
+        _weekOffDates = {};
+        _leaveDates = {};
+        _dailyFineAmounts = {};
+        _fineInfo = {'totalFineAmount': 0.0, 'lateDays': 0, 'totalLateMinutes': 0};
+        try {
+          final payrollData = await _salaryService.getPayrolls(
+            month: monthIndex,
+            year: year,
+            page: 1,
+            limit: 1,
+          );
+          if (payrollData['success'] == true && payrollData['data'] != null) {
+            final payrolls = payrollData['data']['payrolls'] as List?;
+            if (payrolls != null && payrolls.isNotEmpty) {
+              _pastMonthPayroll = payrolls.first as Map<String, dynamic>;
+              _currentPayroll = _pastMonthPayroll;
+            }
+          }
+        } catch (_) {}
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // Current month: clear past-month state and run full calculation
+      _pastMonthPayroll = null;
 
       // 1. Fetch staff profile to get salary structure
       final profileResult = await _authService.getProfile();
@@ -772,7 +824,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 ),
               ),
             )
-          : _calculatedSalary == null
+          : _calculatedSalary == null && _proratedSalary == null && _isSelectedCurrentMonth
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
@@ -847,16 +899,104 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   const SizedBox(height: 16),
                   _buildSummaryCards(),
                   const SizedBox(height: 16),
-                  _buildAttendanceSummary(),
-                  const SizedBox(height: 16),
-                  _buildDailyBreakdownOverview(),
+                  if (_isSelectedCurrentMonth) ...[
+                    _buildAttendanceSummary(),
+                    const SizedBox(height: 16),
+                    _buildDailyBreakdownOverview(),
+                  ] else ...[
+                    _buildPastMonthAttendancePlaceholder(),
+                  ],
                 ],
               ),
             ),
     );
   }
 
+  Widget _buildPastMonthAttendancePlaceholder() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.grey.shade600, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Attendance and daily breakdown are shown only for the current month.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSummaryCards() {
+    final isPastMonth = !_isSelectedCurrentMonth;
+    if (isPastMonth) {
+      // Past month: show from payroll or 0.00
+      final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+      final payroll = _pastMonthPayroll;
+      final gross = (payroll?['grossSalary'] as num?)?.toDouble() ?? 0.0;
+      final net = (payroll?['netPay'] as num?)?.toDouble() ?? 0.0;
+      final isProcessed = payroll != null &&
+          (payroll['status'] == 'Processed' || payroll['status'] == 'Paid');
+      final subtitle = payroll != null
+          ? (isProcessed ? 'From payroll' : 'From payroll')
+          : 'No payroll for this month';
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          bool isWide = constraints.maxWidth > 600;
+          final cards = [
+            _buildStatCard(
+              'Monthly Gross',
+              currencyFormat.format(gross),
+              subtitle,
+              AppColors.primary,
+              textColor: Colors.white,
+              usePrimaryGradient: true,
+            ),
+            _buildStatCard(
+              'This Month Gross',
+              currencyFormat.format(gross),
+              isPastMonth ? 'From payroll' : '',
+              Colors.black,
+              textColor: Colors.white,
+            ),
+            _buildStatCard(
+              'Monthly Net',
+              currencyFormat.format(net),
+              subtitle,
+              AppColors.primary,
+              textColor: Colors.white,
+              usePrimaryGradient: true,
+            ),
+            _buildStatCard(
+              'This Month Net',
+              currencyFormat.format(net),
+              isPastMonth ? 'From payroll' : '',
+              Colors.black,
+              textColor: Colors.white,
+            ),
+          ];
+          return GridView.count(
+            crossAxisCount: isWide ? 4 : 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            childAspectRatio: isWide ? 1.5 : 1.3,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            children: cards,
+          );
+        },
+      );
+    }
+
     if (_calculatedSalary == null || _proratedSalary == null) {
       return const SizedBox.shrink();
     }

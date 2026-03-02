@@ -43,14 +43,25 @@ class SalaryService {
     };
   }
 
-  Future<Map<String, dynamic>> getPayrolls({int? page, int? limit}) async {
+  Future<Map<String, dynamic>> getPayrolls({
+    int? page,
+    int? limit,
+    int? month,
+    int? year,
+  }) async {
     final token = await _authService.getToken();
     if (token == null) throw Exception('No token found');
     try {
       _api.setAuthToken(token);
+      final q = <String, dynamic>{
+        'page': page ?? 1,
+        'limit': limit ?? 10,
+      };
+      if (month != null) q['month'] = month;
+      if (year != null) q['year'] = year;
       final response = await _api.dio.get<Map<String, dynamic>>(
         '/payrolls',
-        queryParameters: {'page': page ?? 1, 'limit': limit ?? 10},
+        queryParameters: q,
       );
       final data = response.data;
       if (data != null) return data;
