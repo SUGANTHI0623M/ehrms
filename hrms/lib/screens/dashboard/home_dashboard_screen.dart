@@ -1450,7 +1450,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Pending Leave Requests',
+                  'Leave Requests',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1466,6 +1466,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     color: Color(0xFF1E293B),
                   ),
                 ),
+                   Text(
+                    'Pending',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1509,7 +1517,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'This Month Net Salary',
+                  'This Month Net',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1517,12 +1525,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E293B),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E293B),
+                    ),
                   ),
                 ),
                 if (presentDays != '0' && presentDays.isNotEmpty)
@@ -2540,6 +2552,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
 
+    // Dates in this month that are alternate work dates (employee can check-in; do not show as week-off/violet)
+    Set<String> alternateWorkDatesInMonthSet = {};
+    if (_monthData != null && _monthData!['alternateWorkDatesInMonth'] != null) {
+      final altDates = _monthData!['alternateWorkDatesInMonth'] as List;
+      for (var dateStr in altDates) {
+        if (dateStr is String) {
+          alternateWorkDatesInMonthSet.add(dateStr);
+        }
+      }
+    }
+
     // Create a set of present dates from backend
     Set<String> presentDateSet = {};
     if (_monthData != null && _monthData!['presentDates'] != null) {
@@ -2679,10 +2702,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // Use backend calculated week off dates, but add validation:
               // 1. Sundays (day 0) should ALWAYS be week off
               // 2. Fridays (day 5) should NEVER be week off unless explicitly in backend data
+              // 3. Do NOT show violet for alternate work dates (compensation week-off days when employee can check-in)
               bool isWeekOff = weekOffDateSet.contains(dateStr);
-
-              // Validation: Sundays are always week off
-              if (dayOfWeek == 0) {
+              if (isWeekOff && alternateWorkDatesInMonthSet.contains(dateStr)) {
+                isWeekOff = false; // Alternate work date: can check-in, don't highlight as week off
+              }
+              // Validation: Sundays are always week off (unless it's an alternate work date)
+              if (dayOfWeek == 0 && !alternateWorkDatesInMonthSet.contains(dateStr)) {
                 isWeekOff = true;
               }
 
@@ -2724,6 +2750,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // 3. Holiday
               else if (isHoliday) {
                 bgColor = const Color(0xFFFEF3C7); // Holiday - Light yellow
+              }
+              // 3.5. Alternate Working Day (compensation week-off day when employee can check-in)
+              else if (alternateWorkDatesInMonthSet.contains(dateStr)) {
+                bgColor = const Color(0xFFE8D5C4); // Working Day - Light brown
               }
               // 4. Week Off
               else if (isWeekOff) {
@@ -2807,6 +2837,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               } else if (isHalfDayStatusForAbbr) {
                 // Half Day → Show "HA" (blue background)
                 leaveTypeAbbr = 'HA';
+              } else if (alternateWorkDatesInMonthSet.contains(dateStr)) {
+                // Alternate Working Day → Show "WD" (light brown background)
+                leaveTypeAbbr = 'WD';
               } else if (leaveDateSet.contains(dateStr) &&
                   !isPresentStatusForAbbr) {
                 // Leave date without attendance → Show "L" (purple background)
@@ -2953,6 +2986,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         _buildLegendItem(const Color(0xFFFEE2E2), 'Absent'),
         // Use same soft yellow as calendar Holiday cell background
         _buildLegendItem(const Color(0xFFFEF3C7), 'Holiday'),
+        _buildLegendItem(const Color(0xFFE8D5C4), 'Working Day'),
         _buildLegendItem(const Color(0xFFE9D5FF), 'Weekend'),
         _buildLegendItem(const Color(0xFFBFDBFE), 'On Leave'),
         // Low Work Hours with red dot

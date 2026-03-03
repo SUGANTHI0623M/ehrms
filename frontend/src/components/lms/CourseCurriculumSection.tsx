@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Progress, Tag, Button, Popover, Row, Col, Card, Collapse, List } from 'antd';
+import { Typography, Progress, Tag, Button, Popover, Row, Col, Card, Collapse, List, Input } from 'antd';
 import {
     PlayCircleOutlined,
     CheckCircleOutlined,
@@ -72,6 +72,8 @@ interface CourseCurriculumSectionProps {
     renderHeaderLeft?: React.ReactNode;
     /** Rendered at top-right of the green topbar (e.g. collapse panel icon) */
     renderHeaderRight?: React.ReactNode;
+    /** Course description – shown in an expandable section below the course title (learner sidebar) */
+    courseDescription?: string | null;
 }
 
 const getMaterialIcon = (type: string) => {
@@ -144,6 +146,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
     renderBetweenProgressAndLessons,
     renderHeaderLeft,
     renderHeaderRight,
+    courseDescription,
 }) => {
     const [expandedLessons, setExpandedLessons] = useState<Record<string, boolean>>(() => {
         const initial: Record<string, boolean> = {};
@@ -180,6 +183,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
     }, [isSidebar, dueDate]);
 
     const [progressAnimated, setProgressAnimated] = useState(0);
+    const [descriptionExpanded, setDescriptionExpanded] = useState(false);
     useEffect(() => {
         if (!isSidebar) return;
         const id = requestAnimationFrame(() => setProgressAnimated(progressPercentage));
@@ -194,7 +198,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
         const dueDateObj = dueDate ? new Date(dueDate) : null;
         const now = new Date();
         const daysRemaining = dueDateObj && !Number.isNaN(dueDateObj.getTime())
-            ? Math.ceil((dueDateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+            ? Math.floor((dueDateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
             : null;
         const timeRemainingLabel = daysRemaining === null
             ? null
@@ -265,6 +269,46 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
                                 </div>
                             )}
                         </header>
+
+                        {courseDescription != null && String(courseDescription).trim() !== '' && (
+                            <div className="lms-playlist-native-description-accordion">
+                                <button
+                                    type="button"
+                                    className="lms-playlist-native-description-header"
+                                    onClick={() => setDescriptionExpanded((e) => !e)}
+                                    aria-expanded={descriptionExpanded}
+                                    aria-controls="lms-description-body"
+                                    id="lms-description-header"
+                                >
+                                    <span className="lms-playlist-native-description-title-wrap">
+                                        <span className="lms-playlist-native-description-title">Description</span>
+                                        <span
+                                            className={`lms-playlist-native-description-chevron ${descriptionExpanded ? 'is-expanded' : ''}`}
+                                            aria-hidden
+                                        >
+                                            <DownOutlined />
+                                        </span>
+                                    </span>
+                                </button>
+                                <div
+                                    id="lms-description-body"
+                                    className="lms-playlist-native-description-body"
+                                    role="region"
+                                    aria-labelledby="lms-description-header"
+                                    data-expanded={descriptionExpanded}
+                                >
+                                    <div className="lms-playlist-native-description-body-inner">
+                                        <Input.TextArea
+                                            readOnly
+                                            value={String(courseDescription).trim()}
+                                            className="lms-playlist-native-description-textarea"
+                                            autoSize={{ minRows: 3, maxRows: 10 }}
+                                            bordered={false}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {renderHeaderLeft != null && (
                             <div className="lms-playlist-native-collapse-row">
@@ -486,6 +530,93 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
                     .lms-playlist-native-deadline-chip-success { background: hsl(var(--success) / 0.15); color: hsl(var(--success)); }
                     .lms-playlist-native-deadline-chip-warning { background: hsl(var(--warning) / 0.15); color: hsl(var(--warning)); }
                     .lms-playlist-native-deadline-chip-overdue { background: hsl(var(--destructive) / 0.15); color: hsl(var(--destructive)); }
+                    .lms-playlist-native-description-accordion {
+                        border: none;
+                        border-radius: var(--radius);
+                        overflow: hidden;
+                        margin-top: 10px;
+                        margin-bottom: 0;
+                        background: transparent;
+                    }
+                    .lms-playlist-native-description-header {
+                        width: 100%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: flex-start;
+                        gap: 0;
+                        min-height: 44px;
+                        padding: 10px 12px 10px 0;
+                        border: none;
+                        background: transparent;
+                        font-size: var(--lms-text-sm);
+                        font-weight: 500;
+                        color: hsl(var(--foreground));
+                        cursor: pointer;
+                        font-family: var(--lms-font-sans);
+                        text-align: left;
+                        transition: background-color 0.15s ease;
+                        -webkit-tap-highlight-color: transparent;
+                    }
+                    .lms-playlist-native-description-header:hover { background: hsl(var(--muted)); }
+                    .lms-playlist-native-description-header:focus { outline: none; }
+                    .lms-playlist-native-description-header:focus-visible {
+                        outline: 2px solid hsl(var(--primary));
+                        outline-offset: 2px;
+                    }
+                    .lms-playlist-native-description-title-wrap {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                    }
+                    .lms-playlist-native-description-title { }
+                    .lms-playlist-native-description-chevron {
+                        flex-shrink: 0;
+                        font-size: 12px;
+                        color: hsl(var(--muted-foreground));
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: transform 0.2s ease;
+                    }
+                    .lms-playlist-native-description-chevron:not(.is-expanded) { transform: rotate(-90deg); }
+                    .lms-playlist-native-description-body {
+                        display: grid;
+                        grid-template-rows: 0fr;
+                        transition: grid-template-rows 0.25s ease-out;
+                        max-height: 0;
+                        overflow: hidden;
+                    }
+                    .lms-playlist-native-description-body[data-expanded="true"] {
+                        grid-template-rows: 1fr;
+                        max-height: none;
+                    }
+                    .lms-playlist-native-description-body > * { overflow: hidden; }
+                    .lms-playlist-native-description-body-inner {
+                        min-height: 0;
+                        padding: 0 12px 12px 0;
+                        border: none;
+                    }
+                    .lms-playlist-native-description-textarea.ant-input {
+                        font-size: var(--lms-text-xs);
+                        line-height: 1.55;
+                        color: hsl(var(--foreground));
+                        background: hsl(var(--muted) / 0.25);
+                        resize: none;
+                        padding: 10px 12px;
+                        border-radius: var(--radius);
+                        cursor: default;
+                        max-height: 220px;
+                        overflow-y: auto !important;
+                        word-wrap: break-word;
+                        border: none;
+                    }
+                    .lms-playlist-native-description-textarea.ant-input:hover { background: hsl(var(--muted) / 0.35); }
+                    .lms-playlist-native-description-textarea.ant-input:focus { box-shadow: none; outline: none; }
+                    @media (max-width: 480px) {
+                        .lms-playlist-native-description-header { padding: 12px 12px 12px 0; min-height: 48px; }
+                        .lms-playlist-native-description-body-inner { padding: 0 12px 12px 0; }
+                        .lms-playlist-native-description-textarea.ant-input { padding: 10px 12px; max-height: 180px; }
+                    }
                     .lms-playlist-native-sections {
                         flex: 1;
                         min-height: 0;
@@ -600,7 +731,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
                             if (Number.isNaN(due.getTime())) return null;
                             const now = new Date();
                             if (due <= now) return null;
-                            const totalDays = Math.ceil((due.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+                            const totalDays = Math.floor((due.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
                             const weeks = Math.floor(totalDays / 7);
                             const days = totalDays % 7;
                             const parts: string[] = [];
@@ -701,7 +832,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
                                         </div>
                                     }
                                     extra={null}
-                                    bodyStyle={!isExpanded ? { display: 'none' } : undefined}
+                                    styles={{ body: !isExpanded ? { display: 'none' } : {} }}
                                 >
                                     <List
                                         size="small"
@@ -782,7 +913,7 @@ const CourseCurriculumSection: React.FC<CourseCurriculumSectionProps> = ({
                                         </div>
                                     }
                                     extra={null}
-                                    bodyStyle={!isExpanded ? { display: 'none' } : undefined}
+                                    styles={{ body: !isExpanded ? { display: 'none' } : {} }}
                                 >
                                     <List
                                         size="small"

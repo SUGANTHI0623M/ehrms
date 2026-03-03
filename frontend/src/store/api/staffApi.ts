@@ -102,6 +102,11 @@ export interface Staff {
     name: string;
     description?: string;
   };
+  weeklyHolidayTemplateId?: string | {
+    _id: string;
+    name: string;
+    description?: string;
+  };
 
   // Personal Info
   gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
@@ -250,7 +255,7 @@ export const staffApi = apiSlice.injectEndpoints({
         method: 'POST',
         body: staffData,
       }),
-      invalidatesTags: ['Staff'],
+      invalidatesTags: ['Staff', 'User'],
     }),
     updateStaff: builder.mutation<
       { success: boolean; data: { staff: Staff } },
@@ -261,14 +266,14 @@ export const staffApi = apiSlice.injectEndpoints({
         method: 'PUT',
         body: data,
       }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'Staff', id }, 'Staff'],
+      invalidatesTags: (result, error, { id }) => [{ type: 'Staff', id }, 'Staff', 'User'],
     }),
     deleteStaff: builder.mutation<{ success: boolean; data: { message: string } }, string>({
       query: (id) => ({
         url: `/staff/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['Staff'],
+      invalidatesTags: ['Staff', 'User'],
     }),
     getAvailableShifts: builder.query<
       { success: boolean; data: { shifts: Array<{ name: string; startTime: string; endTime: string }> } },
@@ -284,6 +289,7 @@ export const staffApi = apiSlice.injectEndpoints({
           attendanceTemplates: Array<{ _id: string; name: string; description?: string }>;
           leaveTemplates: Array<{ _id: string; name: string; description?: string }>;
           holidayTemplates: Array<{ _id: string; name: string; description?: string }>;
+          weeklyHolidayTemplates: Array<{ _id: string; name: string; description?: string }>;
         };
       },
       void
@@ -362,7 +368,7 @@ export const staffApi = apiSlice.injectEndpoints({
           body: formData,
         };
       },
-      invalidatesTags: ['Staff'],
+      invalidatesTags: ['Staff', 'User'],
     }),
     exportStaffToExcel: builder.mutation<Blob, void>({
       queryFn: async (_, { getState }) => {
@@ -382,7 +388,7 @@ export const staffApi = apiSlice.injectEndpoints({
                              hostname.startsWith('172.16.') ||
                              hostname === '[::1]';
               if (isLocal) {
-                return 'http://localhost:9000/api';
+                return 'http://localhost:7001/api';
               }
             }
             if (import.meta.env.VITE_API_URL) {
@@ -391,7 +397,7 @@ export const staffApi = apiSlice.injectEndpoints({
             if (typeof window !== 'undefined') {
               return window.location.origin + '/api';
             }
-            return 'http://localhost:9000/api';
+            return 'http://localhost:7001/api';
           };
           
           const apiUrl = getApiUrl();
@@ -448,7 +454,7 @@ export const staffApi = apiSlice.injectEndpoints({
                              hostname.startsWith('172.16.') ||
                              hostname === '[::1]';
               if (isLocal) {
-                return 'http://localhost:9000/api';
+                return 'http://localhost:7001/api';
               }
             }
             if (import.meta.env.VITE_API_URL) {
@@ -457,7 +463,7 @@ export const staffApi = apiSlice.injectEndpoints({
             if (typeof window !== 'undefined') {
               return window.location.origin + '/api';
             }
-            return 'http://localhost:9000/api';
+            return 'http://localhost:7001/api';
           };
           
           const apiUrl = getApiUrl();

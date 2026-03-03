@@ -79,7 +79,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                 label: scheduledInterview.status === 'IN_PROGRESS' ? 'Resume Interview' : 'Start Interview',
                 type: 'START',
                 variant: 'default',
-                color: 'bg-green-600 hover:bg-green-700 text-white',
+                color: 'bg-[#efaa1f] hover:bg-[#d97706] text-white',
                 round: currentRound,
                 path: scheduledInterview._id ? `/interview/round/${scheduledInterview._id}` : undefined
             };
@@ -128,7 +128,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                 label: 'Start Interview',
                 type: 'START',
                 variant: 'default',
-                color: 'bg-green-600 hover:bg-green-700 text-white',
+                color: 'bg-[#efaa1f] hover:bg-[#d97706] text-white',
                 round: currentRound,
                 path: scheduledInterview?._id ? `/interview/round/${scheduledInterview._id}` : undefined
             };
@@ -188,7 +188,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                 label: 'Generate Offer Letter',
                 type: 'GENERATE_OFFER',
                 variant: 'default',
-                color: 'bg-green-600 hover:bg-green-700 text-white'
+                color: 'bg-[#efaa1f] hover:bg-[#d97706] text-white'
             };
         }
         return {

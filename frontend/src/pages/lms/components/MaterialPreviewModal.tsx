@@ -27,8 +27,8 @@ const MaterialPreviewModal = ({
     width={1000}
     style={{ maxWidth: "95vw", top: 20 }}
     centered
-    bodyStyle={{ padding: 0, height: "70vh" }}
-    destroyOnClose
+    styles={{ body: { padding: 0, height: "70vh" } }}
+    destroyOnHidden
   >
     <div className="w-full h-full bg-black flex items-center justify-center overflow-hidden rounded-b-lg">
       {preview.type === "video" && (

@@ -396,7 +396,7 @@ const Payroll = () => {
                   { label: "Period", value: `${monthOptions[selectedMonth - 1]?.label} ${selectedYear}` },
                   { label: "Total Employees", value: stats?.totalEmployees || 0 },
                   { label: "Total Payroll", value: stats ? formatINR(stats.totalPayroll) : "—" },
-                  { label: "Processed", value: stats?.processed || 0, class: "text-green-600" },
+                  { label: "Processed", value: stats?.processed || 0, class: "text-[#efaa1f]" },
                   { label: "Pending", value: stats?.pending || 0, class: "text-red-600" },
                 ].map((item, i) => (
                   <div key={i}>
@@ -442,7 +442,7 @@ const Payroll = () => {
                 <CheckCircle className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-xl sm:text-2xl font-bold text-green-600">
+                <div className="text-xl sm:text-2xl font-bold text-[#efaa1f]">
                   {isLoadingStats ? "Loading..." : (stats ? formatINR(stats.netPayable) : "—")}
                 </div>
                 <p className="text-xs text-success mt-1">Ready to disburse</p>
@@ -507,7 +507,7 @@ const Payroll = () => {
                               <TableCell>{designation}</TableCell>
                               <TableCell className="text-right">{formatINR(payroll.grossSalary)}</TableCell>
                               <TableCell className="text-right text-red-600">{formatINR(payroll.deductions)}</TableCell>
-                              <TableCell className="text-right text-green-600 font-semibold">{formatINR(payroll.netPay)}</TableCell>
+                              <TableCell className="text-right text-[#efaa1f] font-semibold">{formatINR(payroll.netPay)}</TableCell>
                               <TableCell>
                                 <Badge variant={payroll.status === "Paid" ? "default" : payroll.status === "Processed" ? "secondary" : "outline"}>
                                   {payroll.status}

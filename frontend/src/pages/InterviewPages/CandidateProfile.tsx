@@ -869,7 +869,7 @@ const CandidateProfile = () => {
           }}
           footer={null}
           width={520}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form
             form={editContactForm}

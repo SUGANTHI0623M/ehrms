@@ -234,7 +234,7 @@ const MyScoresPage: React.FC = () => {
                     }
                     width={720}
                     centered
-                    destroyOnClose
+                    destroyOnHidden
                 >
                     {assessmentLogCourse && (
                         <div className="pt-2">

@@ -295,7 +295,7 @@ const Timeline = () => {
     if (!staffId) return "#6b7280";
     const colors = [
       "#3b82f6", // Blue
-      "#10b981", // Green
+      "#efaa1f", // Primary color
       "#f59e0b", // Orange
       "#8b5cf6", // Purple
       "#ef4444", // Red
@@ -357,7 +357,7 @@ const Timeline = () => {
               ? "#3b82f6" // Blue for geotag
               : (event.type || "stop") === "location" ||
                   (event.type || "stop") === "arrived"
-                ? "#10b981" // Green for location/arrived
+                ? "#efaa1f" // Primary color for location/arrived
                 : (event.type || "stop") === "exited"
                   ? "#f59e0b" // Orange for exited
                   : (event.type || "stop") === "live"
@@ -432,7 +432,7 @@ const Timeline = () => {
       case "stop":
         return <MapIcon className="w-4 h-4" />;
       case "arrived":
-        return <MapPin className="w-4 h-4 text-green-500" />;
+        return <MapPin className="w-4 h-4 text-[#efaa1f]" />;
       case "exited":
         return <MapPin className="w-4 h-4 text-orange-500" />;
       case "live":
@@ -687,7 +687,7 @@ const Timeline = () => {
                                           <span
                                             className={`text-xs px-2 py-0.5 rounded ${
                                               taskStatus === "completed"
-                                                ? "bg-green-100 text-green-700"
+                                                ? "bg-[#fef3c7] text-[#d97706]"
                                                 : taskStatus === "in_progress"
                                                   ? "bg-blue-100 text-blue-700"
                                                   : "bg-gray-100 text-gray-700"
@@ -724,7 +724,7 @@ const Timeline = () => {
                                             </span>
                                           )}
                                           {taskDetail.arrived && (
-                                            <span className="flex items-center gap-1 text-green-600">
+                                            <span className="flex items-center gap-1 text-[#efaa1f]">
                                               <CheckCircle2 className="w-3 h-3" />
                                               Arrived
                                             </span>
@@ -786,7 +786,7 @@ const Timeline = () => {
                                                     ? "bg-blue-100 text-blue-600"
                                                     : (event.type || "stop") ===
                                                         "arrived"
-                                                      ? "bg-green-100 text-green-600"
+                                                      ? "bg-[#fef3c7] text-[#efaa1f]"
                                                       : (event.type ||
                                                             "stop") === "exited"
                                                         ? "bg-orange-100 text-orange-600"
@@ -818,7 +818,7 @@ const Timeline = () => {
                                                   </span>
                                                 )}
                                                 {event.isTaskStart && (
-                                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                                                  <span className="text-xs bg-[#fef3c7] text-[#d97706] px-2 py-0.5 rounded">
                                                     Start
                                                   </span>
                                                 )}
@@ -1000,7 +1000,7 @@ const Timeline = () => {
                                                     className={`ml-2 px-2 py-0.5 rounded text-xs ${
                                                       event.taskStatus ===
                                                       "completed"
-                                                        ? "bg-green-100 text-green-700"
+                                                        ? "bg-[#fef3c7] text-[#d97706]"
                                                         : event.taskStatus ===
                                                             "in_progress"
                                                           ? "bg-blue-100 text-blue-700"
@@ -1161,7 +1161,7 @@ const Timeline = () => {
                                                         {event.taskDetail
                                                           .progressSteps
                                                           .reachedLocation ? (
-                                                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                          <CheckCircle2 className="w-4 h-4 text-[#efaa1f]" />
                                                         ) : (
                                                           <XCircle className="w-4 h-4 text-gray-400" />
                                                         )}
@@ -1173,7 +1173,7 @@ const Timeline = () => {
                                                         {event.taskDetail
                                                           .progressSteps
                                                           .photoProof ? (
-                                                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                          <CheckCircle2 className="w-4 h-4 text-[#efaa1f]" />
                                                         ) : (
                                                           <XCircle className="w-4 h-4 text-gray-400" />
                                                         )}
@@ -1185,7 +1185,7 @@ const Timeline = () => {
                                                         {event.taskDetail
                                                           .progressSteps
                                                           .formFilled ? (
-                                                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                          <CheckCircle2 className="w-4 h-4 text-[#efaa1f]" />
                                                         ) : (
                                                           <XCircle className="w-4 h-4 text-gray-400" />
                                                         )}
@@ -1197,7 +1197,7 @@ const Timeline = () => {
                                                         {event.taskDetail
                                                           .progressSteps
                                                           .otpVerified ? (
-                                                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                          <CheckCircle2 className="w-4 h-4 text-[#efaa1f]" />
                                                         ) : (
                                                           <XCircle className="w-4 h-4 text-gray-400" />
                                                         )}
@@ -1395,7 +1395,7 @@ const Timeline = () => {
                                                         event.taskDetail
                                                           .status ===
                                                         "completed"
-                                                          ? "bg-green-100 text-green-700"
+                                                          ? "bg-[#fef3c7] text-[#d97706]"
                                                           : event.taskDetail
                                                                 .status ===
                                                               "in_progress"
@@ -1448,7 +1448,7 @@ const Timeline = () => {
                                             ? "bg-blue-100 text-blue-600"
                                             : (event.type || "stop") ===
                                                 "arrived"
-                                              ? "bg-green-100 text-green-600"
+                                              ? "bg-[#fef3c7] text-[#efaa1f]"
                                               : (event.type || "stop") ===
                                                   "exited"
                                                 ? "bg-orange-100 text-orange-600"

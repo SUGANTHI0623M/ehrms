@@ -202,7 +202,7 @@ const AIQuizAttempt: React.FC = () => {
                         </div>
                     </div>
 
-                    <Card bordered={false} className="shadow-sm rounded-xl overflow-hidden mb-6" bodyStyle={{ padding: '32px' }}>
+                    <Card bordered={false} className="shadow-sm rounded-xl overflow-hidden mb-6" styles={{ body: { padding: '32px' } }}>
                         <div className="mb-8">
                             <Tag color="purple" className="mb-2 border-none px-2 rounded-full text-[10px]">{currentQuestion.type}</Tag>
                             <Title level={5} className="!m-0 leading-relaxed">{currentQuestion.question}</Title>

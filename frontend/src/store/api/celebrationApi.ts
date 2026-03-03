@@ -36,40 +36,69 @@ export interface UpcomingAnniversary {
   templateId?: string | null;
 }
 
-export interface MyCelebrationToday {
-  hasCelebration: boolean;
-  type?: 'birthday' | 'work_anniversary';
-  greeting?: string;
-  messageBody?: string;
+export interface MyCelebrationItem {
+  type: 'birthday' | 'work_anniversary';
+  greeting: string;
+  messageBody: string;
   companyName?: string;
   yearsOfService?: number;
 }
 
+export interface MyCelebrationToday {
+  hasCelebration: boolean;
+  celebrations: MyCelebrationItem[];
+}
+
 export const celebrationApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    getTemplates: builder.query<{ success: boolean; data: CelebrationTemplate[] }, void>({
-      query: () => '/celebration/templates',
+    getCelebrationTemplates: builder.query<{ success: boolean; data: CelebrationTemplate[] }, void>({
+      query: () => {
+        const endpoint = '/celebration/templates';
+        console.log('[celebrationApi] ====== GET CELEBRATION TEMPLATES ======');
+        console.log('[celebrationApi] Fetching CELEBRATION templates from:', endpoint);
+        console.log('[celebrationApi] Full URL:', `${window.location.origin.includes('localhost') ? 'http://localhost:7001/api' : '/api'}${endpoint}`);
+        console.log('[celebrationApi] ===============================');
+        return endpoint;
+      },
       providesTags: ['CelebrationTemplates'],
     }),
-    getTemplateById: builder.query<
+    getCelebrationTemplateById: builder.query<
       { success: boolean; data: CelebrationTemplate & { assignedStaffIds?: string[] } },
       string
     >({
       query: (id) => `/celebration/templates/${id}`,
       providesTags: (result, error, id) => [{ type: 'CelebrationTemplates', id }],
     }),
-    createTemplate: builder.mutation<
+    createCelebrationTemplate: builder.mutation<
       { success: boolean; data: CelebrationTemplate },
       Partial<CelebrationTemplate> & { name: string; type: string }
     >({
-      query: (body) => ({
-        url: '/celebration/templates',
-        method: 'POST',
-        body,
-      }),
+      query: (body) => {
+        // Explicitly construct the full URL
+        const endpoint = '/celebration/templates';
+        
+        // Log the endpoint being called with full details
+        console.log('[celebrationApi] ====== CELEBRATION API ======');
+        console.log('[celebrationApi] Creating CELEBRATION template at endpoint:', endpoint);
+        console.log('[celebrationApi] Full URL will be:', `${window.location.origin.includes('localhost') ? 'http://localhost:7001/api' : '/api'}${endpoint}`);
+        console.log('[celebrationApi] Payload keys:', Object.keys(body));
+        console.log('[celebrationApi] Payload:', {
+          name: body.name,
+          type: body.type,
+          hasMessageBody: !!body.messageBody,
+          hasContent: !!(body as any).content // Should be undefined
+        });
+        console.log('[celebrationApi] ===============================');
+        
+        return {
+          url: endpoint,
+          method: 'POST',
+          body,
+        };
+      },
       invalidatesTags: ['CelebrationTemplates'],
     }),
-    updateTemplate: builder.mutation<
+    updateCelebrationTemplate: builder.mutation<
       { success: boolean; data: CelebrationTemplate },
       { id: string; data: Partial<CelebrationTemplate> }
     >({
@@ -80,7 +109,7 @@ export const celebrationApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { id }) => [{ type: 'CelebrationTemplates', id }, 'CelebrationTemplates'],
     }),
-    deleteTemplate: builder.mutation<{ success: boolean; data: { message: string } }, string>({
+    deleteCelebrationTemplate: builder.mutation<{ success: boolean; data: { message: string } }, string>({
       query: (id) => ({
         url: `/celebration/templates/${id}`,
         method: 'DELETE',
@@ -127,12 +156,13 @@ export const celebrationApi = apiSlice.injectEndpoints({
   }),
 });
 
+// Export hooks with explicit names to avoid conflicts with offerTemplateApi
 export const {
-  useGetTemplatesQuery,
-  useGetTemplateByIdQuery,
-  useCreateTemplateMutation,
-  useUpdateTemplateMutation,
-  useDeleteTemplateMutation,
+  useGetCelebrationTemplatesQuery,
+  useGetCelebrationTemplateByIdQuery,
+  useCreateCelebrationTemplateMutation,
+  useUpdateCelebrationTemplateMutation,
+  useDeleteCelebrationTemplateMutation,
   useGetUpcomingQuery,
   useSendWishNowMutation,
   useGetMyCelebrationTodayQuery,

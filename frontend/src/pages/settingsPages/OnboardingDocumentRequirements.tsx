@@ -234,7 +234,7 @@ const OnboardingDocumentRequirements: React.FC = () => {
       key: "type",
       width: 120,
       render: (type: string) => (
-        <Tag color={type === "form" ? "blue" : "green"}>
+        <Tag color={type === "form" ? "blue" : "gold"}>
           {type === "form" ? "Form" : "Document"}
         </Tag>
       ),

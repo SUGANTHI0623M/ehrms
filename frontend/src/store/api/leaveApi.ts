@@ -96,6 +96,28 @@ export const leaveApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['Attendance'],
     }),
+    getCasualLeaveBalance: builder.query<
+      {
+        success: boolean;
+        data: {
+          monthlyAllocated: number;
+          used: number;
+          usedFromAttendance: number;
+          usedFromRequests: number;
+          available: number;
+          hasTemplate: boolean;
+          month: number;
+          year: number;
+        };
+      },
+      { employeeId?: string; month?: number; year?: number }
+    >({
+      query: (params) => ({
+        url: '/leaves/casual-leave-balance',
+        params,
+      }),
+      providesTags: ['Leave', 'Attendance'],
+    }),
   }),
 });
 
@@ -105,5 +127,6 @@ export const {
   useApproveLeaveMutation,
   useRejectLeaveMutation,
   useCancelLeaveMutation,
+  useGetCasualLeaveBalanceQuery,
 } = leaveApi;
 

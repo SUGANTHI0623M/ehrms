@@ -51,7 +51,7 @@ export const LmsDetailPageSkeleton: React.FC = () => (
 export const LmsCourseCardSkeleton: React.FC = () => (
   <Card
     className="lms-card lms-course-card h-full overflow-hidden"
-    bodyStyle={{ padding: 0 }}
+    styles={{ body: { padding: 0 } }}
   >
     <div className="w-full aspect-video bg-gray-100 rounded-t-lg overflow-hidden animate-pulse" />
     <div className="p-3 flex flex-col gap-2">
@@ -218,6 +218,110 @@ export const LmsStatisticCard = ({
   </div>
 );
 
+/** KPI card: title, value, optional description (hidden when not provided), optional icon and left accent. */
+export const LmsKpiCard = ({
+  title,
+  value,
+  description,
+  icon,
+  accentColor = "#2563eb",
+  className = "",
+  meta,
+}: {
+  title: string;
+  value: React.ReactNode;
+  description?: string;
+  icon?: React.ReactNode;
+  accentColor?: string;
+  className?: string;
+  meta?: React.ReactNode;
+}) => (
+  <div
+    className={`lms-card bg-white rounded-xl border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-md hover:border-gray-200 ${className}`}
+    style={{ borderLeftWidth: 4, borderLeftColor: accentColor }}
+  >
+    <div className="p-5 flex flex-col h-full">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 m-0 mb-1">
+            {title}
+          </p>
+          <div className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
+            {value}
+          </div>
+          {description != null && description !== "" && (
+            <p className="text-sm text-gray-500 mt-2 mb-0 leading-snug">
+              {description}
+            </p>
+          )}
+          {meta && <div className="mt-2 text-xs text-gray-400">{meta}</div>}
+        </div>
+        {icon && (
+          <div
+            className="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0"
+            style={{ backgroundColor: `${accentColor}18`, color: accentColor }}
+          >
+            {icon}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+/** Summary card: one main metric with a breakdown list below (e.g. Total Courses → Published, Draft, Archived). No description. */
+export const LmsSummaryCard = ({
+  title,
+  value,
+  breakdown,
+  icon,
+  accentColor = "#2563eb",
+  className = "",
+}: {
+  title: string;
+  value: React.ReactNode;
+  breakdown: Array<{ label: string; value: number | string }>;
+  icon?: React.ReactNode;
+  accentColor?: string;
+  className?: string;
+}) => (
+  <div
+    className={`lms-card bg-white rounded-xl border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-md hover:border-gray-200 ${className}`}
+    style={{ borderLeftWidth: 4, borderLeftColor: accentColor }}
+  >
+    <div className="p-5 flex flex-col h-full">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 m-0 mb-1">
+            {title}
+          </p>
+          <div className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
+            {value}
+          </div>
+          {breakdown && breakdown.length > 0 && (
+            <ul className="mt-3 space-y-1 list-none pl-0 m-0 text-sm text-gray-600">
+              {breakdown.map(({ label, value: v }) => (
+                <li key={label} className="flex justify-between items-center gap-2">
+                  <span>{label}</span>
+                  <span className="font-semibold tabular-nums">{v}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {icon && (
+          <div
+            className="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0"
+            style={{ backgroundColor: `${accentColor}18`, color: accentColor }}
+          >
+            {icon}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
 interface LmsCourseCardProps {
   course: any;
   onClick: () => void;
@@ -277,12 +381,12 @@ export const LmsCourseCard = ({
     <Card
       hoverable
       className="lms-card lms-course-card h-full flex flex-col overflow-hidden group rounded-xl transition-all duration-200 hover:shadow-lg"
-      bodyStyle={{
+      styles={{ body: {
         padding: 0,
         flex: 1,
         display: "flex",
         flexDirection: "column",
-      }}
+      } }}
       onClick={onClick}
     >
       {/* Thumbnail / Banner - Aspect Ratio 16:9 */}
@@ -384,7 +488,7 @@ export const LmsCourseCard = ({
                 percent={progress}
                 showInfo={false}
                 size="small"
-                strokeColor={status === "Completed" || isPassed ? "#22c55e" : "#3b82f6"}
+                strokeColor={status === "Completed" || isPassed ? "#efaa1f" : "#3b82f6"}
                 trailColor="#f1f5f9"
                 className="[&_.ant-progress-bg]:rounded-full"
               />
@@ -507,7 +611,7 @@ export const LmsPageLayout = ({
           onClose={onDrawerClose}
           open={isDrawerOpen}
           width={Math.min(window.innerWidth - 48, 400)}
-          bodyStyle={{ padding: 0 }}
+          styles={{ body: { padding: 0 } }}
           className="lg:hidden"
         >
           {rightSidebar}

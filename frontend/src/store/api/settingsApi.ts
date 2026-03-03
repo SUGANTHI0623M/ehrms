@@ -137,6 +137,35 @@ export interface AttendanceTemplate {
   updatedAt: string;
 }
 
+export interface WeeklyHolidayTemplate {
+  _id: string;
+  name: string;
+  description?: string;
+  businessId: string;
+  settings: {
+    weeklyHolidays?: Array<{
+      day: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      name?: string;
+    }>;
+    weeklyOffPattern: 'standard' | 'oddEvenSaturday';
+    allowAttendanceOnWeeklyOff?: boolean;
+  };
+  assignedStaff?: Array<{
+    _id: string;
+    name: string;
+    employeeId: string;
+  }>;
+  assignedStaffCount?: number;
+  createdBy: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CelebrationSettings {
   _id: string;
   businessId: string;
@@ -428,6 +457,78 @@ export const settingsApi = apiSlice.injectEndpoints({
         method: 'DELETE',
       }),
       invalidatesTags: ['AttendanceTemplates', 'Settings'],
+    }),
+    // Weekly Holiday Templates
+    getWeeklyHolidayTemplates: builder.query<
+      { success: boolean; data: { templates: WeeklyHolidayTemplate[] } },
+      void
+    >({
+      query: () => '/settings/weekly-holiday-templates',
+      providesTags: ['WeeklyHolidayTemplates'],
+    }),
+    createWeeklyHolidayTemplate: builder.mutation<
+      { success: boolean; data: { template: WeeklyHolidayTemplate } },
+      Partial<WeeklyHolidayTemplate>
+    >({
+      query: (templateData) => ({
+        url: '/settings/weekly-holiday-templates',
+        method: 'POST',
+        body: templateData,
+      }),
+      invalidatesTags: [
+        'WeeklyHolidayTemplates', 
+        'Settings', 
+        'Staff',
+        { type: 'Staff', id: 'LIST' }
+      ],
+    }),
+    updateWeeklyHolidayTemplate: builder.mutation<
+      { success: boolean; data: { template: WeeklyHolidayTemplate } },
+      { id: string; data: Partial<WeeklyHolidayTemplate> }
+    >({
+      query: ({ id, data }) => ({
+        url: `/settings/weekly-holiday-templates/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'WeeklyHolidayTemplates', id }, 
+        'WeeklyHolidayTemplates', 
+        'Settings', 
+        'Staff',
+        { type: 'Staff', id: 'LIST' }
+      ],
+    }),
+    deleteWeeklyHolidayTemplate: builder.mutation<
+      { success: boolean; data: { message: string } },
+      string
+    >({
+      query: (id) => ({
+        url: `/settings/weekly-holiday-templates/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: [
+        'WeeklyHolidayTemplates', 
+        'Settings', 
+        'Staff',
+        { type: 'Staff', id: 'LIST' }
+      ],
+    }),
+    assignStaffToWeeklyHolidayTemplate: builder.mutation<
+      { success: boolean; data: { template: WeeklyHolidayTemplate } },
+      { id: string; staffIds: string[] }
+    >({
+      query: ({ id, staffIds }) => ({
+        url: `/settings/weekly-holiday-templates/${id}/assign-staff`,
+        method: 'POST',
+        body: { staffIds },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'WeeklyHolidayTemplates', id }, 
+        'WeeklyHolidayTemplates', 
+        'Staff',
+        { type: 'Staff', id: 'LIST' }
+      ],
     }),
     getAttendanceSettings: builder.query<{ success: boolean; data: { settings: Business['settings']['attendance'] } }, void>({
       query: () => '/settings/attendance',
@@ -729,6 +830,11 @@ export const {
   useCreateAttendanceTemplateMutation,
   useUpdateAttendanceTemplateMutation,
   useDeleteAttendanceTemplateMutation,
+  useGetWeeklyHolidayTemplatesQuery,
+  useCreateWeeklyHolidayTemplateMutation,
+  useUpdateWeeklyHolidayTemplateMutation,
+  useDeleteWeeklyHolidayTemplateMutation,
+  useAssignStaffToWeeklyHolidayTemplateMutation,
   useGetAttendanceSettingsQuery,
   useGetCelebrationSettingsQuery,
   useUpdateCelebrationSettingsMutation,

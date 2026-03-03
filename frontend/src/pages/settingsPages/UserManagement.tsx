@@ -235,6 +235,9 @@ const ADMIN_SIDEBAR_MENUS: Record<string, { label: string; subModules?: Array<{ 
             { module: 'payroll_management', label: 'Payroll Management' },
         ]
     },
+    'celebration': {
+        label: 'Celebration',
+    },
     'hrms-geo': {
         label: 'HRMS Geo',
         subModules: [
@@ -249,12 +252,16 @@ const ADMIN_SIDEBAR_MENUS: Record<string, { label: string; subModules?: Array<{ 
     'lms': {
         label: 'LMS',
         subModules: [
+            { module: 'lms_dashboard', label: 'LMS Dashboard' },
             { module: 'course_library', label: 'Course Library' },
-            { module: 'live_session', label: 'Live Session' },
-            { module: 'quiz_generator', label: 'Auto Quiz Generator' },
-            { module: 'assessment', label: 'Quiz / Assessment' },
-            { module: 'score_analytics', label: 'Score / Analytics' },
+            { module: 'learners', label: 'Learners' },
+            { module: 'live_session', label: 'Live Sessions' },
+            { module: 'assessment', label: 'Assessment Management' },
+            { module: 'score_analytics', label: 'Scores & Analytics' },
         ]
+    },
+    'announcements': {
+        label: 'Announcements',
     },
     'assets': {
         label: 'Asset Management',
@@ -662,7 +669,7 @@ const UserManagement: React.FC = () => {
             key: "isActive",
             width: 100,
             render: (isActive: boolean) => (
-                <Tag color={isActive ? "green" : "red"}>
+                <Tag color={isActive ? "gold" : "red"}>
                     {isActive ? "Active" : "Inactive"}
                 </Tag>
             ),

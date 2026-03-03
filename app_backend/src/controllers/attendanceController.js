@@ -2,6 +2,7 @@ const Attendance = require('../models/Attendance');
 const Staff = require('../models/Staff');
 const User = require('../models/User'); // Import if needed
 const AttendanceTemplate = require('../models/AttendanceTemplate'); // Register model
+const WeeklyHolidayTemplate = require('../models/WeeklyHolidayTemplate');
 const Tracking = require('../models/Tracking');
 const { reverseGeocode } = require('../services/geocodingService');
 const { calculateAttendanceStats } = require('./payrollController');
@@ -110,6 +111,48 @@ function isShiftAssignedForStaff(company, staff) {
     if (!staffShiftName) return false;
     const match = shifts.some(s => (s.name || '').toString().trim().toLowerCase() === staffShiftName.toLowerCase());
     return match;
+}
+
+/**
+ * Get week-off config for a staff from staff's WeeklyHolidayTemplate only.
+ * Uses weeklyholidaytemplates collection via staff.weeklyHolidayTemplateId.
+ * Does NOT use business/company collection for week-off.
+ * @param {Object} staff - Staff doc (must have weeklyHolidayTemplateId populated or as ObjectId)
+ * @param {Object} [company] - Unused; kept for API compatibility
+ * @returns {Promise<{ weeklyOffPattern: string, weeklyHolidays: Array<{day: number, name?: string}> }>}
+ */
+async function getWeekOffConfigForStaff(staff, company) {
+    const defaultConfig = {
+        weeklyOffPattern: 'standard',
+        weeklyHolidays: [{ day: 0, name: 'Sunday' }],
+    };
+
+    const templateId = staff?.weeklyHolidayTemplateId;
+    if (!templateId) return defaultConfig;
+
+    // Use populated template if already loaded
+    let template = staff.weeklyHolidayTemplateId;
+    if (template && typeof template === 'object' && template._id != null) {
+        if (template.isActive === false) return defaultConfig;
+        const s = template.settings || {};
+        return {
+            weeklyOffPattern: s.weeklyOffPattern || defaultConfig.weeklyOffPattern,
+            weeklyHolidays: Array.isArray(s.weeklyHolidays) && s.weeklyHolidays.length > 0
+                ? s.weeklyHolidays
+                : defaultConfig.weeklyHolidays,
+        };
+    }
+
+    // Fetch from WeeklyHolidayTemplate collection
+    const doc = await WeeklyHolidayTemplate.findById(templateId).lean();
+    if (!doc || doc.isActive === false) return defaultConfig;
+    const s = doc.settings || {};
+    return {
+        weeklyOffPattern: s.weeklyOffPattern || defaultConfig.weeklyOffPattern,
+        weeklyHolidays: Array.isArray(s.weeklyHolidays) && s.weeklyHolidays.length > 0
+            ? s.weeklyHolidays
+            : defaultConfig.weeklyHolidays,
+    };
 }
 
 function normalizeTemplate(templateDoc) {
@@ -457,7 +500,7 @@ const checkIn = async (req, res) => {
 
     try {
         // Re-fetch staff with populated branch and template
-        const staff = await Staff.findById(staffId).populate('branchId').populate('attendanceTemplateId');
+        const staff = await Staff.findById(staffId).populate('branchId').populate('attendanceTemplateId').populate('weeklyHolidayTemplateId');
         const template = normalizeTemplate(staff.attendanceTemplateId);
 
         // Salary must be configured to allow check-in (required for fine/late/early storage and payroll)
@@ -519,17 +562,15 @@ const checkIn = async (req, res) => {
             return res.status(403).json({ message: 'Today is a Holiday. Check-in not allowed.' });
         }
 
-        // 3. Check for Weekly Off (company already loaded above for leave check)
-        const businessSettings = company?.settings?.business || {};
-        const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-        const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
+        // 3. Check for Weekly Off (use staff's WeeklyHolidayTemplate if set, else company)
+        const weekOffConfig = await getWeekOffConfigForStaff(staff, company);
         const dayOfWeek = now.getDay();
         let isWeeklyOff = false;
-        if (weeklyOffPattern === 'oddEvenSaturday') {
+        if (weekOffConfig.weeklyOffPattern === 'oddEvenSaturday') {
             if (dayOfWeek === 0) isWeeklyOff = true;
             else if (dayOfWeek === 6 && now.getDate() % 2 === 0) isWeeklyOff = true;
         } else {
-            isWeeklyOff = weeklyHolidays.some(h => h.day === dayOfWeek);
+            isWeeklyOff = weekOffConfig.weeklyHolidays.some(h => h.day === dayOfWeek);
         }
         if (isWeeklyOff && template.allowAttendanceOnWeeklyOff === false) {
             return res.status(403).json({ message: 'Today is a Weekly Off. Check-in not allowed.' });
@@ -1107,7 +1148,8 @@ const getTodayAttendance = async (req, res) => {
         // Fetch Staff with Branch and Template
         const staff = await Staff.findById(req.staff._id)
             .populate('branchId')
-            .populate('attendanceTemplateId');
+            .populate('attendanceTemplateId')
+            .populate('weeklyHolidayTemplateId');
 
         // Fetch Company to get shift settings
         const Company = require('../models/Company');
@@ -1393,15 +1435,30 @@ const getTodayAttendance = async (req, res) => {
             });
             if (dayMatch) holidayInfo = dayMatch;
         }
-        const businessSettings = company?.settings?.business || {};
-        const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-        const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
         const dayOfWeek = queryDate.getDay();
-        if (weeklyOffPattern === 'oddEvenSaturday') {
+        const weekOffConfig = await getWeekOffConfigForStaff(staff, company);
+        if (weekOffConfig.weeklyOffPattern === 'oddEvenSaturday') {
             if (dayOfWeek === 0) isWeeklyOff = true;
             else if (dayOfWeek === 6 && queryDate.getDate() % 2 === 0) isWeeklyOff = true;
         } else {
-            isWeeklyOff = weeklyHolidays.some(h => h.day === dayOfWeek);
+            isWeeklyOff = weekOffConfig.weeklyHolidays.some(h => h.day === dayOfWeek);
+        }
+
+        // If this date is a week-off (or we're checking), see if it's an alternate work date for this employee
+        // (compensation: employee took week-off on a weekday and will work on this date instead)
+        let isAlternateWorkDate = false;
+        const alternateWorkRecord = await Attendance.findOne({
+            $or: [{ employeeId: req.staff._id }, { user: req.staff._id }],
+            alternateWorkDate: { $gte: startOfDay, $lte: endOfDay },
+            compensationType: 'weekOff'
+        }).lean();
+        if (alternateWorkRecord) isAlternateWorkDate = true;
+
+        // Today is the "off" day when employee has compensationType weekOff (they work on alternateWorkDate instead)
+        const isCompensationWeekOff = !!(attendance && attendance.compensationType === 'weekOff');
+        if (isCompensationWeekOff) {
+            checkInAllowed = false;
+            checkOutAllowed = false;
         }
 
         console.log('[Attendance getStatus] response', {
@@ -1438,6 +1495,8 @@ const getTodayAttendance = async (req, res) => {
             isHoliday: !!holidayInfo,
             holidayInfo: holidayInfo,
             isWeeklyOff: isWeeklyOff,
+            isAlternateWorkDate: isAlternateWorkDate,
+            isCompensationWeekOff: isCompensationWeekOff,
             hasPunchIn,
             hasPunchOut,
             checkedIn
@@ -1608,10 +1667,11 @@ const getMonthAttendance = async (req, res) => {
             });
         }
 
-        // Fetch Business settings for week-offs (reuse company from fine enrichment above)
-        const businessSettings = companyForFine?.settings?.business || {};
-        const weeklyOffPattern = businessSettings.weeklyOffPattern || 'standard';
-        const weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }]; // Default to Sunday if not set
+        // Week-off from staff's WeeklyHolidayTemplate only (weeklyholidaytemplates collection via staff.weeklyHolidayTemplateId)
+        const staffForWeekOff = await Staff.findById(req.staff._id).populate('weeklyHolidayTemplateId').lean();
+        const weekOffConfig = await getWeekOffConfigForStaff(staffForWeekOff || req.staff, companyForFine);
+        const weeklyOffPattern = weekOffConfig.weeklyOffPattern;
+        const weeklyHolidays = weekOffConfig.weeklyHolidays;
 
         // Stats calculation
         const totalDaysInMonth = new Date(year, month, 0).getDate();
@@ -1843,11 +1903,20 @@ const getMonthAttendance = async (req, res) => {
             absentDates.push(dateStr);
         }
 
+        // Dates in this month that are alternate work dates for this employee (compensation week-off: they work on these days)
+        const alternateWorkRecords = await Attendance.find({
+            $or: [{ employeeId: req.staff._id }, { user: req.staff._id }],
+            compensationType: 'weekOff',
+            alternateWorkDate: { $gte: startOfMonth, $lte: endOfMonth }
+        }).select('alternateWorkDate').lean();
+        const alternateWorkDatesInMonth = alternateWorkRecords.map(r => formatDateString(r.alternateWorkDate)).filter(Boolean);
+
         res.json({
             data: {
                 attendance,
                 holidays,
                 weekOffDates: filteredWeekOffDates,
+                alternateWorkDatesInMonth,
                 absentDates,
                 presentDates,
                 holidayDates,
@@ -1951,9 +2020,10 @@ const getFineCalculation = async (req, res) => {
         const businessId = req.staff.businessId?._id ?? req.staff.businessId;
         if (!businessId) return res.status(400).json({ success: false, error: { message: 'Staff has no business assigned' } });
         const Company = require('../models/Company');
-        const company = await Company.findById(businessId).select('settings.payroll.fineCalculation').lean();
+        const company = await Company.findById(businessId).select('settings.payroll.fineCalculation settings.payroll.payslip').lean();
         const fineCalculation = company?.settings?.payroll?.fineCalculation ?? null;
-        return res.json({ success: true, data: fineCalculation });
+        const payslip = company?.settings?.payroll?.payslip ?? null;
+        return res.json({ success: true, data: fineCalculation, payslip });
     } catch (error) {
         console.error('[Attendance getFineCalculation]', error);
         return res.status(500).json({ success: false, error: { message: error.message || 'Failed to fetch fine calculation' } });

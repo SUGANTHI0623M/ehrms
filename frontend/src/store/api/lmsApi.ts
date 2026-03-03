@@ -150,6 +150,24 @@ export const lmsApi = apiSlice.injectEndpoints({
       }),
       providesTags: ['LMS'],
     }),
+    getCourseLibraryStats: builder.query<
+      {
+        success: boolean;
+        data: {
+          total: number;
+          draft: number;
+          published: number;
+          archived: number;
+          categoriesCount?: number;
+          totalEnrollments?: number;
+          mandatoryCount?: number;
+        };
+      },
+      void
+    >({
+      query: () => '/lms/courses/stats',
+      providesTags: ['LMS'],
+    }),
     getCourseById: builder.query<{ success: boolean; data: { course: Course; progress?: CourseProgress } }, string>({
       query: (id) => `/lms/courses/${id}`,
       providesTags: (result, error, id) => [{ type: 'LMS', id }],
@@ -307,6 +325,9 @@ export const lmsApi = apiSlice.injectEndpoints({
       id: string; status?: string; rejectionReason?: string; scheduledAt?: Date | string;
       assessorId?: string; isPassed?: boolean; score?: number;
       liveSessionId?: string; sessionNotes?: string; sessionSummary?: string; sessionRating?: number;
+      questionResults?: Array<{ questionId: string; userAnswer: string | string[]; correctAnswer?: string | string[]; isCorrect?: boolean; marksAwarded?: number; marksTotal?: number }>;
+      questionSnapshots?: Array<{ questionId: string; questionText: string; type: string; options?: string[] }>;
+      questionAnswerLog?: Array<{ question: string; answer: string; remarks: string }>;
     }>({
       query: ({ id, ...body }) => ({
         url: `/lms/assessment-requests/${id}`,
@@ -481,6 +502,7 @@ export const lmsApi = apiSlice.injectEndpoints({
 
 export const {
   useGetCoursesQuery,
+  useGetCourseLibraryStatsQuery,
   useGetCourseByIdQuery,
   useLazyGetCourseByIdQuery,
   useCreateCourseMutation,

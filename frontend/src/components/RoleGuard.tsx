@@ -110,13 +110,36 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
     // Payroll module paths
     { path: '/payroll', module: 'payroll' },
     { path: '/payroll/', module: 'payroll' },
-    // LMS module paths
+    // Admin LMS module paths (more specific first)
+    { path: '/admin/lms/course-modern/', module: 'lms' },
+    { path: '/admin/lms/course-detail/', module: 'lms' },
+    { path: '/admin/lms/course/', module: 'lms' },
+    { path: '/admin/lms/learning-engine', module: 'lms' },
+    { path: '/admin/lms/live-sessions', module: 'lms' },
+    { path: '/admin/lms/live/', module: 'lms' },
+    { path: '/admin/lms/learners/', module: 'lms' },
+    { path: '/admin/lms/scores-analytics', module: 'lms' },
+    { path: '/admin/lms/assessment', module: 'lms' },
+    { path: '/admin/lms/course-library', module: 'lms' },
+    { path: '/admin/lms/dashboard', module: 'lms' },
+    { path: '/admin/lms', module: 'lms' },
+    // Employee LMS module paths
+    { path: '/lms/employee/course/', module: 'lms' },
+    { path: '/lms/employee/dashboard', module: 'lms' },
+    { path: '/lms/employee/live-sessions', module: 'lms' },
+    { path: '/lms/ai-quiz/attempt/', module: 'lms' },
+    { path: '/lms/assessment/', module: 'lms' },
+    { path: '/lms/employee', module: 'lms' },
+    // Legacy paths (for backward compatibility)
+    { path: '/lms-dashboard', module: 'lms' },
     { path: '/course-library', module: 'lms' },
     { path: '/live-session', module: 'lms' },
     { path: '/quiz-generator', module: 'lms' },
     { path: '/assessment', module: 'lms' },
     { path: '/score', module: 'lms' },
     { path: '/lms', module: 'lms' },
+    { path: '/lms/', module: 'lms' },
+    { path: '/lms/course/', module: 'lms' },
     // Assets module paths
     { path: '/assets-type', module: 'assets' },
     { path: '/assets', module: 'assets' },
@@ -136,6 +159,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
     { path: '/role-management', module: 'settings' },
     { path: '/attendance-setting', module: 'settings' },
     { path: '/attendance-templates', module: 'settings' },
+    { path: '/weekly-holiday-templates', module: 'settings' },
     { path: '/attendance-geofence', module: 'settings' },
     { path: '/attendance-shifts', module: 'settings' },
     { path: '/attendance-automation-rules', module: 'settings' },
@@ -154,8 +178,11 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
     { path: '/settings', module: 'settings' },
     // Company Policy module paths
     { path: '/company', module: 'company-policy' },
+    // Celebration module paths
+    { path: '/admin/celebration', module: 'celebration' },
     // Announcements module paths
     { path: '/announcements', module: 'announcements' },
+    { path: '/announcements/', module: 'announcements' },
     // HRMS Geo module paths
     { path: '/hrms-geo/', module: 'hrms-geo' },
     { path: '/hrms-geo', module: 'hrms-geo' },
@@ -167,10 +194,57 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
   if (requiredModule) {
     const module = requiredModule.module;
 
-    // Announcements: allow Admin and Manager (same as sidebar visibility)
+    // Celebration: allow Admin and Employees with celebration permission
+    if (module === 'celebration') {
+      if (user.role === 'Admin' || user.role === 'Manager') {
+        return <>{children}</>;
+      }
+      // For employees, check sidebarPermissions
+      if (user.role === 'Employee' && sidebarPerms.length > 0) {
+        const hasCelebrationAccess = sidebarPerms.includes('celebration');
+        if (hasCelebrationAccess) {
+          return <>{children}</>;
+        }
+      }
+      return <AccessDenied />;
+    }
+
+    // LMS: allow Admin, Manager, and Employees with lms permission
+    if (module === 'lms') {
+      if (user.role === 'Admin' || user.role === 'Manager' || user.role === 'Super Admin') {
+        return <>{children}</>;
+      }
+      // For employees, check sidebarPermissions
+      if (user.role === 'Employee' && sidebarPerms.length > 0) {
+        const hasLmsAccess = sidebarPerms.includes('lms') || 
+                             sidebarPerms.includes('lms_dashboard') ||
+                             sidebarPerms.includes('course_library') ||
+                             sidebarPerms.includes('learners') ||
+                             sidebarPerms.includes('live_session') ||
+                             sidebarPerms.includes('assessment') ||
+                             sidebarPerms.includes('score_analytics');
+        if (hasLmsAccess) {
+          return <>{children}</>;
+        }
+      }
+      // Employees have default access to LMS (for their own learning)
+      if (user.role === 'Employee') {
+        return <>{children}</>;
+      }
+      return <AccessDenied />;
+    }
+
+    // Announcements: allow Admin, Manager, and Employees with announcements permission
     if (module === 'announcements') {
       if (user.role === 'Admin' || user.role === 'Manager') {
         return <>{children}</>;
+      }
+      // For employees, check sidebarPermissions
+      if (user.role === 'Employee' && sidebarPerms.length > 0) {
+        const hasAnnouncementsAccess = sidebarPerms.includes('announcements');
+        if (hasAnnouncementsAccess) {
+          return <>{children}</>;
+        }
       }
       return <AccessDenied />;
     }
@@ -185,6 +259,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'hrms-geo': 'hrms-geo',
         'performance': 'performance',
         'lms': 'lms',
+        'announcements': 'announcements',
         'assets': 'assets',
         'integrations': 'integrations',
         'settings': 'settings',
@@ -231,9 +306,10 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'customers': 'hrms-geo',
         'geo_settings': 'hrms-geo',
         // LMS sub-modules
+        'lms_dashboard': 'lms',
         'course_library': 'lms',
+        'learners': 'lms',
         'live_session': 'lms',
-        'quiz_generator': 'lms',
         'assessment': 'lms',
         'score_analytics': 'lms',
         // Assets sub-modules
@@ -359,15 +435,16 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
       
       const sidebarModuleMap: Record<string, string[]> = {
         'interview': ['/candidates', '/job-openings', '/interview', '/offer-letter', '/onboarding', '/refer-candidate', '/hiring', '/interview-appointments', '/interview/background-verification', '/interview/templates', '/interview/round/', '/interview/round/1', '/interview/round/2', '/interview/round/3', '/interview/round/final', '/interview/selected', '/interview/candidate/progress'],
-        'celebration': ['/interview/celebrations'],
+        'celebration': ['/admin/celebration'],
         'staff': ['/staff', '/staff-profile', '/staff-overview', '/salary-structure', '/staff/attendance', '/staff/leaves-pending-approval', '/staff/loans', '/staff/expense-claims', '/staff/payslip-requests'],
         'payroll': ['/payroll'],
         'hrms-geo': ['/hrms-geo'],
         'performance': ['/performance', '/pms', '/kra'],
-        'lms': ['/course-library', '/live-session', '/quiz-generator', '/assessment', '/score'],
+        'lms': ['/admin/lms/dashboard', '/admin/lms/course-library', '/admin/lms/learners', '/admin/lms/live-sessions', '/admin/lms/assessment', '/admin/lms/scores-analytics', '/course-library', '/live-session', '/assessment', '/score', '/lms/learners', '/lms/scores-analytics'],
+        'announcements': ['/announcements'],
         'assets': ['/assets', '/assets-type'],
         'integrations': ['/integrations', '/integrations/sendpulse', '/integrations/sendgrid', '/integrations/askeva', '/integrations/email', '/integrations/exotel', '/integrations/google-calendar', '/integrations/rcs', '/integrations/sms', '/integrations/voice'],
-        'settings': ['/settings', '/user-management', '/role-management', '/attendance-setting', '/attendance-templates', '/attendance-geofence', '/attendance-shifts', '/attendance-automation-rules', '/business-setting', '/business/', '/payroll-setting', '/settings/payroll/', '/salary/', '/businessinfo-setting', '/business-info/', '/others-setting', '/others/', '/onboarding-document-requirements', '/alerts-notifications', '/channel-partner-id'],
+        'settings': ['/settings', '/user-management', '/role-management', '/attendance-setting', '/attendance-templates', '/weekly-holiday-templates', '/attendance-geofence', '/attendance-shifts', '/attendance-automation-rules', '/business-setting', '/business/', '/payroll-setting', '/settings/payroll/', '/salary/', '/businessinfo-setting', '/business-info/', '/others-setting', '/others/', '/onboarding-document-requirements', '/alerts-notifications', '/channel-partner-id'],
       };
       
       const hasSidebarAccess = sidebarPerms.some(sp => {

@@ -32,9 +32,15 @@ function formatYearOfPassingForStore(date: Dayjs | null): string {
 /** Format yearOfPassing for display (e.g. in summary: "2020" or "Jun 2020") */
 function formatYearOfPassingDisplay(value: string | undefined): string {
   if (!value || typeof value !== "string") return "";
+  const trimmed = value.trim();
+  // Don't format if it's just "0" or empty
+  if (trimmed === "" || trimmed === "0" || trimmed === "0000") return "";
   const d = parseYearOfPassingToDayjs(value);
-  if (!d) return value;
-  return d.format("YYYY");
+  if (!d) return trimmed;
+  const year = d.format("YYYY");
+  // Don't return "0" or "0000" years
+  if (year === "0" || year === "0000" || parseInt(year, 10) === 0) return "";
+  return year;
 }
 
 /** Parse any date string (year "2020", or "2020-06-15", etc.) for experience/courses/internships - same logic as education */
@@ -2192,82 +2198,86 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
             </Card>
             <Card>
               <h4 className="font-semibold mb-2">Education</h4>
-              {formData.education?.map((edu, i) => (
-                <div key={i} className="mb-2">
-                  <p>{edu.qualification} - {edu.courseName}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {edu.institution} ({formatYearOfPassingDisplay(edu.yearOfPassing)})
-                  </p>
-                </div>
-              ))}
+              {formData.education?.map((edu, i) => {
+                const yearDisplay = formatYearOfPassingDisplay(edu.yearOfPassing);
+                // Check if year is valid: not empty, not "0", not just whitespace, and is a valid year (4 digits)
+                const hasValidYear = yearDisplay && 
+                  yearDisplay.trim() !== "" && 
+                  yearDisplay !== "0" && 
+                  yearDisplay !== "0000" &&
+                  /^\d{4}$/.test(yearDisplay.trim()) &&
+                  parseInt(yearDisplay.trim(), 10) > 0;
+                return (
+                  <div key={i} className="mb-2">
+                    <p>{edu.qualification} - {edu.courseName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {edu.institution}{hasValidYear ? ` (${yearDisplay})` : ""}
+                    </p>
+                  </div>
+                );
+              })}
             </Card>
             {/* Courses Completed - Show when experience is 0 or undefined AND courses exist */}
             {(() => {
               const hasZeroExperience = !formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0;
               const hasCourses = formData.courses && Array.isArray(formData.courses) && formData.courses.length > 0;
               
-              if (hasZeroExperience && hasCourses) {
-                return (
-                  <Card>
-                    <h4 className="font-semibold mb-2">Courses Completed</h4>
-                    {formData.courses.map((course, i) => (
-                      <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
-                        <p className="font-medium">{course.courseName || 'Course'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {course.institution && `${course.institution}`}
-                          {course.startDate && ` • Started: ${formatDateDisplay(course.startDate)}`}
-                          {course.completionDate && ` • Completed: ${formatDateDisplay(course.completionDate)}`}
-                          {course.duration && ` • Duration: ${course.duration}`}
-                        </p>
-                        {course.description && (
-                          <p className="text-sm mt-1">{course.description}</p>
-                        )}
-                        {course.certificateUrl && (
-                          <a href={course.certificateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                            View Certificate
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </Card>
-                );
-              }
-              return null;
+              return hasZeroExperience && hasCourses ? (
+                <Card>
+                  <h4 className="font-semibold mb-2">Courses Completed</h4>
+                  {formData.courses.map((course, i) => (
+                    <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
+                      <p className="font-medium">{course.courseName || 'Course'}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {course.institution && `${course.institution}`}
+                        {course.startDate && ` • Started: ${formatDateDisplay(course.startDate)}`}
+                        {course.completionDate && ` • Completed: ${formatDateDisplay(course.completionDate)}`}
+                        {course.duration && ` • Duration: ${course.duration}`}
+                      </p>
+                      {course.description && (
+                        <p className="text-sm mt-1">{course.description}</p>
+                      )}
+                      {course.certificateUrl && (
+                        <a href={course.certificateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                          View Certificate
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </Card>
+              ) : null;
             })()}
             {/* Internships - Show when experience is 0 or undefined AND internships exist */}
             {(() => {
               const hasZeroExperience = !formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0;
               const hasInternships = formData.internships && Array.isArray(formData.internships) && formData.internships.length > 0;
               
-              if (hasZeroExperience && hasInternships) {
-                return (
-                  <Card>
-                    <h4 className="font-semibold mb-2">Internships</h4>
-                    {formData.internships.map((internship, i) => (
-                      <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
-                        <p className="font-medium">{internship.role || 'Role'} at {internship.company || 'Company'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {internship.durationFrom && `From: ${formatDateDisplay(internship.durationFrom)}`}
-                          {internship.durationTo && ` To: ${formatDateDisplay(internship.durationTo)}`}
-                        </p>
-                        {internship.keyResponsibilities && (
-                          <p className="text-sm mt-1"><strong>Responsibilities:</strong> {internship.keyResponsibilities}</p>
-                        )}
-                        {internship.skillsLearned && (
-                          <p className="text-sm mt-1"><strong>Skills Learned:</strong> {internship.skillsLearned}</p>
-                        )}
-                        {internship.mentorName && (
-                          <p className="text-sm mt-1"><strong>Mentor:</strong> {internship.mentorName}</p>
-                        )}
-                      </div>
-                    ))}
-                  </Card>
-                );
-              }
-              return null;
+              return hasZeroExperience && hasInternships ? (
+                <Card>
+                  <h4 className="font-semibold mb-2">Internships</h4>
+                  {formData.internships.map((internship, i) => (
+                    <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
+                      <p className="font-medium">{internship.role || 'Role'} at {internship.company || 'Company'}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {internship.durationFrom && `From: ${formatDateDisplay(internship.durationFrom)}`}
+                        {internship.durationTo && ` To: ${formatDateDisplay(internship.durationTo)}`}
+                      </p>
+                      {internship.keyResponsibilities && (
+                        <p className="text-sm mt-1"><strong>Responsibilities:</strong> {internship.keyResponsibilities}</p>
+                      )}
+                      {internship.skillsLearned && (
+                        <p className="text-sm mt-1"><strong>Skills Learned:</strong> {internship.skillsLearned}</p>
+                      )}
+                      {internship.mentorName && (
+                        <p className="text-sm mt-1"><strong>Mentor:</strong> {internship.mentorName}</p>
+                      )}
+                    </div>
+                  ))}
+                </Card>
+              ) : null;
             })()}
             {/* Experience Card - Show when experience is greater than 0 */}
-            {formData.totalYearsOfExperience && formData.totalYearsOfExperience > 0 && (
+            {(formData.totalYearsOfExperience && formData.totalYearsOfExperience > 0) ? (
               <Card>
                 <h4 className="font-semibold mb-2">Experience</h4>
                 <p className="mb-3">Total: {formData.totalYearsOfExperience} years</p>
@@ -2289,13 +2299,10 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 )}
 
                 {/* Previous Work Experience */}
-                {formData.experience && formData.experience.length > 0 ? (
-                  formData.experience.map((exp, i) => {
-                    // Only show if experience has at least company or role
-                    if (!exp.company && !exp.role && !exp.designation) {
-                      return null;
-                    }
-                    return (
+                {(() => {
+                  const validExperiences = formData.experience?.filter((exp) => exp.company || exp.role || exp.designation) || [];
+                  if (validExperiences.length > 0) {
+                    return validExperiences.map((exp, i) => (
                       <div key={i} className="mb-4 p-3 bg-gray-50 rounded-lg">
                         <p className="font-medium text-base mb-1">
                           {exp.company || 'Company'} - {exp.role || 'Role'}
@@ -2319,18 +2326,16 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                           </div>
                         )}
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-sm text-muted-foreground">No previous work experience added</p>
-                )}
+                    ));
+                  }
+                  return <p className="text-sm text-muted-foreground">No previous work experience added</p>;
+                })()}
               </Card>
-            )}
+            ) : null}
             {/* Experience Summary for Freshers (0 years) */}
             {(!formData.totalYearsOfExperience || formData.totalYearsOfExperience === 0) && (
               <Card>
                 <h4 className="font-semibold mb-2">Experience</h4>
-                <p className="mb-3">Total: {formData.totalYearsOfExperience || 0} years</p>
                 <p className="text-sm text-muted-foreground">No previous work experience added</p>
               </Card>
             )}

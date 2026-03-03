@@ -36,6 +36,8 @@ import {
   DeleteOutlined,
   FormOutlined,
   ReloadOutlined,
+  PlusOutlined,
+  UnorderedListOutlined,
 } from "@ant-design/icons";
 import MainLayout from "@/components/MainLayout";
 import SessionCardList from "@/components/lms/SessionCardList";
@@ -45,7 +47,7 @@ import {
   useGetStandardAssessmentResultsQuery,
   useResetCourseAssessmentMutation,
 } from "@/store/api/lmsApi";
-import { LmsPageLayout } from "@/components/lms/SharedComponents";
+import { LmsPageLayout, LmsKpiCard } from "@/components/lms/SharedComponents";
 import { lmsApi } from "@/store/api/lmsApi";
 import { lmsService } from "@/services/lmsService";
 import {
@@ -199,7 +201,7 @@ const AssessmentManagement = () => {
         const res = await lmsService.getEmployees();
         let list: any[] = [];
         if (res?.data?.staff) list = res.data.staff;
-        else if (res?.staff) list = res.staff;
+        else if (Array.isArray((res as any)?.staff)) list = (res as any).staff;
         else if (Array.isArray(res?.data)) list = res.data;
         setEmployees(list);
       } catch (e) {
@@ -514,6 +516,15 @@ const AssessmentManagement = () => {
           ? Number(values.performancePercentage)
           : undefined;
       const isPassed = score != null ? score >= qualificationScore : undefined;
+      const questionAnswerLog = Array.isArray(values.questionAnswerLog)
+        ? values.questionAnswerLog
+            .map((row: any) => ({
+              question: String(row?.question ?? "").trim(),
+              answer: String(row?.answer ?? "").trim(),
+              remarks: String(row?.remarks ?? "").trim(),
+            }))
+            .filter((row: any) => row.question || row.answer || row.remarks)
+        : undefined;
       await updateRequest({
         id: endSessionRequest._id,
         status: "Completed",
@@ -521,6 +532,7 @@ const AssessmentManagement = () => {
         sessionSummary: values.sessionSummary,
         ...(score != null && { score }),
         ...(isPassed != null && { isPassed }),
+        ...(questionAnswerLog && questionAnswerLog.length > 0 && { questionAnswerLog }),
       }).unwrap();
       const liveSessionId =
         endSessionRequest.liveSessionId?._id || endSessionRequest.liveSessionId;
@@ -886,23 +898,27 @@ const AssessmentManagement = () => {
             onClick={(e) => e.stopPropagation()}
             data-label="Action"
           >
-            <Space size="small" style={{ gap: 8 }}>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => handleScheduleAssessment(record)}
-                title="Schedule"
-              />
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDeleteAssessment(record)}
-                title="Reject"
-              />
-            </Space>
+            {record.status === "Live" ? (
+              <span className="text-gray-400 text-sm">—</span>
+            ) : (
+              <Space size="small" style={{ gap: 8 }}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleScheduleAssessment(record)}
+                  title="Schedule"
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleDeleteAssessment(record)}
+                  title="Reject"
+                />
+              </Space>
+            )}
           </div>
         </>
       )}
@@ -1025,7 +1041,9 @@ const AssessmentManagement = () => {
             onClick={(e) => e.stopPropagation()}
             data-label="Action"
           >
-            {["Completed", "Cancelled", "Rejected"].includes(record.status) ? (
+            {record.status === "Live" ? (
+              <span className="text-gray-400 text-sm">—</span>
+            ) : ["Completed", "Cancelled", "Rejected"].includes(record.status) ? (
               <Button
                 type="link"
                 size="small"
@@ -1360,6 +1378,41 @@ const AssessmentManagement = () => {
         }
       >
         <div className="space-y-6">
+          {/* KPI Cards — Assessment requests: each card explains its own purpose */}
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} lg={6}>
+              <LmsKpiCard
+                title="Total Requests"
+                value={allRequests.length}
+                icon={<UnorderedListOutlined />}
+                accentColor="#1e40af"
+              />
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <LmsKpiCard
+                title="Pending"
+                value={requestedList.length}
+                icon={<FormOutlined />}
+                accentColor="#b45309"
+              />
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <LmsKpiCard
+                title="Upcoming"
+                value={upcomingList.length}
+                icon={<ClockCircleOutlined />}
+                accentColor="#15803d"
+              />
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <LmsKpiCard
+                title="Completed"
+                value={completedRequestsList.length}
+                icon={<CheckCircleOutlined />}
+                accentColor="#475569"
+              />
+            </Col>
+          </Row>
           <Tabs
             activeKey={activeTab}
             onChange={(key) => setActiveTab(key as AssessmentTabKey)}
@@ -1382,7 +1435,7 @@ const AssessmentManagement = () => {
           okText="Cancel assessment"
           okType="danger"
           cancelText="Keep assessment"
-          destroyOnClose
+          destroyOnHidden
           centered
           afterClose={() => cancelAssessmentReasonForm.resetFields()}
         >
@@ -1441,7 +1494,7 @@ const AssessmentManagement = () => {
           }}
           footer={null}
           width={800}
-          destroyOnClose
+          destroyOnHidden
           centered
           className="custom-modal top-4"
         >
@@ -1667,7 +1720,7 @@ const AssessmentManagement = () => {
           }}
           footer={null}
           width={560}
-          destroyOnClose
+          destroyOnHidden
           centered
           className="custom-modal top-4"
         >
@@ -1677,76 +1730,174 @@ const AssessmentManagement = () => {
               layout="vertical"
               onFinish={onEndSessionModalFinish}
               className="pt-4"
+              initialValues={{ questionAnswerLog: [{}] }}
             >
-              <Form.Item label="Session Title">
-                <Input
-                  value={
-                    endSessionRequest.liveSessionId?.title ||
-                    endSessionRequest.courseId?.title ||
-                    "Assessment"
-                  }
-                  readOnly
-                  className="bg-gray-50"
-                />
-              </Form.Item>
-              <Form.Item label="Learner">
-                <Input
-                  value={getEmployeeDisplayName(endSessionRequest)}
-                  readOnly
-                  className="bg-gray-50"
-                />
-              </Form.Item>
-              <Form.Item
-                name="performancePercentage"
-                label="Assessment performance (%)"
-                rules={
-                  isAssessmentDurationCompleted
-                    ? []
-                    : [
-                        {
-                          required: true,
-                          message:
-                            "Please enter the assessment performance percentage.",
-                        },
-                      ]
-                }
-                extra={
-                  endSessionRequest.courseId?.qualificationScore != null
-                    ? `Qualification score for this course: ${endSessionRequest.courseId.qualificationScore}%`
-                    : "Qualification score for this course: 80% (default)"
-                }
-              >
-                <InputNumber
-                  min={0}
-                  max={100}
-                  placeholder="e.g. 85"
-                  className="w-full"
-                  size="large"
-                  addonAfter="%"
-                />
-              </Form.Item>
-              <Form.Item
-                name="sessionSummary"
-                label="Session Review / Notes"
-                rules={
-                  isAssessmentDurationCompleted
-                    ? []
-                    : [
-                        {
-                          required: true,
-                          message:
-                            "Please enter how the assessment went and any observations or notes.",
-                        },
-                      ]
-                }
-              >
-                <TextArea
-                  rows={4}
-                  placeholder="How did the assessment go? Any observations, issues, or notes?"
-                  className="resize-none"
-                />
-              </Form.Item>
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+              <Tabs
+                defaultActiveKey="review"
+                items={[
+                  {
+                    key: "review",
+                    label: "Session Review",
+                    children: (
+                      <div className="space-y-4">
+                        <Form.Item label="Session Title">
+                          <Input
+                            value={
+                              endSessionRequest.liveSessionId?.title ||
+                              endSessionRequest.courseId?.title ||
+                              "Assessment"
+                            }
+                            readOnly
+                            className="bg-gray-50"
+                          />
+                        </Form.Item>
+                        <Form.Item label="Learner">
+                          <Input
+                            value={getEmployeeDisplayName(endSessionRequest)}
+                            readOnly
+                            className="bg-gray-50"
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="performancePercentage"
+                          label="Assessment performance (%)"
+                          rules={
+                            isAssessmentDurationCompleted
+                              ? []
+                              : [
+                                  {
+                                    required: true,
+                                    message:
+                                      "Please enter the assessment performance percentage.",
+                                  },
+                                ]
+                          }
+                          extra={
+                            endSessionRequest.courseId?.qualificationScore != null
+                              ? `Qualification score for this course: ${endSessionRequest.courseId.qualificationScore}%`
+                              : "Qualification score for this course: 80% (default)"
+                          }
+                        >
+                          <InputNumber
+                            min={0}
+                            max={100}
+                            placeholder="e.g. 85"
+                            className="w-full"
+                            size="large"
+                            addonAfter="%"
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="sessionSummary"
+                          label="Session Review / Notes"
+                          rules={
+                            isAssessmentDurationCompleted
+                              ? []
+                              : [
+                                  {
+                                    required: true,
+                                    message:
+                                      "Please enter how the assessment went and any observations or notes.",
+                                  },
+                                ]
+                          }
+                        >
+                          <TextArea
+                            rows={4}
+                            placeholder="How did the assessment go? Any observations, issues, or notes?"
+                            className="resize-none"
+                          />
+                        </Form.Item>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "qa",
+                    label: "Question & Answer Log",
+                    children: (
+                      <div className="pt-2">
+                        <p className="text-gray-500 text-sm mb-3">
+                          Add each question asked, the learner&apos;s answer, and any remarks. Click &quot;Add result field&quot; to add more.
+                        </p>
+                        <Form.List name="questionAnswerLog">
+                          {(fields, { add, remove }) => (
+                            <>
+                              <div className="space-y-4 max-h-[320px] overflow-y-auto pr-1">
+                                {fields.map(({ key, name, ...restField }) => (
+                                  <div
+                                    key={key}
+                                    className="p-4 rounded-lg border border-gray-200 bg-gray-50/50"
+                                  >
+                                    <div className="flex justify-between items-center mb-2">
+                                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                        Result #{name + 1}
+                                      </span>
+                                      <Button
+                                        type="text"
+                                        danger
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        onClick={() => remove(name)}
+                                        className="text-red-500 hover:text-red-600"
+                                      >
+                                        Remove
+                                      </Button>
+                                    </div>
+                                    <Form.Item
+                                      {...restField}
+                                      name={[name, "question"]}
+                                      label="Question"
+                                      rules={[]}
+                                    >
+                                      <Input
+                                        placeholder="Question asked"
+                                        allowClear
+                                      />
+                                    </Form.Item>
+                                    <Form.Item
+                                      {...restField}
+                                      name={[name, "answer"]}
+                                      label="Answer"
+                                      rules={[]}
+                                    >
+                                      <Input
+                                        placeholder="Learner's answer"
+                                        allowClear
+                                      />
+                                    </Form.Item>
+                                    <Form.Item
+                                      {...restField}
+                                      name={[name, "remarks"]}
+                                      label="Remarks"
+                                      rules={[]}
+                                    >
+                                      <TextArea
+                                        rows={2}
+                                        placeholder="Optional remarks or notes"
+                                        className="resize-none"
+                                      />
+                                    </Form.Item>
+                                  </div>
+                                ))}
+                              </div>
+                              <Button
+                                type="dashed"
+                                onClick={() => add({ question: "", answer: "", remarks: "" })}
+                                block
+                                className="mt-3 h-10 border-dashed text-gray-500 hover:text-primary hover:border-primary"
+                                icon={<PlusOutlined />}
+                              >
+                                Add result field
+                              </Button>
+                            </>
+                          )}
+                        </Form.List>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-4">
                 <Button
                   size="large"
                   onClick={() => {
@@ -1855,7 +2006,7 @@ const AssessmentManagement = () => {
           }
           width={720}
           centered
-          destroyOnClose
+          destroyOnHidden
         >
           {assessmentLogRecord && (() => {
             const isLiveLog = assessmentLogRecord._isLiveLog === true;
@@ -1948,10 +2099,98 @@ const AssessmentManagement = () => {
                       </Descriptions>
                     );
                     if (isLiveLog) {
+                      const hasQa = (attempt.questionResults || []).length > 0;
+                      const liveQaLog = (assessmentLogRecord as any).questionAnswerLog ?? [];
+                      const hasLiveQaLog = Array.isArray(liveQaLog) && liveQaLog.length > 0;
                       return (
                         <div className="space-y-4">
                           {tableBlock}
                           {noteReviewBlock}
+                          {hasLiveQaLog && (
+                            <>
+                              <Divider className="my-3">
+                                Question &amp; Answer Log
+                              </Divider>
+                              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                                {liveQaLog.map((row: any, idx: number) => (
+                                  <div
+                                    key={idx}
+                                    className="p-3 rounded-lg border border-gray-100 bg-gray-50/50"
+                                  >
+                                    <div className="font-medium text-gray-800 mb-2">
+                                      {row.question || `Question ${idx + 1}`}
+                                    </div>
+                                    <div className="text-sm space-y-1">
+                                      {row.answer != null && String(row.answer).trim() !== "" && (
+                                        <div>
+                                          <span className="text-gray-500">Answer: </span>
+                                          <span className="text-gray-800">{row.answer}</span>
+                                        </div>
+                                      )}
+                                      {row.remarks != null && String(row.remarks).trim() !== "" && (
+                                        <div>
+                                          <span className="text-gray-500">Remarks: </span>
+                                          <span className="text-gray-800 whitespace-pre-wrap">{row.remarks}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                          {hasQa && (
+                            <>
+                              <Divider className="my-3">
+                                Questions &amp; answers (attempt)
+                              </Divider>
+                              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                                {(attempt.questionResults || []).map(
+                                  (r: any, idx: number) => {
+                                    const snap = snapByQid[r.questionId];
+                                    const qText =
+                                      snap?.questionText || `Question ${idx + 1}`;
+                                    const userAns = Array.isArray(r.userAnswer)
+                                      ? r.userAnswer.join(", ")
+                                      : (r.userAnswer ?? "—");
+                                    const correctAns = Array.isArray(r.correctAnswer)
+                                      ? r.correctAnswer.join(", ")
+                                      : (r.correctAnswer ?? "—");
+                                    return (
+                                      <div
+                                        key={r.questionId || idx}
+                                        className="p-3 rounded-lg border border-gray-100 bg-gray-50/50"
+                                      >
+                                        <div className="font-medium text-gray-800 mb-2">
+                                          {qText}
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                                          <div>
+                                            <span className="text-gray-500">
+                                              Learner&apos;s answer:{" "}
+                                            </span>
+                                            <span className="text-gray-800">
+                                              {userAns}
+                                            </span>
+                                          </div>
+                                          {correctAns && correctAns !== "—" && (
+                                            <div>
+                                              <span className="text-gray-500">
+                                                Correct:{" "}
+                                              </span>
+                                              <span className="text-gray-800">
+                                                {correctAns}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       );
                     }

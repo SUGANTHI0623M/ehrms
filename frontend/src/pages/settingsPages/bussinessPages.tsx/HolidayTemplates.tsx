@@ -10,11 +10,22 @@ import {
   useDeleteHolidayTemplateMutation 
 } from "@/store/api/settingsApi";
 import { message } from "antd";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function HolidayTemplates() {
   const navigate = useNavigate();
   const { data, isLoading, refetch } = useGetHolidayTemplatesQuery();
   const [deleteTemplate, { isLoading: isDeleting }] = useDeleteHolidayTemplateMutation();
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const templates = data?.data?.templates || [];
 
@@ -26,23 +37,20 @@ export default function HolidayTemplates() {
     navigate(`/business/holiday-templates/${templateId}/edit`);
   };
 
-  const handleDelete = async (templateId: string) => {
-    message.confirm({
-      title: 'Delete Holiday Template',
-      content: 'Are you sure you want to delete this holiday template?',
-      okText: 'Yes, Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          await deleteTemplate(templateId).unwrap();
-          message.success('Holiday template deleted successfully');
-          refetch();
-        } catch (error: any) {
-          message.error(error?.data?.error?.message || 'Failed to delete holiday template');
-        }
-      }
-    });
+  const handleDelete = (templateId: string) => {
+    setDeleteId(templateId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteTemplate(deleteId).unwrap();
+      message.success('Holiday template deleted successfully');
+      setDeleteId(null);
+      refetch();
+    } catch (error: any) {
+      message.error(error?.data?.error?.message || 'Failed to delete holiday template');
+    }
   };
 
   const handleViewStaff = (templateId: string) => {
@@ -138,6 +146,29 @@ export default function HolidayTemplates() {
             )}
           </CardContent>
         </Card>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Holiday Template?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this holiday template? This action cannot be undone.
+                The template will be moved to inactive state.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </MainLayout>
   );

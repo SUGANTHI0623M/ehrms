@@ -13,20 +13,34 @@ export interface Attendance {
   date: string;
   punchIn?: string | null;
   punchOut?: string | null;
-  status: 'Present' | 'Absent' | 'Half Day' | 'On Leave' | 'Not Marked' | 'Pending';
+  status: 'Present' | 'Absent' | 'Half Day' | 'On Leave' | 'Not Marked' | 'Pending' | 'Approved' | 'Rejected';
   leaveType?: 'Sick Leave' | 'Casual Leave' | 'Earned Leave' | 'Unpaid Leave' | 'Maternity Leave' | 'Paternity Leave' | 'Other Leave';
+  halfDaySession?: 'First Half Day' | 'Second Half Day';
   approvedBy?: {
     _id: string;
     name: string;
     email: string;
-  };
-  approvedAt?: string;
+  } | null;
+  approvedAt?: string | null;
   remarks?: string;
   workHours?: number;
   overtime?: number;
-  fineHours?: number;
+  fineHours?: number; // in minutes
   lateMinutes?: number;
+  earlyMinutes?: number;
   fineAmount?: number;
+  createdBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  } | null;
+  updatedBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  } | null;
+  createdAt?: string;
+  updatedAt?: string;
   location?: {
     latitude: number;
     longitude: number;
@@ -35,6 +49,33 @@ export interface Attendance {
   ipAddress?: string | null;
   punchInIpAddress?: string | null;
   punchOutIpAddress?: string | null;
+  logs?: AttendanceLog[];
+}
+
+export interface AttendanceLog {
+  _id: string;
+  attendanceId: string;
+  action: 'PUNCH_IN' | 'PUNCH_OUT' | 'CREATED' | 'UPDATED' | 'APPROVED' | 'REJECTED' | 'STATUS_CHANGED' | 'FINE_CALCULATED' | 'FINE_ADJUSTED' | 'LEAVE_MARKED' | 'NOTES_ADDED';
+  performedBy: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  performedByName?: string;
+  performedByEmail?: string;
+  oldValue?: any;
+  newValue?: any;
+  changes?: Array<{
+    field: string;
+    oldValue: any;
+    newValue: any;
+  }>;
+  ipAddress?: string;
+  userAgent?: string;
+  notes?: string;
+  timestamp: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AttendanceStats {
@@ -128,6 +169,37 @@ export const attendanceApi = apiSlice.injectEndpoints({
       query: () => '/attendance/today',
       providesTags: ['Attendance'],
     }),
+    canMarkAttendance: builder.query<
+      {
+        success: boolean;
+        data: {
+          canPunchIn: boolean;
+          canPunchOut: boolean;
+          reason: string | null;
+          hasApprovedLeave: boolean;
+          leaveType: string | null;
+          halfDayType: 'First Half Day' | 'Second Half Day' | null;
+          shiftHalfDayInfo: {
+            firstHalfEndTime?: string;
+            secondHalfStartTime?: string;
+            midpointTime?: string;
+          } | null;
+          existingAttendance: {
+            status: string;
+            punchIn?: string | null;
+            punchOut?: string | null;
+            halfDaySession?: 'First Half Day' | 'Second Half Day';
+          } | null;
+        };
+      },
+      { date?: string }
+    >({
+      query: (params) => ({
+        url: '/attendance/can-mark',
+        params,
+      }),
+      providesTags: ['Attendance'],
+    }),
     markAttendance: builder.mutation<
       { success: boolean; data: { attendance: Attendance } },
       MarkAttendanceRequest
@@ -183,6 +255,7 @@ export const {
   useGetEmployeeAttendanceQuery,
   useGetAttendanceByIdQuery,
   useGetTodayAttendanceQuery,
+  useCanMarkAttendanceQuery,
   useMarkAttendanceMutation,
   useApproveAttendanceMutation,
   useUpdateAttendanceMutation,

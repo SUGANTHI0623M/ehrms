@@ -887,29 +887,10 @@ const AdminDashboard = () => {
               </Card>
               <Card
                 className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => (window.location.href = "/staff/expense-claims")}
-              >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    Pending Expenses
-                  </CardTitle>
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-purple-600">
-                    {dashboardData.pendingRequests.expenses || 0}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Requires approval
-                  </p>
-                </CardContent>
-              </Card>
-              <Card
-                className="cursor-pointer hover:shadow-md transition-shadow"
                 onClick={() =>
                   (window.location.href = "/staff/payslip-requests")
                 }
-              >
+                >
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium">
                     Payslip Requests

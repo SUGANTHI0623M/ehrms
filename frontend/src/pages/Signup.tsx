@@ -40,7 +40,7 @@ const Signup = () => {
       const logo = platformLogoData.data.logo;
       setPlatformLogo(logo.startsWith('http') || logo.startsWith('/') 
         ? logo 
-        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:9000'}${logo}`
+        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:7001'}${logo}`
       );
     }
   }, [platformLogoData]);
@@ -121,8 +121,8 @@ const Signup = () => {
         }));
 
         // Ensure token is stored before navigation
-        const successMessage = result.message || 
-          (result.data.company 
+        const successMessage = (result as any).message || 
+          ((result.data as any).company 
             ? "Company and account created successfully! Redirecting to dashboard..." 
             : "Registration successful! Redirecting to dashboard...");
         message.success(successMessage);

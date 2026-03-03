@@ -138,13 +138,15 @@ export function calculateSalaryByWorkingDays(
  * @param holidays - Array of holiday dates
  * @param weeklyOffPattern - 'standard' or 'oddEvenSaturday'
  * @param endDate - Optional end date to calculate working days till (defaults to end of month)
+ * @param weeklyHolidays - Optional array of weekly holiday days (for standard pattern with custom days)
  */
 export function calculateWorkingDays(
   year: number,
   month: number, // 0-11 (JavaScript month index)
   holidays: Date[] = [], // Array of holiday dates
   weeklyOffPattern: 'standard' | 'oddEvenSaturday' = 'standard',
-  endDate?: Date // Optional end date - if provided, calculate only till this date
+  endDate?: Date, // Optional end date - if provided, calculate only till this date
+  weeklyHolidays?: Array<{ day: number; name?: string }> // Optional: custom weekly holidays for standard pattern
 ): {
   totalDays: number;
   workingDays: number;
@@ -173,6 +175,9 @@ export function calculateWorkingDays(
     holidayDate.setHours(0, 0, 0, 0);
     return holidayDate.toDateString();
   });
+
+  // Create a set of weekly holiday days for quick lookup
+  const weeklyHolidayDays = weeklyHolidays ? new Set(weeklyHolidays.map(wh => wh.day)) : null;
 
   for (let day = 1; day <= endDay; day++) {
     const currentDate = new Date(year, month, day);
@@ -204,10 +209,15 @@ export function calculateWorkingDays(
         workingDays++;
       }
     } else {
-      // Standard pattern: Check if it's a weekend (Saturday = 6, Sunday = 0)
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
+      // Standard pattern: Use weeklyHolidays array if provided, otherwise default to Saturday and Sunday
+      if (weeklyHolidayDays && weeklyHolidayDays.has(dayOfWeek)) {
+        // This day is in the weekly holidays list - it's a week off
+        weekends++;
+      } else if (!weeklyHolidayDays && (dayOfWeek === 0 || dayOfWeek === 6)) {
+        // Default: Saturday and Sunday are weekends
         weekends++;
       } else {
+        // Working day
         workingDays++;
       }
     }

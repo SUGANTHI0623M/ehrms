@@ -36,7 +36,7 @@ const getApiUrl = () => {
     
     if (isLocal) {
       // Use localhost for local development
-      return 'http://localhost:9000/api';
+      return 'http://localhost:7001/api';
     }
   }
   
@@ -51,7 +51,7 @@ const getApiUrl = () => {
   }
   
   // Default fallback for SSR or other cases
-  return 'http://localhost:9000/api';
+  return 'http://localhost:7001/api';
 };
 
 const API_URL = getApiUrl();

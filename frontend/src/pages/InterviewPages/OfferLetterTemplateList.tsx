@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { formatDate } from "@/utils/constants";
 import { toast } from "sonner";
-import { useGetTemplatesQuery, useDeleteTemplateMutation, OfferTemplate } from "@/store/api/offerTemplateApi";
+import { useGetOfferTemplatesQuery, useDeleteOfferTemplateMutation, OfferTemplate } from "@/store/api/offerTemplateApi";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -50,8 +50,8 @@ const OfferLetterTemplateList = () => {
     const [previewTemplate, setPreviewTemplate] = useState<OfferTemplate | null>(null);
     const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
 
-    const { data, isLoading, isError } = useGetTemplatesQuery();
-    const [deleteTemplate, { isLoading: isDeleting }] = useDeleteTemplateMutation();
+    const { data, isLoading, isError } = useGetOfferTemplatesQuery();
+    const [deleteTemplate, { isLoading: isDeleting }] = useDeleteOfferTemplateMutation();
 
     const templates = data?.data?.templates || [];
 

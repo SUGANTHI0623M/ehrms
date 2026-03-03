@@ -17,7 +17,6 @@ import {
     message,
     Empty,
     Tooltip,
-    Statistic,
     Pagination,
     Skeleton
 } from 'antd';
@@ -28,10 +27,12 @@ import {
     CheckCircleOutlined,
     TrophyOutlined,
     RightOutlined,
-    ReloadOutlined
+    ReloadOutlined,
+    TeamOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/MainLayout';
+import { LmsKpiCard } from '@/components/lms/SharedComponents';
 import { lmsService } from '@/services/lmsService';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 
@@ -256,55 +257,46 @@ const LearnersList = () => {
                     </div>
                 </div>
 
-                {/* 1.5 KPI Overview */}
-                <Row gutter={[12, 12]}>
-                    <Col xs={12} sm={6}>
-                        <Card size="small" className="lms-card">
-                            <Statistic
-                                title={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">Total Learners</Text>}
-                                value={learners.length}
-                                prefix={<UserOutlined className="text-blue-500 mr-1" />}
-                                valueStyle={{ fontSize: '20px', fontWeight: 700 }}
-                            />
-                        </Card>
+                {/* KPI Overview — same design as Course Library / Assessment / Live Sessions */}
+                <Row gutter={[16, 16]}>
+                    <Col xs={24} sm={12} lg={6}>
+                        <LmsKpiCard
+                            title="Total Learners"
+                            value={learners.length}
+                            icon={<UserOutlined />}
+                            accentColor="#1e40af"
+                        />
                     </Col>
-                    <Col xs={12} sm={6}>
-                        <Card size="small" className="lms-card">
-                            <Statistic
-                                title={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">Active Now</Text>}
-                                value={learners.filter(l => l.isActive).length}
-                                prefix={<div className="w-2 h-2 rounded-full bg-green-500 mr-2 inline-block animate-pulse" />}
-                                valueStyle={{ fontSize: '20px', fontWeight: 700 }}
-                            />
-                        </Card>
+                    <Col xs={24} sm={12} lg={6}>
+                        <LmsKpiCard
+                            title="Active Now"
+                            value={learners.filter(l => l.isActive).length}
+                            icon={<TeamOutlined />}
+                            accentColor="#15803d"
+                        />
                     </Col>
-                    <Col xs={12} sm={6}>
-                        <Card size="small" className="lms-card">
-                            <Statistic
-                                title={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">Completed All</Text>}
-                                value={learners.filter(l => l.stats?.status === 'Completed').length}
-                                prefix={<CheckCircleOutlined className="text-emerald-500 mr-1" />}
-                                valueStyle={{ fontSize: '20px', fontWeight: 700 }}
-                            />
-                        </Card>
+                    <Col xs={24} sm={12} lg={6}>
+                        <LmsKpiCard
+                            title="Completed All"
+                            value={learners.filter(l => l.stats?.status === 'Completed').length}
+                            icon={<CheckCircleOutlined />}
+                            accentColor="#0d9488"
+                        />
                     </Col>
-                    <Col xs={12} sm={6}>
-                        <Card size="small" className="lms-card">
-                            <Statistic
-                                title={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">Avg Assessment Score</Text>}
-                                value={learners.length > 0 ? (learners.reduce((acc, curr) => acc + (curr.stats?.avgScore || 0), 0) / learners.length).toFixed(1) : '0.0'}
-                                suffix="%"
-                                prefix={<TrophyOutlined className="text-amber-500 mr-1" />}
-                                valueStyle={{ fontSize: '20px', fontWeight: 700 }}
-                            />
-                        </Card>
+                    <Col xs={24} sm={12} lg={6}>
+                        <LmsKpiCard
+                            title="Avg Assessment Score"
+                            value={learners.length > 0 ? `${(learners.reduce((acc, curr) => acc + (curr.stats?.avgScore || 0), 0) / learners.length).toFixed(1)}%` : '0.0%'}
+                            icon={<TrophyOutlined />}
+                            accentColor="#b45309"
+                        />
                     </Col>
                 </Row>
 
                 {/* 2. Compact Filters Card - stack on mobile */}
                 <Card
                     className="shadow-sm border-gray-100"
-                    bodyStyle={{ padding: '12px 16px' }}
+                    styles={{ body: { padding: '12px 16px' } }}
                     bordered={false}
                 >
                     <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
@@ -351,7 +343,7 @@ const LearnersList = () => {
                 {/* 3. Main: Cards on mobile, Table on tablet/desktop */}
                 <Card
                     className="shadow-sm border-gray-100 overflow-hidden"
-                    bodyStyle={{ padding: isMobile ? 16 : 0 }}
+                    styles={{ body: { padding: isMobile ? 16 : 0 } }}
                     bordered={false}
                 >
                     {isMobile ? (
@@ -359,7 +351,7 @@ const LearnersList = () => {
                             {loading ? (
                                 <div className="space-y-3">
                                     {[1, 2, 3, 4].map((i) => (
-                                        <Card key={i} size="small" className="rounded-xl border-gray-100" bodyStyle={{ padding: 16 }}>
+                                        <Card key={i} size="small" className="rounded-xl border-gray-100" styles={{ body: { padding: 16 } }}>
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
                                                     <Skeleton.Avatar active size={44} shape="circle" />
@@ -390,7 +382,7 @@ const LearnersList = () => {
                                             key={record._id}
                                             size="small"
                                             className="rounded-xl border-gray-100 cursor-pointer hover:shadow-md transition-shadow"
-                                            onClick={() => navigate(`/lms/learners/${record._id}`)}
+                                            onClick={() => navigate(`/admin/lms/learners/${record._id}`)}
                                         >
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -469,7 +461,7 @@ const LearnersList = () => {
                                     showSizeChanger: !isMobile
                                 }}
                                 onRow={(record) => ({
-                                    onClick: () => navigate(`/lms/learners/${record._id}`),
+                                    onClick: () => navigate(`/admin/lms/learners/${record._id}`),
                                     className: 'cursor-pointer'
                                 })}
                                 scroll={{ x: 900 }}

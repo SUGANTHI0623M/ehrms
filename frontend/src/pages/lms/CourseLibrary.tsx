@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import MainLayout from "@/components/MainLayout";
-import { LmsCourseCard, LmsPrimaryButton, ArchiveIcon, PublishIcon, LmsLoadingState, LmsCourseCardSkeleton } from '@/components/lms/SharedComponents';
+import { LmsCourseCard, LmsPrimaryButton, ArchiveIcon, PublishIcon, LmsLoadingState, LmsCourseCardSkeleton, LmsKpiCard } from '@/components/lms/SharedComponents';
 import {
     Input, Select, Card, Row, Col, Typography,
     Button, Empty, Modal, message, Tooltip, Space, Popconfirm
@@ -8,10 +8,13 @@ import {
 import {
     SearchOutlined, PlusOutlined, ExclamationCircleOutlined,
     EditOutlined, DeleteOutlined,
-    RocketOutlined
+    RocketOutlined,
+    BookOutlined,
+    FileTextOutlined,
+    CheckCircleOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useGetCoursesQuery, useLazyGetCourseByIdQuery, useUpdateCourseMutation, useDeleteCourseMutation, useUpdateCourseStatusMutation } from "@/store/api/lmsApi";
+import { useGetCoursesQuery, useLazyGetCourseByIdQuery, useUpdateCourseMutation, useDeleteCourseMutation, useUpdateCourseStatusMutation, useGetCourseLibraryStatsQuery } from "@/store/api/lmsApi";
 import { useSelector } from 'react-redux';
 import { RootState } from "@/store/store";
 import { lmsService } from '@/services/lmsService';
@@ -31,25 +34,35 @@ const CourseLibrary = () => {
 
     const user = useSelector((state: RootState) => state.auth.user);
     const userRole = user?.role || 'Employee';
-    const isAdmin = ['Admin', 'Super Admin'].includes(userRole);
+    const isAdmin = ['Admin', 'Super Admin', 'Manager'].includes(userRole);
+    const sidebarPerms = (user as any)?.sidebarPermissions || [];
+    
+    // Check if employee has course_library permission
+    const hasCourseLibraryPermission = sidebarPerms.includes('course_library') || 
+                                       sidebarPerms.includes('lms') ||
+                                       sidebarPerms.includes('lms_dashboard');
 
-    // Employees must not access full course library; only admins can assign courses. Redirect to My Learning.
+    // Employees must not access full course library unless they have permission. Redirect to My Learning.
     useEffect(() => {
-        if (!isAdmin) {
+        if (!isAdmin && !hasCourseLibraryPermission) {
             navigate('/lms/employee/dashboard', { replace: true });
         }
-    }, [isAdmin, navigate]);
+    }, [isAdmin, hasCourseLibraryPermission, navigate]);
 
+    const canAccessAdminFeatures = isAdmin || hasCourseLibraryPermission;
+    
     const { data: coursesData, isLoading, refetch } = useGetCoursesQuery(
         {
             search: searchTerm,
             category: categoryFilter,
-            status: isAdmin ? statusFilter : 'Published',
+            status: canAccessAdminFeatures ? statusFilter : 'Published',
             limit: 10,
             page: 1
         },
-        { skip: !isAdmin }
+        { skip: !canAccessAdminFeatures }
     );
+    const { data: statsData } = useGetCourseLibraryStatsQuery(undefined, { skip: !canAccessAdminFeatures });
+    const stats = statsData?.data;
 
     const [fetchCourseById] = useLazyGetCourseByIdQuery();
     const [updateStatus] = useUpdateCourseStatusMutation();
@@ -142,7 +155,7 @@ const CourseLibrary = () => {
             <Tooltip title="Edit">
                 <Button type="text" size="small" icon={<EditOutlined className="text-gray-400 hover:text-emerald-500" />} onClick={(e) => { e.stopPropagation(); handleEditCourse(course); }} />
             </Tooltip>
-            {isAdmin && (
+            {canAccessAdminFeatures && (
                 <Popconfirm
                     title={course.status === 'Published' ? 'Archive this course?' : 'Publish this course?'}
                     description={course.status === 'Published' ? 'The course will be moved to Archived and hidden from learners.' : 'The course will be visible to assigned learners.'}
@@ -182,8 +195,8 @@ const CourseLibrary = () => {
 
     const courses = coursesData?.data?.courses || [];
 
-    // Employees are redirected to My Learning; show nothing until redirect
-    if (!isAdmin) {
+    // Employees without permission are redirected to My Learning; show nothing until redirect
+    if (!canAccessAdminFeatures) {
         return (
             <MainLayout>
                 <div className="min-h-[calc(100vh-64px)]">
@@ -201,10 +214,10 @@ const CourseLibrary = () => {
                     <div>
                         <h1 className="text-xl sm:text-2xl font-bold text-gray-800 m-0">Course Library</h1>
                         <p className="text-sm text-gray-500 mt-1 m-0">
-                            {isAdmin ? 'Manage, edit, and publish your organization\'s courses' : 'Explore and enroll in available courses'}
+                            {canAccessAdminFeatures ? 'Manage, edit, and publish your organization\'s courses' : 'Explore and enroll in available courses'}
                         </p>
                     </div>
-                    {isAdmin && (
+                    {canAccessAdminFeatures && (
                         <LmsPrimaryButton
                             icon={<PlusOutlined />}
                             onClick={handleCreateCourse}
@@ -215,8 +228,46 @@ const CourseLibrary = () => {
                     )}
                 </div>
 
+                {/* Course Library: KPI cards (Total Courses, Categories, Enrollments, Mandatory) */}
+                {canAccessAdminFeatures && (
+                    <Row gutter={[16, 16]} className="mb-6">
+                        <Col xs={24} sm={12} lg={6}>
+                            <LmsKpiCard
+                                title="Total Courses"
+                                value={stats?.total ?? 0}
+                                icon={<BookOutlined />}
+                                accentColor="#1e40af"
+                            />
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <LmsKpiCard
+                                title="Categories"
+                                value={stats?.categoriesCount ?? 0}
+                                icon={<FileTextOutlined />}
+                                accentColor="#15803d"
+                            />
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <LmsKpiCard
+                                title="Enrollments"
+                                value={stats?.totalEnrollments ?? 0}
+                                icon={<RocketOutlined />}
+                                accentColor="#b45309"
+                            />
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <LmsKpiCard
+                                title="Mandatory Courses"
+                                value={stats?.mandatoryCount ?? 0}
+                                icon={<CheckCircleOutlined />}
+                                accentColor="#475569"
+                            />
+                        </Col>
+                    </Row>
+                )}
+
                 {/* Filters: stack vertically on mobile */}
-                <Card className="lms-card" bodyStyle={{ padding: '16px 20px' }}>
+                <Card className="lms-card" styles={{ body: { padding: '16px 20px' } }}>
                     <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row">
                         <Input
                             prefix={<SearchOutlined className="text-gray-400" />}
@@ -234,7 +285,7 @@ const CourseLibrary = () => {
                         >
                             {categories.map(cat => <Option key={cat} value={cat}>{cat}</Option>)}
                         </Select>
-                        {isAdmin && (
+                        {canAccessAdminFeatures && (
                             <Select
                                 placeholder="Status"
                                 className="w-full md:w-40"
@@ -273,8 +324,8 @@ const CourseLibrary = () => {
                             <Col xs={24} sm={12} md={12} lg={8} xl={6} key={course._id}>
                                 <LmsCourseCard
                                     course={course}
-                                    onClick={() => navigate(isAdmin ? `/lms/admin/course/${course._id}` : `/lms/employee/course/${course._id}`)}
-                                    actionButton={isAdmin ? renderAdminActions(course) : renderEmployeeAction(course)}
+                                    onClick={() => navigate(canAccessAdminFeatures ? `/admin/lms/course-detail/${course._id}` : `/lms/employee/course/${course._id}`)}
+                                    actionButton={canAccessAdminFeatures ? renderAdminActions(course) : renderEmployeeAction(course)}
                                     status={course.status} // pass status for color logic inside card if needed
                                 />
                             </Col>

@@ -149,6 +149,7 @@ export interface SubscriptionPlan {
   yearlyPrice: number;
   currency: string;
   trialPeriodDays: number;
+  modules?: string[]; // Modules that this plan provides access to
   features: {
     recruitment: boolean;
     performance: boolean;

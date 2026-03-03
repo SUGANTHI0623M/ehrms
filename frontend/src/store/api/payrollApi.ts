@@ -122,7 +122,7 @@ export const payrollApi = apiSlice.injectEndpoints({
           }
         } 
       },
-      { employeeId: string; month: number; year: number }
+      { employeeId: string; month: number; year: number; includeLoanEMI?: boolean }
     >({
       query: (data) => ({
         url: '/payroll/preview',
@@ -167,7 +167,7 @@ export const payrollApi = apiSlice.injectEndpoints({
     }),
     generatePayroll: builder.mutation<
       { success: boolean; data: { payroll: Payroll; attendance: { workingDays: number; presentDays: number; attendancePercentage: number } } },
-      { employeeId: string; month: number; year: number }
+      { employeeId: string; month: number; year: number; includeLoanEMI?: boolean; selectedExpenseClaims?: string[]; expensePaymentCycle?: 'current' | 'previous' | 'next' }
     >({
       query: (data) => ({
         url: '/payroll/generate',

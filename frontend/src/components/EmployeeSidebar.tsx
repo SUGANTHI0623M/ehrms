@@ -46,6 +46,8 @@ import {
   CalendarDays,
   Building2,
   ChevronLeft,
+  Cake,
+  Megaphone,
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Menu, Divider } from "antd";
@@ -151,11 +153,12 @@ const ADMIN_SUBMENUS: Record<string, Array<{
     { icon: Receipt, label: "Assets", path: "/assets" },
   ],
   lms: [
-    { icon: Library, label: "Course Library", path: "/course-library" },
-    { icon: ListVideo, label: "Live Session", path: "/live-session" },
-    { icon: Wand2, label: "Auto Quiz Generator", path: "/quiz-generator" },
-    { icon: ListChecks, label: "Quiz / Assessment", path: "/assessment" },
-    { icon: BarChart2, label: "Score / Analytics", path: "/score" },
+    { icon: LayoutDashboard, label: "LMS Dashboard", path: "/admin/lms/dashboard", module: "lms_dashboard" },
+    { icon: Library, label: "Course Library", path: "/admin/lms/course-library", module: "course_library" },
+    { icon: Users, label: "Learners", path: "/admin/lms/learners", module: "learners" },
+    { icon: ListVideo, label: "Live Sessions", path: "/admin/lms/live-sessions", module: "live_session" },
+    { icon: ListChecks, label: "Assessment Management", path: "/admin/lms/assessment", module: "assessment" },
+    { icon: BarChart2, label: "Scores & Analytics", path: "/admin/lms/scores-analytics", module: "score_analytics" },
   ],
   integrations: [
     { icon: Plug2, label: "All Integrations", path: "/integrations" },
@@ -165,6 +168,12 @@ const ADMIN_SUBMENUS: Record<string, Array<{
     { icon: MessageSquare, label: "SMS", path: "/integrations/sms" },
     { icon: MessageSquare, label: "RCS", path: "/integrations/rcs" },
     { icon: Phone, label: "Voice", path: "/integrations/voice" },
+  ],
+  celebration: [
+    { icon: Cake, label: "Celebration", path: "/admin/celebration", module: "celebration" },
+  ],
+  announcements: [
+    { icon: Megaphone, label: "Announcements", path: "/announcements", module: "announcements" },
   ],
   settings: [
     { icon: UserRoundPlus, label: "User Management", path: "/user-management" },
@@ -178,17 +187,19 @@ const ADMIN_SUBMENUS: Record<string, Array<{
   ],
 };
 
-// Admin menu main items (for top-level menu)
-const ADMIN_MENU_CONFIG: Record<string, { label: string; icon: React.ReactNode; mainPath: string }> = {
-  'interview': { label: 'Interview', icon: <ClipboardList size={16} />, mainPath: '/candidates' },
-  'staff': { label: 'Staff', icon: <Users size={16} />, mainPath: '/staff' },
-  'payroll': { label: 'Payroll', icon: <DollarSign size={16} />, mainPath: '/payroll/management' },
-  'hrms-geo': { label: 'HRMS Geo', icon: <MapPin size={16} />, mainPath: '/hrms-geo/dashboard' },
-  'performance': { label: 'Performance', icon: <TrendingUp size={16} />, mainPath: '/performance' },
-  'lms': { label: 'LMS', icon: <FileText size={16} />, mainPath: '/course-library' },
-  'assets': { label: 'Asset Management', icon: <SettingsIcon size={16} />, mainPath: '/assets' },
-  'integrations': { label: 'Integrations', icon: <Plug2 size={16} />, mainPath: '/integrations' },
-  'settings': { label: 'Settings', icon: <SettingsIcon size={16} />, mainPath: '/settings' },
+// Admin menu main items (for top-level menu) - using component types for icons
+const ADMIN_MENU_CONFIG: Record<string, { label: string; icon: React.ComponentType<any>; mainPath: string }> = {
+  'interview': { label: 'Interview', icon: ClipboardList, mainPath: '/candidates' },
+  'celebration': { label: 'Celebration', icon: Cake, mainPath: '/admin/celebration' },
+  'staff': { label: 'Staff', icon: Users, mainPath: '/staff' },
+  'payroll': { label: 'Payroll', icon: DollarSign, mainPath: '/payroll/management' },
+  'hrms-geo': { label: 'HRMS Geo', icon: MapPin, mainPath: '/hrms-geo/dashboard' },
+  'performance': { label: 'Performance', icon: TrendingUp, mainPath: '/performance' },
+  'lms': { label: 'LMS', icon: FileText, mainPath: '/admin/lms/course-library' },
+  'announcements': { label: 'Announcements', icon: Megaphone, mainPath: '/announcements' },
+  'assets': { label: 'Asset Management', icon: SettingsIcon, mainPath: '/assets' },
+  'integrations': { label: 'Integrations', icon: Plug2, mainPath: '/integrations' },
+  'settings': { label: 'Settings', icon: SettingsIcon, mainPath: '/settings' },
 };
 /** Only "My Learning" is hidden when LMS access is disabled; Live Sessions stays visible. */
 const MY_LEARNING_MENU_KEY = "/lms/employee/dashboard";
@@ -357,9 +368,10 @@ const EmployeeSidebar = ({
       'customers': 'hrms-geo',
       'geo_settings': 'hrms-geo',
       // LMS sub-modules
+      'lms_dashboard': 'lms',
       'course_library': 'lms',
+      'learners': 'lms',
       'live_session': 'lms',
-      'quiz_generator': 'lms',
       'assessment': 'lms',
       'score_analytics': 'lms',
       // Assets sub-modules
@@ -397,10 +409,24 @@ const EmployeeSidebar = ({
     });
 
     return Array.from(parentModules)
-      .filter((module: string) => ADMIN_MENU_CONFIG[module] && ADMIN_SUBMENUS[module])
+      .filter((module: string) => ADMIN_MENU_CONFIG[module])
       .map((module: string) => {
         const config = ADMIN_MENU_CONFIG[module];
         const submenuItems = ADMIN_SUBMENUS[module];
+        
+        // Handle single-item modules (like celebration) that don't have submenus
+        if (!submenuItems || submenuItems.length === 0) {
+          // Single menu item - check if module is in permissions
+          if (sidebarPerms.includes(module)) {
+            const IconComponent = config.icon;
+            return {
+              key: config.mainPath,
+              icon: <IconComponent size={16} />,
+              label: config.label,
+            };
+          }
+          return null;
+        }
         
         // Check if parent module is fully selected (has all access) or only sub-modules are selected
         const isParentFullySelected = sidebarPerms.includes(module);
@@ -438,6 +464,8 @@ const EmployeeSidebar = ({
           '/pms/reports': 'pms_reports',
           '/pms/settings': 'pms_settings',
           '/payroll/management': 'payroll_management',
+          '/admin/celebration': 'celebration',
+          '/announcements': 'announcements',
           '/hrms-geo/dashboard': 'hrms_geo_dashboard',
           '/hrms-geo/tracking/live': 'tracking',
           '/hrms-geo/forms/responses': 'forms',
@@ -446,11 +474,20 @@ const EmployeeSidebar = ({
           '/hrms-geo/settings': 'geo_settings',
           '/assets-type': 'assets_type',
           '/assets': 'assets',
+          '/admin/lms/dashboard': 'lms_dashboard',
+          '/admin/lms/course-library': 'course_library',
+          '/admin/lms/learners': 'learners',
+          '/admin/lms/learners/': 'learners',
+          '/admin/lms/live-sessions': 'live_session',
+          '/admin/lms/assessment': 'assessment',
+          '/admin/lms/scores-analytics': 'score_analytics',
           '/course-library': 'course_library',
           '/live-session': 'live_session',
-          '/quiz-generator': 'quiz_generator',
+          '/quiz-generator': 'course_library',
           '/assessment': 'assessment',
           '/score': 'score_analytics',
+          '/lms/learners': 'learners',
+          '/lms/scores-analytics': 'score_analytics',
           '/integrations': 'all_integrations',
           '/integrations/exotel': 'exotel',
           '/integrations/email': 'email',
@@ -549,16 +586,17 @@ const EmployeeSidebar = ({
         }
         
         // Create parent menu item
+        const IconComponent = config.icon;
         const parentItem: any = {
           key: config.mainPath,
-          icon: config.icon,
+          icon: <IconComponent size={16} />,
           label: config.label,
           children: children,
         };
         
         return parentItem;
       })
-      .filter((item: any) => item !== null && item !== undefined); // Remove null/undefined items (modules with no accessible children)
+      .filter((item: any) => item !== null && item !== undefined); // Remove null/undefined items (modules with no accessible children or no permission)
   }, [currentUser, (currentUser as any)?.sidebarPermissions ? JSON.stringify([...(currentUser as any).sidebarPermissions].sort()) : '']);
 
   // Combine employee and admin menu items (hide My Learning when LMS access is disabled)
@@ -818,9 +856,10 @@ const EmployeeSidebar = ({
       'tasks': 'hrms-geo',
       'customers': 'hrms-geo',
       'geo_settings': 'hrms-geo',
+      'lms_dashboard': 'lms',
       'course_library': 'lms',
+      'learners': 'lms',
       'live_session': 'lms',
-      'quiz_generator': 'lms',
       'assessment': 'lms',
       'score_analytics': 'lms',
       'assets_type': 'assets',
@@ -943,9 +982,10 @@ const EmployeeSidebar = ({
       'tasks': 'hrms-geo',
       'customers': 'hrms-geo',
       'geo_settings': 'hrms-geo',
+      'lms_dashboard': 'lms',
       'course_library': 'lms',
+      'learners': 'lms',
       'live_session': 'lms',
-      'quiz_generator': 'lms',
       'assessment': 'lms',
       'score_analytics': 'lms',
       'assets_type': 'assets',
@@ -1178,9 +1218,10 @@ const EmployeeSidebar = ({
       'tasks': 'hrms-geo',
       'customers': 'hrms-geo',
       'geo_settings': 'hrms-geo',
+      'lms_dashboard': 'lms',
       'course_library': 'lms',
+      'learners': 'lms',
       'live_session': 'lms',
-      'quiz_generator': 'lms',
       'assessment': 'lms',
       'score_analytics': 'lms',
       'assets_type': 'assets',

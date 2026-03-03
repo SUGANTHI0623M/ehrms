@@ -202,7 +202,7 @@ const LiveTracking = () => {
     if (!staffId) return "#6b7280";
     const colors = [
       "#3b82f6", // Blue
-      "#10b981", // Green
+      "#efaa1f", // Primary color
       "#f59e0b", // Orange
       "#8b5cf6", // Purple
       "#ef4444", // Red
@@ -628,10 +628,10 @@ const LiveTracking = () => {
                         </div>
                         <div className="h-6 sm:h-8 w-px bg-border"></div>
                         <div className="text-center sm:text-left">
-                          <p className="text-[10px] sm:text-xs text-muted-foreground font-medium text-green-600">
+                          <p className="text-[10px] sm:text-xs text-muted-foreground font-medium text-[#efaa1f]">
                             Active
                           </p>
-                          <p className="text-sm sm:text-lg font-semibold text-green-600">
+                          <p className="text-sm sm:text-lg font-semibold text-[#efaa1f]">
                             {liveWorkers.filter((w: any) => w.isActive)
                               .length || 0}
                           </p>

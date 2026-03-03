@@ -40,6 +40,7 @@ import {
   Form,
   Tabs,
   Descriptions,
+  Dropdown,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -69,6 +70,7 @@ import {
   MenuOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MoreOutlined,
 } from "@ant-design/icons";
 import { lmsService } from "@/services/lmsService";
 import dayjs from "dayjs";
@@ -76,6 +78,8 @@ import CourseFormWizard from "../components/CourseFormWizard";
 import { AssignLearnersDialog } from "@/components/lms/AssignLearnersDialog";
 import { getFileUrl } from "@/utils/url";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useAppDispatch } from "@/store/hooks";
+import { lmsApi } from "@/store/api/lmsApi";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -100,7 +104,8 @@ interface LearnerProgress {
 }
 
 const CourseDetail = () => {
-  const { courseId } = useParams(); // Note: Route param is 'courseId' based on existing code
+  const { courseId, id } = useParams(); // Support both 'courseId' and 'id' params for flexibility
+  const actualCourseId = courseId || id; // Use courseId if available, otherwise fall back to id
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [course, setCourse] = useState<any>(null);
@@ -121,6 +126,12 @@ const CourseDetail = () => {
 
   const { isDesktop } = useBreakpoint();
 
+  const dispatch = useAppDispatch();
+  const [logModalLearner, setLogModalLearner] = useState<LearnerProgress | null>(null);
+  const [attemptReportData, setAttemptReportData] = useState<{ data?: any } | null>(null);
+  const [isAttemptLoading, setIsAttemptLoading] = useState(false);
+  const [isAttemptError, setIsAttemptError] = useState(false);
+
   const [assignModalOpen, setAssignModalOpen] = useState(false);
 
   // Extend deadline modal
@@ -138,23 +149,33 @@ const CourseDetail = () => {
     total: 0,
   });
 
-  useEffect(() => {
-    if (courseId) {
-      fetchCourseDetails();
-    }
-  }, [courseId]);
+  const learnerFetchIdRef = useRef(0);
+  const courseFetchedForIdRef = useRef<string | null>(null);
+  const learnersLoadedForCourseIdRef = useRef<string | null>(null);
 
-  // Refetch when user returns to the page (e.g. after editing course elsewhere) so materials are up to date.
-  // Skip refetch while Edit Course modal is open so the wizard doesn't get new initialData and reset to step 1 (e.g. after file picker closes and window gains focus).
   useEffect(() => {
-    if (!courseId) return;
-    const onFocus = () => {
-      if (isEditModalOpen) return;
-      fetchCourseDetails();
+    if (!actualCourseId) return;
+    if (courseFetchedForIdRef.current === actualCourseId) return;
+    courseFetchedForIdRef.current = actualCourseId;
+    fetchCourseDetails();
+  }, [actualCourseId]);
+
+  // Refetch when user returns to the browser tab after being away (e.g. edited course elsewhere).
+  // Only refetch if tab was hidden for at least 1.5s to avoid refresh on accidental tab switch or dev tools.
+  const lastVisibleAtRef = useRef<number>(Date.now());
+  useEffect(() => {
+    if (!actualCourseId) return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        const hiddenDuration = Date.now() - lastVisibleAtRef.current;
+        if (hiddenDuration >= 1500 && !isEditModalOpen) fetchCourseDetails();
+      } else {
+        lastVisibleAtRef.current = Date.now();
+      }
     };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [courseId, isEditModalOpen]);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [actualCourseId, isEditModalOpen]);
 
   const groupMaterialsByLesson = (materials: any[]): Lesson[] => {
     const grouped: any[] = [];
@@ -175,9 +196,10 @@ const CourseDetail = () => {
   };
 
   const fetchCourseDetails = async () => {
+    if (!actualCourseId) return;
     setLoading(true);
     try {
-      const res = await lmsService.getCourseById(courseId!);
+      const res = await lmsService.getCourseById(actualCourseId);
       if (res.data) {
         const courseData = res.data.course;
         const normalizeMaterial = (m: any, lessonTitle?: string) => {
@@ -218,20 +240,24 @@ const CourseDetail = () => {
     }
   };
 
-  const fetchLearnerProgress = async (page = 1, limit = 10) => {
-    if (!courseId) return;
-    setLoadingLearners(true);
+  const fetchLearnerProgress = async (page = 1, limit = 10, requestId?: number, silent = false, statusOverride?: string) => {
+    if (!actualCourseId) return;
+    const id = requestId ?? ++learnerFetchIdRef.current;
+    if (!silent) setLoadingLearners(true);
     try {
       const params: any = { page, limit };
       if (searchText) params.search = searchText;
-      if (statusFilter !== "All") params.status = statusFilter;
-      const res = await lmsService.getCourseAnalytics(courseId, params);
+      const status = statusOverride !== undefined ? statusOverride : statusFilter;
+      if (status !== "All") params.status = status;
+      const res = await lmsService.getCourseAnalytics(actualCourseId, params);
+      if (id !== learnerFetchIdRef.current) return;
       if (res.success && res.data.learners) {
         const normalized = (res.data.learners as any[]).map((l: any) => ({
           ...l,
           progressPercentage: typeof l.progress === "number" ? l.progress : (l.completionPercentage ?? 0),
           enrolledDate: l.assignedDate ?? l.enrolledDate ?? l.createdAt,
           completedLessons: Array.isArray(l.completedLessons) ? l.completedLessons : Array(l.lessonsCompleted ?? 0).fill(""),
+          assessmentScore: l.assessmentScore ?? l.score,
         }));
         setLearnerProgress(normalized);
         setAnalytics(res.data.analytics);
@@ -242,10 +268,11 @@ const CourseDetail = () => {
         });
       }
     } catch (error) {
+      if (id !== learnerFetchIdRef.current) return;
       console.error("Failed to fetch learner progress:", error);
-      message.error("Failed to load learner progress");
+      if (!silent) message.error("Failed to load learner progress");
     } finally {
-      setLoadingLearners(false);
+      if (id === learnerFetchIdRef.current && !silent) setLoadingLearners(false);
     }
   };
 
@@ -261,11 +288,69 @@ const CourseDetail = () => {
     }
   };
 
+  // Load assigned learners once when course is opened (in background). Do not fetch when switching to the tab.
   useEffect(() => {
-    if (activeTab === "analysis") {
-      fetchLearnerProgress(1, pagination.pageSize);
+    if (!actualCourseId || !course) return;
+    if (course.status === "Draft") return; // no assigned learners for draft
+    if (learnersLoadedForCourseIdRef.current === actualCourseId) return;
+    learnersLoadedForCourseIdRef.current = actualCourseId;
+    const requestId = ++learnerFetchIdRef.current;
+    fetchLearnerProgress(1, 10, requestId, true);
+  }, [actualCourseId, course]);
+
+  const excludeEmployeeIdsForAssign = React.useMemo(() => {
+    const fromCourse = (course?.assignedEmployees ?? [])
+      .map((id: any) => (id && (typeof id === 'string' ? id : (id._id ?? id).toString())))
+      .filter((s: string) => /^[a-fA-F0-9]{24}$/.test(s));
+    const fromLearners = learnerProgress
+      .map((l: any) => String(l.employeeId ?? l._id ?? ""))
+      .filter((s: string) => /^[a-fA-F0-9]{24}$/.test(s));
+    return [...new Set([...fromCourse, ...fromLearners])];
+  }, [course?.assignedEmployees, learnerProgress]);
+
+  useEffect(() => {
+    if (!logModalLearner || !actualCourseId) {
+      setAttemptReportData(null);
+      setIsAttemptError(false);
+      return;
     }
-  }, [statusFilter, activeTab]);
+    const eid = (logModalLearner as any)._id ?? logModalLearner.employeeId;
+    if (!eid) {
+      setAttemptReportData(null);
+      setIsAttemptError(true);
+      return;
+    }
+    let cancelled = false;
+    setIsAttemptLoading(true);
+    setIsAttemptError(false);
+    dispatch(
+      lmsApi.endpoints.getCourseAssessmentAttemptReport.initiate({
+        courseId: actualCourseId,
+        employeeId: String(eid),
+      }),
+    )
+      .then((result: any) => {
+        if (cancelled) return;
+        setIsAttemptLoading(false);
+        if (result.error) {
+          setIsAttemptError(true);
+          setAttemptReportData(null);
+        } else {
+          setAttemptReportData(result.data);
+          setIsAttemptError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsAttemptLoading(false);
+          setIsAttemptError(true);
+          setAttemptReportData(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [logModalLearner, actualCourseId, dispatch]);
 
   const handleTableChange = (newPagination: any) => {
     fetchLearnerProgress(newPagination.current, newPagination.pageSize);
@@ -286,6 +371,7 @@ const CourseDetail = () => {
       await lmsService.unenrollLearner(progressId);
       message.success("Learner removed from course");
       fetchLearnerProgress(pagination.current);
+      await fetchCourseDetails(); // Refresh course so removed learner appears again in Assign Learners dropdown
     } catch (error) {
       message.error("Failed to remove learner");
     }
@@ -293,7 +379,7 @@ const CourseDetail = () => {
 
   const handleResetProgress = async (employeeId: string) => {
     try {
-      await lmsService.resetLearnerProgress(courseId!, employeeId);
+      await lmsService.resetLearnerProgress(actualCourseId!, employeeId);
       message.success("Course reset successfully. Learner can start from the beginning.");
       fetchLearnerProgress(pagination.current);
     } catch (error) {
@@ -311,7 +397,7 @@ const CourseDetail = () => {
   };
 
   const handleExtendDeadline = async () => {
-    if (!extendDeadlineRecord || !courseId) return;
+    if (!extendDeadlineRecord || !actualCourseId) return;
     try {
       const values = await extendDeadlineForm.getFieldsValue();
       const hasDate = values.dueDate && dayjs(values.dueDate).isValid();
@@ -325,7 +411,7 @@ const CourseDetail = () => {
       const body: { dueDate?: string; extendByDays?: number } = {};
       if (hasDate) body.dueDate = dayjs(values.dueDate).toISOString();
       else if (hasDays) body.extendByDays = values.extendByDays;
-      await lmsService.extendEnrollmentDeadline(courseId, employeeId, body);
+      await lmsService.extendEnrollmentDeadline(actualCourseId, employeeId, body);
       message.success("Deadline extended.");
       setExtendDeadlineModalOpen(false);
       setExtendDeadlineRecord(null);
@@ -355,7 +441,7 @@ const CourseDetail = () => {
       case "YOUTUBE":
         return <YoutubeOutlined className="text-red-600" />;
       case "URL":
-        return <GlobalOutlined className="text-green-500" />;
+        return <GlobalOutlined className="text-[#efaa1f]" />;
       case "DRIVE":
         return <CloudSyncOutlined className="text-yellow-500" />;
       default:
@@ -457,7 +543,7 @@ const CourseDetail = () => {
       <Card
         bordered
         size="small"
-        style={{ borderColor: "#10b981", overflow: "hidden" }}
+        style={{ borderColor: "#efaa1f", overflow: "hidden" }}
         styles={{ header: { borderBottom: "1px solid #f0f0f0" }, body: { padding: 16 } }}
         title={previewTitle}
         extra={hasValidUrl ? <Button type="text" icon={<ExportOutlined />} onClick={() => window.open(url, "_blank")} title="Open in new tab" /> : null}
@@ -573,10 +659,9 @@ const CourseDetail = () => {
           const isExpired = record.isExpired || status === "Expired";
           if (isExpired) return <Tag color="error">Expired</Tag>;
 
-          let displayStatus = "Not Started";
-          let color = "default";
+          const score =
+            record.assessmentScore ?? (record as any).score ?? 0;
           const passingScore = course.qualificationScore || 80;
-          const score = record.assessmentScore || 0;
           const lessonsCount =
             (record as any).lessonsCompleted ??
             (Array.isArray(record.completedLessons)
@@ -585,8 +670,12 @@ const CourseDetail = () => {
           const totalLessons = record.totalLessons || 0;
           const isLessonsCompleted =
             totalLessons > 0 && lessonsCount === totalLessons;
+          const isCourseCompleted =
+            status === "Completed" && score >= passingScore;
 
-          if (status === "Completed" && score >= passingScore) {
+          let displayStatus = "Not Started";
+          let color = "default";
+          if (isCourseCompleted) {
             displayStatus = "Course Completed";
             color = "success";
           } else if (isLessonsCompleted) {
@@ -595,6 +684,9 @@ const CourseDetail = () => {
           } else if (status === "In Progress") {
             displayStatus = "Ongoing";
             color = "processing";
+          } else if (status === "Completed") {
+            displayStatus = "Completed";
+            color = "default";
           }
           return <Tag color={color}>{displayStatus}</Tag>;
         },
@@ -614,93 +706,122 @@ const CourseDetail = () => {
         title: "Score",
         dataIndex: "assessmentScore",
         key: "score",
-        render: (score: number) =>
-          score ? (
-            <Text strong>{score}%</Text>
+        render: (score: number, record: LearnerProgress) => {
+          const value = score ?? (record as any).score;
+          return value != null && value !== "" ? (
+            <Text strong>{Number(value)}%</Text>
           ) : (
             <span className="text-gray-400">-</span>
-          ),
+          );
+        },
       },
       {
         title: "Action",
         key: "action",
         render: (_, record: LearnerProgress) => {
           const isExpired = record.isExpired || record.status === "Expired";
+          const passingScore = course.qualificationScore || 80;
+          const score =
+            record.assessmentScore ?? (record as any).score ?? 0;
+          const isCourseCompleted =
+            record.status === "Completed" && score >= passingScore;
+
+          if (isCourseCompleted) {
+            return (
+              <Tooltip title="View assessment log">
+                <Button
+                  type="default"
+                  size="large"
+                  icon={<FileTextOutlined />}
+                  onClick={() => setLogModalLearner(record)}
+                >
+                  Assessment Log
+                </Button>
+              </Tooltip>
+            );
+          }
+
           return (
-            <Space split={<Divider type="vertical" />}>
-              <Tooltip title="Reset course – learner starts from the beginning">
-                <Popconfirm
-                  title="Reset course progress?"
-                  description="This will reset the learner's progress so they start the course from the beginning. Continue?"
-                  onConfirm={() =>
-                    handleResetProgress(
-                      (record as any)._id ?? record.employeeId,
-                    )
-                  }
-                  okText="Reset"
-                  cancelText="Cancel"
-                  okButtonProps={{ danger: true }}
-                >
-                  <Button
-                    type="text"
-                    size="small"
-                    danger
-                    icon={<ReloadOutlined />}
-                    title="Reset course"
-                  />
-                </Popconfirm>
-              </Tooltip>
-              {!isExpired && (
-                <Tooltip
-                  title={
-                    record.isAccessBlocked
-                      ? "Resume Course Access"
-                      : "Pause Course Access"
-                  }
-                >
-                  <Button
-                    type="text"
-                    size="small"
-                    danger={!record.isAccessBlocked}
-                    icon={
-                      record.isAccessBlocked ? (
-                        <PlayCircleOutlined />
-                      ) : (
-                        <PauseCircleOutlined />
-                      )
-                    }
-                    onClick={() =>
-                      handleToggleAccess(
-                        record.progressId!,
-                        record.isAccessBlocked,
-                      )
-                    }
-                  />
-                </Tooltip>
-              )}
-              <Tooltip title="Extend deadline">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<CalendarOutlined />}
-                  onClick={() => openExtendDeadlineModal(record)}
-                />
-              </Tooltip>
-              <Popconfirm
-                title="Remove learner from course?"
-                description="This will delete their progress permanently. Are you sure?"
-                onConfirm={() => handleUnenroll(record.progressId!)}
-                okText="Yes"
-                cancelText="No"
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                />
-              </Popconfirm>
-            </Space>
+            <Dropdown
+              placement="bottomRight"
+              transitionName="ant-slide-down"
+              overlayClassName="assigned-learners-action-dropdown-overlay"
+              menu={{
+                items: [
+                  {
+                    key: "reset",
+                    label: "Reset course",
+                    icon: <ReloadOutlined />,
+                    onClick: () => {
+                      Modal.confirm({
+                        title: "Reset course progress?",
+                        content:
+                          "This will reset the learner's progress so they start the course from the beginning. Continue?",
+                        okText: "Reset",
+                        cancelText: "Cancel",
+                        okButtonProps: { danger: true },
+                        onOk: () =>
+                          handleResetProgress(
+                            (record as any)._id ?? record.employeeId
+                          ),
+                      });
+                    },
+                  },
+                  ...(!isExpired
+                    ? [
+                        {
+                          key: "pause",
+                          label: record.isAccessBlocked
+                            ? "Resume course access"
+                            : "Pause course access",
+                          icon: record.isAccessBlocked ? (
+                            <PlayCircleOutlined />
+                          ) : (
+                            <PauseCircleOutlined />
+                          ),
+                          onClick: () =>
+                            handleToggleAccess(
+                              record.progressId!,
+                              record.isAccessBlocked
+                            ),
+                        },
+                      ]
+                    : []),
+                  {
+                    key: "extend",
+                    label: "Extend deadline",
+                    icon: <CalendarOutlined />,
+                    onClick: () => openExtendDeadlineModal(record),
+                  },
+                  {
+                    key: "remove",
+                    label: "Remove learner",
+                    icon: <DeleteOutlined />,
+                    danger: true,
+                    onClick: () => {
+                      Modal.confirm({
+                        title: "Remove learner from course?",
+                        content:
+                          "This will delete their progress permanently. Are you sure?",
+                        okText: "Yes",
+                        cancelText: "No",
+                        okButtonProps: { danger: true },
+                        onOk: () => handleUnenroll(record.progressId!),
+                      });
+                    },
+                  },
+                ].filter(Boolean),
+              }}
+              trigger={["click"]}
+            >
+              <Button
+                type="text"
+                size="small"
+                className="assigned-learners-action-menu-trigger"
+                icon={<MoreOutlined />}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </Dropdown>
           );
         },
       },
@@ -795,6 +916,7 @@ const CourseDetail = () => {
               value={statusFilter}
               onChange={(val) => {
                 setStatusFilter(val);
+                fetchLearnerProgress(1, pagination.pageSize, undefined, false, val);
               }}
               className="w-full sm:w-[150px]"
             >
@@ -909,7 +1031,7 @@ const CourseDetail = () => {
                     )
                   }
                   onClick={handlePublishToggle}
-                  className="!text-black hover:!border-[#10b981] hover:!text-[#10b981] [&_.anticon]:hover:!text-[#10b981] min-w-[120px] sm:min-w-[140px]"
+                  className="!text-black hover:!border-[#efaa1f] hover:!text-[#efaa1f] [&_.anticon]:hover:!text-[#efaa1f] min-w-[120px] sm:min-w-[140px]"
                 >
                   {course.status === "Published" ? "Archive" : "Publish"}
                 </Button>
@@ -917,7 +1039,7 @@ const CourseDetail = () => {
                   size="large"
                   icon={<EditOutlined />}
                   onClick={() => setIsEditModalOpen(true)}
-                  className="!text-black hover:!border-[#10b981] hover:!text-[#10b981] [&_.anticon]:hover:!text-[#10b981] min-w-[120px] sm:min-w-[140px]"
+                  className="!text-black hover:!border-[#efaa1f] hover:!text-[#efaa1f] [&_.anticon]:hover:!text-[#efaa1f] min-w-[120px] sm:min-w-[140px]"
                 >
                   Edit Course
                 </Button>
@@ -939,7 +1061,7 @@ const CourseDetail = () => {
                   size="small"
                   className={`lms-course-sidebar-card absolute right-0 top-0 bottom-0 w-[380px] min-w-[320px] xl:w-[400px] xl:min-w-[360px] overflow-hidden transition-transform duration-300 ease-out ${playlistCollapsed ? "translate-x-full" : "translate-x-0"}`}
                   style={{
-                    borderColor: "#10b981",
+                    borderColor: "#efaa1f",
                     borderRadius: 8,
                     display: "flex",
                     flexDirection: "column",
@@ -1005,13 +1127,13 @@ const CourseDetail = () => {
           <Card
             className="shadow-sm border-gray-200/60 rounded-xl overflow-hidden"
             bordered={false}
-            bodyStyle={{ padding: 0 }}
+            styles={{ body: { padding: 0 } }}
           >
             <Tabs
               activeKey={course.status === "Draft" && activeTab === "analysis" ? "overview" : activeTab}
               onChange={(key: string) => {
                 setActiveTab(key);
-                if (key === "analysis") fetchLearnerProgress();
+                // Don't fetch here; useEffect below runs when activeTab becomes "analysis"
               }}
               size="large"
               className="custom-tabs px-2 pt-2 pb-0 bg-white border-b border-gray-100"
@@ -1154,11 +1276,15 @@ const CourseDetail = () => {
 
       <AssignLearnersDialog
         type="course"
-        resourceId={courseId!}
+        resourceId={actualCourseId!}
         resourceTitle={course?.title}
         open={assignModalOpen}
         onClose={() => setAssignModalOpen(false)}
-        onSuccess={() => fetchLearnerProgress(pagination.current)}
+        onSuccess={() => {
+          fetchLearnerProgress(pagination.current);
+          fetchCourseDetails(); // Keep course.assignedEmployees in sync so newly assigned don't show in dropdown next time
+        }}
+        excludeEmployeeIds={excludeEmployeeIdsForAssign}
       />
 
       {/* Extend deadline modal */}
@@ -1172,7 +1298,7 @@ const CourseDetail = () => {
         onOk={handleExtendDeadline}
         okText="Extend"
         confirmLoading={extendDeadlineSubmitting}
-        destroyOnClose
+        destroyOnHidden
         width={400}
       >
         {extendDeadlineRecord && (
@@ -1198,6 +1324,147 @@ const CourseDetail = () => {
         </p>
       </Modal>
 
+      {/* Assessment Log modal for completed learners */}
+      <Modal
+        title={
+          <span className="flex items-center gap-2">
+            <FileTextOutlined />
+            Assessment Log
+            {logModalLearner && (
+              <span className="font-normal text-gray-500 text-sm">
+                — {course?.title} · {logModalLearner.name}
+              </span>
+            )}
+          </span>
+        }
+        open={!!logModalLearner}
+        onCancel={() => {
+          setLogModalLearner(null);
+          setAttemptReportData(null);
+        }}
+        footer={
+          <div className="flex justify-end">
+            <Button type="primary" onClick={() => setLogModalLearner(null)}>
+              Close
+            </Button>
+          </div>
+        }
+        width={720}
+        centered
+        destroyOnClose
+      >
+        {logModalLearner && (
+          <>
+            {isAttemptLoading && (
+              <div className="py-8 text-center text-gray-500">
+                Loading assessment log...
+              </div>
+            )}
+            {!isAttemptLoading && (isAttemptError || !attemptReportData?.data) && (
+              <div className="py-6 text-center">
+                <Text type="secondary">
+                  No attempt data available for this learner.
+                </Text>
+              </div>
+            )}
+            {!isAttemptLoading && attemptReportData?.data && (() => {
+              const attempt = attemptReportData.data as any;
+              const snapByQid = (attempt.questionSnapshots || []).reduce(
+                (acc: any, s: any) => {
+                  acc[s.questionId] = s;
+                  return acc;
+                },
+                {},
+              );
+              const tableBlock = (
+                <Descriptions size="small" column={1} bordered>
+                  <Descriptions.Item label="Employee">
+                    {attempt.employeeId?.name ?? logModalLearner.name ?? "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Assessment">
+                    {attempt.courseId?.title ?? course?.title ?? "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Attempted date">
+                    {attempt.submittedAt
+                      ? dayjs(attempt.submittedAt).format("MMM D, YYYY h:mm A")
+                      : "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Duration">
+                    {attempt.durationMinutes != null
+                      ? `${attempt.durationMinutes} min`
+                      : "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Total score">
+                    <Tag
+                      color={
+                        attempt.scorePercentage >= 80
+                          ? "green"
+                          : attempt.scorePercentage >= 50
+                            ? "orange"
+                            : "red"
+                      }
+                    >
+                      {attempt.earnedMarks} / {attempt.totalMarks} (
+                      {attempt.scorePercentage}%)
+                    </Tag>
+                  </Descriptions.Item>
+                </Descriptions>
+              );
+              const hasResults = (attempt.questionResults || []).length > 0;
+              return (
+                <div className="pt-2 space-y-4">
+                  {tableBlock}
+                  {hasResults && (
+                    <>
+                      <Divider className="my-3">Questions &amp; answers</Divider>
+                      <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                        {(attempt.questionResults || []).map((r: any, idx: number) => {
+                          const snap = snapByQid[r.questionId];
+                          const qText =
+                            snap?.questionText || `Question ${idx + 1}`;
+                          const userAns = Array.isArray(r.userAnswer)
+                            ? r.userAnswer.join(", ")
+                            : (r.userAnswer ?? "—");
+                          const correctAns = Array.isArray(r.correctAnswer)
+                            ? r.correctAnswer.join(", ")
+                            : (r.correctAnswer ?? "—");
+                          return (
+                            <div
+                              key={r.questionId || idx}
+                              className="p-3 rounded-lg border border-gray-100 bg-gray-50/50"
+                            >
+                              <div className="font-medium text-gray-800 mb-2">
+                                {qText}
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                                <div>
+                                  <span className="text-gray-500">Selected: </span>
+                                  <span
+                                    className={
+                                      r.isCorrect ? "text-green-700" : "text-red-700"
+                                    }
+                                  >
+                                    {userAns || "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Correct: </span>
+                                  <span className="text-gray-800">{correctAns}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+          </>
+        )}
+      </Modal>
+
       <CourseFormWizard
         open={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
@@ -1206,6 +1473,7 @@ const CourseDetail = () => {
           fetchCourseDetails();
         }}
         initialData={course}
+        canEditCurriculum={course ? (course.canEditCurriculum === true) : true}
       />
     </MainLayout>
   );

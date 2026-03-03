@@ -64,7 +64,7 @@ const { Dragger } = Upload;
 const { Panel } = Collapse;
 
 // --- Constants & Types ---
-const PRIMARY_COLOR = "#1D9B51"; // Matching HRMS Green
+const PRIMARY_COLOR = "#efaa1f"; // Primary color
 const CONTENT_TYPE_MAP: Record<string, string> = {
   Video: "VIDEO",
   YouTube: "YOUTUBE",
@@ -149,6 +149,8 @@ interface CourseFormProps {
   onClose: () => void;
   onSuccess?: () => void;
   initialData?: any;
+  /** When false, Add Lesson and Edit Lesson show a blocking modal (e.g. when learners are still incomplete). Default true. */
+  canEditCurriculum?: boolean;
 }
 
 /** Wrapper so Form.Item injects checked/onChange into this component, which forwards them to Switch. Stops the Switch being uncontrolled (direct child of Form.Item was a div before). */
@@ -180,10 +182,14 @@ const CourseFormWizard = ({
   onClose,
   onSuccess,
   initialData,
+  canEditCurriculum = true,
 }: CourseFormProps): ReactElement | null => {
   const [form] = Form.useForm();
   const [inlineLessonForm] = Form.useForm();
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
+
+  // Watch so we don't call form.getFieldValue in render (avoids useForm "not connected" warning)
+  const isLiveAssessment = Form.useWatch("isLiveAssessment", form);
 
   // Steps & Loading (which button is submitting: only that one shows loading)
   const [currentStep, setCurrentStep] = useState(0);
@@ -195,13 +201,15 @@ const CourseFormWizard = ({
   const [departments, setDepartments] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [categories, setCategories] = useState<
-    { id?: string; value: string }[]
+    { id?: string; value: string; inUse?: boolean }[]
   >([]);
-  const [languages, setLanguages] = useState<{ id?: string; value: string }[]>(
-    [],
-  );
+  const [languages, setLanguages] = useState<
+    { id?: string; value: string; inUse?: boolean }[]
+  >([]);
   const [categorySearchValue, setCategorySearchValue] = useState("");
+  const categorySearchRef = useRef("");
   const [languageSearchValue, setLanguageSearchValue] = useState("");
+  const languageSearchRef = useRef("");
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [creatingLanguage, setCreatingLanguage] = useState(false);
   const [fetchingOrg, setFetchingOrg] = useState(false);
@@ -230,6 +238,7 @@ const CourseFormWizard = ({
   // Step 2 Data (Lessons)
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [isAddingLesson, setIsAddingLesson] = useState(false);
+  const [curriculumLockedModalOpen, setCurriculumLockedModalOpen] = useState(false);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [activeLessonType, setActiveLessonType] = useState<string>(""); // For dynamic input rendering
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -493,12 +502,26 @@ const CourseFormWizard = ({
                 const id = res.data.id != null ? String(res.data.id) : undefined;
                 const newItem = { id, value: res.data.value };
                 if (type === 'CATEGORY') {
-                    setCategories(prev => [...prev, newItem].sort((a, b) => a.value.localeCompare(b.value)));
+                    const alreadyInList = categories.some(
+                        (c) => c.value.toLowerCase() === newItem.value.toLowerCase(),
+                    );
+                    if (!alreadyInList) {
+                        setCategories((prev) =>
+                            [...prev, newItem].sort((a, b) => a.value.localeCompare(b.value)),
+                        );
+                    }
                     const current = form.getFieldValue('categories') || [];
                     if (!current.includes(newItem.value)) form.setFieldValue('categories', [...current, newItem.value]);
                     setCategorySearchValue('');
                 } else {
-                    setLanguages(prev => [...prev, newItem].sort((a, b) => a.value.localeCompare(b.value)));
+                    const alreadyInList = languages.some(
+                        (l) => l.value.toLowerCase() === newItem.value.toLowerCase(),
+                    );
+                    if (!alreadyInList) {
+                        setLanguages((prev) =>
+                            [...prev, newItem].sort((a, b) => a.value.localeCompare(b.value)),
+                        );
+                    }
                     const current = form.getFieldValue('languages') || [];
                     if (!current.includes(newItem.value)) form.setFieldValue('languages', [...current, newItem.value]);
                     setLanguageSearchValue('');
@@ -584,11 +607,12 @@ const CourseFormWizard = ({
         setEmployees([]);
       }
 
-      const dbCategories: { id?: string; value: string }[] =
+      const dbCategories: { id?: string; value: string; inUse?: boolean }[] =
         catResult.status === "fulfilled" && Array.isArray(catResult.value?.data)
           ? (catResult.value.data as any[]).map((c: any) => ({
               id: c.id,
               value: c.value,
+              inUse: c.inUse,
             }))
           : [];
       if (catResult.status === "rejected") {
@@ -603,12 +627,13 @@ const CourseFormWizard = ({
         dbCategories.sort((a, b) => a.value.localeCompare(b.value)),
       );
 
-      const dbLanguages: { id?: string; value: string }[] =
+      const dbLanguages: { id?: string; value: string; inUse?: boolean }[] =
         langResult.status === "fulfilled" &&
         Array.isArray(langResult.value?.data)
           ? (langResult.value.data as any[]).map((l: any) => ({
               id: l.id,
               value: l.value,
+              inUse: l.inUse,
             }))
           : [];
       if (langResult.status === "rejected") {
@@ -815,6 +840,10 @@ const CourseFormWizard = ({
 
   // --- Logic: Step 2 (Curriculum) ---
   const startAddLesson = () => {
+    if (!canEditCurriculum) {
+      setCurriculumLockedModalOpen(true);
+      return;
+    }
     setIsAddingLesson(true);
     setEditingLessonId(null);
     pendingMaterialFilesRef.current.clear();
@@ -834,6 +863,10 @@ const CourseFormWizard = ({
   };
 
   const startEditLesson = (lesson: Lesson) => {
+    if (!canEditCurriculum) {
+      setCurriculumLockedModalOpen(true);
+      return;
+    }
     setIsAddingLesson(true);
     setEditingLessonId(lesson.id);
     pendingMaterialFilesRef.current.clear();
@@ -1049,6 +1082,7 @@ const CourseFormWizard = ({
             (m.contentType === "Video" || m.contentType === "PDF") &&
             hasFile(m, matIndex),
         );
+      let uploadErrors: string[] = [];
       if (isEditMode && toUpload.length > 0) {
         const initialPerFile = toUpload.reduce(
           (acc, { matIndex }) => ({ ...acc, [matIndex]: 0 }),
@@ -1096,9 +1130,7 @@ const CourseFormWizard = ({
                   !fileToSend ||
                   !(fileToSend instanceof File || fileToSend instanceof Blob)
                 ) {
-                  message.error(
-                    `No valid file for material ${matIndex + 1}. Please select the file again.`,
-                  );
+                  uploadErrors.push(`Material ${matIndex + 1}: no valid file`);
                   return { matIndex, url: null };
                 }
                 const fileForUpload = toFile(
@@ -1131,7 +1163,8 @@ const CourseFormWizard = ({
                   (res as any)?.error?.message ||
                   (res as any)?.message ||
                   "Upload failed";
-                message.error(`${type} upload failed: ${errMsg}`);
+                uploadErrors.push(errMsg);
+                return { matIndex, url: null };
               } catch (e: any) {
                 console.error("Upload material failed", e);
                 const errMsg =
@@ -1139,9 +1172,9 @@ const CourseFormWizard = ({
                   e?.response?.data?.message ??
                   e?.message ??
                   "Upload failed";
-                message.error(`Upload failed: ${errMsg}`);
+                uploadErrors.push(errMsg);
+                return { matIndex, url: null };
               }
-              return { matIndex, url: null };
             }),
           );
           setMaterialSaveUploadProgress((prev) => ({
@@ -1250,10 +1283,22 @@ const CourseFormWizard = ({
         setLessons((prev) =>
           prev.map((l) => (l.id === editingLessonId ? lessonPayload : l)),
         );
-        message.success("Lesson updated");
+        if (uploadErrors.length > 0) {
+          message.warning(
+            "Lesson saved, but some files could not be uploaded (e.g. file too large). You can try again with smaller files.",
+          );
+        } else {
+          message.success("Lesson updated");
+        }
       } else {
         setLessons((prev) => [...prev, lessonPayload]);
-        message.success("Lesson added");
+        if (uploadErrors.length > 0) {
+          message.warning(
+            "Lesson saved, but some files could not be uploaded (e.g. file too large). You can try again with smaller files.",
+          );
+        } else {
+          message.success("Lesson added");
+        }
       }
 
       pendingMaterialFilesRef.current.clear();
@@ -1747,8 +1792,8 @@ const CourseFormWizard = ({
       width={1000}
       style={{ maxWidth: "95vw", top: 20 }}
       centered
-      bodyStyle={{ padding: 0, height: "70vh" }}
-      destroyOnClose
+      styles={{ body: { padding: 0, height: "70vh" } }}
+      destroyOnHidden
     >
       <div className="w-full h-full bg-black flex items-center justify-center overflow-hidden rounded-b-lg">
         {materialPreview.type === "video" && (
@@ -1827,50 +1872,40 @@ const CourseFormWizard = ({
               showSearch
               size="large"
               placeholder="Type a category and press Enter to add (select multiple)"
-              searchValue={categorySearchValue}
-              onSearch={setCategorySearchValue}
+              onSearch={(val) => {
+                categorySearchRef.current = val ?? "";
+              }}
               onInputKeyDown={(e) => {
+                const current = categorySearchRef.current.trim();
                 if (
                   e.key === "Enter" &&
-                  categorySearchValue.trim().length >= 2 &&
+                  current.length >= 2 &&
                   !categories.some(
-                    (c) =>
-                      c.value.toLowerCase() ===
-                      categorySearchValue.trim().toLowerCase(),
+                    (c) => c.value.toLowerCase() === current.toLowerCase(),
                   )
                 ) {
                   e.preventDefault();
                   e.stopPropagation();
-                  handleCreateMetaOption(
-                    "CATEGORY",
-                    categorySearchValue.trim(),
-                  );
+                  handleCreateMetaOption("CATEGORY", current);
                 }
               }}
               onDropdownVisibleChange={(open) => {
-                if (!open) setCategorySearchValue("");
+                if (!open) categorySearchRef.current = "";
               }}
               loading={creatingCategory}
-              filterOption={(input, option) =>
-                (option?.value ?? "")
-                  .toString()
-                  .toLowerCase()
-                  .includes(input.toLowerCase())
-              }
+              filterOption={false}
               optionLabelProp="value"
               notFoundContent={
                 creatingCategory
                   ? "Creating..."
-                  : categorySearchValue.trim().length >= 2
-                    ? "Press Enter to add this category"
-                    : null
+                  : "Type at least 2 characters and press Enter to add"
               }
             >
               {categories.map((c) => (
-                <Option key={c.value} value={c.value}>
+                <Option key={c.id ?? c.value} value={c.value}>
                   <div className="flex justify-between items-center w-full group">
                     <span>{c.value}</span>
-                    {c.id && (
+                    {c.id && !c.inUse && (
                       <Button
                         type="text"
                         size="small"
@@ -1907,12 +1942,13 @@ const CourseFormWizard = ({
               mode="multiple"
               showSearch
               size="large"
-              placeholder="Select or type a language and add (multiple allowed)"
-              searchValue={languageSearchValue}
-              onSearch={setLanguageSearchValue}
+              placeholder="Type a language and press Enter to add (select multiple)"
+              onSearch={(val) => {
+                languageSearchRef.current = val ?? "";
+              }}
               onInputKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  const val = languageSearchValue.trim();
+                  const val = languageSearchRef.current.trim();
                   if (
                     val.length >= 2 &&
                     !languages.some(
@@ -1926,68 +1962,22 @@ const CourseFormWizard = ({
                 }
               }}
               onDropdownVisibleChange={(open) => {
-                if (!open) setLanguageSearchValue("");
+                if (!open) languageSearchRef.current = "";
               }}
               loading={creatingLanguage}
-              filterOption={(input, option) => {
-                const optVal = (
-                  option?.value ??
-                  option?.label ??
-                  option?.children ??
-                  ""
-                )
-                  .toString()
-                  .toLowerCase();
-                return optVal.includes((input || "").toLowerCase());
-              }}
+              filterOption={false}
               optionLabelProp="value"
               notFoundContent={
                 creatingLanguage
                   ? "Creating..."
-                  : languageSearchValue.trim().length >= 2
-                    ? "Press Enter or click 'Add' below to add this language"
-                    : languages.length === 0
-                      ? "Type a language above and press Enter to add"
-                      : "No matching language"
+                  : "Type at least 2 characters and press Enter to add"
               }
-              dropdownRender={(menu) => (
-                <>
-                  {menu}
-                  {languageSearchValue.trim().length >= 2 &&
-                    !languages.some(
-                      (l) =>
-                        l.value.toLowerCase() ===
-                        languageSearchValue.trim().toLowerCase(),
-                    ) && (
-                      <div
-                        style={{
-                          padding: "8px 12px",
-                          borderTop: "1px solid #f0f0f0",
-                        }}
-                      >
-                        <Button
-                          type="link"
-                          size="small"
-                          block
-                          icon={<PlusOutlined />}
-                          onClick={() => {
-                            const val = languageSearchValue.trim();
-                            if (val.length >= 2)
-                              handleCreateMetaOption("LANGUAGE", val);
-                          }}
-                        >
-                          Add "{languageSearchValue.trim()}" as new language
-                        </Button>
-                      </div>
-                    )}
-                </>
-              )}
             >
               {languages.map((l) => (
                 <Option key={l.id ?? l.value} value={l.value} label={l.value}>
                   <div className="flex justify-between items-center w-full group">
                     <span>{l.value}</span>
-                    {l.id && (
+                    {l.id && !l.inUse && (
                       <Button
                         type="text"
                         size="small"
@@ -2046,7 +2036,7 @@ const CourseFormWizard = ({
                   <Button
                     type="text"
                     icon={<EditOutlined style={{ color: "white" }} />}
-                    className="text-white hover:text-green-400"
+                    className="text-white hover:text-[#fbbf24]"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -2132,7 +2122,7 @@ const CourseFormWizard = ({
             }
             valuePropName="checked"
             help={
-              !form.getFieldValue("isLiveAssessment")
+              !isLiveAssessment
                 ? "When OFF: every lesson must have at least 1 assessment question."
                 : undefined
             }
@@ -2446,7 +2436,7 @@ const CourseFormWizard = ({
                                         ]}
                                       >
                                         <div
-                                          className="group border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer min-h-[200px] flex flex-col items-center justify-center border-[#d9d9d9] hover:border-[#1D9B51]"
+                                          className="group border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer min-h-[200px] flex flex-col items-center justify-center border-[#d9d9d9] hover:border-[#efaa1f]"
                                           style={{
                                             ...(isDragOver && {
                                               borderColor: PRIMARY_COLOR,
@@ -2754,7 +2744,7 @@ const CourseFormWizard = ({
                                                 </Space>
                                               </div>
                                             ) : (
-                                              <div className="flex flex-col items-center gap-2 text-gray-400 transition-colors group-hover:text-[#1D9B51]">
+                                              <div className="flex flex-col items-center gap-2 text-gray-400 transition-colors group-hover:text-[#efaa1f]">
                                                 <CloudUploadOutlined
                                                   style={{ fontSize: 40 }}
                                                   className="text-inherit"
@@ -2799,7 +2789,7 @@ const CourseFormWizard = ({
                                               className="!flex-1 !flex !flex-col !mb-0 [&_.ant-form-item-control]:!flex-1 [&_.ant-form-item-control]:!flex [&_.ant-form-item-control]:!flex-col [&_.ant-form-item-control-input-content]:!flex-1 [&_.ant-form-item-control-input-content]:!flex [&_.ant-form-item-control-input-content]:!flex-col"
                                             >
                                               <div
-                                                className="group border-2 border-dashed rounded-lg p-8 text-center transition-colors flex-1 flex flex-col items-center justify-center min-h-[200px] border-[#d9d9d9] hover:border-[#1D9B51]"
+                                                className="group border-2 border-dashed rounded-lg p-8 text-center transition-colors flex-1 flex flex-col items-center justify-center min-h-[200px] border-[#d9d9d9] hover:border-[#efaa1f]"
                                               >
                                                 {subtitleUrl ? (
                                                   <div className="flex flex-col items-center gap-2">
@@ -2870,7 +2860,7 @@ const CourseFormWizard = ({
                                                       return false;
                                                     }}
                                                   >
-                                                    <div className="flex flex-col items-center gap-1 py-2 text-gray-400 transition-colors group-hover:text-[#1D9B51]">
+                                                    <div className="flex flex-col items-center gap-1 py-2 text-gray-400 transition-colors group-hover:text-[#efaa1f]">
                                                       <FileTextOutlined
                                                         style={{ fontSize: 24 }}
                                                         className="text-inherit"
@@ -3439,7 +3429,7 @@ const CourseFormWizard = ({
           block
           icon={<PlusOutlined />}
           onClick={startAddLesson}
-          className="mb-6 h-12 text-gray-500 hover:text-green-600 hover:border-green-600"
+          className="mb-6 h-12 text-gray-500 hover:text-[#efaa1f] hover:border-[#efaa1f]"
         >
           Add Lesson
         </Button>
@@ -3556,7 +3546,7 @@ const CourseFormWizard = ({
                         <FilePdfOutlined className="text-red-400" />
                       )}
                       {m.contentType === "External URL" && (
-                        <GlobalOutlined className="text-green-500" />
+                        <GlobalOutlined className="text-[#efaa1f]" />
                       )}
                       <Text style={{ fontSize: "13px" }}>{m.title}</Text>
                     </Space>
@@ -3579,7 +3569,7 @@ const CourseFormWizard = ({
             className="mb-6 border-emerald-100 shadow-md"
             title={
               <Space>
-                <PlusOutlined className="text-green-500" />
+                <PlusOutlined className="text-[#efaa1f]" />
                 <span>Add New Lesson</span>
               </Space>
             }
@@ -3624,7 +3614,7 @@ const CourseFormWizard = ({
 
   const renderStep3 = () => (
     <div className="pt-4 pb-8">
-      <div className="mb-6 bg-green-50 p-4 rounded-lg flex items-center gap-3 border border-green-100">
+      <div className="mb-6 bg-[#fffbeb] p-4 rounded-lg flex items-center gap-3 border border-[#fde68a]">
         <CheckCircleOutlined
           style={{ fontSize: "24px", color: PRIMARY_COLOR }}
         />
@@ -3775,8 +3765,8 @@ const CourseFormWizard = ({
                     )}
                   </div>
                 </div>
-                <div className="text-center p-2 bg-green-50 rounded">
-                  <GlobalOutlined className="text-green-500 text-lg mb-1" />
+                <div className="text-center p-2 bg-[#fffbeb] rounded">
+                  <GlobalOutlined className="text-[#efaa1f] text-lg mb-1" />
                   <div className="text-xs text-gray-500">Links</div>
                   <div className="font-bold">
                     {lessons.reduce(
@@ -3799,7 +3789,8 @@ const CourseFormWizard = ({
 
   // --- Main Modal Render ---
   return (
-    <Modal
+    <>
+      <Modal
       title={
         <Title level={4} style={{ margin: 0 }}>
           {initialData ? "Edit Course" : "Create New Course"}
@@ -3938,13 +3929,15 @@ const CourseFormWizard = ({
           </Space>
         </div>
       }
-      bodyStyle={{
-        padding: "24px",
-        maxHeight: "calc(100vh - 200px)",
-        overflowY: "auto",
+      styles={{
+        body: {
+          padding: "24px",
+          maxHeight: "calc(100vh - 200px)",
+          overflowY: "auto",
+        },
       }}
       centered
-      destroyOnClose
+      destroyOnHidden={false}
       maskClosable={false}
     >
       <div className="mb-6 px-4 sm:px-12">
@@ -3970,7 +3963,11 @@ const CourseFormWizard = ({
             completionTimeUnit: "Weeks",
             isLiveAssessment: false,
           }}
-          style={{ display: currentStep === 0 ? "block" : "none" }}
+          style={
+            currentStep === 0
+              ? { display: "block" }
+              : { visibility: "hidden", position: "absolute", width: "100%", pointerEvents: "none", margin: -9999 }
+          }
         >
           {renderStep1Content()}
         </Form>
@@ -4046,7 +4043,26 @@ const CourseFormWizard = ({
           </div>
         </div>
       </Modal>
-    </Modal>
+      </Modal>
+      <Modal
+        title="Curriculum cannot be edited"
+        open={curriculumLockedModalOpen}
+        onCancel={() => setCurriculumLockedModalOpen(false)}
+        footer={[
+          <Button key="ok" type="primary" onClick={() => setCurriculumLockedModalOpen(false)}>
+            OK
+          </Button>,
+        ]}
+      >
+        <p className="text-gray-600 mb-2">
+          One or more learners have not completed this course yet (including the assessment).
+        </p>
+        <p className="text-gray-600">
+          You can edit the curriculum only when no learners are assigned to this course, or when all
+          assigned learners have fully completed the course and the assessment.
+        </p>
+      </Modal>
+    </>
   );
 };
 

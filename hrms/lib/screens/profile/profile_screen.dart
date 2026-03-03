@@ -44,6 +44,10 @@ class _ProfileScreenState extends State<ProfileScreen>
   String? _cachedAvatarUrl;
   late TabController _tabController;
 
+  /// Two font sizes for entire profile: heading and value
+  static const double _profileHeadingSize = 14;
+  static const double _profileValueSize = 13;
+
   @override
   void initState() {
     super.initState();
@@ -362,6 +366,18 @@ class _ProfileScreenState extends State<ProfileScreen>
             : null) ??
         'Main Office';
 
+    // Two font sizes for profile: heading and value (consistent across profile card and sections)
+    const TextStyle profileHeadingWhite = TextStyle(
+      fontSize: _profileHeadingSize,
+      fontWeight: FontWeight.bold,
+      color: Colors.white,
+    );
+    const TextStyle profileValueWhite = TextStyle(
+      fontSize: _profileValueSize,
+      fontWeight: FontWeight.w500,
+      color: Colors.white,
+    );
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -378,7 +394,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ],
       ),
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         children: [
           Row(
@@ -427,7 +443,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             : Text(
                                 initial,
                                 style: TextStyle(
-                                  fontSize: 22,
+                                  fontSize: _profileHeadingSize,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.primary,
                                 ),
@@ -453,28 +469,15 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    Text(
-                      empId,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+                    Text(name, style: profileHeadingWhite),
+                    const SizedBox(height: 2),
+                    Text(empId, style: profileValueWhite),
+                    const SizedBox(height: 6),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -482,20 +485,20 @@ class _ProfileScreenState extends State<ProfileScreen>
                           _buildHeaderBadge(
                             status,
                             Colors.white.withOpacity(0.2),
-                            fontSize: 10,
+                            textStyle: profileValueWhite,
                           ),
                           if (joiningDate != null) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             _buildHeaderBadge(
                               'Joined: ${_formatDate(joiningDate)}',
                               Colors.white.withOpacity(0.2),
-                              fontSize: 9,
+                              textStyle: profileValueWhite,
                             ),
                           ],
                         ],
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         Icon(
@@ -506,14 +509,12 @@ class _ProfileScreenState extends State<ProfileScreen>
                         const SizedBox(width: 6),
                         Text(
                           role,
-                          style: TextStyle(
+                          style: profileValueWhite.copyWith(
                             color: Colors.white.withOpacity(0.95),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Icon(
                           Icons.location_on_outlined,
                           color: Colors.white70,
@@ -523,22 +524,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                         Expanded(
                           child: Text(
                             branchName,
-                            style: TextStyle(
+                            style: profileValueWhite.copyWith(
                               color: Colors.white.withOpacity(0.95),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 6),
                     Text(
                       designation.toUpperCase(),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
+                      style: profileHeadingWhite.copyWith(
                         color: Colors.white.withOpacity(0.9),
                         letterSpacing: 0.8,
                       ),
@@ -548,22 +545,22 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 10),
           const Divider(color: Colors.white24),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (email.isNotEmpty)
-                _buildHeaderInfoRow(Icons.email_outlined, email, maxLines: 2),
+                _buildHeaderInfoRow(Icons.email_outlined, email, profileValueWhite, maxLines: 2),
               if (email.isNotEmpty && (phone.isNotEmpty || dept.isNotEmpty))
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
               if (phone.isNotEmpty)
-                _buildHeaderInfoRow(Icons.phone_outlined, phone),
+                _buildHeaderInfoRow(Icons.phone_outlined, phone, profileValueWhite),
               if (phone.isNotEmpty && dept.isNotEmpty)
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
               if (dept.isNotEmpty)
-                _buildHeaderInfoRow(Icons.business_outlined, dept),
+                _buildHeaderInfoRow(Icons.business_outlined, dept, profileValueWhite),
             ],
           ),
         ],
@@ -571,7 +568,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildHeaderInfoRow(IconData icon, String text, {int maxLines = 1}) {
+  Widget _buildHeaderInfoRow(IconData icon, String text, TextStyle textStyle, {int maxLines = 1}) {
     if (text.isEmpty) return const SizedBox.shrink();
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -581,7 +578,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            style: textStyle,
             maxLines: maxLines,
             textAlign: TextAlign.left,
             overflow: TextOverflow.ellipsis,
@@ -591,7 +588,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildHeaderBadge(String text, Color color, {double? fontSize}) {
+  Widget _buildHeaderBadge(String text, Color color, {double? fontSize, TextStyle? textStyle}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -601,7 +598,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       child: Text(
         text,
-        style: TextStyle(
+        style: textStyle ?? TextStyle(
           color: Colors.white,
           fontSize: fontSize ?? 10,
           fontWeight: FontWeight.w600,
@@ -1331,7 +1328,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: _profileHeadingSize,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textPrimary,
                       ),
@@ -1349,10 +1346,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                       color: Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
+                    child: Text(
                       'COMPLETED 100%',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: _profileValueSize,
                         color: Colors.green,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1381,17 +1378,17 @@ class _ProfileScreenState extends State<ProfileScreen>
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w500,
+            fontSize: _profileHeadingSize,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           value?.toString() ?? 'N/A',
           style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontSize: _profileValueSize,
+            fontWeight: FontWeight.w500,
             color: AppColors.textPrimary,
           ),
         ),
@@ -1409,9 +1406,9 @@ class _ProfileScreenState extends State<ProfileScreen>
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w500,
+            fontSize: _profileHeadingSize,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 4),
@@ -1422,8 +1419,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontSize: _profileValueSize,
+                fontWeight: FontWeight.w500,
                 color: AppColors.textPrimary,
               ),
               textAlign: TextAlign.left,

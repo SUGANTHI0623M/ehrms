@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, X, Calendar, Wallet, FileText, Receipt, Download, Upload, Trash2, XCircle } from "lucide-react";
+import { Search, Plus, X, Calendar, Wallet, FileText, Receipt, Download, Upload, Trash2, XCircle, ChevronDown, ChevronRight, DollarSign, Clock, CheckCircle } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
 import { useSearchParams } from "react-router-dom";
 import { message } from "antd";
@@ -38,10 +38,20 @@ import {
   useGetPayslipRequestsQuery,
   useCreatePayslipRequestMutation,
 } from "@/store/api/payslipRequestApi";
-import { useLazyViewPayslipQuery } from "@/store/api/payrollApi";
+import { useLazyViewPayslipQuery, useGetPayrollsQuery } from "@/store/api/payrollApi";
 import { useGetEmployeeProfileQuery } from "@/store/api/employeeApi";
-import { useGetLeaveTemplateByIdQuery } from "@/store/api/settingsApi";
-import EmployeeLeaveDashboard from "@/components/leave/EmployeeLeaveDashboard";
+import { useGetLeaveTemplateByIdQuery, useGetBusinessQuery } from "@/store/api/settingsApi";
+import { useGetEmployeeHolidaysQuery } from "@/store/api/holidayApi";
+import EmployeeLeaveDashboard, {
+  type LeaveSummaryRow,
+  type TotalRequestsSummary,
+} from "@/components/leave/EmployeeLeaveDashboard";
+import EmployeeRequestsDashboard from "@/components/requests/EmployeeRequestsDashboard";
+import RequestSummaryCards from "@/components/requests/RequestSummaryCards";
+import EmployeeLoanDashboard from "@/components/loan/EmployeeLoanDashboard";
+import EmployeeExpenseDashboard from "@/components/expense/EmployeeExpenseDashboard";
+import EmployeePayslipDashboard from "@/components/payslip/EmployeePayslipDashboard";
+import { WalletOutlined, FileTextOutlined } from "@ant-design/icons";
 
 const EmployeeRequests = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -65,6 +75,7 @@ const EmployeeRequests = () => {
   const [loanStatusFilter, setLoanStatusFilter] = useState("all");
   const [loanPage, setLoanPage] = useState(1);
   const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false);
+  const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
   const [loanFormData, setLoanFormData] = useState({
     loanType: "Personal" as const,
     amount: "",
@@ -176,6 +187,10 @@ const EmployeeRequests = () => {
   }, {
     skip: activeTab !== "loan"
   });
+  const { data: allLoansForDashboard } = useGetLoansQuery(
+    { page: 1, limit: 500 },
+    { skip: activeTab !== "loan" }
+  );
 
   const { data: expensesData, isLoading: isLoadingExpenses } = useGetReimbursementsQuery({
     status: expenseStatusFilter !== "all" ? expenseStatusFilter : undefined,
@@ -185,6 +200,10 @@ const EmployeeRequests = () => {
   }, {
     skip: activeTab !== "expense"
   });
+  const { data: allExpensesForDashboard } = useGetReimbursementsQuery(
+    { page: 1, limit: 500 },
+    { skip: activeTab !== "expense" }
+  );
 
   const { data: payslipRequestsData, isLoading: isLoadingPayslips } = useGetPayslipRequestsQuery({
     status: payslipStatusFilter !== "all" ? payslipStatusFilter : undefined,
@@ -194,6 +213,10 @@ const EmployeeRequests = () => {
   }, {
     skip: activeTab !== "payslip"
   });
+  const { data: allPayslipsForDashboard } = useGetPayslipRequestsQuery(
+    { page: 1, limit: 500 },
+    { skip: activeTab !== "payslip" }
+  );
 
   // Mutations
   const [createLeave, { isLoading: isCreatingLeave }] = useCreateLeaveMutation();
@@ -219,6 +242,49 @@ const EmployeeRequests = () => {
   const { data: leaveTemplateData } = useGetLeaveTemplateByIdQuery(leaveTemplateIdStr, {
     skip: !leaveTemplateIdStr || activeTab !== "leave"
   });
+
+  // Fetch holidays for current year (for Holidays row — same as This Month Attendance on dashboard)
+  const { data: holidaysData } = useGetEmployeeHolidaysQuery(
+    { year: new Date().getFullYear(), limit: 50, page: 1 },
+    { skip: activeTab !== "leave" }
+  );
+
+  // Get weekly holiday settings from staff template or business settings
+  const { data: businessData } = useGetBusinessQuery(undefined, { skip: activeTab !== "leave" });
+  
+  // Check if staff has a weekly holiday template assigned
+  const staffData = employeeProfileData?.data?.staffData;
+  const weeklyHolidayTemplate = (staffData as any)?.weeklyHolidayTemplateId;
+  const isWeeklyHolidayTemplatePopulated = weeklyHolidayTemplate && 
+    typeof weeklyHolidayTemplate === 'object' && 
+    (weeklyHolidayTemplate as any).settings;
+  
+  // Extract weekly holiday settings - priority: staff template > business settings
+  const weeklyHolidaySettings = useMemo(() => {
+    if (isWeeklyHolidayTemplatePopulated) {
+      // Use staff's weekly holiday template (if isActive is not present, assume it's active)
+      const template = weeklyHolidayTemplate as any;
+      const isActive = template.isActive !== undefined ? template.isActive : true;
+      
+      if (isActive && template.settings) {
+        return {
+          weeklyOffPattern: template.settings?.weeklyOffPattern || "standard",
+          weeklyHolidays: template.settings?.weeklyHolidays || [],
+          allowAttendanceOnWeeklyOff: template.settings?.allowAttendanceOnWeeklyOff || false
+        };
+      }
+    }
+    
+    // Fall back to business settings
+    return {
+      weeklyOffPattern: businessData?.data?.business?.settings?.business?.weeklyOffPattern || "standard",
+      weeklyHolidays: businessData?.data?.business?.settings?.business?.weeklyHolidays || [],
+      allowAttendanceOnWeeklyOff: businessData?.data?.business?.settings?.business?.allowAttendanceOnWeeklyOff || false
+    };
+  }, [weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, businessData, staffData]);
+  
+  const weeklyOffPattern = weeklyHolidaySettings.weeklyOffPattern;
+  const weeklyHolidays = weeklyHolidaySettings.weeklyHolidays;
   
   // Get available leave types from template
   const availableLeaveTypes = leaveTemplateData?.data?.template?.leaveTypes || [];
@@ -227,7 +293,229 @@ const EmployeeRequests = () => {
   const loans = loansData?.data?.loans || [];
   const expenses = expensesData?.data?.reimbursements || [];
   const payslipRequests = payslipRequestsData?.data?.requests || [];
-  
+
+  // Fetch payrolls to get loan EMI payment information
+  const { data: payrollsData } = useGetPayrollsQuery(
+    { limit: 1000 },
+    { skip: activeTab !== "loan" }
+  );
+  const payrolls = payrollsData?.data?.payrolls || [];
+
+  // Create a map to track which payroll month/year each loan EMI was paid in
+  const loanEMIPaymentMap = useMemo(() => {
+    const map = new Map<string, Map<string, { month: number; year: number }>>();
+    
+    payrolls.forEach((payroll: any) => {
+      if (!payroll.components || !Array.isArray(payroll.components)) return;
+      
+      payroll.components.forEach((component: any) => {
+        // Check if this component is a loan EMI deduction
+        if (component.type === 'deduction' && component.name?.includes('Loan EMI')) {
+          const loanId = component.loanId;
+          const installmentDueDate = component.installmentDueDate;
+          
+          if (loanId && installmentDueDate) {
+            // Convert due date to string key (YYYY-MM-DD format)
+            const dueDateStr = new Date(installmentDueDate).toISOString().split('T')[0];
+            
+            if (!map.has(loanId)) {
+              map.set(loanId, new Map());
+            }
+            
+            const loanMap = map.get(loanId)!;
+            loanMap.set(dueDateStr, {
+              month: payroll.month,
+              year: payroll.year
+            });
+          }
+        }
+      });
+    });
+    
+    return map;
+  }, [payrolls]);
+
+  const getMonthName = (month: number) => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1] || 'Unknown';
+  };
+
+  /** Days of a leave (start..end) that fall in the given month. */
+  const getLeaveDaysInMonth = (startDate: string, endDate: string, year: number, month: number) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0);
+    const overlapStart = start < monthStart ? monthStart : start;
+    const overlapEnd = end > monthEnd ? monthEnd : end;
+    if (overlapStart > overlapEnd) return 0;
+    return Math.round((overlapEnd.getTime() - overlapStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  };
+
+  // Dashboard data for Leave tab: leave summary rows + total requests this month (all from props / API)
+  const leaveDashboardData = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const allLeaves = allLeavesForDashboard?.data?.leaves ?? [];
+    const template = leaveTemplateData?.data?.template;
+    const leaveTypes = template?.leaveTypes ?? [];
+
+    const casualConfig = leaveTypes.find((lt: any) => lt.type === "Casual Leave");
+    const casualTotal = casualConfig?.days ?? 0;
+    const casualCompleted = allLeaves
+      .filter((l: any) => l.status === "Approved" && l.leaveType === "Casual Leave")
+      .reduce((sum: number, l: any) => sum + getLeaveDaysInMonth(l.startDate, l.endDate, currentYear, currentMonth), 0);
+    const casualAvailable = Math.max(0, casualTotal - casualCompleted);
+
+    // Half Day: fixed total of 2 per month; completed = half days used (from backend leaves), available = 2 - completed
+    const HALF_DAY_TOTAL = 2;
+    const halfDayCompleted = allLeaves
+      .filter((l: any) => l.status === "Approved" && l.leaveType === "Half Day")
+      .reduce((sum: number, l: any) => {
+        const inMonth = getLeaveDaysInMonth(l.startDate, l.endDate, currentYear, currentMonth) > 0;
+        return sum + (inMonth ? (l.days ?? 0.5) : 0);
+      }, 0);
+    const halfDayAvailable = Math.max(0, HALF_DAY_TOTAL - halfDayCompleted);
+
+    // Holidays: from employee's holiday template (same API as This Month Attendance on dashboard) — count for current month
+    const holidays = holidaysData?.data?.holidays ?? [];
+    const holidaysInMonth = holidays.filter(
+      (h: { date: string }) =>
+        new Date(h.date).getFullYear() === currentYear &&
+        new Date(h.date).getMonth() + 1 === currentMonth
+    ).length;
+
+    // Week-end: from business mapped template (weeklyOffPattern / weeklyHolidays — same as This Month Attendance)
+    const getDaysInMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
+    const totalDaysInMonth = getDaysInMonth(currentYear, currentMonth);
+    let weekendCount = 0;
+    if (weeklyOffPattern === "oddEvenSaturday") {
+      for (let day = 1; day <= totalDaysInMonth; day++) {
+        const date = new Date(currentYear, currentMonth - 1, day);
+        const dayOfWeek = date.getDay();
+        if (dayOfWeek === 0) weekendCount++;
+        else if (dayOfWeek === 6 && day % 2 === 0) weekendCount++;
+      }
+    } else {
+      if (weeklyHolidays.length > 0) {
+        const offDays = new Set(weeklyHolidays.map((h: { day: number }) => h.day));
+        for (let day = 1; day <= totalDaysInMonth; day++) {
+          const date = new Date(currentYear, currentMonth - 1, day);
+          if (offDays.has(date.getDay())) weekendCount++;
+        }
+      } else {
+        for (let day = 1; day <= totalDaysInMonth; day++) {
+          const date = new Date(currentYear, currentMonth - 1, day);
+          const dayOfWeek = date.getDay();
+          if (dayOfWeek === 0 || dayOfWeek === 6) weekendCount++;
+        }
+      }
+    }
+
+    const leaveSummaryRows: LeaveSummaryRow[] = [
+      { type: "Week-end", total: weekendCount, completed: 0, available: weekendCount },
+      { type: "Casual Leave", total: casualTotal, completed: casualCompleted, available: casualAvailable },
+      { type: "Half Day", total: HALF_DAY_TOTAL, completed: halfDayCompleted, available: halfDayAvailable },
+      { type: "Holidays", total: holidaysInMonth, completed: 0, available: holidaysInMonth },
+    ];
+    const totalLeaveCount = leaveSummaryRows.reduce((s, r) => s + r.total, 0);
+
+    const leavesThisMonth = allLeaves.filter((l: any) => {
+      const d = new Date(l.startDate);
+      return d.getFullYear() === currentYear && d.getMonth() + 1 === currentMonth;
+    });
+    const approvedCount = leavesThisMonth.filter((l: any) => l.status === "Approved").length;
+    const rejectedCount = leavesThisMonth.filter((l: any) => l.status === "Rejected").length;
+    const pendingCount = leavesThisMonth.filter((l: any) => l.status === "Pending").length;
+    const totalRequestsSummary: TotalRequestsSummary = {
+      totalRequests: leavesThisMonth.length,
+      approvedCount,
+      rejectedCount,
+      pendingCount,
+    };
+
+    return { leaveSummaryRows, totalLeaveCount, totalRequestsSummary };
+  }, [allLeavesForDashboard?.data?.leaves, leaveTemplateData?.data?.template, holidaysData?.data?.holidays, weeklyOffPattern, weeklyHolidays]);
+
+  // Loan dashboard: monthly + all-time for RequestSummaryCards
+  const loanSummaryData = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const allLoans = allLoansForDashboard?.data?.loans ?? [];
+    const loansThisMonth = allLoans.filter((l: any) => {
+      const created = l.createdAt ? new Date(l.createdAt) : null;
+      if (!created) return false;
+      return created.getFullYear() === currentYear && created.getMonth() + 1 === currentMonth;
+    });
+    const monthlyAmount = loansThisMonth.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0);
+    return {
+      monthly: {
+        totalAmount: monthlyAmount,
+        totalRequests: loansThisMonth.length,
+        approved: loansThisMonth.filter((l: any) => l.status === "Approved").length,
+        pending: loansThisMonth.filter((l: any) => l.status === "Pending").length,
+        rejected: loansThisMonth.filter((l: any) => l.status === "Rejected").length,
+        active: loansThisMonth.filter((l: any) => l.status === "Active").length,
+      },
+      allTime: {
+        totalRequests: allLoans.length,
+        approved: allLoans.filter((l: any) => l.status === "Approved").length,
+        pending: allLoans.filter((l: any) => l.status === "Pending").length,
+        rejected: allLoans.filter((l: any) => l.status === "Rejected").length,
+        active: allLoans.filter((l: any) => l.status === "Active").length,
+      },
+    };
+  }, [allLoansForDashboard?.data?.loans]);
+
+  // Expense dashboard: monthly + all-time for RequestSummaryCards
+  const expenseSummaryData = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const allExpenses = allExpensesForDashboard?.data?.reimbursements ?? [];
+    const expensesThisMonth = allExpenses.filter((e: any) => {
+      const d = e.date ? new Date(e.date) : null;
+      if (!d) return false;
+      return d.getFullYear() === currentYear && d.getMonth() + 1 === currentMonth;
+    });
+    const monthlyAmount = expensesThisMonth.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+    const paidCount = (arr: any[]) => arr.filter((e: any) => e.status === "Paid" || e.status === "Processed").length;
+    return {
+      monthly: {
+        totalAmount: monthlyAmount,
+        totalRequests: expensesThisMonth.length,
+        approved: expensesThisMonth.filter((e: any) => e.status === "Approved").length,
+        pending: expensesThisMonth.filter((e: any) => e.status === "Pending").length,
+        rejected: expensesThisMonth.filter((e: any) => e.status === "Rejected").length,
+        paid: paidCount(expensesThisMonth),
+      },
+      allTime: {
+        totalRequests: allExpenses.length,
+        approved: allExpenses.filter((e: any) => e.status === "Approved").length,
+        pending: allExpenses.filter((e: any) => e.status === "Pending").length,
+        rejected: allExpenses.filter((e: any) => e.status === "Rejected").length,
+        paid: paidCount(allExpenses),
+      },
+    };
+  }, [allExpensesForDashboard?.data?.reimbursements]);
+
+  // Payslip dashboard: this month's requests (by request month/year) and status breakdown
+  const payslipDashboardData = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const allPayslips = allPayslipsForDashboard?.data?.requests ?? [];
+    const payslipsThisMonth = allPayslips.filter((r: any) => r.year === currentYear && r.month === currentMonth);
+    return {
+      totalRequests: payslipsThisMonth.length,
+      approvedCount: payslipsThisMonth.filter((r: any) => r.status === "Approved").length,
+      rejectedCount: payslipsThisMonth.filter((r: any) => r.status === "Rejected").length,
+      pendingCount: payslipsThisMonth.filter((r: any) => r.status === "Pending").length,
+    };
+  }, [allPayslipsForDashboard?.data?.requests]);
+
   // Set default leave type from template if available (first one from template)
   useEffect(() => {
     if (availableLeaveTypes.length > 0) {
@@ -250,9 +538,10 @@ const EmployeeRequests = () => {
     }
   }, [availableLeaveTypes]);
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | Date | undefined) => {
     if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleDateString("en-US", {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -261,7 +550,7 @@ const EmployeeRequests = () => {
 
   const getStatusBadge = (status: string) => {
     const style: Record<string, string> = {
-      Approved: "bg-green-100 text-green-800 hover:bg-green-100 border-0",
+      Approved: "bg-[#fef3c7] text-[#b45309] hover:bg-[#fef3c7] border-0",
       Pending: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-0",
       Rejected: "bg-red-100 text-red-800 hover:bg-red-100 border-0",
       Cancelled: "bg-gray-100 text-gray-600 hover:bg-gray-100 border-0",
@@ -448,7 +737,7 @@ const EmployeeRequests = () => {
       
       if (isLocal) {
         // Use localhost for local development
-        return 'http://localhost:9000/api';
+        return 'http://localhost:7001/api';
       }
     }
     
@@ -475,7 +764,7 @@ const EmployeeRequests = () => {
     }
     
     // Default fallback for SSR or other cases
-    return 'http://localhost:9000/api';
+    return 'http://localhost:7001/api';
   };
 
   const handleCreateExpense = async () => {
@@ -620,8 +909,9 @@ const EmployeeRequests = () => {
             {/* Leave Requests Tab */}
             <TabsContent value="leave" className="space-y-4">
               <EmployeeLeaveDashboard
-                leaves={allLeavesForDashboard?.data?.leaves ?? []}
-                leaveTemplate={leaveTemplateData?.data?.template}
+                leaveSummaryRows={leaveDashboardData.leaveSummaryRows}
+                totalLeaveCount={leaveDashboardData.totalLeaveCount}
+                totalRequestsSummary={leaveDashboardData.totalRequestsSummary}
               />
               <Card>
                 <CardHeader>
@@ -880,7 +1170,7 @@ const EmployeeRequests = () => {
                                 </Button>
                               ) : leave.status === "Approved" && leave.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {leave.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm text-[#efaa1f]">Approved by: {leave.approvedBy.name || 'N/A'}</div>
                                   {leave.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(leave.approvedAt)}
@@ -941,6 +1231,7 @@ const EmployeeRequests = () => {
 
             {/* Loan Requests Tab */}
             <TabsContent value="loan" className="space-y-4">
+              <EmployeeLoanDashboard loans={allLoansForDashboard?.data?.loans ?? []} />
               <Card>
                 <CardHeader>
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1131,6 +1422,7 @@ const EmployeeRequests = () => {
                     <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-8"></TableHead>
                         <TableHead>Loan Type</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Tenure</TableHead>
@@ -1143,60 +1435,177 @@ const EmployeeRequests = () => {
                     <TableBody>
                       {isLoadingLoans ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={8} className="text-center py-8">
                             Loading...
                           </TableCell>
                         </TableRow>
                       ) : loans.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8">
+                          <TableCell colSpan={8} className="text-center py-8">
                             No loan requests found
                           </TableCell>
                         </TableRow>
                       ) : (
-                        loans.map((loan: any) => (
-                          <TableRow key={loan._id}>
-                            <TableCell>{loan.loanType}</TableCell>
-                            <TableCell>₹{loan.amount.toLocaleString()}</TableCell>
-                            <TableCell>{loan.tenure} months</TableCell>
-                            <TableCell>₹{loan.emi.toLocaleString()}</TableCell>
-                            <TableCell>{getStatusBadge(loan.status)}</TableCell>
-                            <TableCell>
-                              {loan.status === "Rejected" && loan.rejectionReason ? (
-                                <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{loan.rejectionReason}</span>
-                                </div>
-                              ) : loan.status === "Approved" || loan.status === "Active" ? (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {loan.status === "Approved" && loan.approvedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {loan.approvedBy.name || 'N/A'}</div>
-                                  {loan.approvedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(loan.approvedAt)}
+                        loans.map((loan: any) => {
+                          const paidInstallments = loan.installments?.filter((inst: any) => inst.paid) || [];
+                          const unpaidInstallments = loan.installments?.filter((inst: any) => !inst.paid) || [];
+                          const totalInstallments = loan.installments?.length || 0;
+                          const isExpanded = expandedLoanId === loan._id;
+                          const isActiveLoan = loan.status === "Active" || loan.status === "Approved";
+                          
+                          return (
+                            <>
+                              <TableRow key={loan._id} className={isActiveLoan ? "cursor-pointer" : ""} onClick={() => isActiveLoan && setExpandedLoanId(isExpanded ? null : loan._id)}>
+                                <TableCell>
+                                  {isActiveLoan && (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)}
+                                </TableCell>
+                                <TableCell>{loan.loanType}</TableCell>
+                                <TableCell>₹{loan.amount.toLocaleString()}</TableCell>
+                                <TableCell>{loan.tenure} months</TableCell>
+                                <TableCell>₹{loan.emi.toLocaleString()}</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-col gap-1">
+                                    {getStatusBadge(loan.status)}
+                                    {isActiveLoan && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {paidInstallments.length}/{totalInstallments} EMIs paid
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {loan.status === "Rejected" && loan.rejectionReason ? (
+                                    <div className="max-w-xs">
+                                      <span className="text-sm text-red-600">{loan.rejectionReason}</span>
                                     </div>
+                                  ) : loan.status === "Approved" || loan.status === "Active" ? (
+                                    <span className="text-sm text-muted-foreground">-</span>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">-</span>
                                   )}
-                                </div>
-                              ) : loan.status === "Rejected" && loan.rejectedBy ? (
-                                <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {loan.rejectedBy.name || 'N/A'}</div>
-                                  {loan.rejectedAt && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(loan.rejectedAt)}
+                                </TableCell>
+                                <TableCell>
+                                  {loan.status === "Approved" && loan.approvedBy ? (
+                                    <div>
+                                      <div className="font-medium text-sm text-[#efaa1f]">Approved by: {loan.approvedBy.name || 'N/A'}</div>
+                                      {loan.approvedAt && (
+                                        <div className="text-xs text-muted-foreground">
+                                          {formatDate(loan.approvedAt)}
+                                        </div>
+                                      )}
                                     </div>
+                                  ) : loan.status === "Rejected" && loan.rejectedBy ? (
+                                    <div>
+                                      <div className="font-medium text-sm text-red-600">Rejected by: {loan.rejectedBy.name || 'N/A'}</div>
+                                      {loan.rejectedAt && (
+                                        <div className="text-xs text-muted-foreground">
+                                          {formatDate(loan.rejectedAt)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground text-sm">-</span>
                                   )}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-sm">-</span>
+                                </TableCell>
+                              </TableRow>
+                              {isExpanded && isActiveLoan && (
+                                <TableRow>
+                                  <TableCell colSpan={8} className="bg-muted/30">
+                                    <div className="p-4 space-y-4">
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="p-3 border rounded-lg">
+                                          <div className="text-xs text-muted-foreground">Total EMIs</div>
+                                          <div className="text-lg font-semibold">{totalInstallments}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
+                                          <div className="text-xs text-muted-foreground">Paid EMIs</div>
+                                          <div className="text-lg font-semibold text-green-600">{paidInstallments.length}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950">
+                                          <div className="text-xs text-muted-foreground">Remaining EMIs</div>
+                                          <div className="text-lg font-semibold text-yellow-600">{unpaidInstallments.length}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-blue-50 dark:bg-blue-950">
+                                          <div className="text-xs text-muted-foreground">Remaining Amount</div>
+                                          <div className="text-lg font-semibold text-blue-600">₹{loan.remainingAmount?.toLocaleString() || '0'}</div>
+                                        </div>
+                                      </div>
+                                      
+                                      {paidInstallments.length > 0 && (
+                                        <div>
+                                          <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                            Payment History
+                                          </h4>
+                                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                                            {paidInstallments.map((inst: any, idx: number) => {
+                                              const dueDateStr = new Date(inst.dueDate).toISOString().split('T')[0];
+                                              const paymentInfo = loanEMIPaymentMap.get(loan._id)?.get(dueDateStr);
+                                              const paymentMonthYear = paymentInfo 
+                                                ? `${getMonthName(paymentInfo.month)} ${paymentInfo.year}`
+                                                : inst.paidAt 
+                                                  ? `${getMonthName(new Date(inst.paidAt).getMonth() + 1)} ${new Date(inst.paidAt).getFullYear()}`
+                                                  : 'N/A';
+                                              
+                                              return (
+                                                <div key={idx} className="flex items-center justify-between p-2 border rounded bg-green-50 dark:bg-green-950">
+                                                  <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                      <span className="text-sm font-medium">
+                                                        Due: {formatDate(inst.dueDate)}
+                                                      </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 ml-6">
+                                                      <span className="text-xs text-muted-foreground">
+                                                        Paid in: <span className="font-semibold text-green-700">{paymentMonthYear}</span> Payroll
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <DollarSign className="w-4 h-4 text-green-600" />
+                                                    <span className="font-semibold text-green-600">₹{(inst.amount || loan.emi).toLocaleString()}</span>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {unpaidInstallments.length > 0 && (
+                                        <div>
+                                          <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-yellow-600" />
+                                            Upcoming EMIs
+                                          </h4>
+                                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                                            {unpaidInstallments.slice(0, 5).map((inst: any, idx: number) => (
+                                              <div key={idx} className="flex items-center justify-between p-2 border rounded">
+                                                <div className="flex items-center gap-2">
+                                                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                  <span className="text-sm">
+                                                    Due: {formatDate(inst.dueDate)}
+                                                  </span>
+                                                </div>
+                                                <span className="font-semibold">₹{(inst.amount || loan.emi).toLocaleString()}</span>
+                                              </div>
+                                            ))}
+                                            {unpaidInstallments.length > 5 && (
+                                              <div className="text-xs text-muted-foreground text-center py-2">
+                                                +{unpaidInstallments.length - 5} more EMIs remaining
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
                               )}
-                            </TableCell>
-                          </TableRow>
-                        ))
+                            </>
+                          );
+                        })
                       )}
                     </TableBody>
                   </Table>
@@ -1236,6 +1645,7 @@ const EmployeeRequests = () => {
 
             {/* Expense Claims Tab */}
             <TabsContent value="expense" className="space-y-4">
+              <EmployeeExpenseDashboard expenses={allExpensesForDashboard?.data?.reimbursements ?? []} />
               <Card>
                 <CardHeader>
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1504,7 +1914,7 @@ const EmployeeRequests = () => {
                             <TableCell>
                               {expense.status === "Approved" && expense.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {expense.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm text-[#efaa1f]">Approved by: {expense.approvedBy.name || 'N/A'}</div>
                                   {expense.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(expense.approvedAt)}
@@ -1565,6 +1975,7 @@ const EmployeeRequests = () => {
 
             {/* Payslip Requests Tab */}
             <TabsContent value="payslip" className="space-y-4">
+              <EmployeePayslipDashboard requests={allPayslipsForDashboard?.data?.requests ?? []} />
               <Card>
                 <CardHeader>
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1738,7 +2149,7 @@ const EmployeeRequests = () => {
                             <TableCell>
                               {request.status === "Approved" && request.approvedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-green-600">Approved by: {request.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm text-[#efaa1f]">Approved by: {request.approvedBy.name || 'N/A'}</div>
                                   {request.approvedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(request.approvedAt)}

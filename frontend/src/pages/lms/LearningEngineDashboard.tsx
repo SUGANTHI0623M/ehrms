@@ -23,354 +23,9 @@ import {
 import MainLayout from "@/components/MainLayout";
 import { useGetLearningEngineDashboardQuery } from "@/store/api/lmsApi";
 import { lmsService } from "@/services/lmsService";
+import { ActivityHeatmap } from "@/components/lms/LearningConsistencyHeatmap";
 
 const { Title, Text } = Typography;
-
-const DAYS_LAST_12_MONTHS = 371;
-const CELL_GAP = 4;
-const CELL_MIN = 14;
-const CELL_MAX_FR = "1fr";
-
-const HEAT_COLORS = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"];
-
-const getHeatColor = (level: number): string => {
-  if (level <= 0) return HEAT_COLORS[0];
-  if (level <= 1) return HEAT_COLORS[1];
-  if (level <= 2) return HEAT_COLORS[2];
-  if (level <= 3) return HEAT_COLORS[3];
-  return HEAT_COLORS[4];
-};
-
-function getRangeStartAndDays(view: "last12" | number): {
-  start: dayjs.Dayjs;
-  daysCount: number;
-} {
-  if (view === "last12") {
-    return {
-      start: dayjs()
-        .startOf("day")
-        .subtract(DAYS_LAST_12_MONTHS - 1, "day"),
-      daysCount: DAYS_LAST_12_MONTHS,
-    };
-  }
-  const year = view;
-  const start = dayjs().year(year).startOf("year");
-  const end = dayjs().year(year).endOf("year");
-  const daysCount = end.diff(start, "day") + 1;
-  return { start, daysCount };
-}
-
-function buildActivityMap(
-  heatmap: any[],
-  rangeStart: dayjs.Dayjs,
-  daysCount: number,
-): Map<
-  string,
-  {
-    level: number;
-    minutes: number;
-    lessons: number;
-    quizzes: number;
-    assessments: number;
-    liveSessions: number;
-  }
-> {
-  const map = new Map();
-  for (let i = 0; i < daysCount; i++) {
-    const d = rangeStart.add(i, "day");
-    const key = d.format("YYYY-MM-DD");
-    const point = heatmap?.find((h: any) => h.date === key);
-    if (point) {
-      const score = point.activityScore ?? point.totalMinutes ?? 0;
-      let level = 0;
-      if (score > 60) level = 4;
-      else if (score > 40) level = 3;
-      else if (score > 20) level = 2;
-      else if (score > 0) level = 1;
-      map.set(key, {
-        level,
-        minutes: point.totalMinutes ?? 0,
-        lessons: point.lessonsCompleted ?? 0,
-        quizzes: point.quizzesAttempted ?? 0,
-        assessments: point.assessmentsAttempted ?? 0,
-        liveSessions: point.liveSessionsAttended ?? 0,
-      });
-    } else {
-      map.set(key, {
-        level: 0,
-        minutes: 0,
-        lessons: 0,
-        quizzes: 0,
-        assessments: 0,
-        liveSessions: 0,
-      });
-    }
-  }
-  return map;
-}
-
-type ActivityCellData = {
-  level: number;
-  minutes: number;
-  lessons: number;
-  quizzes: number;
-  assessments: number;
-  liveSessions: number;
-};
-type ActivityCell = ActivityCellData & { date: string };
-
-function buildWeekColumns(
-  activityMap: Map<string, ActivityCellData>,
-  rangeStart: dayjs.Dayjs,
-  daysCount: number,
-): ActivityCell[][] {
-  const numWeeks = Math.ceil(daysCount / 7);
-  const columns: ActivityCell[][] = [];
-  const emptyCell: ActivityCell = {
-    date: "",
-    level: -1,
-    minutes: 0,
-    lessons: 0,
-    quizzes: 0,
-    assessments: 0,
-    liveSessions: 0,
-  };
-  const noData: ActivityCellData = {
-    level: 0,
-    minutes: 0,
-    lessons: 0,
-    quizzes: 0,
-    assessments: 0,
-    liveSessions: 0,
-  };
-  for (let col = 0; col < numWeeks; col++) {
-    const weekCells: ActivityCell[] = [];
-    for (let row = 0; row < 7; row++) {
-      const dayIndex = col * 7 + row;
-      if (dayIndex >= daysCount) {
-        weekCells.push({ ...emptyCell });
-        continue;
-      }
-      const d = rangeStart.add(dayIndex, "day");
-      const key = d.format("YYYY-MM-DD");
-      const data = activityMap.get(key) ?? noData;
-      weekCells.push({ ...data, date: key });
-    }
-    columns.push(weekCells);
-  }
-  return columns;
-}
-
-function getMonthLabelForColumn(
-  colIndex: number,
-  rangeStart: dayjs.Dayjs,
-): string {
-  const d = rangeStart.add(colIndex * 7, "day");
-  return d.format("MMM");
-}
-
-const HEATMAP_VIEW_OPTIONS: { value: "last12" | number; label: string }[] = [
-  { value: "last12", label: "Last 12 months" },
-  ...Array.from({ length: 5 }, (_, i) => {
-    const y = dayjs().year() - i;
-    return { value: y as number, label: String(y) };
-  }),
-];
-
-const ActivityHeatmap: React.FC<{
-  heatmap: any[];
-  selectedView: "last12" | number;
-  onViewChange: (v: "last12" | number) => void;
-}> = ({ heatmap, selectedView, onViewChange }) => {
-  const { start: rangeStart, daysCount } = useMemo(
-    () => getRangeStartAndDays(selectedView),
-    [selectedView],
-  );
-  const numWeeks = Math.ceil(daysCount / 7);
-  const activityMap = useMemo(
-    () => buildActivityMap(heatmap || [], rangeStart, daysCount),
-    [heatmap, rangeStart, daysCount],
-  );
-  const weekColumns = useMemo(
-    () => buildWeekColumns(activityMap, rangeStart, daysCount),
-    [activityMap, rangeStart, daysCount],
-  );
-  const todayKey = dayjs().format("YYYY-MM-DD");
-
-  return (
-    <Card
-      title={
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="font-semibold text-gray-800 text-base">
-            <CalendarOutlined className="mr-2 text-gray-500" />
-            Learning consistency
-          </span>
-          <Select
-            size="small"
-            value={selectedView}
-            onChange={onViewChange}
-            options={HEATMAP_VIEW_OPTIONS}
-            style={{ width: 140 }}
-            getOptionLabel={(o) => o?.label ?? String(o)}
-          />
-        </div>
-      }
-      className="rounded-xl shadow-sm border-gray-100 overflow-hidden"
-    >
-      <div className="w-full overflow-x-auto pb-2 -mx-1">
-        <div
-          className="min-w-[600px]"
-          style={{ width: "100%", maxWidth: "100%" }}
-        >
-          {/* Month labels - grid aligned with columns */}
-          <div
-            className="grid gap-[3px] mb-2 pl-8"
-            style={{
-              gridTemplateColumns: `24px repeat(${numWeeks}, minmax(${CELL_MIN}px, ${CELL_MAX_FR}))`,
-              gap: CELL_GAP,
-            }}
-          >
-            <div />
-            {weekColumns.map((_, colIndex) => {
-              const prevMonth =
-                colIndex > 0
-                  ? getMonthLabelForColumn(colIndex - 1, rangeStart)
-                  : null;
-              const currMonth = getMonthLabelForColumn(colIndex, rangeStart);
-              return (
-                <div
-                  key={colIndex}
-                  className="text-xs text-gray-500 font-medium"
-                >
-                  {prevMonth !== currMonth ? currMonth : ""}
-                </div>
-              );
-            })}
-          </div>
-          {/* Grid: 7 rows x (1 label + N columns) */}
-          <div
-            className="grid gap-[3px]"
-            style={{
-              gridTemplateColumns: `24px repeat(${numWeeks}, minmax(${CELL_MIN}px, ${CELL_MAX_FR}))`,
-              gridAutoRows: `minmax(${CELL_MIN}px, auto)`,
-              gap: CELL_GAP,
-            }}
-          >
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
-              (d, rowIndex) => (
-                <React.Fragment key={d}>
-                  <div
-                    className="text-xs text-gray-400 text-right pr-1 self-center"
-                    style={{ lineHeight: `${CELL_MIN}px` }}
-                  >
-                    {d}
-                  </div>
-                  {weekColumns.map((column, colIndex) => {
-                    const cell = column[rowIndex];
-                    if (!cell || cell.level === -1) {
-                      return (
-                        <div
-                          key={`${colIndex}-${rowIndex}`}
-                          className="rounded-[3px] bg-transparent"
-                          style={{
-                            aspectRatio: "1",
-                            minHeight: CELL_MIN,
-                            minWidth: CELL_MIN,
-                          }}
-                        />
-                      );
-                    }
-                    const color = getHeatColor(cell.level);
-                    const isToday = cell.date === todayKey;
-                    return (
-                      <Tooltip
-                        key={cell.date || `${colIndex}-${rowIndex}`}
-                        title={
-                          <div className="text-xs">
-                            <div className="font-semibold">
-                              {cell.date
-                                ? dayjs(cell.date).format("MMM D, YYYY")
-                                : "No data"}
-                            </div>
-                            {cell.date && (
-                              <>
-                                {cell.minutes > 0 && (
-                                  <div>{cell.minutes} min learned</div>
-                                )}
-                                {cell.lessons > 0 && (
-                                  <div>
-                                    {cell.lessons} lesson
-                                    {cell.lessons !== 1 ? "s" : ""} completed
-                                  </div>
-                                )}
-                                {cell.quizzes > 0 && (
-                                  <div>
-                                    {cell.quizzes} quiz
-                                    {cell.quizzes !== 1 ? "zes" : ""} attempted
-                                  </div>
-                                )}
-                                {cell.assessments > 0 && (
-                                  <div>
-                                    {cell.assessments} assessment
-                                    {cell.assessments !== 1 ? "s" : ""}
-                                  </div>
-                                )}
-                                {cell.liveSessions > 0 && (
-                                  <div>
-                                    {cell.liveSessions} live session
-                                    {cell.liveSessions !== 1 ? "s" : ""}{" "}
-                                    attended
-                                  </div>
-                                )}
-                                {!cell.minutes &&
-                                  !cell.lessons &&
-                                  !cell.quizzes &&
-                                  !cell.assessments &&
-                                  !cell.liveSessions && <div>No activity</div>}
-                                {isToday && (
-                                  <div className="text-green-300 mt-1">
-                                    Today
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        }
-                      >
-                        <div
-                          className="rounded-[3px] cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 hover:ring-offset-0 w-full"
-                          style={{
-                            aspectRatio: "1",
-                            minHeight: CELL_MIN,
-                            minWidth: CELL_MIN,
-                            backgroundColor: color,
-                            border: isToday ? "2px solid #22c55e" : undefined,
-                            boxSizing: "border-box",
-                          }}
-                        />
-                      </Tooltip>
-                    );
-                  })}
-                </React.Fragment>
-              ),
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-end items-center gap-2 mt-3 text-xs text-gray-500">
-        <span>Less</span>
-        {HEAT_COLORS.map((c, i) => (
-          <div
-            key={i}
-            className="w-3.5 h-3.5 rounded-[3px] shrink-0"
-            style={{ backgroundColor: c }}
-          />
-        ))}
-        <span>More</span>
-      </div>
-    </Card>
-  );
-};
 
 interface DifficultyStat {
   total: number;
@@ -458,7 +113,7 @@ const QuizPerformanceCard: React.FC<{
             />
             <path
               fill="none"
-              stroke="#22c55e"
+              stroke="#efaa1f"
               strokeWidth="2.5"
               strokeDasharray={`${completionPercent}, 100`}
               strokeLinecap="round"
@@ -476,12 +131,12 @@ const QuizPerformanceCard: React.FC<{
           </div>
         </div>
         <div className="flex-1 w-full space-y-2.5 min-w-0">
-          <div className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-green-50 border border-green-100">
-            <span className="text-sm font-medium text-green-800">Easy</span>
-            <span className="text-sm font-semibold text-green-700">
+          <div className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-[#fffbeb] border border-[#fde68a]">
+            <span className="text-sm font-medium text-[#b45309]">Easy</span>
+            <span className="text-sm font-semibold text-[#d97706]">
               {easy.completed}/{easy.total}
             </span>
-            <span className="text-xs font-medium text-green-600 bg-green-200/60 px-2 py-0.5 rounded">
+            <span className="text-xs font-medium text-[#efaa1f] bg-[#fef3c7]/60 px-2 py-0.5 rounded">
               {easy.percent}%
             </span>
           </div>
@@ -612,7 +267,7 @@ const LearningEngineDashboardContent: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card
             className="rounded-xl border-gray-100 shadow-sm h-full"
-            bodyStyle={{ padding: 20 }}
+            styles={{ body: { padding: 20 } }}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -635,7 +290,7 @@ const LearningEngineDashboardContent: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card
             className="rounded-xl border-gray-100 shadow-sm h-full"
-            bodyStyle={{ padding: 20 }}
+            styles={{ body: { padding: 20 } }}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -660,7 +315,7 @@ const LearningEngineDashboardContent: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card
             className="rounded-xl border-gray-100 shadow-sm h-full"
-            bodyStyle={{ padding: 20 }}
+            styles={{ body: { padding: 20 } }}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -788,13 +443,13 @@ const LearningEngineDashboardContent: React.FC = () => {
                       ? "bg-red-50 border-red-100"
                       : urgency === "soon"
                         ? "bg-amber-50 border-amber-100"
-                        : "bg-green-50 border-green-100";
+                        : "bg-[#fffbeb] border-[#fde68a]";
                   const text =
                     urgency === "overdue"
                       ? "text-red-700"
                       : urgency === "soon"
                         ? "text-amber-700"
-                        : "text-green-700";
+                        : "text-[#d97706]";
                   return (
                     <div
                       key={c.courseId}

@@ -1,26 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-interface Permission {
-  module: string;
-  actions: string[];
-}
-
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  phone?: string;
-  companyId?: string;
-  permissions?: string[];
-  roleId?: {
-    _id: string;
-    name: string;
-    permissions: Permission[];
-  };
-  subRole?: 'Senior HR' | 'Junior HR' | 'Manager';
-  sidebarPermissions?: string[];
-}
+import { User } from '@/store/api/authApi';
 
 interface AuthState {
   user: User | null;

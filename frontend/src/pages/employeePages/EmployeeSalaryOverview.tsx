@@ -6,6 +6,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { 
   Wallet as DollarSign, 
   Calendar as CalendarIcon, 
@@ -36,7 +38,7 @@ import {
   type CalculatedSalaryStructure
 } from "@/utils/salaryStructureCalculation.util";
 import { calculateTotalFine } from "@/utils/fineCalculation.util";
-import { format, startOfMonth, endOfMonth, parseISO, isSameDay } from "date-fns";
+import { format, startOfMonth, endOfMonth, parseISO, isSameDay, getDay } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { message } from "antd";
 import {
@@ -128,9 +130,40 @@ const EmployeeSalaryOverview = () => {
     { skip: !staffId }
   );
 
-  // Fetch business settings to get weekly-off pattern
+  // Get weekly holiday settings from staff template or business settings
   const { data: businessData } = useGetBusinessQuery();
-  const weeklyOffPattern = businessData?.data?.business?.settings?.business?.weeklyOffPattern || 'standard';
+  
+  // Check if staff has a weekly holiday template assigned
+  const weeklyHolidayTemplate = (staff as any)?.weeklyHolidayTemplateId;
+  const isWeeklyHolidayTemplatePopulated = weeklyHolidayTemplate && 
+    typeof weeklyHolidayTemplate === 'object' && 
+    (weeklyHolidayTemplate as any).settings;
+  
+  // Extract weekly holiday settings - priority: staff template > business settings
+  const weeklyHolidaySettings = useMemo(() => {
+    if (isWeeklyHolidayTemplatePopulated) {
+      // Use staff's weekly holiday template (if isActive is not present, assume it's active)
+      const template = weeklyHolidayTemplate as any;
+      const isActive = template.isActive !== undefined ? template.isActive : true;
+      
+      if (isActive && template.settings) {
+        return {
+          weeklyOffPattern: template.settings?.weeklyOffPattern || 'standard',
+          weeklyHolidays: template.settings?.weeklyHolidays || [],
+          allowAttendanceOnWeeklyOff: template.settings?.allowAttendanceOnWeeklyOff || false
+        };
+      }
+    }
+    
+    // Fall back to business settings
+    return {
+      weeklyOffPattern: businessData?.data?.business?.settings?.business?.weeklyOffPattern || 'standard',
+      weeklyHolidays: businessData?.data?.business?.settings?.business?.weeklyHolidays || [],
+      allowAttendanceOnWeeklyOff: businessData?.data?.business?.settings?.business?.allowAttendanceOnWeeklyOff || false
+    };
+  }, [weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, businessData, staff]);
+  
+  const weeklyOffPattern = weeklyHolidaySettings.weeklyOffPattern;
 
   // State for payroll pagination
   const [payrollPage, setPayrollPage] = useState(1);
@@ -216,6 +249,37 @@ const EmployeeSalaryOverview = () => {
     return sum;
   }, 0);
 
+  // Calculate leave breakdown and unpaid leave deductions
+  const leaveBreakdown = attendanceRecords.reduce((acc: any, record: any) => {
+    if (record.status === 'On Leave' || record.status === 'Half Day') {
+      const isHalfDay = record.status === 'Half Day' || record.halfDaySession;
+      const days = isHalfDay ? 0.5 : 1;
+      
+      // Check if leave is paid or unpaid
+      const isPaid = record.isPaidLeave === true || 
+                     record.compensationType === 'paid' || 
+                     (record.compensationType === undefined && record.isPaidLeave !== false);
+      
+      if (isPaid) {
+        acc.paidLeaves += days;
+      } else {
+        acc.unpaidLeaves += days;
+      }
+      
+      // Track by leave type
+      const leaveType = record.leaveType || 'Leave';
+      if (!acc.byType[leaveType]) {
+        acc.byType[leaveType] = { paid: 0, unpaid: 0 };
+      }
+      if (isPaid) {
+        acc.byType[leaveType].paid += days;
+      } else {
+        acc.byType[leaveType].unpaid += days;
+      }
+    }
+    return acc;
+  }, { paidLeaves: 0, unpaidLeaves: 0, byType: {} as Record<string, { paid: number; unpaid: number }> });
+
   // Convert holidays to Date array
   const holidayDates = holidays.map((holiday: any) => new Date(holiday.date));
 
@@ -225,8 +289,9 @@ const EmployeeSalaryOverview = () => {
     selectedYear,
     selectedMonth - 1, // JavaScript month is 0-indexed
     holidayDates,
-    weeklyOffPattern
-    // No endDate - calculate for full month
+    weeklyOffPattern,
+    undefined, // No endDate - calculate for full month
+    weeklyHolidaySettings.weeklyHolidays // Pass custom weekly holidays for standard pattern
   );
   
   // Calculate working days info - only till current date for current month (for display)
@@ -235,7 +300,8 @@ const EmployeeSalaryOverview = () => {
     selectedMonth - 1, // JavaScript month is 0-indexed
     holidayDates,
     weeklyOffPattern,
-    isCurrentMonth ? currentDate : undefined // Pass current date for current month
+    isCurrentMonth ? currentDate : undefined, // Pass current date for current month
+    weeklyHolidaySettings.weeklyHolidays // Pass custom weekly holidays for standard pattern
   );
   
   // IMPORTANT: Use FULL month working days for salary calculation
@@ -252,8 +318,19 @@ const EmployeeSalaryOverview = () => {
   let calculatedSalary: CalculatedSalaryStructure | null = null;
   let proratedSalary: { proratedGrossSalary: number; proratedDeductions: number; proratedNetSalary: number; attendancePercentage: number } | null = null;
   
+  // Initialize unpaid leave deduction (will be calculated if salary structure exists)
+  let unpaidLeaveDeduction = 0;
+  
   // Check if staff has new salary structure format
-  if (staffSalary && 'basicSalary' in staffSalary && typeof staffSalary.basicSalary === 'number' && staffSalary.basicSalary > 0) {
+  // Also check for basicSalary being 0 or undefined, but allow if other salary fields exist
+  const hasBasicSalary = staffSalary && 'basicSalary' in staffSalary && typeof staffSalary.basicSalary === 'number';
+  const hasOtherSalaryFields = staffSalary && (
+    (staffSalary as any).gross || 
+    (staffSalary as any).net || 
+    (staffSalary as any).ctcYearly
+  );
+  
+  if (hasBasicSalary && (staffSalary.basicSalary > 0 || hasOtherSalaryFields)) {
     // New format - calculate from inputs
     calculatedSalary = calculateSalaryStructure(staffSalary as SalaryStructureInputs);
     
@@ -265,18 +342,21 @@ const EmployeeSalaryOverview = () => {
       presentDays // Present days till current date
     );
     
-    // Apply fine deductions to prorated net salary
-    // Formula: Final Net = Prorated Net - Fines
-    // This ensures correct calculation: (Present Days / Working Days) × Monthly Net - Fines
-    if (proratedSalary && fineInfo.totalFineAmount > 0) {
-      proratedSalary.proratedNetSalary = Math.max(0, proratedSalary.proratedNetSalary - fineInfo.totalFineAmount);
+    // Calculate unpaid leave deduction
+    // If unpaid leave, deduct salary for those days
+    if (proratedSalary && calculatedSalary && leaveBreakdown.unpaidLeaves > 0) {
+      const dailyNetSalary = calculatedSalary.monthly.netMonthlySalary / workingDaysForCalculation;
+      unpaidLeaveDeduction = dailyNetSalary * leaveBreakdown.unpaidLeaves;
     }
     
-    // Apply fine deductions to prorated net salary
-    // Formula: Final Net = Prorated Net - Fines
-    // This ensures correct calculation: (Present Days / Working Days) × Monthly Net - Fines
-    if (proratedSalary && fineInfo.totalFineAmount > 0) {
-      proratedSalary.proratedNetSalary = Math.max(0, proratedSalary.proratedNetSalary - fineInfo.totalFineAmount);
+    // Apply fine deductions and unpaid leave deductions to prorated net salary
+    // Formula: Final Net = Prorated Net - Fines - Unpaid Leave Deductions
+    // This ensures correct calculation: (Present Days / Working Days) × Monthly Net - Fines - Unpaid Leave Deductions
+    if (proratedSalary) {
+      const totalDeductions = fineInfo.totalFineAmount + unpaidLeaveDeduction;
+      if (totalDeductions > 0) {
+        proratedSalary.proratedNetSalary = Math.max(0, proratedSalary.proratedNetSalary - totalDeductions);
+      }
     }
     
     // Debug logging for salary calculation
@@ -351,7 +431,6 @@ const EmployeeSalaryOverview = () => {
     attendanceRecords.forEach((record: any) => {
       if (record.status === "Present" || record.status === "Approved") {
         const date = new Date(record.date);
-        const dateKey = format(date, "yyyy-MM-dd");
         if (!modifiers.present) modifiers.present = [];
         modifiers.present.push(date);
       }
@@ -372,6 +451,36 @@ const EmployeeSalaryOverview = () => {
       modifiers.holiday.push(date);
     });
 
+    // Mark week off days based on weekly holiday template
+    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(selectedYear, selectedMonth - 1, day);
+      const dayOfWeek = date.getDay();
+      const dayOfMonth = date.getDate();
+      
+      // Skip if it's already a holiday
+      if (holidayDates.some(h => isSameDay(h, date))) continue;
+      
+      let isWeekOffDay = false;
+      if (weeklyOffPattern === 'oddEvenSaturday') {
+        if (dayOfWeek === 0) isWeekOffDay = true; // All Sundays
+        else if (dayOfWeek === 6 && dayOfMonth % 2 === 0) isWeekOffDay = true; // Even Saturdays
+      } else {
+        // Standard pattern: Use weeklyHolidays array
+        if (weeklyHolidaySettings.weeklyHolidays && weeklyHolidaySettings.weeklyHolidays.length > 0) {
+          isWeekOffDay = weeklyHolidaySettings.weeklyHolidays.some((wh: any) => wh.day === dayOfWeek);
+        } else {
+          // Default: Saturday and Sunday
+          isWeekOffDay = dayOfWeek === 0 || dayOfWeek === 6;
+        }
+      }
+      
+      if (isWeekOffDay) {
+        if (!modifiers.weekend) modifiers.weekend = [];
+        modifiers.weekend.push(date);
+      }
+    }
+
     return modifiers;
   };
 
@@ -386,9 +495,9 @@ const EmployeeSalaryOverview = () => {
     };
   });
 
-  // Generate year options (last 2 years to current year)
+  // Generate year options (allow any year from 50 years ago to 50 years ahead)
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 3 }, (_, i) => currentYear - i);
+  const yearOptions = Array.from({ length: 101 }, (_, i) => currentYear - 50 + i);
 
   const isLoading = isLoadingProfile || isLoadingStaff || isLoadingAttendance || isLoadingHolidays;
 
@@ -404,38 +513,73 @@ const EmployeeSalaryOverview = () => {
                 View your salary details based on attendance
               </p>
             </div>
-            <div className="flex gap-2">
-              <Select
-                value={selectedMonth.toString()}
-                onValueChange={(value) => setSelectedMonth(Number(value))}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map((month) => (
-                    <SelectItem key={month.value} value={month.value}>
-                      {month.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={selectedYear.toString()}
-                onValueChange={(value) => setSelectedYear(Number(value))}
-              >
-                <SelectTrigger className="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {yearOptions.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-[240px] justify-start text-left font-normal",
+                    "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {format(new Date(selectedYear, selectedMonth - 1, 1), "MMMM yyyy")}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <div className="p-3 border-b">
+                  <div className="flex gap-2">
+                    <Select
+                      value={selectedMonth.toString()}
+                      onValueChange={(value) => setSelectedMonth(Number(value))}
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {monthOptions.map((month) => (
+                          <SelectItem key={month.value} value={month.value}>
+                            {month.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={selectedYear.toString()}
+                      onValueChange={(value) => setSelectedYear(Number(value))}
+                    >
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] overflow-y-auto">
+                        {yearOptions.map((year) => (
+                          <SelectItem key={year} value={year.toString()}>
+                            {year}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Calendar
+                  mode="single"
+                  selected={new Date(selectedYear, selectedMonth - 1, 1)}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedMonth(date.getMonth() + 1);
+                      setSelectedYear(date.getFullYear());
+                    }
+                  }}
+                  month={new Date(selectedYear, selectedMonth - 1)}
+                  onMonthChange={(date) => {
+                    setSelectedMonth(date.getMonth() + 1);
+                    setSelectedYear(date.getFullYear());
+                  }}
+                  defaultMonth={new Date(selectedYear, selectedMonth - 1)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
           {isLoading ? (
@@ -456,8 +600,21 @@ const EmployeeSalaryOverview = () => {
                 <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-muted-foreground mb-2">Salary structure not found. Please contact HR to set up your salary structure.</p>
                 {staffSalary && (
+                  <div className="text-xs text-muted-foreground mt-2 space-y-1 text-left max-w-md mx-auto">
+                    <p className="font-semibold">Debug Information:</p>
+                    <p>Salary object exists but missing valid basicSalary field.</p>
+                    <p>Salary keys: {Object.keys(staffSalary || {}).join(', ')}</p>
+                    {staffSalary && 'basicSalary' in staffSalary && (
+                      <p>basicSalary value: {String((staffSalary as any).basicSalary)} (type: {typeof (staffSalary as any).basicSalary})</p>
+                    )}
+                    {staffSalary && (staffSalary as any).gross && (
+                      <p>Has gross field: {(staffSalary as any).gross}</p>
+                    )}
+                  </div>
+                )}
+                {!staffSalary && (
                   <p className="text-xs text-muted-foreground mt-2">
-                    Debug: Salary object exists but missing basicSalary field. Salary keys: {Object.keys(staffSalary || {}).join(', ')}
+                    No salary data found in staff record. Staff ID: {staff?._id || 'N/A'}
                   </p>
                 )}
               </CardContent>
@@ -484,7 +641,7 @@ const EmployeeSalaryOverview = () => {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                       <TrendingUp className="w-4 h-4" />
-                      Prorated Gross
+                      Monthly Gross
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -517,7 +674,7 @@ const EmployeeSalaryOverview = () => {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                       <TrendingUp className="w-4 h-4" />
-                      Prorated Net
+                      Monthly Net
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -534,7 +691,9 @@ const EmployeeSalaryOverview = () => {
                       </p>
                     ) : proratedSalary && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Based on {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)} days {fineInfo.totalFineAmount > 0 && `(Fine: ${formatSalaryCurrency(fineInfo.totalFineAmount)})`}
+                        Based on {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)} days
+                        {fineInfo.totalFineAmount > 0 && ` (Fine: ${formatSalaryCurrency(fineInfo.totalFineAmount)})`}
+                        {unpaidLeaveDeduction > 0 && ` (Unpaid Leave: ${formatSalaryCurrency(unpaidLeaveDeduction)})`}
                       </p>
                     )}
                   </CardContent>
@@ -557,6 +716,7 @@ const EmployeeSalaryOverview = () => {
                       className="rounded-md border"
                       modifiers={calendarModifiers}
                       modifiersClassNames={{
+                        weekend: "bg-gray-100 text-gray-600",
                         present: "bg-green-100 text-green-700 font-semibold",
                         absent: "bg-red-100 text-red-700 font-semibold",
                         holiday: "bg-yellow-100 text-yellow-700 font-semibold",
@@ -632,19 +792,38 @@ const EmployeeSalaryOverview = () => {
                             </span>
                           </div>
                           <div className="flex items-center justify-between p-2 bg-purple-50 dark:bg-purple-950 rounded">
-                            <span className="text-muted-foreground">Full Day Leaves:</span>
+                            <span className="text-muted-foreground">Paid Leaves:</span>
                             <span className="font-semibold text-purple-600">
-                              {attendanceRecords.filter((r: any) => r.status === 'On Leave').length}
+                              {leaveBreakdown.paidLeaves % 1 === 0 ? leaveBreakdown.paidLeaves : leaveBreakdown.paidLeaves.toFixed(1)} days
                             </span>
                           </div>
                           <div className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950 rounded">
-                            <span className="text-muted-foreground">Half Day Leaves:</span>
+                            <span className="text-muted-foreground">Unpaid Leaves:</span>
                             <span className="font-semibold text-orange-600">
-                              {attendanceRecords.filter((r: any) => 
-                                r.status === 'Half Day' || (r.status === 'Pending' && r.halfDaySession && r.leaveType === 'Half Day')
-                              ).length}
+                              {leaveBreakdown.unpaidLeaves % 1 === 0 ? leaveBreakdown.unpaidLeaves : leaveBreakdown.unpaidLeaves.toFixed(1)} days
+                              {unpaidLeaveDeduction > 0 && (
+                                <span className="text-xs block text-red-600 mt-1">
+                                  (Deduction: {formatSalaryCurrency(unpaidLeaveDeduction)})
+                                </span>
+                              )}
                             </span>
                           </div>
+                          {Object.keys(leaveBreakdown.byType).length > 0 && (
+                            <div className="col-span-2 mt-2 pt-2 border-t">
+                              <div className="text-xs font-medium text-muted-foreground mb-1">Leave Type Breakdown:</div>
+                              {Object.entries(leaveBreakdown.byType).map(([type, counts]: [string, any]) => (
+                                <div key={type} className="flex items-center justify-between text-xs py-1">
+                                  <span className="text-muted-foreground">{type}:</span>
+                                  <span>
+                                    <span className="text-purple-600">{counts.paid % 1 === 0 ? counts.paid : counts.paid.toFixed(1)} paid</span>
+                                    {counts.unpaid > 0 && (
+                                      <span className="text-orange-600 ml-2">{counts.unpaid % 1 === 0 ? counts.unpaid : counts.unpaid.toFixed(1)} unpaid</span>
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between p-3 border rounded-lg">

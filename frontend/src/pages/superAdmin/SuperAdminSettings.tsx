@@ -151,7 +151,7 @@ const SuperAdminSettings = () => {
         setLogoPreview(
           logo.startsWith("http") || logo.startsWith("/")
             ? logo
-            : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:9000"}${logo}`,
+            : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:7001"}${logo}`,
         );
       }
       setSubscriptionSettings({
@@ -206,7 +206,9 @@ const SuperAdminSettings = () => {
   const handleSaveSubscription = async () => {
     try {
       await updateSettings({
-        subscription: subscriptionSettings,
+        data: {
+          subscription: subscriptionSettings,
+        },
       }).unwrap();
       toast.success("Subscription settings updated successfully");
     } catch (error: any) {
@@ -217,7 +219,9 @@ const SuperAdminSettings = () => {
   const handleSaveSecurity = async () => {
     try {
       await updateSettings({
-        security: securitySettings,
+        data: {
+          security: securitySettings,
+        },
       }).unwrap();
       toast.success("Security settings updated successfully");
     } catch (error: any) {
@@ -228,7 +232,9 @@ const SuperAdminSettings = () => {
   const handleSaveBilling = async () => {
     try {
       await updateSettings({
-        billing: billingSettings,
+        data: {
+          billing: billingSettings,
+        },
       }).unwrap();
       toast.success("Billing settings updated successfully");
     } catch (error: any) {
@@ -269,7 +275,7 @@ const SuperAdminSettings = () => {
                       access to platform modules.
                     </p>
                     <Button
-                      onClick={() => navigate("/super-admin/subscriptions")}
+                      onClick={() => navigate("/super-admin/subscription-management")}
                     >
                       Open Subscription Management
                     </Button>
@@ -360,7 +366,7 @@ const SuperAdminSettings = () => {
                                           "/",
                                         )
                                         ? settings.general.platformLogo
-                                        : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:9000"}${settings.general.platformLogo}`
+                                        : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:7001"}${settings.general.platformLogo}`
                                       : null,
                                   );
                                 }}
@@ -497,8 +503,12 @@ const SuperAdminSettings = () => {
                                 {plan.displayName}
                               </TableCell>
                               <TableCell>
-                                ${plan.price}/
-                                {plan.billingCycle === "monthly" ? "mo" : "yr"}
+                                ${plan.monthlyPrice}/mo
+                                {plan.yearlyPrice && plan.yearlyPrice !== plan.monthlyPrice * 12 && (
+                                  <span className="text-muted-foreground text-sm ml-1">
+                                    (${plan.yearlyPrice}/yr)
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell>{plan.features.maxUsers}</TableCell>
                               <TableCell>

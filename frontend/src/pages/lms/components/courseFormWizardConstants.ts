@@ -5,7 +5,7 @@ import {
   GlobalOutlined,
 } from "@ant-design/icons";
 
-export const PRIMARY_COLOR = "#1D9B51"; // Matching HRMS Green
+export const PRIMARY_COLOR = "#efaa1f"; // Primary color
 
 export const CONTENT_TYPE_MAP: Record<string, string> = {
   Video: "VIDEO",

@@ -497,7 +497,7 @@ const TrendChart: React.FC<TrendChartProps> = ({
               <path
                 d={generateLinePath("completed")}
                 fill="none"
-                stroke="#10b981"
+                stroke="#efaa1f"
                 strokeWidth="2.5"
                 strokeLinejoin="round"
                 strokeLinecap="round"
@@ -508,7 +508,7 @@ const TrendChart: React.FC<TrendChartProps> = ({
                   cx={xScaleContent(i)}
                   cy={yScale(d.completed)}
                   r="5"
-                  fill="#10b981"
+                  fill="#efaa1f"
                   stroke="white"
                   strokeWidth="2"
                 />
@@ -545,7 +545,7 @@ const TrendChart: React.FC<TrendChartProps> = ({
           <span>Assigned</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-0.5 bg-green-500 rounded" />
+          <div className="w-4 h-0.5 bg-[#efaa1f] rounded" />
           <span>Completed</span>
         </div>
         <div className="flex items-center gap-2">

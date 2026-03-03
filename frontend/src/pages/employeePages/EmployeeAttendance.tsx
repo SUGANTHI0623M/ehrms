@@ -5,16 +5,22 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from "@/components/ui/table";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Clock, MapPin, LogIn, LogOut, Calendar, AlertCircle } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
 import {
   useGetTodayAttendanceQuery,
   useGetEmployeeAttendanceQuery,
   useMarkAttendanceMutation,
+  useCanMarkAttendanceQuery,
 } from "@/store/api/attendanceApi";
+import { useGetEmployeeHolidaysQuery } from "@/store/api/holidayApi";
+import { useGetBusinessQuery } from "@/store/api/settingsApi";
+import { useGetEmployeeProfileQuery } from "@/store/api/employeeApi";
+import { useGetStaffByIdQuery } from "@/store/api/staffApi";
 import { message } from "antd";
 import { useAppSelector } from "@/store/hooks";
-import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
+import { format, startOfMonth, endOfMonth, subDays, isSameDay, parseISO, getDaysInMonth, getDay } from "date-fns";
 import { Pagination } from "@/components/ui/pagination";
 import { getLocationWithAddress } from "@/utils/geocoding";
 import { Input } from "@/components/ui/input";
@@ -30,6 +36,9 @@ const EmployeeAttendance = () => {
 
   // Get today's attendance
   const { data: todayData, isLoading: isLoadingToday, refetch: refetchToday } = useGetTodayAttendanceQuery();
+  
+  // Check if attendance can be marked
+  const { data: canMarkData } = useCanMarkAttendanceQuery({ date: format(new Date(), "yyyy-MM-dd") });
 
   // Get employee attendance history - backend will resolve employeeId from current user
   const [historyPage, setHistoryPage] = useState(1);
@@ -245,11 +254,201 @@ const EmployeeAttendance = () => {
     return `${hours}h ${mins}m`;
   };
 
-  // Disable punch in if already punched in, or if status is Present/Absent (manually marked by admin/HR)
-  const canPunchIn = !todayAttendance?.punchIn && 
+  // Use the canMarkAttendance endpoint to determine if attendance can be marked
+  const canPunchIn = canMarkData?.data?.canPunchIn ?? (!todayAttendance?.punchIn && 
                      todayAttendance?.status !== "Present" && 
-                     todayAttendance?.status !== "Absent";
-  const canPunchOut = todayAttendance?.punchIn && !todayAttendance?.punchOut;
+                     todayAttendance?.status !== "Absent");
+  const canPunchOut = canMarkData?.data?.canPunchOut ?? (todayAttendance?.punchIn && !todayAttendance?.punchOut);
+  const attendanceReason = canMarkData?.data?.reason;
+  const shiftHalfDayInfo = canMarkData?.data?.shiftHalfDayInfo;
+
+  // Fetch staff data to get weekly holiday template
+  const { data: employeeProfileData } = useGetEmployeeProfileQuery(undefined, {
+    skip: !currentUser?.id
+  });
+  const staffIdForTemplate = employeeProfileData?.data?.staffData?._id;
+  
+  const { data: staffDataResponse } = useGetStaffByIdQuery(
+    staffIdForTemplate || "",
+    { skip: !staffIdForTemplate }
+  );
+  const staffWithTemplate = staffDataResponse?.data?.staff || employeeProfileData?.data?.staffData;
+
+  // Get weekly holiday settings from staff template or business settings
+  const { data: businessData } = useGetBusinessQuery();
+  
+  // Check if staff has a weekly holiday template assigned
+  const weeklyHolidayTemplate = (staffWithTemplate as any)?.weeklyHolidayTemplateId;
+  const isWeeklyHolidayTemplatePopulated = weeklyHolidayTemplate && 
+    typeof weeklyHolidayTemplate === 'object' && 
+    (weeklyHolidayTemplate as any).settings;
+  
+  // Extract weekly holiday settings - priority: staff template > business settings
+  const weeklyHolidaySettings = useMemo(() => {
+    if (isWeeklyHolidayTemplatePopulated) {
+      // Use staff's weekly holiday template (if isActive is not present, assume it's active)
+      const template = weeklyHolidayTemplate as any;
+      const isActive = template.isActive !== undefined ? template.isActive : true;
+      
+      if (isActive && template.settings) {
+        return {
+          weeklyOffPattern: template.settings?.weeklyOffPattern || "standard",
+          weeklyHolidays: template.settings?.weeklyHolidays || [],
+          allowAttendanceOnWeeklyOff: template.settings?.allowAttendanceOnWeeklyOff || false
+        };
+      }
+    }
+    
+    // Fall back to business settings
+    return {
+      weeklyOffPattern: businessData?.data?.business?.settings?.business?.weeklyOffPattern || "standard",
+      weeklyHolidays: businessData?.data?.business?.settings?.business?.weeklyHolidays || [],
+      allowAttendanceOnWeeklyOff: businessData?.data?.business?.settings?.business?.allowAttendanceOnWeeklyOff || false
+    };
+  }, [weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, businessData, staffWithTemplate]);
+  
+  const weeklyOffPattern = weeklyHolidaySettings.weeklyOffPattern;
+  const weeklyHolidays = weeklyHolidaySettings.weeklyHolidays;
+
+  // Debug logging for weekly holiday settings
+  useEffect(() => {
+    if (staffWithTemplate && currentUser) {
+      console.log('[EmployeeAttendance] Weekly Holiday Settings:', {
+        employeeId: (staffWithTemplate as any).employeeId || (staffWithTemplate as any)._id,
+        employeeName: (staffWithTemplate as any).name,
+        hasWeeklyHolidayTemplate: !!weeklyHolidayTemplate,
+        isTemplatePopulated: isWeeklyHolidayTemplatePopulated,
+        templateName: (weeklyHolidayTemplate as any)?.name,
+        weeklyOffPattern,
+        weeklyHolidays: weeklyHolidays.map((wh: any) => ({ day: wh.day, name: wh.name })),
+        source: isWeeklyHolidayTemplatePopulated ? 'staff_template' : 'business_settings'
+      });
+    }
+  }, [staffWithTemplate, currentUser, weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, weeklyOffPattern, weeklyHolidays]);
+
+  // Fetch holidays for current month
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth() + 1;
+  const currentYear = currentDate.getFullYear();
+  const { data: holidaysData } = useGetEmployeeHolidaysQuery(
+    {
+      year: currentYear,
+      month: currentMonth,
+    },
+    { skip: !currentUser }
+  );
+  const holidays = holidaysData?.data?.holidays || [];
+  const monthHolidays = holidays
+    .filter((h: any) => {
+      const holidayDate = new Date(h.date);
+      return holidayDate.getMonth() === currentDate.getMonth() && holidayDate.getFullYear() === currentYear;
+    })
+    .map((h: any) => new Date(h.date));
+
+  // Get all attendance records for current month for calendar display
+  const monthStart = startOfMonth(currentDate);
+  const monthEnd = endOfMonth(currentDate);
+  const { data: monthAttendanceData } = useGetEmployeeAttendanceQuery(
+    {
+      employeeId: "current",
+      startDate: format(monthStart, "yyyy-MM-dd"),
+      endDate: format(monthEnd, "yyyy-MM-dd"),
+      page: 1,
+      limit: 100
+    },
+    {
+      skip: !currentUser
+    }
+  );
+  const monthAttendanceRecords = monthAttendanceData?.data?.attendance || [];
+
+  // Calculate total days in month
+  const totalDaysInMonth = getDaysInMonth(currentDate);
+
+  // Check if a day is week off
+  const isWeekOff = (date: Date): boolean => {
+    const dayOfWeek = getDay(date); // 0 = Sunday, 6 = Saturday
+    const dayOfMonth = date.getDate();
+
+    if (weeklyOffPattern === 'oddEvenSaturday') {
+      // Odd/Even Saturday pattern
+      if (dayOfWeek === 0) {
+        return true; // All Sundays are off
+      } else if (dayOfWeek === 6) {
+        return dayOfMonth % 2 === 0; // Even Saturdays are off
+      }
+      return false;
+    } else {
+      // Standard pattern: Use weeklyHolidays array if provided
+      if (weeklyHolidays && weeklyHolidays.length > 0) {
+        return weeklyHolidays.some((wh: any) => wh.day === dayOfWeek);
+      } else {
+        // Default: Saturday and Sunday are weekends
+        return dayOfWeek === 0 || dayOfWeek === 6;
+      }
+    }
+  };
+
+  // Build calendar day statuses
+  const daysArray = Array.from({ length: totalDaysInMonth }, (_, i) =>
+    new Date(currentYear, currentDate.getMonth(), i + 1)
+  );
+
+  const getDayStatus = (date: Date) => {
+    if (monthHolidays.some(h => isSameDay(h, date))) return "holiday";
+    const dayOfWeek = getDay(date);
+    const dayOfMonth = date.getDate();
+
+    // Check week off based on pattern
+    if (weeklyOffPattern === 'oddEvenSaturday') {
+      if (dayOfWeek === 0) return "weekend"; // All Sundays are off
+      if (dayOfWeek === 6) {
+        if (dayOfMonth % 2 === 0) return "weekend"; // Even Saturdays are off
+        // Odd Saturdays are working days, continue to check attendance
+      }
+    } else {
+      // Standard pattern: Use weeklyHolidays array if provided, otherwise default to Saturday and Sunday
+      if (weeklyHolidays && weeklyHolidays.length > 0) {
+        if (weeklyHolidays.some((wh: any) => wh.day === dayOfWeek)) return "weekend";
+      } else {
+        // Default: Saturday and Sunday are weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) return "weekend";
+      }
+    }
+
+    const attendance = monthAttendanceRecords.find((record: any) => isSameDay(parseISO(record.date), date));
+    if (attendance) {
+      const status = attendance.status as string;
+      if (status === "Present" || status === "Approved") return "present";
+      if (attendance.status === "Absent") return "absent";
+      if (attendance.status === "Half Day") return "half-day";
+      if (attendance.status === "On Leave") return "on-leave";
+      if (attendance.status === "Pending") return "pending";
+    }
+    return "not-marked";
+  };
+
+  const calendarModifiers = {
+    present: daysArray.filter(date => getDayStatus(date) === "present"),
+    absent: daysArray.filter(date => getDayStatus(date) === "absent"),
+    holiday: daysArray.filter(date => getDayStatus(date) === "holiday"),
+    weekend: daysArray.filter(date => getDayStatus(date) === "weekend"),
+    "half-day": daysArray.filter(date => getDayStatus(date) === "half-day"),
+    "on-leave": daysArray.filter(date => getDayStatus(date) === "on-leave"),
+    "pending": daysArray.filter(date => getDayStatus(date) === "pending"),
+    "not-marked": daysArray.filter(date => getDayStatus(date) === "not-marked"),
+  };
+
+  const calendarModifiersClassNames = {
+    present: "bg-green-100 text-green-800 font-semibold",
+    absent: "bg-red-100 text-red-800 font-semibold",
+    holiday: "bg-yellow-100 text-yellow-800 font-semibold",
+    weekend: "bg-gray-100 text-gray-600",
+    "half-day": "bg-blue-100 text-blue-800",
+    "on-leave": "bg-purple-100 text-purple-800",
+    "pending": "bg-orange-100 text-orange-800",
+    "not-marked": "text-muted-foreground",
+  };
 
   return (
     <MainLayout>
@@ -339,6 +538,27 @@ const EmployeeAttendance = () => {
                         <LogIn className="w-4 h-4 mr-2" />
                         {isMarking ? "Processing..." : "Punch In"}
                       </Button>
+                      {attendanceReason && !canPunchIn && (
+                        <div className="space-y-1 mt-2">
+                          <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                            <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span>{attendanceReason}</span>
+                          </div>
+                          {shiftHalfDayInfo && (
+                            <div className="text-xs text-muted-foreground ml-5">
+                              {shiftHalfDayInfo.midpointTime && (
+                                <span>Midpoint: {shiftHalfDayInfo.midpointTime} • </span>
+                              )}
+                              {shiftHalfDayInfo.firstHalfEndTime && (
+                                <span>First Half ends: {shiftHalfDayInfo.firstHalfEndTime} • </span>
+                              )}
+                              {shiftHalfDayInfo.secondHalfStartTime && (
+                                <span>Second Half starts: {shiftHalfDayInfo.secondHalfStartTime}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -419,6 +639,54 @@ const EmployeeAttendance = () => {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Calendar View */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base sm:text-lg">Attendance Calendar - {format(currentDate, "MMMM yyyy")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <CalendarComponent
+                  mode="single"
+                  className="rounded-md border"
+                  modifiers={calendarModifiers}
+                  modifiersClassNames={calendarModifiersClassNames}
+                />
+                {/* Legend */}
+                <div className="flex flex-wrap gap-4 text-xs pt-4 border-t">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-green-100 border border-green-300"></div>
+                    <span>Present</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-red-100 border border-red-300"></div>
+                    <span>Absent</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-yellow-100 border border-yellow-300"></div>
+                    <span>Holiday</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-gray-100 border border-gray-300"></div>
+                    <span>Week Off</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-blue-100 border border-blue-300"></div>
+                    <span>Half Day</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-purple-100 border border-purple-300"></div>
+                    <span>On Leave</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-orange-100 border border-orange-300"></div>
+                    <span>Pending</span>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 

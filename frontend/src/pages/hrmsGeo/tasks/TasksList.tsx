@@ -392,30 +392,10 @@ const TasksList = () => {
 
   // Handle approve task completion with OTP check
   const handleApproveTaskCompletion = async (task: any) => {
-    // Check if OTP verification is enabled and if OTP is not verified
-    if (taskSettings.enableOtpVerification && !task.customFields?.otpVerified) {
-      // OTP verification is required
-      setPendingApprovalTask(task);
-      setOtpModalOpen(true);
-      // Generate OTP first
-      try {
-        await generateTaskOTP(task._id).unwrap();
-        toast({
-          title: "OTP Sent",
-          description:
-            "OTP has been sent to customer's email. Please verify OTP to approve task completion.",
-        });
-      } catch (error: any) {
-        toast({
-          title: "Error",
-          description: error?.data?.error?.message || "Failed to generate OTP",
-          variant: "destructive",
-        });
-      }
-      return;
-    }
-
-    // If OTP is not required or already verified, approve directly
+    // OTP should only be required during task completion by employee, not during admin approval
+    // If OTP verification is enabled and OTP is not verified, the task should not be in waiting_for_approval status
+    // Admin approval should directly approve without generating OTP
+    
     try {
       await approveTaskCompletion(task._id).unwrap();
       toast({

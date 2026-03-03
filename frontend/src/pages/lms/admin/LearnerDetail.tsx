@@ -90,7 +90,7 @@ const LearnerDetail = () => {
             <Result
                 status="404"
                 title="Learner Not Found"
-                extra={<Button type="primary" onClick={() => navigate('/lms/learners')}>Back to List</Button>}
+                extra={<Button type="primary" onClick={() => navigate('/admin/lms/learners')}>Back to List</Button>}
             />
         </MainLayout>
     );
@@ -102,7 +102,7 @@ const LearnerDetail = () => {
                     <Button
                         type="link"
                         icon={<ArrowLeftOutlined />}
-                        onClick={() => navigate('/lms/learners')}
+                        onClick={() => navigate('/admin/lms/learners')}
                         className="pl-0 text-gray-600"
                     >
                         Back to Learners
@@ -478,7 +478,7 @@ const LearnerDetail = () => {
                     footer={<div className="flex justify-end"><Button type="primary" onClick={() => setViewLogCourse(null)}>Close</Button></div>}
                     width={720}
                     centered
-                    destroyOnClose
+                    destroyOnHidden
                 >
                     {viewLogCourse && (
                         <div className="pt-2">

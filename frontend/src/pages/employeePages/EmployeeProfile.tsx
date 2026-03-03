@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -48,9 +48,19 @@ import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { message } from "antd";
 import { formatINR } from "@/utils/currencyUtils";
+import { useAppSelector } from "@/store/hooks";
 
 const EmployeeProfile = () => {
   const { data, isLoading, error, refetch } = useGetEmployeeProfileQuery();
+  const currentUser = useAppSelector((state) => state.auth.user);
+  
+  // Check if current user is an Employee (not Admin/Super Admin)
+  // Employees can only view their profile and upload avatar, not edit other fields
+  const isEmployee = useMemo(() => {
+    if (!currentUser || !currentUser.role) return true; // Default to employee for safety
+    const role = String(currentUser.role).trim();
+    return role === "Employee" || role === "EmployeeAdmin";
+  }, [currentUser]);
   const [uploadDocument, { isLoading: isUploading }] =
     useUploadOnboardingDocumentMutation();
   const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
@@ -67,6 +77,13 @@ const EmployeeProfile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<any>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Prevent employees from entering edit mode
+  useEffect(() => {
+    if (isEmployee && isEditing) {
+      setIsEditing(false);
+    }
+  }, [isEmployee, isEditing]);
 
   const profile = data?.data?.profile;
   const staffData = data?.data?.staffData;
@@ -258,17 +275,21 @@ const EmployeeProfile = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
             <p className="text-muted-foreground mt-1">
-              {isEditing
+              {isEmployee
+                ? "View your employee profile. Profile details can only be edited by administrators."
+                : isEditing
                 ? "Edit your employee profile and information"
                 : "View your employee profile and information"}
             </p>
           </div>
-          {!isEditing ? (
+          {/* Only show edit button for admins, not for employees */}
+          {!isEmployee && !isEditing && (
             <Button variant="outline" onClick={() => setIsEditing(true)}>
               <Edit className="w-4 h-4 mr-2" />
               Edit Profile
             </Button>
-          ) : (
+          )}
+          {!isEmployee && isEditing && (
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel}>
                 <X className="w-4 h-4 mr-2" />
@@ -279,6 +300,11 @@ const EmployeeProfile = () => {
                 {isUpdating ? "Saving..." : "Save Changes"}
               </Button>
             </div>
+          )}
+          {isEmployee && (
+            <p className="text-sm text-muted-foreground">
+              Profile details can only be edited by administrators. You can upload your profile image below.
+            </p>
           )}
         </div>
 
@@ -331,7 +357,7 @@ const EmployeeProfile = () => {
               </div>
               <div className="flex-1 text-center sm:text-left">
                 <h2 className="text-2xl font-bold">
-                  {isEditing ? (
+                  {isEditing && !isEmployee ? (
                     <Input
                       value={formData.name}
                       onChange={(e) =>
@@ -361,7 +387,7 @@ const EmployeeProfile = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4" />
-                    {isEditing ? (
+                    {isEditing && !isEmployee ? (
                       <Input
                         value={formData.phone}
                         onChange={(e) =>
@@ -395,7 +421,7 @@ const EmployeeProfile = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>Full Name</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.name}
                     onChange={(e) => handleInputChange("name", e.target.value)}
@@ -421,7 +447,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Phone</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.phone}
                     onChange={(e) => handleInputChange("phone", e.target.value)}
@@ -433,7 +459,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Gender</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Select
                     value={formData.gender}
                     onValueChange={(val) => handleInputChange("gender", val)}
@@ -458,7 +484,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Date of Birth</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     type="date"
                     value={formData.dob}
@@ -475,7 +501,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Marital Status</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Select
                     value={formData.maritalStatus}
                     onValueChange={(val) =>
@@ -500,7 +526,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Blood Group</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bloodGroup}
                     onChange={(e) =>
@@ -587,7 +613,7 @@ const EmployeeProfile = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <Label>Address Line 1</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.address?.line1 || ""}
                     onChange={(e) =>
@@ -604,7 +630,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>City</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.address?.city || ""}
                     onChange={(e) =>
@@ -621,7 +647,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>State</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.address?.state || ""}
                     onChange={(e) =>
@@ -638,7 +664,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Postal Code</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.address?.postalCode || ""}
                     onChange={(e) =>
@@ -655,7 +681,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Country</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.address?.country || ""}
                     onChange={(e) =>
@@ -686,7 +712,7 @@ const EmployeeProfile = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>UAN (Universal Account Number)</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.uan || ""}
                     onChange={(e) => handleInputChange("uan", e.target.value)}
@@ -699,7 +725,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>PAN Number</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.pan || ""}
                     onChange={(e) => handleInputChange("pan", e.target.value)}
@@ -712,7 +738,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Aadhaar Number</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.aadhaar || ""}
                     onChange={(e) =>
@@ -729,7 +755,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>PF Number</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.pfNumber || ""}
                     onChange={(e) =>
@@ -746,7 +772,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>ESI Number</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.esiNumber || ""}
                     onChange={(e) =>
@@ -777,7 +803,7 @@ const EmployeeProfile = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>Bank Name</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bankDetails?.bankName || ""}
                     onChange={(e) =>
@@ -794,7 +820,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Account Number</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bankDetails?.accountNumber || ""}
                     onChange={(e) =>
@@ -814,7 +840,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>IFSC Code</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bankDetails?.ifscCode || ""}
                     onChange={(e) =>
@@ -831,7 +857,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>Account Holder Name</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bankDetails?.accountHolderName || ""}
                     onChange={(e) =>
@@ -851,7 +877,7 @@ const EmployeeProfile = () => {
               </div>
               <div>
                 <Label>UPI ID</Label>
-                {isEditing ? (
+                {isEditing && !isEmployee ? (
                   <Input
                     value={formData.bankDetails?.upiId || ""}
                     onChange={(e) =>
@@ -1099,7 +1125,8 @@ const EmployeeProfile = () => {
                             >
                               <Download className="w-4 h-4" />
                             </Button>
-                            {doc.status !== DOCUMENT_STATUS.COMPLETED && (
+                            {/* Hide upload button for employees - only admin can upload */}
+                            {false && doc.status !== DOCUMENT_STATUS.COMPLETED && (
                               <label className="cursor-pointer">
                                 <input
                                   type="file"
@@ -1153,56 +1180,8 @@ const EmployeeProfile = () => {
                             )}
                           </>
                         ) : (
-                          <label className="cursor-pointer">
-                            <input
-                              type="file"
-                              className="hidden"
-                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (file && onboarding?._id) {
-                                  setUploadingDocId(doc._id);
-                                  try {
-                                    await uploadDocument({
-                                      onboardingId: onboarding._id,
-                                      documentId: doc._id,
-                                      file,
-                                    }).unwrap();
-                                    message.success(
-                                      "Document uploaded successfully",
-                                    );
-                                    refetch();
-                                  } catch (error: any) {
-                                    message.error(
-                                      error?.data?.error?.message ||
-                                        "Failed to upload document",
-                                    );
-                                  } finally {
-                                    setUploadingDocId(null);
-                                    e.target.value = "";
-                                  }
-                                }
-                              }}
-                              disabled={
-                                isUploading || uploadingDocId === doc._id
-                              }
-                            />
-                            <Button
-                              size="sm"
-                              variant="default"
-                              asChild
-                              disabled={
-                                isUploading || uploadingDocId === doc._id
-                              }
-                            >
-                              <span>
-                                <Upload className="w-3 h-3 mr-1" />
-                                {uploadingDocId === doc._id
-                                  ? "Uploading..."
-                                  : "Upload"}
-                              </span>
-                            </Button>
-                          </label>
+                          /* Hide upload button for employees - only admin can upload */
+                          <span className="text-sm text-muted-foreground">Not uploaded</span>
                         )}
                       </div>
                     </div>

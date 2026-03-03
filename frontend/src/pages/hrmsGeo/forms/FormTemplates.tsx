@@ -59,6 +59,7 @@ import { useGetStaffQuery } from "@/store/api/staffApi";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Switch } from "@/components/ui/switch";
+import { Pagination } from "@/components/ui/pagination";
 
 const FormTemplates = () => {
   const location = useLocation();
@@ -90,12 +91,17 @@ const FormTemplates = () => {
   const [templateName, setTemplateName] = useState("");
   const [fields, setFields] = useState<FormTemplateField[]>([]);
   const [showTemplateNameActions, setShowTemplateNameActions] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const {
     data: templatesData,
     isLoading,
     refetch,
-  } = useGetFormTemplatesQuery();
+  } = useGetFormTemplatesQuery({
+    page: currentPage,
+    limit: pageSize,
+  });
   const [createTemplate, { isLoading: isCreating }] =
     useCreateFormTemplateMutation();
   const [updateTemplate, { isLoading: isUpdating }] =
@@ -591,6 +597,27 @@ const FormTemplates = () => {
                     </table>
                   </div>
                 )}
+
+                {/* Pagination */}
+                {templatesData?.data?.pagination && (
+                  <div className="mt-4 pt-4 border-t">
+                    <Pagination
+                      page={currentPage}
+                      pageSize={pageSize}
+                      total={templatesData.data.pagination.total}
+                      pages={templatesData.data.pagination.pages}
+                      onPageChange={(newPage) => {
+                        setCurrentPage(newPage);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      onPageSizeChange={(newSize) => {
+                        setPageSize(newSize);
+                        setCurrentPage(1);
+                      }}
+                      showPageSizeSelector={true}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -853,33 +880,53 @@ const FormTemplates = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
-            {staffList.map((staff: any) => {
-              const isSelected = selectedStaffIds.includes(staff._id);
-              return (
-                <div key={staff._id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`staff-${staff._id}`}
-                    checked={isSelected}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedStaffIds([...selectedStaffIds, staff._id]);
-                      } else {
-                        setSelectedStaffIds(
-                          selectedStaffIds.filter((id) => id !== staff._id),
-                        );
-                      }
-                    }}
-                  />
-                  <Label
-                    htmlFor={`staff-${staff._id}`}
-                    className="text-sm font-normal cursor-pointer flex-1"
-                  >
-                    {staff.name}{" "}
-                    {staff.employeeId ? `(${staff.employeeId})` : ""}
-                  </Label>
-                </div>
-              );
-            })}
+            {staffList
+              .filter((staff: any) => {
+                // Filter out staff already assigned to other templates
+                const isAssignedToOtherTemplate = templates.some((template: any) => {
+                  if (template._id === selectedTemplateForAssign?._id) {
+                    // Skip the current template being edited
+                    return false;
+                  }
+                  if (template.assignedTo && Array.isArray(template.assignedTo)) {
+                    return template.assignedTo.some((assignedStaff: any) => {
+                      const assignedStaffId = typeof assignedStaff === "object" 
+                        ? assignedStaff._id || assignedStaff 
+                        : assignedStaff;
+                      return String(assignedStaffId) === String(staff._id);
+                    });
+                  }
+                  return false;
+                });
+                return !isAssignedToOtherTemplate;
+              })
+              .map((staff: any) => {
+                const isSelected = selectedStaffIds.includes(staff._id);
+                return (
+                  <div key={staff._id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`staff-${staff._id}`}
+                      checked={isSelected}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedStaffIds([...selectedStaffIds, staff._id]);
+                        } else {
+                          setSelectedStaffIds(
+                            selectedStaffIds.filter((id) => id !== staff._id),
+                          );
+                        }
+                      }}
+                    />
+                    <Label
+                      htmlFor={`staff-${staff._id}`}
+                      className="text-sm font-normal cursor-pointer flex-1"
+                    >
+                      {staff.name}{" "}
+                      {staff.employeeId ? `(${staff.employeeId})` : ""}
+                    </Label>
+                  </div>
+                );
+              })}
           </div>
           <DialogFooter>
             <Button

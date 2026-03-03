@@ -93,7 +93,7 @@ export const customerApi = apiSlice.injectEndpoints({
           };
         };
       },
-      { search?: string; page?: number; limit?: number; startDate?: string; endDate?: string }
+      { search?: string; page?: number; limit?: number; startDate?: string; endDate?: string; status?: string }
     >({
       query: (params) => ({
         url: '/customers',

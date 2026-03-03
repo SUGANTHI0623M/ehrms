@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,8 +18,16 @@ import {
 } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
 import { useGetEmployeeDashboardQuery, useGetEmployeeProfileQuery } from "@/store/api/employeeApi";
-import { useGetMyCelebrationTodayQuery } from "@/store/api/celebrationApi";
+import { useGetMyCelebrationTodayQuery, useGetUpcomingQuery } from "@/store/api/celebrationApi";
 import CelebrationHeroCard from "@/components/celebration/CelebrationHeroCard";
+import CelebrationHighlightCard from "@/pages/celebration/CelebrationHighlightCard";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 import { useGetEmployeeAttendanceQuery, useGetTodayAttendanceQuery, useMarkAttendanceMutation } from "@/store/api/attendanceApi";
 import { useGetEmployeeHolidaysQuery } from "@/store/api/holidayApi";
 import { useGetBusinessQuery } from "@/store/api/settingsApi";
@@ -39,6 +47,7 @@ import {
   type SalaryStructureInputs,
   type CalculatedSalaryStructure
 } from "@/utils/salaryStructureCalculation.util";
+import LearningConsistencyCard from "@/components/lms/LearningConsistencyCard";
 // Helper function to format date
 const formatDate = (dateString: string | Date) => {
   if (!dateString) return "N/A";
@@ -61,6 +70,41 @@ const EmployeeDashboard = () => {
 
   const { data: celebrationData } = useGetMyCelebrationTodayQuery();
   const myCelebration = celebrationData?.data;
+  const celebrationList = myCelebration?.celebrations ?? [];
+
+  const now = new Date();
+  const celebrationYear = now.getFullYear();
+  const celebrationMonth = now.getMonth() + 1;
+  const { data: upcomingData, isLoading: upcomingLoading } = useGetUpcomingQuery(
+    { year: celebrationYear, month: celebrationMonth },
+    { skip: false }
+  );
+  const todayCelebrations = useMemo(() => {
+    const list: Array<{ name: string; type: "birthday" | "anniversary"; date: string; department: string }> = [];
+    const birthdays = upcomingData?.data?.birthdays ?? [];
+    const anniversaries = upcomingData?.data?.anniversaries ?? [];
+    birthdays.forEach((b: { isToday?: boolean; staff?: { name?: string; department?: string }; date?: string }) => {
+      if (b.isToday && b.staff) {
+        list.push({
+          name: b.staff.name ?? "",
+          type: "birthday",
+          date: b.date ? new Date(b.date).toISOString() : "",
+          department: b.staff.department ?? "",
+        });
+      }
+    });
+    anniversaries.forEach((a: { isToday?: boolean; staff?: { name?: string; department?: string }; date?: string }) => {
+      if (a.isToday && a.staff) {
+        list.push({
+          name: a.staff.name ?? "",
+          type: "anniversary",
+          date: a.date ? new Date(a.date).toISOString() : "",
+          department: a.staff.department ?? "",
+        });
+      }
+    });
+    return list;
+  }, [upcomingData?.data?.birthdays, upcomingData?.data?.anniversaries]);
 
   // Get current month date range - only till current date
   const currentDate = new Date();
@@ -71,12 +115,13 @@ const EmployeeDashboard = () => {
   const endDateStr = format(attendanceEndDate, "yyyy-MM-dd");
 
   // Fetch attendance for current month - only till current date
+  // Use limit: 100 to get all attendance records for the month (max 31 days)
   const { data: attendanceData, isLoading: isLoadingAttendance, refetch: refetchAttendance } = useGetEmployeeAttendanceQuery(
     {
       employeeId: staffId || "current",
       startDate: startDateStr,
       endDate: endDateStr,
-      limit: 10,
+      limit: 100,
       page: 1
     },
     { skip: !staffId && !currentUser }
@@ -94,8 +139,6 @@ const EmployeeDashboard = () => {
 
   // Fetch business settings to get weekly-off pattern
   const { data: businessData } = useGetBusinessQuery();
-  const weeklyOffPattern = businessData?.data?.business?.settings?.business?.weeklyOffPattern || 'standard';
-  const standardWeeklyHolidays = businessData?.data?.business?.settings?.business?.weeklyHolidays || [];
 
   // Get employee's staff record to fetch salary structure
   const { data: employeeProfileData } = useGetEmployeeProfileQuery(undefined, {
@@ -111,6 +154,56 @@ const EmployeeDashboard = () => {
   );
   const staffWithSalary = staffDataResponse?.data?.staff || staffDataFromProfile;
 
+  // Get weekly holiday settings from staff template or business settings
+  // Check if staff has a weekly holiday template assigned
+  const weeklyHolidayTemplate = (staffWithSalary as any)?.weeklyHolidayTemplateId;
+  const isWeeklyHolidayTemplatePopulated = weeklyHolidayTemplate && 
+    typeof weeklyHolidayTemplate === 'object' && 
+    (weeklyHolidayTemplate as any).settings;
+  
+  // Extract weekly holiday settings - priority: staff template > business settings
+  const weeklyHolidaySettings = useMemo(() => {
+    if (isWeeklyHolidayTemplatePopulated) {
+      // Use staff's weekly holiday template (if isActive is not present, assume it's active)
+      const template = weeklyHolidayTemplate as any;
+      const isActive = template.isActive !== undefined ? template.isActive : true;
+      
+      if (isActive && template.settings) {
+        return {
+          weeklyOffPattern: template.settings?.weeklyOffPattern || 'standard',
+          weeklyHolidays: template.settings?.weeklyHolidays || [],
+          allowAttendanceOnWeeklyOff: template.settings?.allowAttendanceOnWeeklyOff || false
+        };
+      }
+    }
+    
+    // Fall back to business settings
+    return {
+      weeklyOffPattern: businessData?.data?.business?.settings?.business?.weeklyOffPattern || 'standard',
+      weeklyHolidays: businessData?.data?.business?.settings?.business?.weeklyHolidays || [],
+      allowAttendanceOnWeeklyOff: businessData?.data?.business?.settings?.business?.allowAttendanceOnWeeklyOff || false
+    };
+  }, [weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, businessData, staffWithSalary]);
+  
+  const weeklyOffPattern = weeklyHolidaySettings.weeklyOffPattern;
+  const standardWeeklyHolidays = weeklyHolidaySettings.weeklyHolidays;
+
+  // Debug logging for weekly holiday settings
+  useEffect(() => {
+    if (staffWithSalary && currentUser) {
+      console.log('[EmployeeDashboard] Weekly Holiday Settings:', {
+        employeeId: (staffWithSalary as any).employeeId || (staffWithSalary as any)._id,
+        employeeName: (staffWithSalary as any).name,
+        hasWeeklyHolidayTemplate: !!weeklyHolidayTemplate,
+        isTemplatePopulated: isWeeklyHolidayTemplatePopulated,
+        templateName: (weeklyHolidayTemplate as any)?.name,
+        weeklyOffPattern,
+        weeklyHolidays: standardWeeklyHolidays.map((wh: any) => ({ day: wh.day, name: wh.name })),
+        source: isWeeklyHolidayTemplatePopulated ? 'staff_template' : 'business_settings'
+      });
+    }
+  }, [staffWithSalary, currentUser, weeklyHolidayTemplate, isWeeklyHolidayTemplatePopulated, weeklyOffPattern, standardWeeklyHolidays]);
+
   // Fetch current month payroll data
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
@@ -123,6 +216,7 @@ const EmployeeDashboard = () => {
   }, {
     skip: !staffIdForSalary
   });
+  const [viewPayslip] = useLazyViewPayslipQuery();
   const currentPayroll = payrollData?.data?.payrolls?.[0];
 
   // Get today's attendance for quick punch in/out
@@ -138,22 +232,26 @@ const EmployeeDashboard = () => {
     .map(h => new Date(h.date));
 
   // Calculate present days from attendance (including half-days as 0.5)
-  const presentDays = attendanceRecords.reduce((sum: number, record: any) => {
-    if (record.status === "Present" || record.status === "Approved") {
-      // Check if it's a half-day (has halfDaySession)
-      if (record.halfDaySession) {
-        return sum + 0.5;
-      } else {
-        return sum + 1;
-      }
-    } else if (record.status === "Half Day") {
-      return sum + 0.5;
-    } else if (record.status === "Pending" && record.halfDaySession) {
-      // Count pending half-day leaves as 0.5 (will be marked as Present after verification)
-      return sum + 0.5;
-    }
-    return sum;
-  }, 0);
+  // Use backend stats if available (more accurate), otherwise calculate from records
+  const presentDaysFromBackend = stats?.attendanceSummary?.presentDays;
+  const presentDays = presentDaysFromBackend !== undefined 
+    ? presentDaysFromBackend 
+    : attendanceRecords.reduce((sum: number, record: any) => {
+        if (record.status === "Present" || record.status === "Approved") {
+          // Check if it's a half-day (has halfDaySession)
+          if (record.halfDaySession) {
+            return sum + 0.5;
+          } else {
+            return sum + 1;
+          }
+        } else if (record.status === "Half Day") {
+          return sum + 0.5;
+        } else if (record.status === "Pending" && record.halfDaySession) {
+          // Count pending half-day leaves as 0.5 (will be marked as Present after verification)
+          return sum + 0.5;
+        }
+        return sum;
+      }, 0);
 
   // Calculate FULL month working days (for daily rate calculation)
   // This ensures daily rate is based on full month, not just till current date
@@ -161,8 +259,9 @@ const EmployeeDashboard = () => {
     currentDate.getFullYear(),
     currentDate.getMonth(),
     monthHolidays,
-    weeklyOffPattern
-    // No endDate - calculate for full month
+    weeklyOffPattern,
+    undefined, // No endDate - calculate for full month
+    standardWeeklyHolidays // Pass custom weekly holidays for standard pattern
   );
   
   // Calculate working days - only till current date (for display purposes)
@@ -171,7 +270,8 @@ const EmployeeDashboard = () => {
     currentDate.getMonth(),
     monthHolidays,
     weeklyOffPattern,
-    currentDate // Pass current date as endDate to calculate only till today
+    currentDate, // Pass current date as endDate to calculate only till today
+    standardWeeklyHolidays // Pass custom weekly holidays for standard pattern
   );
   
   // IMPORTANT: Use FULL month working days for salary calculation
@@ -444,8 +544,13 @@ const EmployeeDashboard = () => {
         // Odd Saturdays are working days, continue to check attendance
       }
     } else {
-      // Standard pattern: Saturday and Sunday are weekends
-      if (dayOfWeek === 0 || dayOfWeek === 6) return "weekend";
+      // Standard pattern: Use weeklyHolidays array if provided, otherwise default to Saturday and Sunday
+      if (standardWeeklyHolidays && standardWeeklyHolidays.length > 0) {
+        if (standardWeeklyHolidays.some((wh: any) => wh.day === dayOfWeek)) return "weekend";
+      } else {
+        // Default: Saturday and Sunday are weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) return "weekend";
+      }
     }
 
     const attendance = attendanceRecords.find(record => isSameDay(parseISO(record.date), date));
@@ -524,14 +629,36 @@ const EmployeeDashboard = () => {
   return (
     <MainLayout>
       <div className="p-4 sm:p-6 max-w-7xl mx-auto w-full">
-        {myCelebration?.hasCelebration && myCelebration.greeting && (
-          <CelebrationHeroCard
-            type={myCelebration.type === "work_anniversary" ? "work_anniversary" : "birthday"}
-            greeting={myCelebration.greeting}
-            messageBody={myCelebration.messageBody || ""}
-            companyName={myCelebration.companyName || "Company"}
-            yearsOfService={myCelebration.yearsOfService}
-          />
+        {celebrationList.length > 0 && (
+          celebrationList.length === 1 ? (
+            <CelebrationHeroCard
+              type={celebrationList[0].type === "work_anniversary" ? "work_anniversary" : "birthday"}
+              greeting={celebrationList[0].greeting}
+              messageBody={celebrationList[0].messageBody || ""}
+              companyName={celebrationList[0].companyName || "Company"}
+              yearsOfService={celebrationList[0].yearsOfService}
+            />
+          ) : (
+            <div className="relative mb-6">
+              <Carousel opts={{ align: "start", loop: true }} className="w-full">
+                <CarouselContent>
+                  {celebrationList.map((item, index) => (
+                    <CarouselItem key={index}>
+                      <CelebrationHeroCard
+                        type={item.type === "work_anniversary" ? "work_anniversary" : "birthday"}
+                        greeting={item.greeting}
+                        messageBody={item.messageBody || ""}
+                        companyName={item.companyName || "Company"}
+                        yearsOfService={item.yearsOfService}
+                      />
+                    </CarouselItem>
+                  ))}
+                </CarouselContent>
+                <CarouselPrevious className="-left-2 sm:left-0 top-1/2 -translate-y-1/2 z-10" />
+                <CarouselNext className="-right-2 sm:right-0 top-1/2 -translate-y-1/2 z-10" />
+              </Carousel>
+            </div>
+          )
         )}
         <div className="space-y-6">
           {/* Header */}
@@ -550,15 +677,6 @@ const EmployeeDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{stats?.pendingLeaves || 0}</div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Active Loans</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.activeLoans || 0}</div>
               </CardContent>
             </Card>
 
@@ -644,6 +762,13 @@ const EmployeeDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+
+            <div className="min-h-[220px] flex flex-col">
+              <CelebrationHighlightCard
+                celebrations={todayCelebrations}
+                loading={upcomingLoading}
+              />
+            </div>
           </div>
 
           {/* Salary Overview Card - Based on Admin Salary Structure */}
@@ -676,7 +801,7 @@ const EmployeeDashboard = () => {
                       </div>
                     </div>
                     <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
-                      <div className="text-sm text-muted-foreground mb-1">This Month Gross</div>
+                      <div className="text-sm text-muted-foreground mb-1">Monthly Gross</div>
                       <div className="text-2xl font-bold text-blue-600">
                         {formatCurrency(proratedSalary.proratedGrossSalary)}
                       </div>
@@ -699,7 +824,7 @@ const EmployeeDashboard = () => {
                       </div>
                     </div>
                     <div className="p-4 border rounded-lg bg-primary/10">
-                      <div className="text-sm text-muted-foreground mb-1">This Month Net</div>
+                      <div className="text-sm text-muted-foreground mb-1">Monthly Net</div>
                       <div className="text-2xl font-bold text-primary">
                         {formatCurrency(proratedSalary.proratedNetSalary)}
                       </div>
@@ -745,38 +870,48 @@ const EmployeeDashboard = () => {
                       </div>
                     </div>
                     {/* Detailed Breakdown */}
-                    {(stats?.attendanceSummary?.fullDayPresent || stats?.attendanceSummary?.halfDayPresent || 
-                      stats?.attendanceSummary?.fullDayLeaves || stats?.attendanceSummary?.halfDayLeaves) && (
-                      <div className="mt-4 pt-4 border-t">
-                        <div className="text-xs font-medium text-muted-foreground mb-2">Detailed Breakdown</div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                          {stats.attendanceSummary.fullDayPresent > 0 && (
-                            <div>
-                              <div className="text-muted-foreground">Full Day Present</div>
-                              <div className="font-semibold text-green-600">{stats.attendanceSummary.fullDayPresent}</div>
+                    {(() => {
+                      const attendanceSummary = stats?.attendanceSummary as any;
+                      const fullDayPresent = attendanceSummary?.fullDayPresent;
+                      const halfDayPresent = attendanceSummary?.halfDayPresent;
+                      const fullDayLeaves = attendanceSummary?.fullDayLeaves;
+                      const halfDayLeaves = attendanceSummary?.halfDayLeaves;
+                      
+                      if (fullDayPresent || halfDayPresent || fullDayLeaves || halfDayLeaves) {
+                        return (
+                          <div className="mt-4 pt-4 border-t">
+                            <div className="text-xs font-medium text-muted-foreground mb-2">Detailed Breakdown</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                              {fullDayPresent > 0 && (
+                                <div>
+                                  <div className="text-muted-foreground">Full Day Present</div>
+                                  <div className="font-semibold text-green-600">{fullDayPresent}</div>
+                                </div>
+                              )}
+                              {halfDayPresent > 0 && (
+                                <div>
+                                  <div className="text-muted-foreground">Half Day Present</div>
+                                  <div className="font-semibold text-blue-600">{halfDayPresent}</div>
+                                </div>
+                              )}
+                              {fullDayLeaves > 0 && (
+                                <div>
+                                  <div className="text-muted-foreground">Full Day Leaves</div>
+                                  <div className="font-semibold text-purple-600">{fullDayLeaves}</div>
+                                </div>
+                              )}
+                              {halfDayLeaves > 0 && (
+                                <div>
+                                  <div className="text-muted-foreground">Half Day Leaves</div>
+                                  <div className="font-semibold text-orange-600">{halfDayLeaves}</div>
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {stats.attendanceSummary.halfDayPresent > 0 && (
-                            <div>
-                              <div className="text-muted-foreground">Half Day Present</div>
-                              <div className="font-semibold text-blue-600">{stats.attendanceSummary.halfDayPresent}</div>
-                            </div>
-                          )}
-                          {stats.attendanceSummary.fullDayLeaves > 0 && (
-                            <div>
-                              <div className="text-muted-foreground">Full Day Leaves</div>
-                              <div className="font-semibold text-purple-600">{stats.attendanceSummary.fullDayLeaves}</div>
-                            </div>
-                          )}
-                          {stats.attendanceSummary.halfDayLeaves > 0 && (
-                            <div>
-                              <div className="text-muted-foreground">Half Day Leaves</div>
-                              <div className="font-semibold text-orange-600">{stats.attendanceSummary.halfDayLeaves}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                     {/* Fine Summary */}
                     {fineInfo.totalFineAmount > 0 && (
                       <div className="mt-3 pt-3 border-t">
@@ -1114,6 +1249,11 @@ const EmployeeDashboard = () => {
                 )}
               </CardContent>
             </Card>
+
+            {/* Learning consistency */}
+            <div className="mt-6">
+              <LearningConsistencyCard />
+            </div>
           </div>
         </div>
       </div>

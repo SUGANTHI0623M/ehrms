@@ -713,7 +713,7 @@ const EmployeeLiveSessions: React.FC = () => {
                 okText="Cancel session"
                 okType="danger"
                 cancelText="Keep session"
-                destroyOnClose
+                destroyOnHidden
                 centered
                 afterClose={() => cancelReasonForm.resetFields()}
             >
@@ -766,7 +766,7 @@ const EmployeeLiveSessions: React.FC = () => {
                     </div>
                 }
                 width={800}
-                destroyOnClose
+                destroyOnHidden
                 maskClosable={false}
                 centered
                 className="custom-modal top-4"
@@ -903,7 +903,7 @@ const EmployeeLiveSessions: React.FC = () => {
                 onCancel={() => { setLeaveModalOpen(false); setLeaveModalSession(null); leaveLogForm.resetFields(); }}
                 footer={null}
                 width={520}
-                destroyOnClose
+                destroyOnHidden
                 maskClosable={false}
                 centered
                 className="custom-modal top-4"

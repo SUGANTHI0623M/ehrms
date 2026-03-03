@@ -154,11 +154,13 @@ export const getUserPermissions = (
     // Map sidebar modules to permission modules
     const sidebarModuleMap: Record<string, string> = {
       'interview': 'interview',
+      'celebration': 'celebration',
       'staff': 'staff',
       'payroll': 'payroll',
       'hrms-geo': 'hrms-geo',
       'performance': 'performance',
       'lms': 'lms',
+      'announcements': 'announcements',
       'assets': 'assets',
       'integrations': 'integrations',
       'settings': 'settings',
@@ -174,7 +176,6 @@ export const getUserPermissions = (
       'offer_letter': 'interview',
       'document_collection': 'interview',
       'background_verification': 'interview',
-      'celebration': 'interview',
       'refer_candidate': 'interview',
       // Staff sub-modules
       'staff_overview': 'staff',
@@ -206,11 +207,12 @@ export const getUserPermissions = (
       'customers': 'hrms-geo',
       'geo_settings': 'hrms-geo',
       // LMS sub-modules
-      'course_library': 'lms',
-      'live_session': 'lms',
-      'quiz_generator': 'lms',
-      'assessment': 'lms',
-      'score_analytics': 'lms',
+        'lms_dashboard': 'lms',
+        'course_library': 'lms',
+        'learners': 'lms',
+        'live_session': 'lms',
+        'assessment': 'lms',
+        'score_analytics': 'lms',
       // Assets sub-modules
       'assets_type': 'assets',
       'assets': 'assets',
@@ -259,8 +261,21 @@ export const getUserPermissions = (
           { module: 'offer_letter', actions: ['read', 'view'] },
           { module: 'document_collection', actions: ['read', 'view'] },
           { module: 'background_verification', actions: ['read', 'view'] },
-          { module: 'celebration', actions: ['read', 'view'] },
           { module: 'refer_candidate', actions: ['read', 'view'] }
+        );
+      }
+      
+      // Add sub-modules for celebration
+      if (sidebarModule === 'celebration' || parentModule === 'celebration') {
+        sidebarPerms.push(
+          { module: 'celebration', actions: ['read', 'view'] }
+        );
+      }
+      
+      // Add sub-modules for announcements
+      if (sidebarModule === 'announcements' || parentModule === 'announcements') {
+        sidebarPerms.push(
+          { module: 'announcements', actions: ['read', 'view'] }
         );
       }
     });

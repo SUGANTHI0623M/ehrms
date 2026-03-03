@@ -96,10 +96,24 @@ export const formApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // Form Templates
     getFormTemplates: builder.query<
-      { success: boolean; data: { templates: FormTemplate[] } },
-      void
+      { 
+        success: boolean; 
+        data: { 
+          templates: FormTemplate[];
+          pagination?: {
+            page: number;
+            limit: number;
+            total: number;
+            pages: number;
+          };
+        } 
+      },
+      { page?: number; limit?: number }
     >({
-      query: () => '/form-templates',
+      query: (params) => ({
+        url: '/form-templates',
+        params,
+      }),
       providesTags: ['FormTemplate'],
     }),
     getFormTemplateById: builder.query<

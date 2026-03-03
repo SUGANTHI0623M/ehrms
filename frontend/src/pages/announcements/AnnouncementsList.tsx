@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
 import { Card, Table, Modal, Dropdown, message, Typography, Button, Tag, Space, Tabs } from "antd";
@@ -10,6 +10,7 @@ import {
   EditOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import {
   useGetAnnouncementsQuery,
@@ -17,6 +18,8 @@ import {
   useDeleteAnnouncementMutation,
   type Announcement,
 } from "@/store/api/announcementApi";
+import { getDisplayStatus, DISPLAY_STATUS_CONFIG, canEditAnnouncement } from "./announcementUtils";
+import type { DisplayStatus } from "./announcementUtils";
 import dayjs from "dayjs";
 
 const getApiUrl = () => {
@@ -29,7 +32,7 @@ const getApiUrl = () => {
       hostname.startsWith("192.168.") ||
       hostname.startsWith("10.") ||
       hostname.startsWith("172.16.");
-    if (isLocal) return "http://localhost:9000";
+    if (isLocal) return "http://localhost:7001";
   }
   if (import.meta.env.VITE_API_URL) {
     return (import.meta.env.VITE_API_URL as string).replace("/api", "");
@@ -46,16 +49,34 @@ const AnnouncementsList = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // Fetch all announcements (no status filter), then filter by display status on the client
   const { data, isLoading } = useGetAnnouncementsQuery({
-    status: statusFilter,
-    page,
-    limit: pageSize,
+    page: 1,
+    limit: 1000,
   });
   const [publishAnnouncement] = usePublishAnnouncementMutation();
   const [deleteAnnouncement] = useDeleteAnnouncementMutation();
 
-  const announcements = data?.data?.announcements ?? [];
-  const pagination = data?.data?.pagination ?? { page: 1, limit: 10, total: 0, pages: 0 };
+  const allAnnouncements = data?.data?.announcements ?? [];
+
+  const filteredAnnouncements = useMemo(() => {
+    if (!statusFilter || statusFilter === "all") return allAnnouncements;
+    const tabStatus = statusFilter as DisplayStatus;
+    return allAnnouncements.filter((r) => getDisplayStatus(r) === tabStatus);
+  }, [allAnnouncements, statusFilter]);
+
+  const paginatedAnnouncements = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredAnnouncements.slice(start, start + pageSize);
+  }, [filteredAnnouncements, page, pageSize]);
+
+  const totalFiltered = filteredAnnouncements.length;
+  const pagination = {
+    page,
+    limit: pageSize,
+    total: totalFiltered,
+    pages: Math.ceil(totalFiltered / pageSize) || 1,
+  };
 
   const handlePublish = useCallback(
     async (record: Announcement) => {
@@ -89,13 +110,9 @@ const AnnouncementsList = () => {
     [deleteAnnouncement]
   );
 
-  const getStatusTag = (status: string) => {
-    const config: Record<string, { color: string; text: string }> = {
-      draft: { color: "default", text: "Draft" },
-      published: { color: "green", text: "Published" },
-      expired: { color: "red", text: "Expired" },
-    };
-    const { color, text } = config[status] ?? { color: "default", text: status };
+  const getStatusTag = (record: Announcement) => {
+    const displayStatus = getDisplayStatus(record);
+    const { color, text } = DISPLAY_STATUS_CONFIG[displayStatus];
     return <Tag color={color}>{text}</Tag>;
   };
 
@@ -167,43 +184,47 @@ const AnnouncementsList = () => {
     },
     {
       title: "Status",
-      dataIndex: "status",
       key: "status",
       align: "center" as const,
-      render: (status: string) => getStatusTag(status),
+      render: (_: unknown, record: Announcement) => getStatusTag(record),
     },
     {
       title: "Publish Date",
       dataIndex: "publishDate",
       key: "publishDate",
       render: (d: string | undefined) =>
-        d ? dayjs(d).format("DD MMM YYYY h:mm A") : "—",
+        d ? dayjs(d).format("DD MMM YYYY") : "—",
     },
     {
       title: "Expiry Date",
       dataIndex: "expiryDate",
       key: "expiryDate",
       render: (d: string | undefined) =>
-        d ? dayjs(d).format("DD MMM YYYY h:mm A") : "—",
+        d ? dayjs(d).format("DD MMM YYYY") : "—",
     },
     {
-      title: "Actions",
+      title: <span style={{ whiteSpace: "nowrap" }}>Actions</span>,
       key: "action",
       align: "center" as const,
-      width: 72,
+      width: 90,
       render: (_: unknown, record: Announcement) => {
+        const canEdit = canEditAnnouncement(record);
         const items: MenuProps["items"] = [
           {
             key: "view",
             label: "View",
             onClick: () => navigate(`/announcements/${record._id}`),
           },
-          {
-            key: "edit",
-            label: "Edit",
-            onClick: () => navigate(`/announcements/${record._id}/edit`),
-          },
-          ...(record.status === "draft"
+          ...(canEdit
+            ? [
+                {
+                  key: "edit",
+                  label: "Edit",
+                  onClick: () => navigate(`/announcements/${record._id}/edit`),
+                },
+              ]
+            : []),
+          ...(record.status === "draft" && getDisplayStatus(record) !== "scheduled"
             ? [
                 {
                   key: "publish",
@@ -230,9 +251,10 @@ const AnnouncementsList = () => {
 
   const tableContent = (
     <Table
+      key={`announcements-${statusFilter ?? "all"}`}
       rowKey="_id"
       columns={columns}
-      dataSource={announcements}
+      dataSource={paginatedAnnouncements}
       loading={isLoading}
       pagination={{
         current: pagination.page,
@@ -250,7 +272,7 @@ const AnnouncementsList = () => {
 
   return (
     <MainLayout>
-      <div style={{ padding: "16px 24px", maxWidth: 1280, margin: "0 auto", width: "100%" }}>
+      <div style={{ padding: "16px 24px", maxWidth: 1600, margin: "0 auto", width: "100%" }}>
         <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
             <div>
@@ -273,7 +295,10 @@ const AnnouncementsList = () => {
           <Card title="All Announcements">
             <Tabs
               activeKey={statusFilter ?? "all"}
-              onChange={(key) => setStatusFilter(key === "all" ? undefined : key)}
+              onChange={(key) => {
+                setStatusFilter(key === "all" ? undefined : key);
+                setPage(1);
+              }}
               className="assessment-tabs"
               items={[
                 {
@@ -292,6 +317,16 @@ const AnnouncementsList = () => {
                     <span className="flex items-center gap-2">
                       <EditOutlined />
                       Draft
+                    </span>
+                  ),
+                  children: tableContent,
+                },
+                {
+                  key: "scheduled",
+                  label: (
+                    <span className="flex items-center gap-2">
+                      <CalendarOutlined />
+                      Scheduled
                     </span>
                   ),
                   children: tableContent,

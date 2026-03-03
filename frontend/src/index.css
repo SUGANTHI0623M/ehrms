@@ -17,7 +17,7 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 47% 11%;
 
-    --primary: 142 70% 38%;
+    --primary: 40 87% 53%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 40% 96%;
@@ -26,7 +26,7 @@ All colors MUST be HSL.
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
 
-    --accent: 142 70% 73%;
+    --accent: 40 87% 75%;
     --accent-foreground: 0 0% 0%;
 
     --destructive: 0 84% 60%;
@@ -34,7 +34,7 @@ All colors MUST be HSL.
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 142 70% 38%;
+    --ring: 40 87% 53%;
 
     --radius: 0.75rem;
 
@@ -46,7 +46,7 @@ All colors MUST be HSL.
     --lms-text-lg: 1.125rem;
     --lms-leading: 1.5;
 
-    --success: 142 76% 36%;
+    --success: 40 87% 53%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
@@ -59,11 +59,11 @@ All colors MUST be HSL.
     --sidebar-foreground: 0 0% 0%;
     --sidebar-primary: 0 0% 100%;
     --sidebar-primary-foreground: 217 91% 60%;
-    --sidebar-accent: 142 70% 38%;
+    --sidebar-accent: 40 87% 53%;
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-primary: 0 0% 100%;
     --sidebar-ring: 0 0% 100%;
-    --sidebar-border: 142 70% 38%;
+    --sidebar-border: 40 87% 53%;
   }
 
   .dark {
@@ -76,7 +76,7 @@ All colors MUST be HSL.
     --popover: 217 33% 17%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 142 70% 38%;
+    --primary: 40 87% 53%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 217 33% 17%;
@@ -85,7 +85,7 @@ All colors MUST be HSL.
     --muted: 217 33% 17%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 173 80% 40%;
+    --accent: 40 87% 65%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 63% 31%;
@@ -93,9 +93,9 @@ All colors MUST be HSL.
 
     --border: 217 33% 17%;
     --input: 217 33% 17%;
-    --ring: 142 70% 38%;
+    --ring: 40 87% 53%;
 
-    --success: 142 76% 36%;
+    --success: 40 87% 53%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
@@ -108,11 +108,10 @@ All colors MUST be HSL.
     --sidebar-foreground: 0 0% 0%;
     --sidebar-primary: 0 0% 100%;
     --sidebar-primary-foreground: 217 91% 60%;
-    --sidebar-accent: 217 91% 65%;
+    --sidebar-accent: 40 87% 65%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-primary: 142 70% 38%;
     --sidebar-ring: 0 0% 100%;
-    --sidebar-border: 142 70% 38%;
+    --sidebar-border: 40 87% 53%;
   }
 }
 
@@ -250,6 +249,41 @@ All colors MUST be HSL.
     background: hsl(var(--border));
     border-radius: 4px;
   }
+
+  /* Dashboard cards (Loan, Expense, Payslip, Leave): minimal green scrollbar, show on hover */
+  .dashboard-card-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .dashboard-card-scroll:hover,
+  .dashboard-card-scroll:focus-within {
+    scrollbar-color: hsl(var(--primary)) transparent;
+  }
+  .dashboard-card-scroll::-webkit-scrollbar {
+    width: 2px;
+  }
+  .dashboard-card-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .dashboard-card-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+    transition: background 0.2s ease;
+  }
+  .dashboard-card-scroll:hover::-webkit-scrollbar-thumb,
+  .dashboard-card-scroll:focus-within::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary));
+  }
+  .dashboard-card-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(40 87% 45%);
+  }
+
+  /* Admin Leave Summary cards: subtle hover elevation */
+  .admin-leave-summary-card.ant-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+  }
+
   @keyframes celebration-today-pulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.06); }
@@ -427,27 +461,54 @@ All colors MUST be HSL.
   }
 
   /* Employee sidebar collapsed state – no overflow, centered icons, proper width */
-  .employee-sidebar[data-collapsed="true"] {
+  .employee-sidebar[data-collapsed="true"],
+  .employee-sidebar-aside[data-collapsed="true"] {
     width: 5rem !important; /* 80px, match Tailwind w-20 */
   }
-  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed {
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed {
     width: 80px !important;
     max-width: 80px !important;
   }
   .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item,
-  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title {
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title {
     width: 80px !important;
     max-width: 80px !important;
+    padding: 0 !important;
     padding-inline: 0 !important;
     margin-inline: 0 !important;
+    margin: 0 auto !important;
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
     height: 40px !important;
+    text-align: center !important;
   }
   .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item .ant-menu-item-icon,
-  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-item-icon {
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-item-icon,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item .ant-menu-item-icon,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-item-icon {
+    margin: 0 !important;
+    margin-inline: 0 !important;
     margin-inline-end: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+  }
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item .ant-menu-title-content,
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-title-content,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item .ant-menu-title-content,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-title-content {
+    display: none !important;
+  }
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item-icon svg,
+  .employee-sidebar[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-item-icon svg,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-item-icon svg,
+  .employee-sidebar-aside[data-collapsed="true"] .employee-sidebar-menu.ant-menu-inline-collapsed .ant-menu-submenu-title .ant-menu-item-icon svg {
+    margin: 0 auto !important;
   }
 
   /* Ensure Radix UI Popover appears above modals - use very high z-index (for date/time pickers) */
@@ -831,13 +892,13 @@ All colors MUST be HSL.
     color: rgba(0, 0, 0, 0.65);
   }
   .assessment-tabs.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
-    color: #1fa855;
+    color: #efaa1f;
   }
   .assessment-tabs.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn span {
     color: inherit;
   }
   .assessment-tabs.ant-tabs .ant-tabs-ink-bar {
-    background: #1fa855;
+    background: #efaa1f;
   }
   .assessment-tabs.ant-tabs .ant-tabs-nav-list {
     margin-bottom: 0;
@@ -1116,22 +1177,35 @@ All colors MUST be HSL.
   /* Main row height: reduced when collapsed for a more compact list */
   .session-card .ant-card-body {
     box-sizing: border-box;
-    padding: 8px 16px;
-  }
-
-  .session-card:not(.session-card-expanded) .ant-card-body {
-    min-height: 40px;
-    padding: 4px 12px;
+    padding: 12px 16px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: stretch;
   }
 
-  /* Keep header row content-sized so it stays vertically centered in the card */
+  .session-card:not(.session-card-expanded) .ant-card-body {
+    min-height: 56px;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+  }
+
+  /* When collapsed, header row must not grow so justify-content: center can center it vertically */
   .session-card:not(.session-card-expanded) .session-card-header.session-card-header-grid {
     width: 100%;
     min-height: 0;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  /* Collapsed body wrapper must take no space so only the header row is centered */
+  .session-card:not(.session-card-expanded) .session-card-body-wrapper {
+    flex: 0 0 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* Unified 8-column layout: TITLE (20%) | TYPE (10%) | SESSION AT (15%) | ASSIGNED AT (12%) | DURATION (10%) | HOSTED BY (11%) | STATUS (10%) | ACTION (12%) */
@@ -1197,6 +1271,13 @@ All colors MUST be HSL.
     color: hsl(var(--foreground));
     box-sizing: border-box;
     padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .session-card-header-cell.session-card-header-title {
+    justify-content: flex-start;
   }
 
   .session-cards-column-header .session-card-header-cell {
@@ -1219,7 +1300,7 @@ All colors MUST be HSL.
   }
 
   .session-card:not(.session-card-expanded) .session-card-header-cell {
-    padding: 4px 8px;
+    padding: 6px 8px;
   }
 
   .session-card:not(.session-card-expanded) .session-card-header-title {
@@ -1960,4 +2041,25 @@ All colors MUST be HSL.
 
 .course-content-sidebar-inner::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Assigned Learners table: stronger (bolder) vertical three-dots action icon */
+/* Assigned Learners table: stronger (bolder) vertical three-dots action icon */
+.assigned-learners-action-menu-trigger.ant-btn {
+  color: rgba(0, 0, 0, 0.85);
+}
+.assigned-learners-action-menu-trigger.ant-btn .anticon {
+  font-weight: 700;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.assigned-learners-action-menu-trigger.ant-btn .anticon svg {
+  stroke-width: 3.5;
+  stroke: currentColor;
+  fill: currentColor;
+}
+.assigned-learners-action-menu-trigger.ant-btn:hover .anticon svg {
+  stroke-width: 4;
 }

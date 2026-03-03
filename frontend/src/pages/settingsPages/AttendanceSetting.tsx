@@ -2,20 +2,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
-import { useGetBusinessQuery, useGetAttendanceTemplatesQuery } from "@/store/api/settingsApi";
+import { useGetBusinessQuery, useGetAttendanceTemplatesQuery, useGetWeeklyHolidayTemplatesQuery } from "@/store/api/settingsApi";
 import { Loader2 } from "lucide-react";
 
 export default function AttendanceSettings() {
   const navigate = useNavigate();
   const { data: businessData, isLoading: isLoadingBusiness } = useGetBusinessQuery();
   const { data: templatesData, isLoading: isLoadingTemplates } = useGetAttendanceTemplatesQuery();
+  const { data: weeklyHolidayTemplatesData, isLoading: isLoadingWeeklyHolidayTemplates } = useGetWeeklyHolidayTemplatesQuery();
 
   const business = businessData?.data?.business;
   const templates = templatesData?.data?.templates || [];
+  const weeklyHolidayTemplates = weeklyHolidayTemplatesData?.data?.templates || [];
 
   // Get counts from backend
   const shiftsCount = business?.settings?.attendance?.shifts?.length || 0;
   const templatesCount = templates.length;
+  const weeklyHolidayTemplatesCount = weeklyHolidayTemplates.length;
   const geofenceEnabled = business?.settings?.attendance?.geofence?.enabled || false;
   const automationRules = business?.settings?.attendance?.automationRules;
 
@@ -25,6 +28,12 @@ export default function AttendanceSettings() {
       description: templatesCount > 0 
         ? `${templatesCount} template${templatesCount > 1 ? 's' : ''} configured`
         : "Configure attendance based geolocation, workflows, and more",
+    },
+    {
+      name: "Weekly Holiday Templates",
+      description: weeklyHolidayTemplatesCount > 0 
+        ? `${weeklyHolidayTemplatesCount} template${weeklyHolidayTemplatesCount > 1 ? 's' : ''} configured`
+        : "Configure weekly off patterns and assign to staff",
     },
     {
       name: "Attendance Geofence Settings",
@@ -44,7 +53,7 @@ export default function AttendanceSettings() {
     },
   ];
 
-  if (isLoadingBusiness || isLoadingTemplates) {
+  if (isLoadingBusiness || isLoadingTemplates || isLoadingWeeklyHolidayTemplates) {
     return (
       <MainLayout>
         <main className="p-4">
@@ -69,6 +78,7 @@ export default function AttendanceSettings() {
                   key={index}
                   onClick={() => {
                     if (item.name === "Attendance Templates") navigate("/attendance-templates");
+                    else if (item.name === "Weekly Holiday Templates") navigate("/weekly-holiday-templates");
                     else if (item.name === "Attendance Geofence Settings") navigate("/attendance-geofence");
                     else if (item.name === "Shift Settings") navigate("/attendance-shifts");
                     else if (item.name === "Automation Rules") navigate("/attendance-automation-rules");

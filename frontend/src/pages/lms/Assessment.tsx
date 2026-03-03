@@ -220,7 +220,7 @@ const Assessment: React.FC = () => {
           closable
           maskClosable={false}
           width={480}
-          destroyOnClose
+          destroyOnHidden
         >
           <Text type="secondary" className="block mb-3 text-sm">
             You can add any remarks about this assessment. Admins will see this
@@ -265,7 +265,7 @@ const Assessment: React.FC = () => {
                 icon={passed ? <TrophyOutlined /> : <CloseCircleOutlined />}
                 className={
                   passed
-                    ? "bg-green-50 text-green-600 mb-6"
+                    ? "bg-[#fffbeb] text-[#efaa1f] mb-6"
                     : "bg-red-50 text-red-600 mb-6"
                 }
               />
@@ -338,7 +338,7 @@ const Assessment: React.FC = () => {
                     return (
                       <div
                         key={r.questionId}
-                        className={`p-4 rounded-lg border ${r.isCorrect ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"}`}
+                        className={`p-4 rounded-lg border ${r.isCorrect ? "border-[#fde68a] bg-[#fffbeb]/50" : "border-red-200 bg-red-50/50"}`}
                       >
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <Text strong className="text-sm">
@@ -356,7 +356,7 @@ const Assessment: React.FC = () => {
                           {!r.isCorrect && (
                             <div>
                               <Text type="secondary">Correct answer: </Text>
-                              <Text className="text-green-600">
+                              <Text className="text-[#efaa1f]">
                                 {formatAnswer(r.correctAnswer)}
                               </Text>
                             </div>
@@ -435,7 +435,7 @@ const Assessment: React.FC = () => {
                   <Progress
                     percent={progress}
                     showInfo={false}
-                    strokeColor="#10b981"
+                    strokeColor="#efaa1f"
                     className="m-0 mb-8"
                     strokeWidth={4}
                   />

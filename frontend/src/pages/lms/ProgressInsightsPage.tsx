@@ -25,7 +25,7 @@ const { Title, Text } = Typography;
 
 // Color constants
 const COLORS = {
-    primary: '#10b981',
+    primary: '#efaa1f',
     success: '#52C41A',
     warning: '#FAAD14',
     error: '#F5222D',
@@ -231,7 +231,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                         title={<span className="text-gray-500 font-medium">Course Progress</span>}
                         className="h-full shadow-sm border-gray-200 rounded-xl"
                         headStyle={{ borderBottom: 'none', paddingBottom: 0 }}
-                        bodyStyle={{ paddingTop: 10 }}
+                        styles={{ body: { paddingTop: 10 } }}
                     >
                         <div className="flex flex-col sm:flex-row items-center gap-8">
                             {/* Circular Chart */}
@@ -261,9 +261,9 @@ export const ProgressInsightsContent: React.FC<any> = ({
 
                             {/* Stats Breakdown */}
                             <div className="flex-1 w-full space-y-3">
-                                <div className="flex items-center justify-between p-2 bg-green-50 rounded-lg group hover:bg-green-100 transition-colors cursor-default">
+                                <div className="flex items-center justify-between p-2 bg-[#fffbeb] rounded-lg group hover:bg-[#fef3c7] transition-colors cursor-default">
                                     <div className="flex items-center gap-2">
-                                        <Text className="text-green-600 font-medium text-xs uppercase w-20">Completed</Text>
+                                        <Text className="text-[#efaa1f] font-medium text-xs uppercase w-20">Completed</Text>
                                         <span className="text-gray-400 text-xs">__</span>
                                     </div>
                                     <Text strong className="text-gray-700">{stats.completed}</Text>
@@ -312,7 +312,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                 <Col xs={24} lg={14}>
                     <Card
                         className="h-full shadow-sm border-gray-200 rounded-xl"
-                        bodyStyle={{ padding: 24, paddingBottom: 12 }}
+                        styles={{ body: { padding: 24, paddingBottom: 12 } }}
                     >
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-3">
@@ -356,7 +356,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                                                 className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all duration-200 relative
                                                     ${isToday ? 'ring-2 ring-emerald-500 ring-offset-2' : ''}
                                                     ${hasActivity
-                                                        ? 'bg-green-500 text-white shadow-md shadow-green-200 cursor-pointer hover:bg-green-600'
+                                                        ? 'bg-[#efaa1f] text-white shadow-md shadow-[#fde68a] cursor-pointer hover:bg-[#d97706]'
                                                         : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
                                                     }
                                                 `}
@@ -379,7 +379,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                                 <span>No Activity</span>
                             </div>
                             <div className="flex items-center gap-1">
-                                <div className="w-3 h-3 rounded bg-green-500"></div>
+                                <div className="w-3 h-3 rounded bg-[#efaa1f]"></div>
                                 <span>Completed Lesson</span>
                             </div>
                             <div className="flex items-center gap-1">
@@ -397,7 +397,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                     <Card
                         title={<span className="text-gray-500 font-medium">Recent Activity</span>}
                         className="h-full shadow-sm border-gray-200 rounded-xl"
-                        bodyStyle={{ padding: 0 }}
+                        styles={{ body: { padding: 0 } }}
                     >
                         {recentActivity.length === 0 ? (
                             <Empty description="No recent activity" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-8" />
@@ -413,7 +413,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                                             <div className="flex items-center gap-3">
                                                 <div className="min-w-[40px] text-gray-400 text-lg">
                                                     {item.type === 'completed' ? (
-                                                        <CheckCircleOutlined className="text-green-500" />
+                                                        <CheckCircleOutlined className="text-[#efaa1f]" />
                                                     ) : (
                                                         <PlayCircleOutlined className="text-emerald-500" />
                                                     )}
@@ -444,12 +444,12 @@ export const ProgressInsightsContent: React.FC<any> = ({
                     <Card
                         title={<span className="text-gray-500 font-medium">Upcoming Deadlines</span>}
                         className="h-full shadow-sm border-gray-200 rounded-xl"
-                        bodyStyle={{ padding: 0 }}
+                        styles={{ body: { padding: 0 } }}
                         extra={<Tag color="green">{upcomingDeadlines.length} Due</Tag>}
                     >
                         {upcomingDeadlines.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
-                                <CheckCircleOutlined className="text-4xl text-green-200 mb-3" />
+                                <CheckCircleOutlined className="text-4xl text-[#fde68a] mb-3" />
                                 <Text type="secondary">All caught up! No pending deadlines.</Text>
                             </div>
                         ) : (
@@ -473,7 +473,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                                                 percent={item.progress}
                                                 showInfo={false}
                                                 size="small"
-                                                strokeColor={item.daysLeft < 3 ? '#ff4d4f' : '#10b981'}
+                                                strokeColor={item.daysLeft < 3 ? '#ff4d4f' : '#efaa1f'}
                                                 trailColor="#f0f0f0"
                                             />
                                         </div>
@@ -488,7 +488,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
             {/* 5. Topic Tags (Category Breakdown) */}
             <Card
                 className="shadow-sm border-gray-200 rounded-xl"
-                bodyStyle={{ padding: '16px 24px' }}
+                styles={{ body: { padding: '16px 24px' } }}
             >
                 <div className="flex items-center gap-2 mb-3">
                     <BookOutlined className="text-gray-400" />

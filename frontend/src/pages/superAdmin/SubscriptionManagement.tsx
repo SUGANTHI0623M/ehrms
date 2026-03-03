@@ -68,7 +68,7 @@ const SubscriptionManagement = () => {
     monthlyPrice: 0,
     yearlyPrice: 0,
     currency: "USD",
-    trialPeriodDays: 14,
+    trialPeriodDays: 90,
     features: {
       recruitment: false,
       performance: false,
@@ -105,8 +105,15 @@ const SubscriptionManagement = () => {
   const handleUpdate = async () => {
     if (!editingPlan) return;
     try {
+      // Handle both id and _id (fallback for MongoDB _id)
+      const planId = editingPlan.id || (editingPlan as any)._id;
+      if (!planId) {
+        toast.error("Plan ID is missing. Please refresh and try again.");
+        return;
+      }
+      
       const result = await updatePlan({
-        id: editingPlan.id,
+        id: planId,
         data: formData,
       }).unwrap();
       
@@ -130,6 +137,7 @@ const SubscriptionManagement = () => {
     setFormData({
       ...plan,
       features: { ...plan.features },
+      modules: plan.modules || [],
     });
     setIsEditDialogOpen(true);
     setWarnings([]);
@@ -144,7 +152,8 @@ const SubscriptionManagement = () => {
       monthlyPrice: 0,
       yearlyPrice: 0,
       currency: "USD",
-      trialPeriodDays: 14,
+      trialPeriodDays: 90, // 90 days free trial
+      modules: [],
       features: {
         recruitment: false,
         performance: false,
@@ -219,7 +228,7 @@ const SubscriptionManagement = () => {
                   ) : (
                     <div className="space-y-4">
                       {plans.map((plan) => (
-                        <Card key={plan.id} className="border-2">
+                        <Card key={plan.id || (plan as any)._id} className="border-2">
                           <CardHeader>
                             <div className="flex items-center justify-between">
                               <div>
@@ -271,33 +280,17 @@ const SubscriptionManagement = () => {
                               <div>
                                 <div className="flex items-center gap-2 mb-2">
                                   <Zap className="w-4 h-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium">Features</span>
+                                  <span className="text-sm font-medium">Modules</span>
                                 </div>
                                 <div className="flex flex-wrap gap-1">
-                                  {plan.features.recruitment && (
-                                    <Badge variant="outline" className="text-xs">
-                                      Recruitment
-                                    </Badge>
-                                  )}
-                                  {plan.features.payroll && (
-                                    <Badge variant="outline" className="text-xs">
-                                      Payroll
-                                    </Badge>
-                                  )}
-                                  {plan.features.performance && (
-                                    <Badge variant="outline" className="text-xs">
-                                      Performance
-                                    </Badge>
-                                  )}
-                                  {plan.features.lms && (
-                                    <Badge variant="outline" className="text-xs">
-                                      LMS
-                                    </Badge>
-                                  )}
-                                  {plan.features.advancedAnalytics && (
-                                    <Badge variant="outline" className="text-xs">
-                                      Analytics
-                                    </Badge>
+                                  {plan.modules && plan.modules.length > 0 ? (
+                                    plan.modules.map((module) => (
+                                      <Badge key={module} variant="outline" className="text-xs">
+                                        {module.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                      </Badge>
+                                    ))
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">No modules assigned</span>
                                   )}
                                 </div>
                               </div>
@@ -628,9 +621,75 @@ const SubscriptionManagement = () => {
               </div>
             </div>
 
-            {/* Feature Toggles */}
+            {/* Modules Selection */}
             <div>
-              <h3 className="text-lg font-semibold mb-4">Feature Toggles</h3>
+              <h3 className="text-lg font-semibold mb-4">Accessible Modules</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Select which modules companies with this plan can access
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {[
+                  { value: 'dashboard', label: 'Dashboard' },
+                  { value: 'interview', label: 'Interview' },
+                  { value: 'job_openings', label: 'Job Openings' },
+                  { value: 'candidates', label: 'Candidates' },
+                  { value: 'interview_appointments', label: 'Interview Appointments' },
+                  { value: 'interview_process', label: 'Interview Process' },
+                  { value: 'offer_letter', label: 'Offer Letter' },
+                  { value: 'document_collection', label: 'Document Collection' },
+                  { value: 'background_verification', label: 'Background Verification' },
+                  { value: 'celebration', label: 'Celebration' },
+                  { value: 'refer_candidate', label: 'Refer Candidate' },
+                  { value: 'staff', label: 'Staff' },
+                  { value: 'performance', label: 'Performance' },
+                  { value: 'payroll', label: 'Payroll' },
+                  { value: 'lms', label: 'LMS' },
+                  { value: 'assets', label: 'Assets' },
+                  { value: 'company-policy', label: 'Company Policy' },
+                  { value: 'integrations', label: 'Integrations' },
+                  { value: 'settings', label: 'Settings' },
+                ].map((module) => (
+                  <div
+                    key={module.value}
+                    className="flex items-center space-x-2 p-2 border rounded-lg hover:bg-accent"
+                  >
+                    <input
+                      type="checkbox"
+                      id={`module-${module.value}`}
+                      checked={formData.modules?.includes(module.value) || false}
+                      onChange={(e) => {
+                        const currentModules = formData.modules || [];
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
+                            modules: [...currentModules, module.value],
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            modules: currentModules.filter((m) => m !== module.value),
+                          });
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <Label
+                      htmlFor={`module-${module.value}`}
+                      className="text-sm font-normal cursor-pointer"
+                    >
+                      {module.label}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Feature Toggles (kept for backward compatibility) */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Feature Toggles (Legacy)</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                These are kept for backward compatibility. Modules selection above is the primary method.
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 {[
                   { key: "recruitment", label: "Recruitment Module" },

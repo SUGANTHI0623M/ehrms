@@ -34,6 +34,8 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen>
     with SingleTickerProviderStateMixin {
   Map<String, dynamic>? _attendanceData;
+  /// Date we last fetched attendance status for (ensures selected-date card shows correct date)
+  DateTime? _attendanceDataFetchedFor;
   final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
 
@@ -63,6 +65,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   final Map<String, num?> _dayWorkHoursByDate = {};
   final Set<String> _holidayDateSet = {};
   final Set<String> _weekOffDateSet = {};
+  final Set<String> _alternateWorkDatesInMonth = {};
   final Set<String> _presentDateSet = {};
   final Set<String> _absentDateSet = {};
   final Set<String> _leaveDateSet = {};
@@ -89,6 +92,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _shiftAssigned = true;
   bool _isHoliday = false;
   bool _isWeeklyOff = false;
+  bool _isAlternateWorkDate = false;
+  bool _isCompensationWeekOff = false;
   Map<String, dynamic>? _holidayInfo;
   bool? _checkedInFromApi;
 
@@ -231,6 +236,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _dayWorkHoursByDate.clear();
         _holidayDateSet.clear();
         _weekOffDateSet.clear();
+        _alternateWorkDatesInMonth.clear();
         _presentDateSet.clear();
         _absentDateSet.clear();
         _leaveDateSet.clear();
@@ -258,6 +264,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _dayWorkHoursByDate.clear();
       _holidayDateSet.clear();
       _weekOffDateSet.clear();
+      _alternateWorkDatesInMonth.clear();
       _presentDateSet.clear();
       _absentDateSet.clear();
       _leaveDateSet.clear();
@@ -340,6 +347,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           for (var dateStr in _monthData!['weekOffDates']) {
             if (dateStr is String) {
               _weekOffDateSet.add(dateStr);
+            }
+          }
+        }
+
+        // Alternate work dates in this month (compensation week-off: do not show violet; employee can check-in)
+        _alternateWorkDatesInMonth.clear();
+        if (_monthData!['alternateWorkDatesInMonth'] != null) {
+          for (var dateStr in _monthData!['alternateWorkDatesInMonth']) {
+            if (dateStr is String) {
+              _alternateWorkDatesInMonth.add(dateStr);
             }
           }
         }
@@ -473,6 +490,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               _shiftAssigned = responseBody['shiftAssigned'] as bool? ?? true;
               _isHoliday = responseBody['isHoliday'] ?? false;
               _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
+              _isAlternateWorkDate = responseBody['isAlternateWorkDate'] ?? false;
+              _isCompensationWeekOff = responseBody['isCompensationWeekOff'] ?? false;
               _holidayInfo = responseBody['holidayInfo'];
               _checkedInFromApi = responseBody['checkedIn'] as bool?;
             });
@@ -487,7 +506,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
         }
 
-        if (mounted) setState(() => _attendanceData = data);
+        if (mounted) setState(() {
+          _attendanceData = data;
+          _attendanceDataFetchedFor = dateToFetch;
+        });
 
         // Staff has template id but response had no template (e.g. first request failed) — retry once so we don't show "Template not mapped" then refresh to punch
         if (mounted &&
@@ -2187,8 +2209,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final int dayOfWeek = day.weekday; // 1=Mon, ..., 7=Sun
 
       // Week off from backend, plus force Sundays as week off
+      // Do NOT show violet for alternate work dates (compensation week-off days when employee can check-in)
       bool isWeekOff = _weekOffDateSet.contains(dateStr);
-      if (dayOfWeek == DateTime.sunday) {
+      if (isWeekOff && _alternateWorkDatesInMonth.contains(dateStr)) {
+        isWeekOff = false;
+      }
+      if (dayOfWeek == DateTime.sunday && !_alternateWorkDatesInMonth.contains(dateStr)) {
         isWeekOff = true;
       }
 
@@ -2227,6 +2253,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // 3. Holiday
       else if (isHoliday) {
         bgColor = const Color(0xFFFEF3C7); // Holiday - Light yellow
+      }
+      // 3.5. Alternate Working Day (compensation week-off day when employee can check-in)
+      else if (_alternateWorkDatesInMonth.contains(dateStr)) {
+        bgColor = const Color(0xFFE8D5C4); // Working Day - Light brown
       }
       // 4. Week Off
       else if (isWeekOff) {
@@ -2291,6 +2321,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       } else if (isHalfDayStatusForAbbr) {
         // Half Day → Show "HA" (blue background)
         leaveTypeAbbr = 'HA';
+      } else if (_alternateWorkDatesInMonth.contains(dateStr)) {
+        // Alternate Working Day → Show "WD" (light brown background)
+        leaveTypeAbbr = 'WD';
       } else if (_leaveDateSet.contains(dateStr) && !isPresentStatusForAbbr) {
         // Leave date without attendance → Show "L" (purple background)
         leaveTypeAbbr = 'L';
@@ -2362,13 +2395,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildCalendarHeader() {
-    final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline),
+        gradient: LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2378,7 +2420,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               const SizedBox(width: 8),
               Text(
                 DateFormat('MMMM yyyy').format(_focusedDay),
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
               ),
             ],
           ),
@@ -2387,10 +2433,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               DropdownButton<int>(
                 value: _focusedDay.month,
                 underline: const SizedBox(),
+                dropdownColor: AppColors.primaryDark,
+                iconEnabledColor: Colors.white,
+                iconDisabledColor: Colors.white70,
                 items: List.generate(12, (i) => i + 1).map((m) {
                   return DropdownMenuItem(
                     value: m,
-                    child: Text(DateFormat('MMM').format(DateTime(2024, m))),
+                    child: Text(
+                      DateFormat('MMM').format(DateTime(2024, m)),
+                      style: const TextStyle(color: Colors.white),
+                    ),
                   );
                 }).toList(),
                 onChanged: (m) {
@@ -2410,8 +2462,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               DropdownButton<int>(
                 value: _focusedDay.year,
                 underline: const SizedBox(),
+                dropdownColor: AppColors.primaryDark,
+                iconEnabledColor: Colors.white,
+                iconDisabledColor: Colors.white70,
                 items: List.generate(11, (i) => 2020 + i).map((y) {
-                  return DropdownMenuItem(value: y, child: Text('$y'));
+                  return DropdownMenuItem(
+                    value: y,
+                    child: Text(
+                      '$y',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  );
                 }).toList(),
                 onChanged: (y) {
                   if (y != null) {
@@ -3083,6 +3144,77 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// Builds a record for the selected calendar date.
+  /// Prefers record from month history (same source as Attendance History list) so both show identical data.
+  Map<String, dynamic> _buildSelectedDateRecord() {
+    final selected = _selectedDay;
+    final dateStr = DateFormat('yyyy-MM-dd').format(selected);
+
+    // 1. Prefer record from combined month history (same source as Attendance History list)
+    final combined = _getCombinedMonthHistory();
+    for (final r in combined) {
+      try {
+        final rDate = _extractDateOnly(r['date']);
+        if (rDate.year == selected.year &&
+            rDate.month == selected.month &&
+            rDate.day == selected.day) {
+          final record = Map<String, dynamic>.from(r);
+          record['date'] = dateStr; // Normalize date for display
+          return record;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback: use _attendanceData from getAttendanceByDate when it corresponds to selected date
+    final isDataForSelectedDay = _attendanceDataFetchedFor != null &&
+        _selectedDay.year == _attendanceDataFetchedFor!.year &&
+        _selectedDay.month == _attendanceDataFetchedFor!.month &&
+        _selectedDay.day == _attendanceDataFetchedFor!.day;
+
+    if (_attendanceData != null && isDataForSelectedDay) {
+      final record = Map<String, dynamic>.from(_attendanceData!);
+      record['date'] = dateStr;
+      return record;
+    }
+
+    if (isDataForSelectedDay) {
+      // Holiday, Weekend, Absent, On Leave with no punch record
+      String status = 'Absent';
+      if (_isHoliday) status = 'Holiday';
+      else if (_isWeeklyOff) status = 'Weekend';
+      else if (_halfDayLeave != null) status = 'Half Day';
+      else if (_isOnLeave) status = 'On Leave';
+
+      final record = <String, dynamic>{
+        'date': dateStr,
+        'status': status,
+        'punchIn': null,
+        'punchOut': null,
+        'workHours': null,
+      };
+      if (_holidayInfo != null) record['holidayInfo'] = _holidayInfo;
+      if (_halfDayLeave != null) record['leaveDetails'] = _halfDayLeave;
+      return record;
+    }
+
+    return <String, dynamic>{
+      'date': dateStr,
+      'status': 'Loading',
+      'punchIn': null,
+      'punchOut': null,
+      'workHours': null,
+    };
+  }
+
+  /// Selected date card shown above Attendance History when a calendar date is clicked.
+  Widget _buildSelectedDateCard() {
+    final record = _buildSelectedDateRecord();
+    return GestureDetector(
+      onTap: () => _showAttendanceDetails(record),
+      child: _buildHistoryDateCard(context, record),
+    );
+  }
+
   Widget _buildPaginationControls() {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
@@ -3174,6 +3306,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _legendItem(const Color(0xFFFEE2E2), 'Absent'),
         // Use the same soft yellow as the calendar cell background for Holiday
         _legendItem(const Color(0xFFFEF3C7), 'Holiday'),
+        _legendItem(const Color(0xFFE8D5C4), 'Working Day'),
         _legendItem(const Color(0xFFE9D5FF), 'Weekend'),
         _legendItem(const Color(0xFFBFDBFE), 'On Leave'),
         // No need Pending / Not Marked labels in History legend
@@ -3501,8 +3634,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
       return;
     }
+    if (_isCompensationWeekOff) {
+      SnackBarUtils.showSnackBar(context, "Today is compensation week off", isError: true);
+      return;
+    }
     if (_isWeeklyOff &&
-        _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == false) {
+        _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == false &&
+        !_isAlternateWorkDate) {
       SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
       return;
     }
@@ -3761,7 +3899,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // Half-day leave but outside session: show info banner and allow check-in (show punch card below)
     final halfDayCheckInAllowed = _halfDayLeave != null && _checkInAllowed;
 
-    // Unified Non-Working Day Card (Holiday, Weekly Off)
+    // Unified Non-Working Day Card (Holiday, Weekly Off, Compensation Week Off)
     // Only show this if they are NOT allowed to mark attendance
     // Note: Leave is handled above with highest priority
     bool showHolidayCard = false;
@@ -3769,7 +3907,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     IconData holidayIcon = Icons.beach_access;
     Color holidayColor = Colors.orange;
 
-    if (_isHoliday &&
+    if (_isCompensationWeekOff) {
+      showHolidayCard = true;
+      holidayText = "Today is compensation week off";
+      holidayIcon = Icons.event_busy;
+      holidayColor = Colors.orange;
+    } else if (_isHoliday &&
         (_attendanceTemplate?['allowAttendanceOnHolidays'] == false ||
             _attendanceTemplate?['allowAttendanceOnHolidays'] == null)) {
       showHolidayCard = true;
@@ -3778,7 +3921,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       holidayColor = Colors.green;
     } else if (_isWeeklyOff &&
         (_attendanceTemplate?['allowAttendanceOnWeeklyOff'] == false ||
-            _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == null)) {
+            _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == null) &&
+        !_isAlternateWorkDate) {
       showHolidayCard = true;
       holidayText =
           "Today is a Holiday"; // As per request: "Today is a holiday" for weekly off too
@@ -3863,9 +4007,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isHoliday
-                      ? (_holidayInfo?['name'] ?? "Public Holiday")
-                      : "Relax and enjoy your day!",
+                  _isCompensationWeekOff
+                      ? "Punch on your alternate work date instead."
+                      : _isHoliday
+                          ? (_holidayInfo?['name'] ?? "Public Holiday")
+                          : "Relax and enjoy your day!",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: holidayColor.withOpacity(0.8)),
                 ),
@@ -4371,6 +4517,280 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return _buildHistoryListBody(displayList);
   }
 
+  /// Builds a single attendance history date card (same UI for list items and selected date card).
+  Widget _buildHistoryDateCard(BuildContext context, dynamic record) {
+    final punchIn = record['punchIn'];
+    final punchOut = record['punchOut'];
+    final workHours = record['workHours'];
+    final isLateIn = _isLateCheckIn(punchIn, record: record);
+    final isLateOut = _isLateCheckOut(punchOut, record: record);
+    final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
+    final isLowHours = _isLowWorkHours(workHours);
+
+    String status = record['status'] ?? 'Present';
+    List<String> tags = [];
+
+    final bool allowLate =
+        _attendanceTemplate?['allowLateEntry'] ??
+        _attendanceTemplate?['lateEntryAllowed'] ??
+        true;
+    final bool allowEarly =
+        _attendanceTemplate?['earlyExitAllowed'] ??
+        _attendanceTemplate?['allowEarlyExit'] ??
+        true;
+    final bool allowOvertime =
+        _attendanceTemplate?['overtimeAllowed'] ??
+        _attendanceTemplate?['allowOvertime'] ??
+        true;
+
+    final lateMins = record['lateMinutes'] as num?;
+    if (isLateIn &&
+        !allowLate &&
+        (lateMins == null || lateMins.toDouble() != 0)) {
+      tags.add('Late In');
+    }
+    if (isLateOut && !(allowOvertime || allowEarly)) {
+      tags.add('Late Out');
+    }
+    if (isEarlyOut && !allowEarly) tags.add('Early Exit');
+    if (isLowHours && !allowEarly) tags.add('Low Hrs');
+
+    final leaveDetails = record['leaveDetails'] as Map<String, dynamic>?;
+    final leaveType =
+        (leaveDetails?['leaveType'] ?? record['leaveType']) as String?;
+    final session = (leaveDetails?['session'] ?? record['session'])?.toString();
+    String displayStatus = AttendanceDisplayUtil.formatAttendanceDisplayStatus(
+      status,
+      leaveType,
+      session,
+    );
+    Color statusColor = Colors.green;
+
+    if (status == 'Pending' && punchIn != null) {
+      displayStatus = 'Waiting for Approval';
+      statusColor = Colors.orange;
+    } else if (status == 'Absent' || status == 'Rejected') {
+      statusColor = Colors.red;
+    } else if (status == 'On Leave') {
+      statusColor = Colors.blue;
+    } else if (status == 'Half Day') {
+      statusColor = Colors.purple;
+    } else if (status == 'Weekend') {
+      statusColor = Colors.deepPurple;
+    } else if (status == 'Holiday') {
+      statusColor = Colors.amber;
+    }
+
+    final punchInSelfieUrl = record['punchInSelfie'];
+    final bool hasPunchInSelfie = punchInSelfieUrl != null &&
+        punchInSelfieUrl.toString().startsWith('http');
+
+    final punchOutSelfieUrl = record['punchOutSelfie'];
+    final bool hasPunchOutSelfie = punchOutSelfieUrl != null &&
+        punchOutSelfieUrl.toString().startsWith('http');
+
+    String? locationAddress;
+    if (record['location'] != null &&
+        record['location']['punchIn'] != null) {
+      final addr = record['location']['punchIn']['address'];
+      if (addr != null && addr.toString().trim().isNotEmpty) {
+        locationAddress = addr.toString();
+      }
+    }
+
+    final colorScheme = Theme.of(context).colorScheme;
+    DateTime? parsedDate;
+    try {
+      parsedDate = _extractDateOnly(record['date'] ?? '');
+    } catch (_) {}
+    final dateNum = parsedDate != null ? '${parsedDate.day}' : '--';
+    final dayAbbrev =
+        parsedDate != null ? DateFormat('EEE').format(parsedDate) : '---';
+    num? workHoursVal = workHours;
+    if (workHoursVal == null &&
+        record['punchIn'] != null &&
+        record['punchOut'] != null) {
+      try {
+        final pi =
+            DateTime.parse(record['punchIn'].toString()).toLocal();
+        final po =
+            DateTime.parse(record['punchOut'].toString()).toLocal();
+        workHoursVal = po.difference(pi).inMinutes;
+      } catch (_) {}
+    }
+    final totalHoursStr =
+        _formatWorkHoursAsHHmm(workHoursVal is num ? workHoursVal : null);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colorScheme.outline),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 56,
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  dateNum,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dayAbbrev,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _historyTimeColumn(
+                      'Check In',
+                      _formatTimeShort(punchIn),
+                      colorScheme,
+                      selfieUrl:
+                          hasPunchInSelfie ? punchInSelfieUrl : null,
+                      onSelfieTap: hasPunchInSelfie
+                          ? () => _showSelfieDialog(
+                                punchInSelfieUrl,
+                                "Check-in Selfie",
+                              )
+                          : null,
+                    ),
+                    _historyTimeColumn(
+                      'Check out',
+                      _formatTimeShort(punchOut),
+                      colorScheme,
+                      selfieUrl:
+                          hasPunchOutSelfie ? punchOutSelfieUrl : null,
+                      onSelfieTap: hasPunchOutSelfie
+                          ? () => _showSelfieDialog(
+                                punchOutSelfieUrl,
+                                "Check-out Selfie",
+                              )
+                          : null,
+                    ),
+                    _historyTimeColumn(
+                      'Total Hours',
+                      totalHoursStr,
+                      colorScheme,
+                    ),
+                  ],
+                ),
+                if (locationAddress != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        size: 14,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          locationAddress,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (displayStatus != 'Present' || tags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          displayStatus,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      ...tags.map((tag) {
+                        Color tagColor;
+                        if (tag == 'Late In' || tag == 'Late Out') {
+                          tagColor = Colors.orange;
+                        } else if (tag == 'Early Exit') {
+                          tagColor = const Color(0xFF0EA5E9);
+                        } else if (tag == 'Low Hrs') {
+                          tagColor = Colors.red;
+                        } else {
+                          tagColor = Colors.orange;
+                        }
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: tagColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            tag,
+                            style: TextStyle(
+                              color: tagColor,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHistoryListBody(List<dynamic> displayList) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4408,316 +4828,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             separatorBuilder: (c, i) => const SizedBox(height: 6),
             itemBuilder: (context, index) {
               final record = displayList[index];
-              // Safely parse date - extract date only to avoid timezone issues
-              String dateStr = record['date'] ?? '';
-              try {
-                final d = _extractDateOnly(dateStr);
-                dateStr = DateFormat('MMM dd, yyyy').format(d);
-              } catch (_) {
-                dateStr = 'Invalid Date';
-              }
-
-              final punchIn = record['punchIn'];
-              final punchOut = record['punchOut'];
-              final workHours = record['workHours'];
-              final isLateIn = _isLateCheckIn(punchIn, record: record);
-              final isLateOut = _isLateCheckOut(punchOut, record: record);
-              final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
-              final isLowHours = _isLowWorkHours(workHours);
-
-              // Define status and tags before usage
-              String status = record['status'] ?? 'Present';
-              List<String> tags = [];
-
-              final bool allowLate =
-                  _attendanceTemplate?['allowLateEntry'] ??
-                  _attendanceTemplate?['lateEntryAllowed'] ??
-                  true;
-              final bool allowEarly =
-                  _attendanceTemplate?['earlyExitAllowed'] ??
-                  _attendanceTemplate?['allowEarlyExit'] ??
-                  true;
-              final bool allowOvertime =
-                  _attendanceTemplate?['overtimeAllowed'] ??
-                  _attendanceTemplate?['allowOvertime'] ??
-                  true;
-
-              // Align with Fine Details: don't show Late In when backend set lateMinutes to 0
-              final lateMins = record['lateMinutes'] as num?;
-              if (isLateIn &&
-                  !allowLate &&
-                  (lateMins == null || lateMins.toDouble() != 0)) {
-                tags.add('Late In');
-              }
-              if (isLateOut && !(allowOvertime || allowEarly)) {
-                tags.add('Late Out');
-              }
-              if (isEarlyOut && !allowEarly) tags.add('Early Exit');
-              if (isLowHours && !allowEarly) tags.add('Low Hrs');
-
-              // Prefer half-day details from Leaves collection (leaveDetails)
-              final leaveDetails =
-                  record['leaveDetails'] as Map<String, dynamic>?;
-              final leaveType =
-                  (leaveDetails?['leaveType'] ?? record['leaveType'])
-                      as String?;
-              final session = (leaveDetails?['session'] ?? record['session'])
-                  ?.toString();
-              String displayStatus =
-                  AttendanceDisplayUtil.formatAttendanceDisplayStatus(
-                    status,
-                    leaveType,
-                    session,
-                  );
-              Color statusColor = Colors.green;
-
-              // Only show "Waiting for Approval" when user has punched in (not for leave-related Pending without punch)
-              if (status == 'Pending' && punchIn != null) {
-                displayStatus = 'Waiting for Approval';
-                statusColor = Colors.orange;
-              } else if (status == 'Absent' || status == 'Rejected') {
-                statusColor = Colors.red;
-              } else if (status == 'On Leave') {
-                statusColor = Colors.blue;
-              } else if (status == 'Half Day') {
-                statusColor = Colors.purple;
-              } else if (status == 'Weekend') {
-                statusColor = Colors.deepPurple;
-              } else if (status == 'Holiday') {
-                statusColor = Colors.amber;
-              }
-
-              // Determine logic for selfie image
-              final punchInSelfieUrl = record['punchInSelfie'];
-              final bool hasPunchInSelfie =
-                  punchInSelfieUrl != null &&
-                  punchInSelfieUrl.toString().startsWith('http');
-
-              final punchOutSelfieUrl = record['punchOutSelfie'];
-              final bool hasPunchOutSelfie =
-                  punchOutSelfieUrl != null &&
-                  punchOutSelfieUrl.toString().startsWith('http');
-
-              // Extract location (only show when non-empty)
-              String? locationAddress;
-              if (record['location'] != null &&
-                  record['location']['punchIn'] != null) {
-                final addr = record['location']['punchIn']['address'];
-                if (addr != null && addr.toString().trim().isNotEmpty) {
-                  locationAddress = addr.toString();
-                }
-              }
-
-              final colorScheme = Theme.of(context).colorScheme;
-              DateTime? parsedDate;
-              try {
-                parsedDate = _extractDateOnly(record['date'] ?? '');
-              } catch (_) {}
-              final dateNum = parsedDate != null ? '${parsedDate.day}' : '--';
-              final dayAbbrev = parsedDate != null
-                  ? DateFormat('EEE').format(parsedDate)
-                  : '---';
-              num? workHoursVal = workHours;
-              if (workHoursVal == null &&
-                  record['punchIn'] != null &&
-                  record['punchOut'] != null) {
-                try {
-                  final pi = DateTime.parse(
-                    record['punchIn'].toString(),
-                  ).toLocal();
-                  final po = DateTime.parse(
-                    record['punchOut'].toString(),
-                  ).toLocal();
-                  workHoursVal = po.difference(pi).inMinutes;
-                } catch (_) {}
-              }
-              final totalHoursStr = _formatWorkHoursAsHHmm(
-                workHoursVal is num ? workHoursVal : null,
-              );
-
               return GestureDetector(
                 onTap: () => _showAttendanceDetails(record),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: colorScheme.outline),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Left: Date/Day block (primary color)
-                      Container(
-                        width: 56,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              dateNum,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              dayAbbrev,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Right: Time columns + location + status
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Check In (with selfie), Check out (with selfie), Total Hours
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                _historyTimeColumn(
-                                  'Check In',
-                                  _formatTimeShort(punchIn),
-                                  colorScheme,
-                                  selfieUrl: hasPunchInSelfie
-                                      ? punchInSelfieUrl
-                                      : null,
-                                  onSelfieTap: hasPunchInSelfie
-                                      ? () => _showSelfieDialog(
-                                          punchInSelfieUrl,
-                                          "Check-in Selfie",
-                                        )
-                                      : null,
-                                ),
-                                _historyTimeColumn(
-                                  'Check out',
-                                  _formatTimeShort(punchOut),
-                                  colorScheme,
-                                  selfieUrl: hasPunchOutSelfie
-                                      ? punchOutSelfieUrl
-                                      : null,
-                                  onSelfieTap: hasPunchOutSelfie
-                                      ? () => _showSelfieDialog(
-                                          punchOutSelfieUrl,
-                                          "Check-out Selfie",
-                                        )
-                                      : null,
-                                ),
-                                _historyTimeColumn(
-                                  'Total Hours',
-                                  totalHoursStr,
-                                  colorScheme,
-                                ),
-                              ],
-                            ),
-                            if (locationAddress != null) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    Icons.location_on,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      locationAddress,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            // Status & Tags (Present=green, Late In=orange, Early Exit=blue, Low Hrs=red)
-                            if (displayStatus != 'Present' ||
-                                tags.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: statusColor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      displayStatus,
-                                      style: TextStyle(
-                                        color: statusColor,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  ...tags.map((tag) {
-                                    Color tagColor;
-                                    if (tag == 'Late In' || tag == 'Late Out') {
-                                      tagColor = Colors.orange;
-                                    } else if (tag == 'Early Exit') {
-                                      tagColor = const Color(0xFF0EA5E9);
-                                    } else if (tag == 'Low Hrs') {
-                                      tagColor = Colors.red;
-                                    } else {
-                                      tagColor = Colors.orange;
-                                    }
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: tagColor.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        tag,
-                                        style: TextStyle(
-                                          color: tagColor,
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    );
-                                  }),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                child: _buildHistoryDateCard(context, record),
               );
             },
           ),

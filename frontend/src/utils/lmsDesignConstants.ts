@@ -9,23 +9,23 @@ export const LMS_STATUS_TAG_COLORS: Record<string, string> = {
   // Assessment / session status
   Requested: 'orange',
   Scheduled: 'blue',
-  Live: 'green',
-  Completed: 'green',
+  Live: 'gold',
+  Completed: 'gold',
   Cancelled: 'default',
   Rejected: 'red',
   Upcoming: 'blue',
   Ended: 'default',
   // Course / progress status
-  Published: 'green',
+  Published: 'gold',
   Archived: 'default',
   Draft: 'default',
   'Not Started': 'default',
   'In Progress': 'processing',
   Expired: 'warning',
-  Passed: 'green',
+  Passed: 'gold',
   Failed: 'red',
   // Generic
-  success: 'green',
+  success: 'gold',
   warning: 'gold',
   error: 'red',
   info: 'blue',
@@ -57,7 +57,7 @@ export const LMS_BREAKPOINTS = {
 
 /** Chart color palette for LMS (consistent across dashboard, scores, analytics) */
 export const LMS_CHART_COLORS = [
-  '#16a34a', /* primary/success */
+  '#efaa1f', /* primary/success */
   '#2563eb', /* blue */
   '#ca8a04', /* warning/amber */
   '#dc2626', /* destructive */

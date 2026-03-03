@@ -199,7 +199,6 @@ const CandidateDashboard = () => {
                     </div>
                     <Badge className={getCandidateStatusColor(app.status)}>
                       {formatCandidateStatus(app.status)}
-                      {app.status}
                     </Badge>
                   </div>
                 ))

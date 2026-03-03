@@ -221,7 +221,7 @@ export default function AttendanceGeofence() {
       return { status: "disabled", label: "Disabled", icon: XCircle, color: "bg-gray-100 text-gray-600" };
     }
     if (branch.geofence.latitude && branch.geofence.longitude && branch.geofence.radius) {
-      return { status: "enabled", label: "Enabled", icon: CheckCircle2, color: "bg-green-100 text-green-700" };
+      return { status: "enabled", label: "Enabled", icon: CheckCircle2, color: "bg-[#fef3c7] text-[#d97706]" };
     }
     return { status: "incomplete", label: "Incomplete", icon: XCircle, color: "bg-yellow-100 text-yellow-700" };
   };

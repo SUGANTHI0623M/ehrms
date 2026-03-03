@@ -7,10 +7,11 @@ import {
     RobotOutlined, ThunderboltOutlined, CheckCircleOutlined,
     TrophyOutlined, CheckOutlined, ArrowLeftOutlined,
     MenuFoldOutlined,
-    MenuUnfoldOutlined
+    MenuUnfoldOutlined,
+    CloseCircleOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useCreateAssessmentRequestMutation, useGetAssessmentRequestsQuery } from '@/store/api/lmsApi';
+import { useCreateAssessmentRequestMutation, useGetAssessmentRequestsQuery, useUpdateAssessmentRequestMutation } from '@/store/api/lmsApi';
 import { LmsPageLayout, LmsSectionHeader } from '@/components/lms/SharedComponents';
 import CourseCurriculumSection from '@/components/lms/CourseCurriculumSection';
 import { Lesson, Material } from '@/components/lms/LmsCourseSidebar';
@@ -47,6 +48,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const { isDesktop } = useBreakpoint();
     const [createAssessmentRequest, { isLoading: isRequestingAssessment }] = useCreateAssessmentRequestMutation();
+    const [updateAssessmentRequest, { isLoading: isCancellingAssessment }] = useUpdateAssessmentRequestMutation();
     const { data: assessmentRequestsData } = useGetAssessmentRequestsQuery(undefined, { skip: isAdmin });
 
     // Support both: API returning course.materials (flattened) or course.lessons[].materials
@@ -170,16 +172,16 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
     };
 
     const renderActionButtons = () => {
-        const allLessonsCompleted = lessons.every(l => isLessonCompleted(l.title));
+        const assessmentPassed = progress?.assessmentStatus === 'Passed';
         if (isAdmin) return null;
-        if (allLessonsCompleted) return null;
+        if (assessmentPassed) return null;
 
         return (
             <Button
                 size="large"
                 icon={<RobotOutlined />}
                 onClick={() => setQuizModalVisible('global')}
-                className="!text-black hover:!border-[#10b981] hover:!text-[#10b981] [&_.anticon]:hover:!text-[#10b981] min-w-[120px] sm:min-w-[140px]"
+                className="!text-black hover:!border-[#efaa1f] hover:!text-[#efaa1f] [&_.anticon]:hover:!text-[#efaa1f] min-w-[120px] sm:min-w-[140px]"
             >
                 Practice Quiz
             </Button>
@@ -320,6 +322,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
     // Sidebar Extra Actions for Employee
     const renderSidebarActions = (lesson: Lesson) => {
         if (isAdmin) return null;
+        if (progress?.assessmentStatus === 'Passed') return null;
         const completed = isLessonCompleted(lesson.title);
         return (
             <div className="flex flex-wrap items-center gap-2">
@@ -373,12 +376,12 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
 
         if (assessmentPassed && score != null) {
             return (
-                <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-2 text-green-700 font-semibold">
+                <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-center">
+                    <div className="flex items-center justify-center gap-2 text-[#d97706] font-semibold">
                         <TrophyOutlined />
                         <span>Assessment Passed</span>
                     </div>
-                    <div className="text-2xl font-bold text-green-700 mt-1">{score}%</div>
+                    <div className="text-2xl font-bold text-[#d97706] mt-1">{score}%</div>
                 </div>
             );
         }
@@ -412,7 +415,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                         }}
                         disabled={isRequestingAssessment || hasReAssessmentPending}
                         loading={isRequestingAssessment}
-                        className="!border-gray-300 !text-gray-700 hover:!border-[#10b981] hover:!text-[#10b981]"
+                        className="!border-gray-300 !text-gray-700 hover:!border-[#efaa1f] hover:!text-[#efaa1f]"
                     >
                         {hasReAssessmentPending ? 'Re-assessment requested' : 'Request re-assessment'}
                     </Button>
@@ -450,7 +453,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                         }}
                         disabled={isRequestingAssessment || hasLiveAssessmentPending}
                         loading={isRequestingAssessment}
-                        className="!border-gray-300 !text-gray-700 hover:!border-[#10b981] hover:!text-[#10b981]"
+                        className="!border-gray-300 !text-gray-700 hover:!border-[#efaa1f] hover:!text-[#efaa1f]"
                     >
                         {hasLiveAssessmentPending ? 'Live assessment requested' : 'Request live assessment'}
                     </Button>
@@ -463,6 +466,59 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
             ? (assessmentRequested || isRequestingAssessment)
             : isRequestingAssessment;
 
+        // Scheduled live assessment: learner can cancel before start; host will be notified and assessment moves to Completed (Cancelled).
+        const scheduledRequest = course.isLiveAssessment
+            ? requests.find(
+                (r: any) => (r.courseId?._id?.toString?.() ?? r.courseId?.toString?.()) === courseIdStr
+                    && (r.type === 'Live Assessment' || r.type === 'Re-Assessment')
+                    && r.status === 'Scheduled'
+            )
+            : null;
+
+        if (scheduledRequest && course.isLiveAssessment) {
+            const scheduledStr = scheduledRequest.scheduledAt
+                ? new Date(scheduledRequest.scheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                : '';
+            return (
+                <div className="space-y-3">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+                        <div className="text-sm font-semibold text-amber-800">Assessment scheduled</div>
+                        {scheduledStr && <div className="text-xs text-amber-700 mt-1">{scheduledStr}</div>}
+                        <p className="text-xs text-amber-600 mt-2">You can cancel before it starts. The host will be notified and no action is required from admin.</p>
+                    </div>
+                    <Button
+                        block
+                        size="middle"
+                        type="default"
+                        danger
+                        icon={<CloseCircleOutlined />}
+                        loading={isCancellingAssessment}
+                        onClick={() => {
+                            Modal.confirm({
+                                title: 'Cancel assessment?',
+                                content: 'Your scheduled assessment will be cancelled. The host will receive a notification. You can request the assessment again later.',
+                                okText: 'Yes, cancel',
+                                cancelText: 'Keep it',
+                                okButtonProps: { danger: true },
+                                onOk: async () => {
+                                    try {
+                                        await updateAssessmentRequest({ id: scheduledRequest._id, status: 'Cancelled' }).unwrap();
+                                        message.success('Assessment cancelled. You can request it again when ready.');
+                                        onRefresh();
+                                    } catch (err: any) {
+                                        message.error(err?.data?.message || 'Failed to cancel assessment');
+                                    }
+                                },
+                            });
+                        }}
+                        className="!border-amber-400 !text-amber-700 hover:!border-red-500 hover:!text-red-600"
+                    >
+                        Cancel assessment
+                    </Button>
+                </div>
+            );
+        }
+
         return (
             <Button
                 block
@@ -471,7 +527,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                 onClick={handleAssessmentBtnClick}
                 disabled={buttonDisabled}
                 loading={isRequestingAssessment}
-                className="!text-black hover:!border-[#10b981] hover:!text-[#10b981] [&_.anticon]:hover:!text-[#10b981] disabled:!text-gray-400 disabled:hover:!border-gray-200 disabled:[&_.anticon]:!text-gray-400"
+                className="!text-black hover:!border-[#efaa1f] hover:!text-[#efaa1f] [&_.anticon]:hover:!text-[#efaa1f] disabled:!text-gray-400 disabled:hover:!border-gray-200 disabled:[&_.anticon]:!text-gray-400"
             >
                 {course.isLiveAssessment
                     ? (assessmentRequested ? 'Request sent' : 'Request Final Assessment')
@@ -516,6 +572,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                 renderExtraLessonActions={renderSidebarActions}
                 sectionFooter={renderSidebarFooter()}
                 courseTitle={course?.title}
+                courseDescription={course?.description}
                 courseCategory={course?.category ?? (Array.isArray(course?.categories) ? course.categories[0] : undefined)}
                 variant="sidebar"
                 dueDate={resolvedDueDate}
@@ -596,7 +653,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                                     {activeLesson && <div className="text-xs text-gray-500 mt-0.5">Section: {activeLesson}</div>}
                                 </div>
                             )}
-                            <div className="bg-white p-2 rounded-xl shadow-sm border-2 border-[#10b981] flex-1 min-h-0 flex flex-col">
+                            <div className="bg-white p-2 rounded-xl shadow-sm border-2 border-[#efaa1f] flex-1 min-h-0 flex flex-col">
                                 {renderIframePlayer()}
                             </div>
                         </div>
@@ -607,7 +664,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                                     size="small"
                                     className={`lms-course-sidebar-card absolute right-0 top-0 bottom-0 w-[380px] min-w-[320px] xl:w-[400px] xl:min-w-[360px] overflow-hidden transition-transform duration-300 ease-out ${sidebarCollapsed ? 'translate-x-full' : 'translate-x-0'}`}
                                     style={{
-                                        borderColor: '#10b981',
+                                        borderColor: '#efaa1f',
                                         borderRadius: 8,
                                         display: 'flex',
                                         flexDirection: 'column',
@@ -635,6 +692,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                                             renderExtraLessonActions={renderSidebarActions}
                                             sectionFooter={renderSidebarFooter()}
                                             courseTitle={course?.title}
+                                            courseDescription={course?.description}
                                             courseCategory={course?.category ?? (Array.isArray(course?.categories) ? course.categories[0] : undefined)}
                                             variant="sidebar"
                                             dueDate={resolvedDueDate}
@@ -681,6 +739,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                             renderExtraLessonActions={renderSidebarActions}
                             sectionFooter={renderSidebarFooter()}
                             courseTitle={course?.title}
+                            courseDescription={course?.description}
                             courseCategory={course?.category ?? (Array.isArray(course?.categories) ? course.categories[0] : undefined)}
                             dueDate={resolvedDueDate}
                             enrolledDate={progress?.createdAt ?? undefined}

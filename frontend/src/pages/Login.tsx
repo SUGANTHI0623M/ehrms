@@ -27,7 +27,7 @@ const Login = () => {
       const logo = platformLogoData.data.logo;
       setPlatformLogo(logo.startsWith('http') || logo.startsWith('/') 
         ? logo 
-        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:9000'}${logo}`
+        : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:7001'}${logo}`
       );
     }
   }, [platformLogoData]);
