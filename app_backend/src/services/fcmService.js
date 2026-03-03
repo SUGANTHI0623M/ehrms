@@ -55,7 +55,7 @@ async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
     if (Array.isArray(token)) return { success: false, error: 'Must send to one token only, not multiple' };
     const tokenPreview = token.length > 24 ? token.substring(0, 12) + '...' + token.slice(-8) : token;
     const androidTag = options && options.androidTag ? String(options.androidTag) : null;
-    console.log('[FCM] sendToToken: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
+    console.log('[FCM] RECEIVED send request: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
     try {
         const payload = {
             token,

@@ -2161,7 +2161,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
   */
 
-  Widget _buildCustomDay(DateTime day) {
+  Widget _buildCustomDay(BuildContext context, DateTime day) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_monthData == null) {
       // Fallback: just show the day number with today's border if month data is unavailable
       final now = DateTime.now();
@@ -2176,7 +2177,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           borderRadius: BorderRadius.circular(8),
         ),
         child: Center(
-          child: Text('${day.day}', style: TextStyle(fontSize: 13)),
+          child: Text(
+            '${day.day}',
+            style: TextStyle(fontSize: 13, color: colorScheme.onSurface),
+          ),
         ),
       );
     }
@@ -2290,7 +2294,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final candidate = DateTime(day.year, day.month, day.day);
         if (candidate.isAfter(today)) {
           bgColor = const Color(0xFFE2E8F0); // Not Marked - Light grey
-          textColor = const Color(0xFFCBD5E1); // Light grey text
+          textColor = const Color(0xFF475569); // Darker grey text for visibility
         }
       }
 
@@ -2354,7 +2358,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
-                    color: bgColor != Colors.transparent ? textColor : null,
+                    color: bgColor != Colors.transparent
+                        ? textColor
+                        : (isCurrentMonth
+                            ? colorScheme.onSurface
+                            : colorScheme.onSurfaceVariant),
                   ),
                 ),
                 if (leaveTypeAbbr != null && leaveTypeAbbr.isNotEmpty) ...[
@@ -3037,10 +3045,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     daysOfWeekHeight: 40,
                     calendarBuilders: CalendarBuilders(
                       defaultBuilder: (context, day, focusedDay) {
-                        return _buildCustomDay(day);
+                        return _buildCustomDay(context, day);
                       },
                       holidayBuilder: (context, day, focusedDay) {
-                        return _buildCustomDay(day);
+                        return _buildCustomDay(context, day);
                       },
                       outsideBuilder: (context, day, focusedDay) {
                         return const SizedBox.shrink();
@@ -4635,26 +4643,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             width: 56,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
             decoration: BoxDecoration(
-              color: AppColors.primary,
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: colorScheme.outline),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   dateNum,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   dayAbbrev,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Colors.white,
+                    color: colorScheme.onSurface,
                   ),
                 ),
               ],
