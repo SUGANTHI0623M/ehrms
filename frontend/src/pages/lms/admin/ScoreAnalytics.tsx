@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import MainLayout from "@/components/MainLayout";
-import { LmsLoadingState } from "@/components/lms/SharedComponents";
+import { LmsLoadingState, LmsKpiCard } from "@/components/lms/SharedComponents";
 import {
   Card,
   Row,
   Col,
-  Statistic,
   Select,
   Typography,
   Button,
@@ -28,6 +27,7 @@ import {
   DownloadOutlined,
   UserOutlined,
   SearchOutlined,
+  CheckCircleOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -281,57 +281,53 @@ const ScoresAnalytics: React.FC = () => {
           ) : (
             <>
               <Row gutter={[16, 16]}>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Total Learners"
-                      value={kpi.totalEnrollments ?? 0}
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Total Enrollments"
+                    value={kpi.totalEnrollments ?? 0}
+                    icon={<UserOutlined />}
+                    accentColor="#1e40af"
+                  />
                 </Col>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Completion Rate"
-                      value={kpi.completionRate ?? 0}
-                      suffix="%"
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Completion Rate"
+                    value={kpi.completionRate != null ? `${kpi.completionRate}%` : '0%'}
+                    icon={<CheckCircleOutlined />}
+                    accentColor="#15803d"
+                  />
                 </Col>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Avg Assessment Score"
-                      value={kpi.avgScore ?? 0}
-                      suffix="%"
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Avg Assessment Score"
+                    value={kpi.avgScore != null ? `${kpi.avgScore}%` : '0%'}
+                    icon={<TrophyOutlined />}
+                    accentColor="#b45309"
+                  />
                 </Col>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Pass Rate"
-                      value={kpi.passRate ?? 0}
-                      suffix="%"
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Pass Rate"
+                    value={kpi.passRate != null ? `${kpi.passRate}%` : '0%'}
+                    icon={<TeamOutlined />}
+                    accentColor="#7c3aed"
+                  />
                 </Col>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Active Learners"
-                      value={kpi.activeLearnerCount ?? 0}
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Active Learners"
+                    value={kpi.activeLearnerCount ?? 0}
+                    icon={<TeamOutlined />}
+                    accentColor="#0d9488"
+                  />
                 </Col>
-                <Col xs={24} md={8} lg={8} xl={8} xxl={4}>
-                  <Card className="lms-card">
-                    <Statistic
-                      title="Avg Time to Complete"
-                      value={kpi.avgTimeToCompleteDays ?? 0}
-                      suffix="days"
-                    />
-                  </Card>
+                <Col xs={24} sm={12} md={8} lg={4}>
+                  <LmsKpiCard
+                    title="Avg Time to Complete"
+                    value={kpi.avgTimeToCompleteDays != null ? `${kpi.avgTimeToCompleteDays} days` : '0 days'}
+                    icon={<BookOutlined />}
+                    accentColor="#475569"
+                  />
                 </Col>
               </Row>
               <Row gutter={[16, 16]}>
@@ -363,7 +359,7 @@ const ScoresAnalytics: React.FC = () => {
                   <Card
                     title="Score Distribution"
                     className="lms-card"
-                    bodyStyle={{ minHeight: 320 }}
+                    styles={{ body: { minHeight: 320 } }}
                   >
                     <div style={{ height: 320 }}>
                       {!scoreDist ||
@@ -405,7 +401,7 @@ const ScoresAnalytics: React.FC = () => {
           )}
 
           {/* Sub-tabs: Course Performance | Department / Team | Learners */}
-          <Card className="lms-card" bodyStyle={{ paddingTop: 16 }}>
+          <Card className="lms-card" styles={{ body: { paddingTop: 16 } }}>
             <Tabs
               activeKey={subTab}
               onChange={setSubTab}
@@ -551,7 +547,7 @@ const ScoresAnalytics: React.FC = () => {
                                     size="small"
                                     className="min-h-[44px] flex items-center"
                                     onClick={() =>
-                                      navigate(`/lms/admin/course/${id}`)
+                                      navigate(`/admin/lms/course-detail/${id}`)
                                     }
                                   >
                                     View
@@ -739,7 +735,7 @@ const ScoresAnalytics: React.FC = () => {
                                       type="link"
                                       size="small"
                                       onClick={() =>
-                                        navigate(`/lms/learners/${r._id}`)
+                                        navigate(`/admin/lms/learners/${r._id}`)
                                       }
                                     >
                                       View
@@ -803,7 +799,7 @@ const ScoresAnalytics: React.FC = () => {
                                       type="link"
                                       size="small"
                                       onClick={() =>
-                                        navigate(`/lms/learners/${r._id}`)
+                                        navigate(`/admin/lms/learners/${r._id}`)
                                       }
                                     >
                                       View
@@ -835,7 +831,7 @@ const ScoresAnalytics: React.FC = () => {
                             <Button
                               type="primary"
                               size="small"
-                              onClick={() => navigate("/lms/learners")}
+                              onClick={() => navigate("/admin/lms/learners")}
                             >
                               View full list
                             </Button>

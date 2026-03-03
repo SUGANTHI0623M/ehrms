@@ -410,7 +410,7 @@ const IvrCallLogsTable = () => {
           borderRadius: "16px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
         }}
-        bodyStyle={{ padding: "20px 24px" }}
+        styles={{ body: { padding: "20px 24px" } }}
       >
         <Space size='middle' wrap style={{ width: "100%" }}>
           <div>
@@ -498,7 +498,7 @@ const IvrCallLogsTable = () => {
                 border: "none",
                 transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
-              bodyStyle={{ padding: "24px" }}
+              styles={{ body: { padding: "24px" } }}
             >
               <Statistic
                 title={
@@ -536,7 +536,7 @@ const IvrCallLogsTable = () => {
                 border: "none",
                 transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
-              bodyStyle={{ padding: "24px" }}
+              styles={{ body: { padding: "24px" } }}
             >
               <Statistic
                 title={
@@ -574,7 +574,7 @@ const IvrCallLogsTable = () => {
                 border: "none",
                 transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
-              bodyStyle={{ padding: "24px" }}
+              styles={{ body: { padding: "24px" } }}
             >
               <Statistic
                 title={
@@ -612,7 +612,7 @@ const IvrCallLogsTable = () => {
                 border: "none",
                 transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
-              bodyStyle={{ padding: "24px" }}
+              styles={{ body: { padding: "24px" } }}
             >
               <Statistic
                 title={

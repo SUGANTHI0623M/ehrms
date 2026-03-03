@@ -21,7 +21,7 @@ dayjs.extend(relativeTime);
 
 const { Title, Text } = Typography;
 
-const COLORS = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#9333ea', '#0891b2'];
+const COLORS = ['#2563eb', '#efaa1f', '#ca8a04', '#dc2626', '#9333ea', '#0891b2'];
 
 const LMSDashboard = () => {
     const navigate = useNavigate();
@@ -104,7 +104,7 @@ const LMSDashboard = () => {
                             <LmsStatisticCard title="Total Courses" value={data.kpi?.totalCourses || 0} icon={<BookOutlined />} color="#2563eb" />
                         </Col>
                         <Col xs={24} sm={12} lg={6}>
-                            <LmsStatisticCard title="Active Learners" value={data.kpi?.totalLearners || 0} icon={<TeamOutlined />} color="#16a34a" />
+                            <LmsStatisticCard title="Active Learners" value={data.kpi?.totalLearners || 0} icon={<TeamOutlined />} color="#efaa1f" />
                         </Col>
                         <Col xs={24} sm={12} lg={6}>
                             <LmsStatisticCard title="Completion Rate" value={data.kpi?.completionRate || 0} suffix="%" icon={<ReadOutlined />} color="#ca8a04" />
@@ -136,7 +136,7 @@ const LMSDashboard = () => {
                                             />
                                             <Legend verticalAlign="top" height={36} iconType="circle" />
                                             <Bar dataKey="assigned" name="Enrollments" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={20} />
-                                            <Bar dataKey="completed" name="Completions" fill="#16a34a" radius={[4, 4, 0, 0]} barSize={20} />
+                                            <Bar dataKey="completed" name="Completions" fill="#efaa1f" radius={[4, 4, 0, 0]} barSize={20} />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -232,7 +232,7 @@ const LMSDashboard = () => {
                                         <span className="text-2xl font-normal text-gray-400">%</span>
                                     </div>
                                     <div className="mt-6 flex justify-center gap-2">
-                                        <Tag className="rounded-full bg-green-50 text-green-600 border-green-100 px-3">High Performance</Tag>
+                                        <Tag className="rounded-full bg-[#fffbeb] text-[#efaa1f] border-[#fde68a] px-3">High Performance</Tag>
                                     </div>
                                 </div>
                             </div>

@@ -20,6 +20,7 @@ import {
   Package,
   CheckCircle2,
   X,
+  Eye,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { DatePicker } from "antd";
@@ -27,6 +28,7 @@ import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import {
   useGetFormResponsesQuery,
+  useGetFormResponseByIdQuery,
   useSubmitFormResponseMutation,
 } from "@/store/api/formApi";
 import { useGetFormTemplatesQuery } from "@/store/api/formApi";
@@ -34,6 +36,17 @@ import { useGetTasksQuery } from "@/store/api/taskApi";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Pagination } from "@/components/ui/pagination";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const { RangePicker } = DatePicker;
 
@@ -46,7 +59,20 @@ const FormResponses = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch form response details by ID when viewing
+  const {
+    data: responseDetailsData,
+    isLoading: isLoadingResponseDetails,
+    error: responseDetailsError,
+  } = useGetFormResponseByIdQuery(viewingResponseId || "", {
+    skip: !viewingResponseId || !isViewModalOpen,
+  });
+
+  const viewingResponse = responseDetailsData?.data?.response;
 
   // Debounce search query
   useEffect(() => {
@@ -631,26 +657,6 @@ const FormResponses = () => {
                           <th className="text-left p-3 font-medium">
                             Company Name
                           </th>
-                          <th className="text-left p-3 font-medium">
-                            Company Number
-                          </th>
-                          {dynamicColumns.map((column) => (
-                            <th
-                              key={column}
-                              className="text-left p-3 font-medium"
-                            >
-                              {column}
-                            </th>
-                          ))}
-                          <th className="text-left p-3 font-medium">
-                            Task created
-                          </th>
-                          <th className="text-left p-3 font-medium">
-                            Form created
-                          </th>
-                          <th className="text-left p-3 font-medium">
-                            Submitted
-                          </th>
                           <th className="text-left p-3 font-medium">Action</th>
                         </tr>
                       </thead>
@@ -673,19 +679,6 @@ const FormResponses = () => {
                             customer?.companyName ||
                             customer?.customFields?.companyName ||
                             "-";
-                          const companyNumber =
-                            customer?.customerNumber ||
-                            customer?.customFields?.companyNumber ||
-                            "-";
-                          const taskCreatedOn = task?.assignedDate
-                            ? format(new Date(task.assignedDate), "dd MMM yy")
-                            : "-";
-                          const formCreatedAt = item.createdAt
-                            ? format(
-                                new Date(item.createdAt),
-                                "dd MMM yy HH:mm",
-                              )
-                            : "-";
 
                           return (
                             <tr
@@ -707,71 +700,62 @@ const FormResponses = () => {
                               <td className="p-3 whitespace-nowrap">
                                 {companyName}
                               </td>
-                              <td className="p-3 whitespace-nowrap">
-                                {companyNumber}
-                              </td>
-                              {dynamicColumns.map((column) => {
-                                const value = item.responses?.[column];
-                                let displayValue: string | ReactNode = "-";
-
-                                if (value !== undefined && value !== null) {
-                                  if (
-                                    typeof value === "string" &&
-                                    (value.startsWith("http") ||
-                                      value.startsWith("data:"))
-                                  ) {
-                                    displayValue = (
-                                      <img
-                                        src={value}
-                                        alt={column}
-                                        className="w-10 h-10 object-cover rounded"
-                                      />
-                                    );
-                                  } else if (Array.isArray(value)) {
-                                    displayValue = value.join(", ");
-                                  } else {
-                                    displayValue = String(value);
-                                  }
-                                }
-
-                                return (
-                                  <td key={column} className="p-3">
-                                    {displayValue}
-                                  </td>
-                                );
-                              })}
-                              <td className="p-3 whitespace-nowrap">
-                                {taskCreatedOn}
-                              </td>
-                              <td className="p-3 whitespace-nowrap">
-                                {formCreatedAt}
-                              </td>
-                              <td className="p-3 whitespace-nowrap">
-                                {item.isSubmitted && item.submittedAt
-                                  ? format(
-                                      new Date(item.submittedAt),
-                                      "dd MMM yy HH:mm",
-                                    )
-                                  : "-"}
-                              </td>
                               <td className="p-3">
-                                {item.hasResponse && !item.isSubmitted ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleSubmitForm(item._id)}
-                                    className="h-8"
-                                  >
-                                    Submit
-                                  </Button>
-                                ) : item.hasResponse && item.isSubmitted ? (
-                                  <span className="text-green-600 flex items-center gap-1">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    Done
-                                  </span>
-                                ) : (
-                                  "-"
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {item.hasResponse ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        // Use the response ID if available, otherwise use the combined item ID
+                                        const responseId = item._id;
+                                        if (responseId) {
+                                          setViewingResponseId(responseId);
+                                          setIsViewModalOpen(true);
+                                        }
+                                      }}
+                                      className="h-8"
+                                    >
+                                      <Eye className="w-4 h-4 mr-1" />
+                                      View
+                                    </Button>
+                                  ) : (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8"
+                                            disabled
+                                          >
+                                            <Eye className="w-4 h-4 mr-1" />
+                                            View
+                                          </Button>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>No form response available. The form has not been filled yet for this task.</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {item.hasResponse && !item.isSubmitted && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleSubmitForm(item._id)}
+                                      className="h-8"
+                                    >
+                                      Submit
+                                    </Button>
+                                  )}
+                                  {item.hasResponse && item.isSubmitted && (
+                                    <span className="text-green-600 flex items-center gap-1">
+                                      <CheckCircle2 className="w-4 h-4" />
+                                      Done
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -804,6 +788,226 @@ const FormResponses = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* View Response Details Modal */}
+      <Dialog 
+        open={isViewModalOpen} 
+        onOpenChange={(open) => {
+          setIsViewModalOpen(open);
+          if (!open) {
+            setViewingResponseId(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Form Response Details</DialogTitle>
+          </DialogHeader>
+          {isLoadingResponseDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <p className="text-muted-foreground">Loading form response details...</p>
+              </div>
+            </div>
+          ) : responseDetailsError ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <p className="text-red-500">
+                  {(responseDetailsError as any)?.data?.error?.message || "Failed to load form response details"}
+                </p>
+              </div>
+            </div>
+          ) : viewingResponse ? (
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Name</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.staffId && typeof viewingResponse.staffId === "object"
+                      ? viewingResponse.staffId.name
+                      : "Unknown"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Employee ID</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.staffId && typeof viewingResponse.staffId === "object"
+                      ? viewingResponse.staffId.employeeId || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Task ID</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object"
+                      ? viewingResponse.taskId.taskId || "Unknown"
+                      : "Unknown"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Task Title</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object"
+                      ? viewingResponse.taskId.taskTitle || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Address</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.address || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Client Name</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.customerName || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Company Name</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.companyName || 
+                        viewingResponse.taskId.customerId.customFields?.companyName || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Company Number</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.customerNumber || 
+                        viewingResponse.taskId.customerId.customFields?.companyNumber || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">City</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.city || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Pincode</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.customerId
+                      ? viewingResponse.taskId.customerId.pincode || "-"
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Task Created</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.taskId && typeof viewingResponse.taskId === "object" && viewingResponse.taskId.assignedDate
+                      ? format(new Date(viewingResponse.taskId.assignedDate), "dd MMM yyyy")
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Form Created</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.createdAt
+                      ? format(new Date(viewingResponse.createdAt), "dd MMM yyyy HH:mm")
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Submitted</label>
+                  <p className="text-sm mt-1">
+                    {viewingResponse.isSubmitted && viewingResponse.submittedAt
+                      ? format(new Date(viewingResponse.submittedAt), "dd MMM yyyy HH:mm")
+                      : "Not Submitted"}
+                  </p>
+                </div>
+                {viewingResponse.submittedBy && typeof viewingResponse.submittedBy === "object" && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Submitted By</label>
+                    <p className="text-sm mt-1">
+                      {viewingResponse.submittedBy.name || "-"}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Form Template Info */}
+              {viewingResponse.templateId && typeof viewingResponse.templateId === "object" && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Form Template</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {viewingResponse.templateId.templateName}
+                  </p>
+                </div>
+              )}
+
+              {/* Form Responses */}
+              {viewingResponse.responses && Object.keys(viewingResponse.responses).length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Form Responses</h3>
+                  <div className="space-y-4">
+                    {Object.entries(viewingResponse.responses).map(([fieldName, value]) => {
+                      let displayValue: string | ReactNode = "-";
+
+                      if (value !== undefined && value !== null) {
+                        if (
+                          typeof value === "string" &&
+                          (value.startsWith("http") || value.startsWith("data:"))
+                        ) {
+                          displayValue = (
+                            <div className="mt-2">
+                              <img
+                                src={value}
+                                alt={fieldName}
+                                className="max-w-full h-auto max-h-64 object-contain rounded border"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                              <a
+                                href={value}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-600 hover:underline hidden"
+                              >
+                                Open Image
+                              </a>
+                            </div>
+                          );
+                        } else if (Array.isArray(value)) {
+                          displayValue = value.join(", ");
+                        } else {
+                          displayValue = String(value);
+                        }
+                      }
+
+                      return (
+                        <div key={fieldName} className="border-b pb-3">
+                          <label className="text-sm font-medium text-muted-foreground">{fieldName}</label>
+                          <div className="mt-1 text-sm">{displayValue}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <p className="text-muted-foreground">No form response data available</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };

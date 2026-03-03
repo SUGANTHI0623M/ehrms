@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +18,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useGetLoansQuery, useApproveLoanMutation, useRejectLoanMutation } from "@/store/api/loanApi";
+import { useGetPayrollsQuery } from "@/store/api/payrollApi";
 import { message } from "antd";
 import MainLayout from "@/components/MainLayout";
-import { Search, CheckCircle, XCircle, X } from "lucide-react";
+import { Search, CheckCircle, XCircle, X, ChevronDown, ChevronRight, Calendar, DollarSign, Clock } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { formatINR } from "@/utils/currencyUtils";
+import AdminLoanDashboard from "@/components/loan/AdminLoanDashboard";
 
 interface LoansProps {
   employeeId?: string;
@@ -42,6 +44,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
   const [rejectionReason, setRejectionReason] = useState("");
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
 
   const normalizeSearch = (q: string) => q.trim().replace(/\s+/g, " ");
 
@@ -62,16 +65,75 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
 
   const { data: loansData, isLoading, refetch } = useGetLoansQuery({
     employeeId: employeeId || undefined,
-    status: subTab === "applications" ? "Pending" : subTab === "loans" ? "Active" : undefined,
+    status: subTab === "applications" ? "Pending" : undefined, // For "loans" tab, we'll filter to show both Approved and Active
     search: debouncedSearch || undefined,
     page: currentPage,
     limit: pageSize
   });
+  
+  // Filter loans based on tab - Active Loans tab should show both Approved and Active loans
+  const filteredLoans = subTab === "loans" 
+    ? (loansData?.data?.loans || []).filter((loan: any) => loan.status === "Active" || loan.status === "Approved")
+    : loansData?.data?.loans || [];
+  const { data: allLoansData, isLoading: isAllLoansLoading } = useGetLoansQuery(
+    {
+      page: 1,
+      limit: 5000,
+    },
+    { skip: !!employeeId }
+  );
   const [approveLoan, { isLoading: isApproving }] = useApproveLoanMutation();
   const [rejectLoan, { isLoading: isRejecting }] = useRejectLoanMutation();
 
-  const loans = loansData?.data?.loans || [];
+  const loans = filteredLoans;
   const pagination = loansData?.data?.pagination;
+  const allLoans = allLoansData?.data?.loans || [];
+
+  // Fetch payrolls to get loan EMI payment information
+  const { data: payrollsData } = useGetPayrollsQuery(
+    { employeeId: employeeId || undefined, limit: 1000 },
+    { skip: false }
+  );
+  const payrolls = payrollsData?.data?.payrolls || [];
+
+  // Create a map to track which payroll month/year each loan EMI was paid in
+  const loanEMIPaymentMap = useMemo(() => {
+    const map = new Map<string, Map<string, { month: number; year: number }>>();
+    
+    payrolls.forEach((payroll: any) => {
+      if (!payroll.components || !Array.isArray(payroll.components)) return;
+      
+      payroll.components.forEach((component: any) => {
+        // Check if this component is a loan EMI deduction
+        if (component.type === 'deduction' && component.name?.includes('Loan EMI')) {
+          const loanId = component.loanId;
+          const installmentDueDate = component.installmentDueDate;
+          
+          if (loanId && installmentDueDate) {
+            // Convert due date to string key (YYYY-MM-DD format)
+            const dueDateStr = new Date(installmentDueDate).toISOString().split('T')[0];
+            
+            if (!map.has(loanId)) {
+              map.set(loanId, new Map());
+            }
+            
+            const loanMap = map.get(loanId)!;
+            loanMap.set(dueDateStr, {
+              month: payroll.month,
+              year: payroll.year
+            });
+          }
+        }
+      });
+    });
+    
+    return map;
+  }, [payrolls]);
+
+  const getMonthName = (month: number) => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1] || 'Unknown';
+  };
 
   const handleApprove = async (id: string) => {
     try {
@@ -124,6 +186,12 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
 
   const content = (
     <div className="w-full space-y-6">
+      {!employeeId && (
+        <AdminLoanDashboard
+          loans={allLoans}
+          isLoading={isAllLoansLoading}
+        />
+      )}
       <Card>
           <CardHeader className="pb-2">
             <CardTitle>{employeeId ? "Employee Loans" : "Loans"}</CardTitle>
@@ -211,7 +279,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                             <TableCell>
                               {loan.status === "Approved" && loan.approvedBy ? (
                                 <div className="text-xs space-y-1">
-                                  <div className="font-medium text-green-600">Approved by: {loan.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-[#efaa1f]">Approved by: {loan.approvedBy.name || 'N/A'}</div>
                                   {loan.approvedAt && (
                                     <div className="text-muted-foreground">
                                       {new Date(loan.approvedAt).toLocaleDateString()}
@@ -319,6 +387,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-8"></TableHead>
                           <TableHead>Employee</TableHead>
                           <TableHead>Loan Type</TableHead>
                           <TableHead>Amount</TableHead>
@@ -329,22 +398,137 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {loans.map((loan) => (
-                          <TableRow key={loan._id}>
-                            <TableCell>
-                              <div>
-                                <div className="font-medium">{loan.employeeId?.name || "N/A"}</div>
-                                <div className="text-sm text-muted-foreground">{loan.employeeId?.employeeId || ""}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{loan.loanType}</TableCell>
-                            <TableCell>{formatINR(loan.amount)}</TableCell>
-                            <TableCell>{formatINR(loan.emi)}</TableCell>
-                            <TableCell>{formatINR(loan.remainingAmount)}</TableCell>
-                            <TableCell>{formatDate(loan.startDate)}</TableCell>
-                            <TableCell>{getStatusBadge(loan.status)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {loans.map((loan) => {
+                          const paidInstallments = loan.installments?.filter((inst: any) => inst.paid) || [];
+                          const unpaidInstallments = loan.installments?.filter((inst: any) => !inst.paid) || [];
+                          const totalInstallments = loan.installments?.length || 0;
+                          const isExpanded = expandedLoanId === loan._id;
+                          
+                          return (
+                            <>
+                              <TableRow key={loan._id} className="cursor-pointer" onClick={() => setExpandedLoanId(isExpanded ? null : loan._id)}>
+                                <TableCell>
+                                  {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                </TableCell>
+                                <TableCell>
+                                  <div>
+                                    <div className="font-medium">{loan.employeeId?.name || "N/A"}</div>
+                                    <div className="text-sm text-muted-foreground">{loan.employeeId?.employeeId || ""}</div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{loan.loanType}</TableCell>
+                                <TableCell>{formatINR(loan.amount)}</TableCell>
+                                <TableCell>{formatINR(loan.emi)}</TableCell>
+                                <TableCell>{formatINR(loan.remainingAmount)}</TableCell>
+                                <TableCell>{formatDate(loan.startDate)}</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-col gap-1">
+                                    {getStatusBadge(loan.status)}
+                                    <span className="text-xs text-muted-foreground">
+                                      {paidInstallments.length}/{totalInstallments} EMIs paid
+                                    </span>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                              {isExpanded && (
+                                <TableRow>
+                                  <TableCell colSpan={8} className="bg-muted/30">
+                                    <div className="p-4 space-y-4">
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="p-3 border rounded-lg">
+                                          <div className="text-xs text-muted-foreground">Total EMIs</div>
+                                          <div className="text-lg font-semibold">{totalInstallments}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
+                                          <div className="text-xs text-muted-foreground">Paid EMIs</div>
+                                          <div className="text-lg font-semibold text-green-600">{paidInstallments.length}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950">
+                                          <div className="text-xs text-muted-foreground">Remaining EMIs</div>
+                                          <div className="text-lg font-semibold text-yellow-600">{unpaidInstallments.length}</div>
+                                        </div>
+                                        <div className="p-3 border rounded-lg bg-blue-50 dark:bg-blue-950">
+                                          <div className="text-xs text-muted-foreground">Remaining Amount</div>
+                                          <div className="text-lg font-semibold text-blue-600">{formatINR(loan.remainingAmount)}</div>
+                                        </div>
+                                      </div>
+                                      
+                                      {paidInstallments.length > 0 && (
+                                        <div>
+                                          <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                            Payment History
+                                          </h4>
+                                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                                            {paidInstallments.map((inst: any, idx: number) => {
+                                              // Match installment by due date
+                                              const dueDateStr = new Date(inst.dueDate).toISOString().split('T')[0];
+                                              const paymentInfo = loanEMIPaymentMap.get(loan._id)?.get(dueDateStr);
+                                              const paymentMonthYear = paymentInfo 
+                                                ? `${getMonthName(paymentInfo.month)} ${paymentInfo.year}`
+                                                : inst.paidAt 
+                                                  ? `${getMonthName(new Date(inst.paidAt).getMonth() + 1)} ${new Date(inst.paidAt).getFullYear()}`
+                                                  : 'N/A';
+                                              
+                                              return (
+                                                <div key={idx} className="flex items-center justify-between p-2 border rounded bg-green-50 dark:bg-green-950">
+                                                  <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                      <span className="text-sm font-medium">
+                                                        Due: {formatDate(inst.dueDate)}
+                                                      </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 ml-6">
+                                                      <span className="text-xs text-muted-foreground">
+                                                        Paid in: <span className="font-semibold text-green-700">{paymentMonthYear}</span> Payroll
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <DollarSign className="w-4 h-4 text-green-600" />
+                                                    <span className="font-semibold text-green-600">{formatINR(inst.amount || loan.emi)}</span>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {unpaidInstallments.length > 0 && (
+                                        <div>
+                                          <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-yellow-600" />
+                                            Upcoming EMIs
+                                          </h4>
+                                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                                            {unpaidInstallments.slice(0, 5).map((inst: any, idx: number) => (
+                                              <div key={idx} className="flex items-center justify-between p-2 border rounded">
+                                                <div className="flex items-center gap-2">
+                                                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                  <span className="text-sm">
+                                                    Due: {formatDate(inst.dueDate)}
+                                                  </span>
+                                                </div>
+                                                <span className="font-semibold">{formatINR(inst.amount || loan.emi)}</span>
+                                              </div>
+                                            ))}
+                                            {unpaidInstallments.length > 5 && (
+                                              <div className="text-xs text-muted-foreground text-center py-2">
+                                                +{unpaidInstallments.length - 5} more EMIs remaining
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -453,7 +637,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
               <AlertDialogAction
                 onClick={() => approveConfirmId && handleApprove(approveConfirmId)}
                 disabled={isApproving}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                className="w-full sm:w-auto bg-[#efaa1f] hover:bg-[#d97706]"
               >
                 {isApproving ? "Approving..." : "Sure, Approve"}
               </AlertDialogAction>

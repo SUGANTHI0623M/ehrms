@@ -105,7 +105,7 @@ const LmsCourseSidebar: React.FC<LmsCourseSidebarProps> = ({
     // Icon Helper
     const getMaterialIcon = (type: string) => {
         const iconStyle = { fontSize: '14px' };
-        const primaryColor = '#16a34a'; // standardized green
+        const primaryColor = '#efaa1f'; // primary color
         switch (type) {
             case 'VIDEO': return <PlayCircleOutlined style={{ ...iconStyle, color: primaryColor }} />;
             case 'YOUTUBE': return <YoutubeOutlined style={{ ...iconStyle, color: '#ef4444' }} />;
@@ -127,7 +127,7 @@ const LmsCourseSidebar: React.FC<LmsCourseSidebarProps> = ({
                         <Progress
                             percent={progressPercentage}
                             showInfo={false}
-                            strokeColor="#16a34a"
+                            strokeColor="#efaa1f"
                             trailColor="#e2e8f0"
                             size="small"
                             strokeWidth={6}
@@ -463,12 +463,12 @@ const LmsCourseSidebar: React.FC<LmsCourseSidebarProps> = ({
                 }
                 .playlist-lesson-done {
                     background: #ecfdf5;
-                    border-color: #10b981;
-                    color: #059669;
+                    border-color: #efaa1f;
+                    color: #d97706;
                 }
                 .playlist-lesson-active {
-                    background: #059669;
-                    border-color: #059669;
+                    background: #efaa1f;
+                    border-color: #efaa1f;
                     color: #fff;
                 }
                 .playlist-lesson-info {
@@ -534,7 +534,7 @@ const LmsCourseSidebar: React.FC<LmsCourseSidebarProps> = ({
                 }
                 .playlist-item-active {
                     background: #fff;
-                    color: #059669;
+                    color: #efaa1f;
                     font-weight: 600;
                     box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.2);
                 }

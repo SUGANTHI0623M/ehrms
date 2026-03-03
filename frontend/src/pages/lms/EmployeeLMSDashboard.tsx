@@ -104,7 +104,7 @@ const EmployeeLMSDashboard: React.FC = () => {
     const myCoursesTabContent = (
         <div className="space-y-6">
             {/* Filters */}
-            <Card className="lms-card" bodyStyle={{ padding: '16px' }}>
+            <Card className="lms-card" styles={{ body: { padding: '16px' } }}>
                 <div className="flex flex-col md:flex-row gap-4">
                     <Input
                         prefix={<SearchOutlined className="text-gray-400" />}

@@ -20,9 +20,14 @@ import {
   useGeneratePayrollMutation,
   useBulkGeneratePayrollMutation,
 } from "@/store/api/payrollApi";
+import { useGetLoansQuery } from "@/store/api/loanApi";
+import { useGetReimbursementsQuery } from "@/store/api/reimbursementApi";
 import { message } from "antd";
 import { format } from "date-fns";
 import { formatINR } from "@/utils/currencyUtils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const PayrollPreview = () => {
   const navigate = useNavigate();
@@ -34,6 +39,9 @@ const PayrollPreview = () => {
 
   const [previewData, setPreviewData] = useState<any>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(true);
+  const [includeLoanEMI, setIncludeLoanEMI] = useState<boolean>(false);
+  const [selectedExpenseClaims, setSelectedExpenseClaims] = useState<string[]>([]);
+  const [expensePaymentCycle, setExpensePaymentCycle] = useState<'current' | 'previous' | 'next'>('current');
 
   const [previewPayroll] = usePreviewPayrollMutation();
   const [previewBulkPayroll] = usePreviewBulkPayrollMutation();
@@ -41,6 +49,27 @@ const PayrollPreview = () => {
     useGeneratePayrollMutation();
   const [bulkGeneratePayroll, { isLoading: isBulkGenerating }] =
     useBulkGeneratePayrollMutation();
+
+  // Fetch employee loans to check if they have approved/active loans
+  // Fetch all loans for the employee (not filtering by status) to check for both Approved and Active
+  const { data: loansData } = useGetLoansQuery(
+    { employeeId: employeeId || "", limit: 100 },
+    { skip: !employeeId || isBulk }
+  );
+  
+  const hasApprovedLoans = loansData?.data?.loans?.some(
+    (loan: any) => (loan.status === 'Approved' || loan.status === 'Active') && loan.remainingAmount > 0
+  ) || false;
+
+  // Fetch approved expense claims
+  const { data: expenseClaimsData } = useGetReimbursementsQuery(
+    { employeeId: employeeId || "", status: "Approved", limit: 100 },
+    { skip: !employeeId || isBulk }
+  );
+  
+  const approvedExpenseClaims = expenseClaimsData?.data?.reimbursements?.filter(
+    (claim: any) => claim.status === 'Approved' && !claim.processedInPayroll
+  ) || [];
 
   useEffect(() => {
     const fetchPreview = async () => {
@@ -61,7 +90,21 @@ const PayrollPreview = () => {
             navigate("/payroll/management");
             return;
           }
-          result = await previewPayroll({ employeeId, month, year }).unwrap();
+          // Explicitly pass includeLoanEMI as boolean to ensure backend receives it correctly
+          const previewPayload: any = { 
+            employeeId, 
+            month, 
+            year, 
+            includeLoanEMI: Boolean(includeLoanEMI) // Ensure it's always a boolean
+          };
+          console.log('[PayrollPreview] Fetching preview with:', previewPayload);
+          result = await previewPayroll(previewPayload).unwrap();
+          console.log('[PayrollPreview] Preview data received:', {
+            components: result.data.preview.components?.length,
+            deductions: result.data.preview.deductions,
+            loanEMIComponents: result.data.preview.components?.filter((c: any) => c.name?.includes('Loan EMI')),
+            allComponents: result.data.preview.components?.map((c: any) => ({ name: c.name, type: c.type, amount: c.amount }))
+          });
         }
         setPreviewData(result.data.preview);
       } catch (error: any) {
@@ -78,6 +121,7 @@ const PayrollPreview = () => {
     employeeId,
     month,
     year,
+    includeLoanEMI,
     previewPayroll,
     previewBulkPayroll,
     navigate,
@@ -96,6 +140,9 @@ const PayrollPreview = () => {
           employeeId,
           month,
           year,
+          includeLoanEMI,
+          selectedExpenseClaims: selectedExpenseClaims.length > 0 ? selectedExpenseClaims : undefined,
+          expensePaymentCycle: selectedExpenseClaims.length > 0 ? expensePaymentCycle : undefined,
         }).unwrap();
         message.success(
           `Payroll generated successfully! Attendance: ${result.data.attendance.attendancePercentage.toFixed(1)}%`,
@@ -191,6 +238,110 @@ const PayrollPreview = () => {
                   </div>
                 )}
               </div>
+              
+              {/* Payroll Options Section - Loan EMI and Expense Claims */}
+              {!isBulk && (hasApprovedLoans || approvedExpenseClaims.length > 0) && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2">Payroll Options</h3>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        You can include both loan EMI deductions and expense claims in this payroll
+                      </p>
+                    </div>
+
+                    {/* Loan EMI Deduction Option */}
+                    {hasApprovedLoans && (
+                      <div className="p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="includeLoanEMI"
+                            checked={includeLoanEMI}
+                            onCheckedChange={(checked) => {
+                              const newValue = checked === true;
+                              console.log('[PayrollPreview] includeLoanEMI checkbox changed:', { checked, newValue });
+                              setIncludeLoanEMI(newValue);
+                            }}
+                          />
+                          <Label
+                            htmlFor="includeLoanEMI"
+                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                          >
+                            Include Loan EMI Deduction
+                          </Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 ml-6">
+                          Active loan EMI amounts will be deducted from the employee's salary for this payroll period
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Expense Claims Option */}
+                    {approvedExpenseClaims.length > 0 && (
+                      <div className="p-3 border rounded-lg bg-green-50/50 dark:bg-green-950/20">
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-sm font-medium">Include Expense Claims</Label>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Select approved expense claims to add to this payroll
+                            </p>
+                          </div>
+                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {approvedExpenseClaims.map((claim: any) => (
+                              <div key={claim._id} className="flex items-center space-x-2 p-2 border rounded bg-white dark:bg-gray-900">
+                                <Checkbox
+                                  id={`claim-${claim._id}`}
+                                  checked={selectedExpenseClaims.includes(claim._id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedExpenseClaims([...selectedExpenseClaims, claim._id]);
+                                    } else {
+                                      setSelectedExpenseClaims(selectedExpenseClaims.filter((id) => id !== claim._id));
+                                    }
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`claim-${claim._id}`}
+                                  className="flex-1 text-sm cursor-pointer"
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <span>{claim.type} - {claim.description}</span>
+                                    <span className="font-semibold text-green-600">{formatINR(claim.amount)}</span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {format(new Date(claim.date), "MMM dd, yyyy")}
+                                  </span>
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                          {selectedExpenseClaims.length > 0 && (
+                            <div className="space-y-2 pt-2 border-t">
+                              <Label className="text-sm font-medium">Payment Cycle</Label>
+                              <Select
+                                value={expensePaymentCycle}
+                                onValueChange={(value: 'current' | 'previous' | 'next') => setExpensePaymentCycle(value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="current">Current Month Payroll</SelectItem>
+                                  <SelectItem value="previous">Previous Month Payroll</SelectItem>
+                                  <SelectItem value="next">Next Pay Cycle</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground">
+                                Choose when to pay the selected expense claims
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -208,7 +359,7 @@ const PayrollPreview = () => {
                       <p className="text-sm text-muted-foreground">
                         Gross Salary
                       </p>
-                      <p className="text-xl font-bold text-green-600">
+                      <p className="text-xl font-bold text-[#efaa1f]">
                         {formatINR(previewData.grossSalary)}
                       </p>
                     </div>
@@ -281,7 +432,7 @@ const PayrollPreview = () => {
                               <span className="text-muted-foreground">
                                 Full Day Present:
                               </span>
-                              <span className="font-medium text-green-600">
+                              <span className="font-medium text-[#efaa1f]">
                                 {previewData.attendance.fullDayPresent || 0}
                               </span>
                             </div>
@@ -374,11 +525,11 @@ const PayrollPreview = () => {
                         </p>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                           {previewData.attendance.fullDayPresent > 0 && (
-                            <div className="p-2 bg-green-50 dark:bg-green-950 rounded">
+                            <div className="p-2 bg-[#fffbeb] dark:bg-[#78350f] rounded">
                               <div className="text-xs text-muted-foreground">
                                 Full Day Present
                               </div>
-                              <div className="font-semibold text-green-600">
+                              <div className="font-semibold text-[#efaa1f]">
                                 {previewData.attendance.fullDayPresent}
                               </div>
                             </div>
@@ -447,7 +598,7 @@ const PayrollPreview = () => {
                           <span
                             className={`font-semibold ${
                               comp.type === "earning"
-                                ? "text-green-600"
+                                ? "text-[#efaa1f]"
                                 : "text-red-600"
                             }`}
                           >
@@ -484,7 +635,7 @@ const PayrollPreview = () => {
                       <p className="text-sm text-muted-foreground">
                         Total Gross
                       </p>
-                      <p className="text-2xl font-bold text-green-600">
+                      <p className="text-2xl font-bold text-[#efaa1f]">
                         {formatINR(previewData.summary.totalGross)}
                       </p>
                     </div>
@@ -568,7 +719,7 @@ const PayrollPreview = () => {
                                 <p className="text-sm text-muted-foreground">
                                   Gross
                                 </p>
-                                <p className="font-semibold text-green-600">
+                                <p className="font-semibold text-[#efaa1f]">
                                   {formatINR(preview.grossSalary)}
                                 </p>
                               </div>
@@ -622,7 +773,7 @@ const PayrollPreview = () => {
                                       <span
                                         className={`font-semibold ${
                                           comp.type === "earning"
-                                            ? "text-green-600"
+                                            ? "text-[#efaa1f]"
                                             : "text-red-600"
                                         }`}
                                       >

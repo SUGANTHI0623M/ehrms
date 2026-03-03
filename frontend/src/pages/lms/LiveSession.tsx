@@ -18,7 +18,7 @@ const { Title, Text, Paragraph } = Typography;
 const { Content, Sider } = Layout;
 
 // URLs
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:9000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:7001';
 
 interface Message {
     sender: string;
@@ -264,7 +264,7 @@ const LiveRoom: React.FC = () => {
                         renderItem={(item) => (
                             <List.Item className="border-none px-2 rounded-lg hover:bg-gray-50 transition-colors">
                                 <List.Item.Meta
-                                    avatar={<Avatar size="small" style={{ backgroundColor: item.id === 'me' ? '#10b981' : '#f0f2f5', color: item.id === 'me' ? '#fff' : '#8c8c8c' }} icon={<UserOutlined />} />}
+                                    avatar={<Avatar size="small" style={{ backgroundColor: item.id === 'me' ? '#efaa1f' : '#f0f2f5', color: item.id === 'me' ? '#fff' : '#8c8c8c' }} icon={<UserOutlined />} />}
                                     title={<Text strong className="text-sm">{item.name}</Text>}
                                     description={<Text type="secondary" className="text-[10px] uppercase font-bold tracking-wider">{item.role}</Text>}
                                 />
@@ -410,7 +410,7 @@ const LiveRoom: React.FC = () => {
                 onCancel={() => { setLeaveModalOpen(false); leaveLogForm.resetFields(); }}
                 footer={null}
                 width={520}
-                destroyOnClose
+                destroyOnHidden
                 maskClosable={false}
                 centered
                 className="custom-modal top-4"

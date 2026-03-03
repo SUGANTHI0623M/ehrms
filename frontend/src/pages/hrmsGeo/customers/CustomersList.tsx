@@ -44,6 +44,7 @@ import {
 import { useGetCustomerDataFieldsQuery } from "@/store/api/settingsApi";
 import { message, DatePicker } from "antd";
 import dayjs, { Dayjs } from "dayjs";
+import { Pagination } from "@/components/ui/pagination";
 import type {
   Customer,
   CreateCustomerRequest,
@@ -78,7 +79,7 @@ const CustomersList = () => {
     return "list";
   };
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(50);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -110,6 +111,7 @@ const CustomersList = () => {
     null,
     null,
   ]);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -155,6 +157,7 @@ const CustomersList = () => {
     limit: pageSize,
     startDate: dateRange?.[0]?.format("YYYY-MM-DD"),
     endDate: dateRange?.[1]?.format("YYYY-MM-DD"),
+    status: statusFilter !== "all" ? statusFilter : undefined,
   });
 
   // Fetch custom fields
@@ -493,13 +496,14 @@ const CustomersList = () => {
         error?.data?.error?.message ||
         error?.message ||
         "Failed to import customers";
-      message.error(errorMessage);
-
-      // Show missing headers if any
+      
+      // Show missing headers if any, otherwise show general error
       if (error?.data?.error?.missingHeaders) {
         message.error(
           `Missing required columns: ${error.data.error.missingHeaders.join(", ")}`,
         );
+      } else {
+        message.error(errorMessage);
       }
     }
   };
@@ -842,13 +846,38 @@ const CustomersList = () => {
                           allowClear
                         />
                       </div>
+                      <div className="space-y-2">
+                        <Label>Status</Label>
+                        <Select
+                          value={statusFilter}
+                          onValueChange={(value) => {
+                            setStatusFilter(value);
+                            setCurrentPage(1);
+                          }}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="All Statuses" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Statuses</SelectItem>
+                            <SelectItem value="Not yet Started">Not yet Started</SelectItem>
+                            <SelectItem value="In progress">In progress</SelectItem>
+                            <SelectItem value="Completed Tasks">Completed Tasks</SelectItem>
+                            <SelectItem value="Reopened">Reopened</SelectItem>
+                            <SelectItem value="Rejected">Rejected</SelectItem>
+                            <SelectItem value="Hold">Hold</SelectItem>
+                            <SelectItem value="Delayed Tasks">Delayed Tasks</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    {(dateRange[0] || dateRange[1]) && (
+                    {(dateRange[0] || dateRange[1] || statusFilter !== "all") && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
                           setDateRange([null, null]);
+                          setStatusFilter("all");
                           setCurrentPage(1);
                         }}
                         className="text-muted-foreground hover:text-foreground"
@@ -965,38 +994,23 @@ const CustomersList = () => {
                 </div>
 
                 {/* Pagination */}
-                {(customersData?.data?.pagination?.pages ?? 1) > 1 && (
-                  <div className="flex items-center justify-between p-4 border-t">
-                    <div className="text-sm text-muted-foreground hidden sm:block">
-                      Page {currentPage} of {customersData?.data?.pagination?.pages ?? 1}
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setCurrentPage(Math.max(1, currentPage - 1))
-                        }
-                        disabled={currentPage === 1}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setCurrentPage(
-                            Math.min(
-                              customersData?.data?.pagination?.pages ?? 1,
-                              currentPage + 1,
-                            ),
-                          )
-                        }
-                        disabled={currentPage === (customersData?.data?.pagination?.pages ?? 1)}
-                      >
-                        Next
-                      </Button>
-                    </div>
+                {customersData?.data?.pagination && (
+                  <div className="mt-4 pt-4 border-t">
+                    <Pagination
+                      page={currentPage}
+                      pageSize={pageSize}
+                      total={customersData.data.pagination.total}
+                      pages={customersData.data.pagination.pages}
+                      onPageChange={(newPage) => {
+                        setCurrentPage(newPage);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      onPageSizeChange={(newSize) => {
+                        setPageSize(newSize);
+                        setCurrentPage(1);
+                      }}
+                      showPageSizeSelector={true}
+                    />
                   </div>
                 )}
               </CardContent>

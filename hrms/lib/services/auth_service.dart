@@ -79,8 +79,8 @@ class AuthService {
         }
       }
       _api.setAuthToken(accessToken);
-      if (kDebugMode) debugPrint('[AuthService] login success – sending FCM token to backend');
-      await FcmService.sendTokenToBackend();
+      if (kDebugMode) debugPrint('[AuthService] login success – registering FCM token');
+      await FcmService.sendTokenToBackendAfterLogin();
       return {'success': true, 'data': data};
     } on DioException catch (e) {
       return _handleDioError(e, 'Login failed', (code, body) {
@@ -200,7 +200,8 @@ class AuthService {
         }
       }
       _api.setAuthToken(data?['accessToken']);
-      await FcmService.sendTokenToBackend();
+      if (kDebugMode) debugPrint('[AuthService] login success – registering FCM token');
+      await FcmService.sendTokenToBackendAfterLogin();
       return {'success': true, 'data': data};
     } on DioException catch (e) {
       return _handleDioError(e, 'Login failed', (code, body) {

@@ -172,7 +172,7 @@ const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
       onCancel={handleModalClose}
       footer={null}
       width={900}
-      destroyOnClose
+      destroyOnHidden
       zIndex={120}
       getContainer={false}
     >

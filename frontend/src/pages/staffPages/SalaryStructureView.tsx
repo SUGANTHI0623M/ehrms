@@ -570,9 +570,9 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                     <p className="text-sm text-muted-foreground">Working Days</p>
                     <p className="text-2xl font-bold">{workingDaysInfo.workingDays}</p>
                   </div>
-                  <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <div className="p-4 bg-[#fffbeb] dark:bg-[#78350f] rounded-lg">
                     <p className="text-sm text-muted-foreground">Present Days</p>
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    <p className="text-2xl font-bold text-[#efaa1f] dark:text-[#fbbf24]">
                       {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)}
                     </p>
                   </div>
@@ -597,9 +597,9 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                      <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                      <div className="p-3 bg-[#fffbeb] dark:bg-[#78350f] rounded-lg">
                         <div className="text-xs text-muted-foreground">Full Day Present</div>
-                        <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                        <div className="text-lg font-bold text-[#efaa1f] dark:text-[#fbbf24]">
                           {attendanceRecords.filter((r: any) => 
                             (r.status === 'Present' || r.status === 'Approved') && !r.halfDaySession
                           ).length}
@@ -650,10 +650,10 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                         <p className="text-2xl font-bold">{formatCurrency(salaryData.gross || 0)}</p>
                       </CardContent>
                     </Card>
-                    <Card className="bg-green-50 dark:bg-green-950">
+                    <Card className="bg-[#fffbeb] dark:bg-[#78350f]">
                       <CardContent className="p-4">
                         <p className="text-sm text-muted-foreground">Prorated Gross</p>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                        <p className="text-2xl font-bold text-[#efaa1f] dark:text-[#fbbf24]">
                           {formatCurrency(calculatedSalary.gross)}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
@@ -777,7 +777,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                         })()
                       }}
                       modifiersClassNames={{
-                        present: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 font-semibold",
+                        present: "bg-[#fef3c7] dark:bg-[#92400e] text-[#b45309] dark:text-[#fde68a] font-semibold",
                         absent: "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 font-semibold",
                         holiday: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold",
                         weekend: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
@@ -791,7 +791,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                       <h3 className="font-semibold mb-3">Legend</h3>
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-4 h-4 rounded bg-green-100 dark:bg-green-900 border border-green-300 dark:border-green-700"></div>
+                          <div className="w-4 h-4 rounded bg-[#fef3c7] dark:bg-[#92400e] border border-[#fde68a] dark:border-[#d97706]"></div>
                           <span className="text-sm">Present</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -818,7 +818,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Present Days:</span>
-                          <span className="font-semibold text-green-600 dark:text-green-400">
+                          <span className="font-semibold text-[#efaa1f] dark:text-[#fbbf24]">
                             {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)}
                           </span>
                         </div>

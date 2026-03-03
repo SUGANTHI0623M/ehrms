@@ -166,7 +166,7 @@ const AdminAttendance = () => {
     switch (status) {
       case "Present":
         return (
-          <Badge variant="default" className="bg-green-500 hover:bg-green-500">
+          <Badge variant="default" className="bg-[#efaa1f] hover:bg-[#efaa1f]">
             Present
           </Badge>
         );
@@ -423,10 +423,10 @@ const AdminAttendance = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 min-[1301px]:grid-cols-6 gap-4">
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center gap-2">
-                      <UserCheck className="w-5 h-5 text-green-600" />
+                      <UserCheck className="w-5 h-5 text-[#efaa1f]" />
                       <span className="text-sm font-medium">Present</span>
                     </div>
-                    <span className="text-lg font-bold text-green-600">
+                    <span className="text-lg font-bold text-[#efaa1f]">
                       {stats?.present || 0}
                     </span>
                   </div>
@@ -499,31 +499,68 @@ const AdminAttendance = () => {
                 {/* Status Filter Tabs */}
                 <Tabs
                   value={statusFilter}
-                  onValueChange={setStatusFilter}
+                  onValueChange={(value) => {
+                    setStatusFilter(value);
+                    setCurrentPage(1); // Reset to first page when switching tabs
+                  }}
                   className="mb-4"
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="all">
+                      All
+                      {pagination?.total !== undefined && pagination.total > 0 && (
+                        <Badge
+                          variant="secondary"
+                          className="ml-2 px-1.5 py-0 text-xs"
+                        >
+                          {pagination.total}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
                     <TabsTrigger value="Pending">
                       Pending
-                      {attendanceRecords.filter(
-                        (r: any) => r.status === "Pending",
-                      ).length > 0 && (
+                      {stats?.pending !== undefined && stats.pending > 0 && (
                         <Badge
                           variant="destructive"
                           className="ml-2 px-1.5 py-0 text-xs"
                         >
-                          {
-                            attendanceRecords.filter(
-                              (r: any) => r.status === "Pending",
-                            ).length
-                          }
+                          {stats.pending}
                         </Badge>
                       )}
                     </TabsTrigger>
-                    <TabsTrigger value="Present">Present</TabsTrigger>
-                    <TabsTrigger value="Absent">Absent</TabsTrigger>
-                    <TabsTrigger value="On Leave">On Leave</TabsTrigger>
+                    <TabsTrigger value="Present">
+                      Present
+                      {stats?.present !== undefined && stats.present > 0 && (
+                        <Badge
+                          variant="default"
+                          className="ml-2 px-1.5 py-0 text-xs bg-[#efaa1f] hover:bg-[#efaa1f]"
+                        >
+                          {stats.present}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="Absent">
+                      Absent
+                      {stats?.absent !== undefined && stats.absent > 0 && (
+                        <Badge
+                          variant="destructive"
+                          className="ml-2 px-1.5 py-0 text-xs"
+                        >
+                          {stats.absent}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="On Leave">
+                      On Leave
+                      {stats?.onLeave !== undefined && stats.onLeave > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 px-1.5 py-0 text-xs"
+                        >
+                          {stats.onLeave}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
                 {isLoadingAttendance ? (
@@ -981,7 +1018,7 @@ const AdminAttendance = () => {
                                         <Button
                                           size="sm"
                                           variant="default"
-                                          className="bg-green-600 hover:bg-green-700 h-7 text-xs"
+                                          className="bg-[#efaa1f] hover:bg-[#d97706] h-7 text-xs"
                                           onClick={() =>
                                             handleQuickApprove(
                                               record,
@@ -1342,7 +1379,7 @@ const AdminAttendance = () => {
               </Button>
               <Button
                 onClick={handleUpdate}
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-[#efaa1f] hover:bg-[#d97706]"
               >
                 <CheckCircle2 className="w-4 h-4 mr-2" />
                 Update

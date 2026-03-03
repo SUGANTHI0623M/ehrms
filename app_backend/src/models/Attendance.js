@@ -81,6 +81,16 @@ const attendanceSchema = new mongoose.Schema(
     },
     punchInSelfie: String,
     punchOutSelfie: String,
+    punchInFaceMatch: Number,
+    punchOutFaceMatch: Number,
+    leaveTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'LeaveTemplate' },
+    leaveId: { type: mongoose.Schema.Types.ObjectId, ref: 'Leave' },
+    compensationType: { type: String, enum: ['paid', 'unpaid', 'weekOff'] },
+    alternateWorkDate: Date,
+    availableCasualLeaves: Number,
+    isPaidLeave: { type: Boolean, default: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     fcmNotificationSentAt: { type: Date },
     fcmRejectionSentAt: { type: Date },
     fcmStatusChangeSentAt: { type: Date }
@@ -101,5 +111,6 @@ attendanceSchema.index({ employeeId: 1, date: 1 }, { unique: true });
 attendanceSchema.index({ user: 1, date: 1 });
 attendanceSchema.index({ date: 1 });
 attendanceSchema.index({ businessId: 1 });
+attendanceSchema.index({ alternateWorkDate: 1, compensationType: 1 });
 
 module.exports = mongoose.model('Attendance', attendanceSchema);

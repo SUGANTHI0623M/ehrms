@@ -554,11 +554,11 @@ const Sidebar = ({
         { icon: Receipt, label: "Assets", path: "/assets" },
       ],
       lms: [
-        { icon: Library, label: "Course Library", path: "/course-library" },
-        { icon: Users, label: "Learners", path: "/lms/learners" },
-        { icon: ListVideo, label: "Live Sessions", path: "/lms/live-sessions" },
-        { icon: ListChecks, label: "Assessment Management", path: "/assessment" },
-        { icon: BarChart3, label: "Scores & Analytics", path: "/lms/scores-analytics" },
+        { icon: Library, label: "Course Library", path: "/admin/lms/course-library" },
+        { icon: Users, label: "Learners", path: "/admin/lms/learners" },
+        { icon: ListVideo, label: "Live Sessions", path: "/admin/lms/live-sessions" },
+        { icon: ListChecks, label: "Assessment Management", path: "/admin/lms/assessment" },
+        { icon: BarChart3, label: "Scores & Analytics", path: "/admin/lms/scores-analytics" },
       ],
       integrations: [
         { icon: Plug2, label: "All Integrations", path: "/integrations" },
@@ -779,6 +779,12 @@ const Sidebar = ({
       }
     }
     
+    // Special handling for admin LMS routes - keep LMS menu expanded on any /admin/lms/* route
+    if (pathWithoutQuery.startsWith("/admin/lms/")) {
+      setActiveMenu("lms");
+      return;
+    }
+    
     // For non-HRMS Geo routes, use the standard logic
     const { mainKey, subKey } = getMenuKeyFromPath();
 
@@ -841,7 +847,7 @@ const Sidebar = ({
       <div className="p-6 flex items-center justify-between">
         {!collapsed && (
           <h1 className="text-2xl font-bold text-sidebar-foreground text-center flex-1">
-            AskEVA HRMS
+            EKTA HRMS
           </h1>
         )}
         <button

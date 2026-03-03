@@ -64,7 +64,6 @@ const Assets = () => {
   const { data: assetsData, isLoading, isFetching } = useGetAssetsQuery(queryParams, {
     refetchOnMountOrArgChange: true,
     refetchOnFocus: false,
-    keepUnusedDataFor: 60,
   });
 
   const { data: branchesData } = useGetActiveBranchesQuery(undefined, {
@@ -181,7 +180,7 @@ const Assets = () => {
                        hostname === '[::1]';
         
         if (isLocal) {
-          return 'http://localhost:9000/api';
+          return 'http://localhost:7001/api';
         }
       }
       
@@ -193,7 +192,7 @@ const Assets = () => {
         return window.location.origin + '/api';
       }
       
-      return 'http://localhost:9000/api';
+      return 'http://localhost:7001/api';
     };
     
     const API_URL = getApiUrl();
@@ -289,11 +288,19 @@ const Assets = () => {
         delete formData.image;
       }
 
+      // Convert formData to match backend expectations (assetTypeId, assignedTo, branchId should be strings)
+      const payload: Partial<Asset> = {
+        ...formData,
+        assetTypeId: formData.assetTypeId ? (formData.assetTypeId as any) : undefined,
+        assignedTo: formData.assignedTo ? (formData.assignedTo as any) : undefined,
+        branchId: formData.branchId ? (formData.branchId as any) : undefined,
+      } as Partial<Asset>;
+
       if (editingAsset) {
-        await updateAsset({ id: editingAsset._id, data: formData }).unwrap();
+        await updateAsset({ id: editingAsset._id, data: payload }).unwrap();
         message.success("Asset updated successfully");
       } else {
-        await createAsset(formData).unwrap();
+        await createAsset(payload).unwrap();
         message.success("Asset created successfully");
       }
       setOpenAddModal(false);
@@ -403,7 +410,7 @@ const Assets = () => {
       key: "status",
       render: (text: string) => {
         const statusColors: Record<string, string> = {
-          "Working": "bg-green-100 text-green-700",
+          "Working": "bg-[#fef3c7] text-[#d97706]",
           "Under Maintenance": "bg-yellow-100 text-yellow-700",
           "Damaged": "bg-red-100 text-red-700",
           "Retired": "bg-gray-100 text-gray-700",
@@ -689,7 +696,10 @@ const Assets = () => {
                       placeholder="Enter purchase price"
                       min={0}
                       formatter={(value) => `₹ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={(value) => value!.replace(/₹\s?|(,*)/g, '')}
+                      parser={(value) => {
+                        const parsed = value!.replace(/₹\s?|(,*)/g, '');
+                        return (parsed || '0') as any;
+                      }}
                     />
                   </Form.Item>
 
@@ -712,7 +722,7 @@ const Assets = () => {
               }}>
                 Cancel
               </Button>
-              <Button className="text-white" htmlType="submit">
+              <Button className="text-white" type="submit">
                 {editingAsset ? "Update" : "Create"}
               </Button>
           </div>

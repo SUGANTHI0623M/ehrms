@@ -153,6 +153,8 @@ import BusinessInfo from "./pages/settingsPages/BusinessInfo";
 import OthersSetting from "./pages/settingsPages/Others";
 import OnboardingDocumentRequirements from "./pages/settingsPages/OnboardingDocumentRequirements";
 import AttendanceTemplates from "./pages/settingsPages/attendancepages/AttendanceTemplates";
+import WeeklyHolidayTemplates from "./pages/settingsPages/attendancepages/WeeklyHolidayTemplates";
+import WeeklyHolidayTemplateStaff from "./pages/settingsPages/attendancepages/WeeklyHolidayTemplateStaff";
 import AttendanceGeofence from "./pages/settingsPages/attendancepages/AttendanceGeofence";
 import ShiftSettings from "./pages/settingsPages/attendancepages/ShiftSettings";
 import AutomationRules from "./pages/settingsPages/attendancepages/AutomationRules";
@@ -263,11 +265,11 @@ const InterviewSessionWrapper = () => {
   return <InterviewSession interviewId={interviewId} />;
 };
 
-// Ant Design theme configuration with green primary color
-// Primary color: HSL(142, 70%, 38%) = rgb(31, 168, 85) = #1fa855
+// Ant Design theme configuration with primary color
+// Primary color: HSL(40, 87%, 53%) = rgb(239, 170, 31) = #efaa1f
 const antdTheme: ThemeConfig = {
   token: {
-    colorPrimary: "#1fa855", // Green color matching --primary: 142 70% 38%
+    colorPrimary: "#efaa1f", // Primary color matching --primary: 40 87% 53%
   },
 };
 
@@ -864,9 +866,7 @@ const App = () => {
                   <Route path="/announcements/:id/edit" element={<ProtectedRouteWithRole path="/announcements"><AnnouncementForm /></ProtectedRouteWithRole>} />
                   <Route path="/announcements/:id" element={<ProtectedRouteWithRole path="/announcements"><AnnouncementDetail /></ProtectedRouteWithRole>} />
 
-                  {/* Celebration Module (Admin) */}
-                  <Route path="/admin/celebration" element={<ProtectedRouteWithRole requireRole="Admin"><AdminCelebrationPage /></ProtectedRouteWithRole>} />
-                  <Route path="/admin/celebration/upcoming" element={<Navigate to="/admin/celebration" replace />} />
+                  {/* Celebration Module (Admin + Employees with permission) - handled below */}
 
                   {/* Announcements (Employee) */}
                   <Route path="/employee/announcements" element={<ProtectedRouteWithRole allowedRoles={["Employee", "EmployeeAdmin"]}><EmployeeAnnouncements /></ProtectedRouteWithRole>} />
@@ -948,26 +948,49 @@ const App = () => {
                   <Route path="/announcements/:id/edit" element={<ProtectedRouteWithRole path="/announcements"><AnnouncementForm /></ProtectedRouteWithRole>} />
                   <Route path="/announcements/:id" element={<ProtectedRouteWithRole path="/announcements"><AnnouncementDetail /></ProtectedRouteWithRole>} />
 
-                  {/* Celebration Module (Admin) */}
-                  <Route path="/admin/celebration" element={<ProtectedRouteWithRole requireRole="Admin"><AdminCelebrationPage /></ProtectedRouteWithRole>} />
+                  {/* Celebration Module (Admin + Employees with permission) */}
+                  <Route path="/admin/celebration" element={<ProtectedRouteWithRole path="/admin/celebration"><AdminCelebrationPage /></ProtectedRouteWithRole>} />
                   <Route path="/admin/celebration/upcoming" element={<Navigate to="/admin/celebration" replace />} />
 
                   {/* LMS Module */}
-                  <Route path="/lms-dashboard" element={<ProtectedRouteWithRole><LMSDashboard /></ProtectedRouteWithRole>} />
-                  <Route path="/course-library" element={<ProtectedRouteWithRole><CourseLibrary /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/course/:id" element={<ProtectedRouteWithRole><CoursePage /></ProtectedRouteWithRole>} />
-                  <Route path="/lms" element={<ProtectedRouteWithRole><CourseLibrary /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/employee/dashboard" element={<ProtectedRouteWithRole><EmployeeLMSDashboard /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/learning-engine" element={<ProtectedRouteWithRole><LearningEngineDashboard /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/employee/course/:id" element={<ProtectedRouteWithRole><EmployeeCoursePage /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/ai-quiz/attempt/:quizId" element={<ProtectedRouteWithRole><AIQuizAttempt /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/live-sessions" element={<ProtectedRouteWithRole allowedRoles={['Admin', 'Manager', 'Super Admin']}><LiveSessionManager /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/employee/live-sessions" element={<ProtectedRouteWithRole><EmployeeLiveSessions /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/live/:sessionId" element={<ProtectedRouteWithRole><LiveRoom /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/admin/course/:courseId" element={<ProtectedRouteWithRole><CourseDetail /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/admin/course-modern/:courseId" element={<ProtectedRouteWithRole><CourseDetailModern /></ProtectedRouteWithRole>} />
-                  <Route path="/lms/assessment/:courseId" element={<ProtectedRouteWithRole><Assessment /></ProtectedRouteWithRole>} />
-                  <Route path="/assessment" element={<ProtectedRouteWithRole allowedRoles={['Admin', 'Manager', 'Super Admin']}><AssessmentManagement /></ProtectedRouteWithRole>} />
+                  {/* Admin LMS Routes */}
+                  <Route path="/admin/lms/dashboard" element={<ProtectedRouteWithRole path="/admin/lms/dashboard"><LMSDashboard /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/course-library" element={<ProtectedRouteWithRole path="/admin/lms/course-library"><CourseLibrary /></ProtectedRouteWithRole>} />
+                  {/* Admin course detail - supports both /course/:id and /course-detail/:courseId */}
+                  <Route path="/admin/lms/course/:id" element={<ProtectedRouteWithRole path="/admin/lms/course/:id"><CourseDetail /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/learning-engine" element={<ProtectedRouteWithRole path="/admin/lms/learning-engine"><LearningEngineDashboard /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/live-sessions" element={<ProtectedRouteWithRole path="/admin/lms/live-sessions"><LiveSessionManager /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/live/:sessionId" element={<ProtectedRouteWithRole path="/admin/lms/live/:sessionId"><LiveRoom /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/course-detail/:courseId" element={<ProtectedRouteWithRole path="/admin/lms/course-detail/:courseId"><CourseDetail /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/course-modern/:courseId" element={<ProtectedRouteWithRole path="/admin/lms/course-modern/:courseId"><CourseDetailModern /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/assessment" element={<ProtectedRouteWithRole path="/admin/lms/assessment"><AssessmentManagement /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/learners" element={<ProtectedRouteWithRole path="/admin/lms/learners"><LearnersList /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/learners/:id" element={<ProtectedRouteWithRole path="/admin/lms/learners/:id"><LearnerDetail /></ProtectedRouteWithRole>} />
+                  <Route path="/admin/lms/scores-analytics" element={<ProtectedRouteWithRole path="/admin/lms/scores-analytics"><ScoresAnalytics /></ProtectedRouteWithRole>} />
+                  
+                  {/* Legacy Admin Routes (redirect to /admin/lms/*) */}
+                  <Route path="/lms-dashboard" element={<Navigate to="/admin/lms/dashboard" replace />} />
+                  <Route path="/course-library" element={<Navigate to="/admin/lms/course-library" replace />} />
+                  <Route path="/lms/course/:id" element={<Navigate to="/admin/lms/course/:id" replace />} />
+                  <Route path="/lms" element={<Navigate to="/admin/lms/course-library" replace />} />
+                  <Route path="/lms/learning-engine" element={<Navigate to="/admin/lms/learning-engine" replace />} />
+                  <Route path="/lms/live-sessions" element={<Navigate to="/admin/lms/live-sessions" replace />} />
+                  <Route path="/lms/admin/course/:courseId" element={<Navigate to="/admin/lms/course-detail/:courseId" replace />} />
+                  <Route path="/lms/admin/course-modern/:courseId" element={<Navigate to="/admin/lms/course-modern/:courseId" replace />} />
+                  <Route path="/assessment" element={<Navigate to="/admin/lms/assessment" replace />} />
+                  <Route path="/live-session" element={<Navigate to="/admin/lms/live-sessions" replace />} />
+                  <Route path="/quiz-generator" element={<Navigate to="/admin/lms/course-library" replace />} />
+                  <Route path="/score" element={<Navigate to="/admin/lms/scores-analytics" replace />} />
+                  <Route path="/lms/learners" element={<Navigate to="/admin/lms/learners" replace />} />
+                  <Route path="/lms/learners/:id" element={<Navigate to="/admin/lms/learners/:id" replace />} />
+                  <Route path="/lms/scores-analytics" element={<Navigate to="/admin/lms/scores-analytics" replace />} />
+
+                  {/* Employee LMS Routes */}
+                  <Route path="/lms/employee/dashboard" element={<ProtectedRouteWithRole path="/lms/employee/dashboard"><EmployeeLMSDashboard /></ProtectedRouteWithRole>} />
+                  <Route path="/lms/employee/course/:id" element={<ProtectedRouteWithRole path="/lms/employee/course/:id"><EmployeeCoursePage /></ProtectedRouteWithRole>} />
+                  <Route path="/lms/employee/live-sessions" element={<ProtectedRouteWithRole path="/lms/employee/live-sessions"><EmployeeLiveSessions /></ProtectedRouteWithRole>} />
+                  <Route path="/lms/ai-quiz/attempt/:quizId" element={<ProtectedRouteWithRole path="/lms/ai-quiz/attempt/:quizId"><AIQuizAttempt /></ProtectedRouteWithRole>} />
+                  <Route path="/lms/assessment/:courseId" element={<ProtectedRouteWithRole path="/lms/assessment/:courseId"><Assessment /></ProtectedRouteWithRole>} />
 
                   {/* Learners & Analytics */}
                   <Route path="/lms/learners" element={<ProtectedRouteWithRole allowedRoles={['Admin', 'Manager', 'Super Admin']}><LearnersList /></ProtectedRouteWithRole>} />
@@ -1261,6 +1284,22 @@ const App = () => {
                     element={
                       <ProtectedRouteWithRole path="/attendance-templates">
                         <AttendanceTemplateStaff />
+                      </ProtectedRouteWithRole>
+                    }
+                  />
+                  <Route
+                    path="/weekly-holiday-templates"
+                    element={
+                      <ProtectedRouteWithRole path="/weekly-holiday-templates">
+                        <WeeklyHolidayTemplates />
+                      </ProtectedRouteWithRole>
+                    }
+                  />
+                  <Route
+                    path="/weekly-holiday-templates/:id/staff"
+                    element={
+                      <ProtectedRouteWithRole path="/weekly-holiday-templates">
+                        <WeeklyHolidayTemplateStaff />
                       </ProtectedRouteWithRole>
                     }
                   />
@@ -2237,6 +2276,14 @@ const App = () => {
                     element={
                       <ProtectedRouteWithRole>
                         <AttendanceTemplates />
+                      </ProtectedRouteWithRole>
+                    }
+                  />
+                  <Route
+                    path="/weekly-holiday-templates"
+                    element={
+                      <ProtectedRouteWithRole>
+                        <WeeklyHolidayTemplates />
                       </ProtectedRouteWithRole>
                     }
                   />

@@ -82,6 +82,10 @@ export interface CandidateProfile {
     gender?: string;
     currentCity?: string;
     preferredJobLocation?: string;
+    totalYearsOfExperience?: number;
+    currentCompany?: string;
+    currentJobTitle?: string;
+    employmentType?: 'Full-time' | 'Contract' | 'Internship';
     position: string;
     primarySkill: string;
     skills: string[];

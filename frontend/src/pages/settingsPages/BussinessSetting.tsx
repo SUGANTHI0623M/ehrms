@@ -56,28 +56,28 @@ export default function BusinessSettings() {
       name: "Leave Policy", 
       description: leaveCount > 0 ? `${leaveCount} template${leaveCount !== 1 ? "s" : ""}` : "No templates" 
     },
-    { 
-      name: "Manage Business Functions",
-      description: functionsCount > 0 ? `${functionsCount} function${functionsCount !== 1 ? "s" : ""}` : "No functions"
-    },
-    { 
-      name: "Manage Staff Data", 
-      description: staffFieldsCount > 0 ? `${staffFieldsCount} custom field${staffFieldsCount !== 1 ? "s" : ""}` : "No custom fields" 
-    },
+    // { 
+    //   name: "Manage Business Functions",
+    //   description: functionsCount > 0 ? `${functionsCount} function${functionsCount !== 1 ? "s" : ""}` : "No functions"
+    // },
+    // { 
+    //   name: "Manage Staff Data", 
+    //   description: staffFieldsCount > 0 ? `${staffFieldsCount} custom field${staffFieldsCount !== 1 ? "s" : ""}` : "No custom fields" 
+    // },
     { 
       name: "Weekly Holidays", 
       description: getWeeklyHolidaysDescription()
     },
-    { 
-      name: "Manage Users", 
-      badge: "New", 
-      description: usersCount > 0 ? `${usersCount} user${usersCount !== 1 ? "s" : ""}` : "No users" 
-    },
-    { 
-      name: "Roles & Permissions", 
-      badge: "New", 
-      description: rolesCount > 0 ? `${rolesCount} role${rolesCount !== 1 ? "s" : ""}` : "No roles" 
-    },
+    // { 
+    //   name: "Manage Users", 
+    //   badge: "New", 
+    //   description: usersCount > 0 ? `${usersCount} user${usersCount !== 1 ? "s" : ""}` : "No users" 
+    // },
+    // { 
+    //   name: "Roles & Permissions", 
+    //   badge: "New", 
+    //   description: rolesCount > 0 ? `${rolesCount} role${rolesCount !== 1 ? "s" : ""}` : "No roles" 
+    // },
   ];
 
 

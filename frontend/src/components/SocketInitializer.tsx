@@ -60,6 +60,18 @@ const SocketInitializer = () => {
       };
       socketService.on('assessment-cancelled', handleAssessmentCancelled);
 
+      const handleAssessmentCancelledByLearner = (data: any) => {
+        toast.warning(data.title || 'Assessment cancelled by learner', {
+          description: data.message,
+          duration: 6000,
+          action: data.link ? {
+            label: 'View',
+            onClick: () => window.location.href = data.link,
+          } : undefined,
+        });
+      };
+      socketService.on('assessment-cancelled-by-learner', handleAssessmentCancelledByLearner);
+
       const handleAssessmentRescheduled = (data: any) => {
         toast.info(data.title || 'Assessment rescheduled', {
           description: data.message,
@@ -87,6 +99,7 @@ const SocketInitializer = () => {
       socketService.off('new-live-session');
       socketService.off('live-session-cancelled');
       socketService.off('assessment-cancelled');
+      socketService.off('assessment-cancelled-by-learner');
       socketService.off('live-assessment-rescheduled');
     };
   }, [isAuthenticated, user]);

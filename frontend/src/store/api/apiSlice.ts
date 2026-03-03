@@ -15,13 +15,13 @@ const getToken = (state?: RootState): string | null => {
   return localStorage.getItem('token');
 };
 
-// Determine API URL based on hostname
+// Determine API URL: respect VITE_API_URL when set (local or production), else default for local
 const getApiUrl = () => {
-  // Check if we're in browser environment
+  if (typeof window !== 'undefined' && import.meta.env.VITE_API_URL) {
+    return (import.meta.env.VITE_API_URL as string).trim().replace(/\/$/, '');
+  }
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-
-    // Check if hostname is local (localhost, 127.0.0.1, or any local IP)
     const isLocal = hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
       hostname === '0.0.0.0' ||
@@ -32,7 +32,7 @@ const getApiUrl = () => {
 
     if (isLocal) {
       // Use localhost for local development
-      return 'http://localhost:9000/api';
+      return 'http://localhost:7001/api';
     }
   }
 
@@ -48,7 +48,7 @@ const getApiUrl = () => {
   }
 
   // Default fallback for SSR or other cases
-  return 'http://localhost:9000/api';
+  return 'http://localhost:7001/api';
 };
 
 const baseQuery = fetchBaseQuery({
@@ -92,13 +92,26 @@ const processQueue = (error: any, token: string | null = null) => {
 
 // Enhanced base query with error handling and automatic token refresh
 const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
-  let result = await baseQuery(args, api, extraOptions);
-
   // Get the endpoint URL to check if it's an auth endpoint
   const endpoint = typeof args === 'string' ? args : args?.url || '';
+  
+  // Log template-related requests for debugging
+  if (endpoint.includes('template')) {
+    console.log('[apiSlice baseQueryWithReauth] ====== TEMPLATE REQUEST ======');
+    console.log('[apiSlice baseQueryWithReauth] Endpoint:', endpoint);
+    console.log('[apiSlice baseQueryWithReauth] Base URL:', getApiUrl());
+    console.log('[apiSlice baseQueryWithReauth] Full URL:', `${getApiUrl()}${endpoint}`);
+    console.log('[apiSlice baseQueryWithReauth] Is Offer Template:', endpoint.includes('offer-templates'));
+    console.log('[apiSlice baseQueryWithReauth] Is Celebration:', endpoint.includes('celebration/templates'));
+    console.log('[apiSlice baseQueryWithReauth] Args:', args);
+    console.log('[apiSlice baseQueryWithReauth] ===============================');
+  }
+  
   const isAuthEndpoint = endpoint.includes('/auth/login') ||
     endpoint.includes('/auth/register') ||
     endpoint.includes('/auth/refresh');
+  
+  let result = await baseQuery(args, api, extraOptions);
 
   // Handle 401 errors (unauthorized) - token expired or invalid
   // BUT exclude auth endpoints (login/register/refresh) from auto-logout

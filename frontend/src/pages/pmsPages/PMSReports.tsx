@@ -138,7 +138,7 @@ export default function PMSReports() {
   };
 
   const getRatingColor = (rating: number) => {
-    if (rating >= 4.5) return "text-green-600";
+    if (rating >= 4.5) return "text-[#efaa1f]";
     if (rating >= 3.5) return "text-blue-600";
     if (rating >= 2.5) return "text-yellow-600";
     return "text-red-600";
@@ -246,7 +246,7 @@ export default function PMSReports() {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <div className="flex items-center justify-center gap-1 text-green-500 mb-2">
+              <div className="flex items-center justify-center gap-1 text-[#efaa1f] mb-2">
                 <TrendingUp className="w-5 h-5" />
               </div>
               <p className="text-2xl font-bold">
@@ -348,11 +348,11 @@ export default function PMSReports() {
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">
                           {output.incrementPercent > 0 ? (
-                            <TrendingUp className="w-4 h-4 text-green-500" />
+                            <TrendingUp className="w-4 h-4 text-[#efaa1f]" />
                           ) : (
                             <TrendingDown className="w-4 h-4 text-red-500" />
                           )}
-                          <span className={output.incrementPercent > 0 ? "text-green-600" : "text-red-600"}>
+                          <span className={output.incrementPercent > 0 ? "text-[#efaa1f]" : "text-red-600"}>
                             {output.incrementPercent}%
                           </span>
                         </div>
@@ -424,7 +424,7 @@ export default function PMSReports() {
                 </p>
               </div>
               <div className="flex items-center gap-4">
-                <Badge className="bg-green-500 text-white px-4 py-2">
+                <Badge className="bg-[#efaa1f] text-white px-4 py-2">
                   ✓ Synced with Payroll
                 </Badge>
               </div>

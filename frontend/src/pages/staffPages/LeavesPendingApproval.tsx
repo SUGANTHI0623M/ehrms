@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Eye, Check, X, Search } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGetLeavesQuery, useApproveLeaveMutation, useRejectLeaveMutation } from "@/store/api/leaveApi";
 import { message } from "antd";
 import MainLayout from "@/components/MainLayout";
@@ -34,7 +35,8 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
   const [rejectionReason, setRejectionReason] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(employeeId ? undefined : "Pending");
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(employeeId ? undefined : undefined);
+  const [sortBy, setSortBy] = useState<string>("newest");
   const [searchInput, setSearchInput] = useState("");
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -60,8 +62,25 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
   const [approveLeave, { isLoading: isApproving }] = useApproveLeaveMutation();
   const [rejectLeave] = useRejectLeaveMutation();
 
-  const leaves = leavesData?.data?.leaves || [];
+  const rawLeaves = leavesData?.data?.leaves || [];
   const pagination = leavesData?.data?.pagination;
+
+  const leaves = useMemo(() => {
+    const list = [...rawLeaves];
+    if (sortBy === "newest") {
+      list.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+    } else if (sortBy === "oldest") {
+      list.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    } else if (sortBy === "employee-az") {
+      list.sort((a, b) => (a.employeeId?.name || "").localeCompare(b.employeeId?.name || ""));
+    } else if (sortBy === "employee-za") {
+      list.sort((a, b) => (b.employeeId?.name || "").localeCompare(a.employeeId?.name || ""));
+    } else if (sortBy === "status") {
+      const order = { Pending: 0, Approved: 1, Rejected: 2 };
+      list.sort((a, b) => (order[a.status as keyof typeof order] ?? 3) - (order[b.status as keyof typeof order] ?? 3));
+    }
+    return list;
+  }, [rawLeaves, sortBy]);
 
   const handleApprove = async (id: string) => {
     try {
@@ -106,14 +125,45 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <CardTitle>{employeeId ? "Leaves" : "Leaves Pending Approval"}</CardTitle>
               {!employeeId && (
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by employee name or ID..."
-                    className="pl-10"
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                  />
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <Select
+                    value={statusFilter ?? "all"}
+                    onValueChange={(v) => {
+                      setStatusFilter(v === "all" ? undefined : v);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-[140px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="Pending">Pending</SelectItem>
+                      <SelectItem value="Approved">Approved</SelectItem>
+                      <SelectItem value="Rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={sortBy} onValueChange={setSortBy}>
+                    <SelectTrigger className="w-full sm:w-[160px]">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="newest">Newest first</SelectItem>
+                      <SelectItem value="oldest">Oldest first</SelectItem>
+                      <SelectItem value="employee-az">Employee A-Z</SelectItem>
+                      <SelectItem value="employee-za">Employee Z-A</SelectItem>
+                      <SelectItem value="status">Status</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by employee name or ID..."
+                      className="pl-10"
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -166,7 +216,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                               <span
                                 className={`px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
                                   leave.status === "Approved"
-                                    ? "bg-green-100 text-green-800"
+                                    ? "bg-[#fef3c7] text-[#b45309]"
                                     : leave.status === "Pending"
                                     ? "bg-yellow-100 text-yellow-800"
                                     : leave.status === "Rejected"
@@ -180,7 +230,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                             <td className="p-3">
                               {leave.status === "Approved" && leave.approvedBy ? (
                                 <div className="text-xs space-y-1">
-                                  <div className="font-medium text-green-600">Approved by: {leave.approvedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-[#efaa1f]">Approved by: {leave.approvedBy.name || 'N/A'}</div>
                                   {leave.approvedAt && (
                                     <div className="text-muted-foreground">
                                       {new Date(leave.approvedAt).toLocaleDateString()}
@@ -218,7 +268,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                                     <Button
                                       size="sm"
                                       variant="default"
-                                      className="bg-green-600 hover:bg-green-700 text-xs"
+                                      className="bg-[#efaa1f] hover:bg-[#d97706] text-xs"
                                       onClick={() => setApproveConfirmId(leave._id)}
                                       disabled={isApproving}
                                     >
@@ -237,7 +287,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                                 </Button>
                                   </>
                                 ) : leave.status === "Approved" ? (
-                                  <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap inline-flex items-center">
+                                  <span className="bg-[#fef3c7] text-[#d97706] px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap inline-flex items-center">
                                     <Check size={12} className="mr-1" /> Approved
                                   </span>
                                 ) : leave.status === "Rejected" ? (
@@ -326,7 +376,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
               <AlertDialogAction
                 onClick={() => approveConfirmId && handleApprove(approveConfirmId)}
                 disabled={isApproving}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                className="w-full sm:w-auto bg-[#efaa1f] hover:bg-[#d97706]"
               >
                 {isApproving ? "Approving..." : "OK, Approve"}
               </AlertDialogAction>

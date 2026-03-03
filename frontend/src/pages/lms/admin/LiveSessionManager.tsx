@@ -43,6 +43,7 @@ import {
   StopOutlined,
 } from "@ant-design/icons";
 import SessionCardList from "@/components/lms/SessionCardList";
+import { LmsKpiCard } from "@/components/lms/SharedComponents";
 import { lmsService } from "@/services/lmsService";
 import dayjs from "dayjs";
 import {
@@ -593,6 +594,8 @@ const LiveSessionManager = () => {
                 >
                   Session Log
                 </Button>
+              ) : isLive ? (
+                <span className="text-gray-400 text-sm">—</span>
               ) : (
                 <Space size="small" style={{ gap: 8 }}>
                   <Button
@@ -713,10 +716,10 @@ const LiveSessionManager = () => {
       let empData = [];
       if (empRes?.data?.staff && Array.isArray(empRes.data.staff)) {
         empData = empRes.data.staff;
-      } else if (empRes?.staff && Array.isArray(empRes.staff)) {
-        empData = empRes.staff;
-      } else if (Array.isArray(empRes?.data)) {
-        empData = empRes.data;
+      } else if ((empRes as unknown as { staff?: any[] })?.staff && Array.isArray((empRes as unknown as { staff: any[] }).staff)) {
+        empData = (empRes as unknown as { staff: any[] }).staff;
+      } else if (Array.isArray((empRes as unknown as { data?: any })?.data)) {
+        empData = (empRes as unknown as { data: any[] }).data;
       }
       setEmployees(empData);
     } catch (error) {
@@ -1012,6 +1015,49 @@ const LiveSessionManager = () => {
           </Space>
         </div>
 
+        {/* KPI Cards — Live sessions: each card explains its own purpose */}
+        {(() => {
+          const scheduledList = getFilteredSessionsByTab("Scheduled");
+          const endedList = getFilteredSessionsByTab("Ended");
+          const liveNowCount = sessions.filter((s: any) => getSessionStatus(s) === "Live").length;
+          return (
+            <Row gutter={[16, 16]} className="mb-6">
+              <Col xs={24} sm={12} lg={6}>
+                <LmsKpiCard
+                  title="Total Sessions"
+                  value={sessions.length}
+                  icon={<UnorderedListOutlined />}
+                  accentColor="#1e40af"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <LmsKpiCard
+                  title="Scheduled"
+                  value={scheduledList.length}
+                  icon={<CalendarOutlined />}
+                  accentColor="#15803d"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <LmsKpiCard
+                  title="Live Now"
+                  value={liveNowCount}
+                  icon={<PlayCircleOutlined />}
+                  accentColor="#c2410c"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <LmsKpiCard
+                  title="Ended"
+                  value={endedList.length}
+                  icon={<CheckCircleOutlined />}
+                  accentColor="#475569"
+                />
+              </Col>
+            </Row>
+          );
+        })()}
+
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -1116,7 +1162,7 @@ const LiveSessionManager = () => {
             )
           }
           width={isMobile ? "100%" : 800}
-          destroyOnClose
+          destroyOnHidden
           maskClosable={false}
           centered
           className="custom-modal top-4 max-sm:!max-w-[100vw] max-sm:!top-0 max-sm:!padding-0"
@@ -1581,7 +1627,7 @@ const LiveSessionManager = () => {
           okText="Cancel session"
           okType="danger"
           cancelText="Keep session"
-          destroyOnClose
+          destroyOnHidden
           centered
           afterClose={() => {
             cancelReasonForm.resetFields();

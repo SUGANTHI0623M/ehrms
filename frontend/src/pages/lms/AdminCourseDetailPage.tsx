@@ -347,7 +347,7 @@ const AdminCourseDetailPage: React.FC = () => {
             title: 'Progress',
             dataIndex: 'progress',
             key: 'progress',
-            render: (progress: number) => <Progress percent={Math.round(progress)} size="small" strokeColor="#10b981" />,
+            render: (progress: number) => <Progress percent={Math.round(progress)} size="small" strokeColor="#efaa1f" />,
             sorter: (a, b) => a.progress - b.progress,
         },
         {
@@ -460,7 +460,7 @@ const AdminCourseDetailPage: React.FC = () => {
                                     type="primary"
                                     icon={<EditOutlined />}
                                     onClick={() => setIsEditModalOpen(true)}
-                                    style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
+                                    style={{ backgroundColor: '#efaa1f', borderColor: '#efaa1f' }}
                                 >
                                     Edit Course
                                 </Button>
@@ -546,7 +546,7 @@ const AdminCourseDetailPage: React.FC = () => {
                     <div className="flex-1 min-w-0 pb-6 lg:mr-[380px] xl:mr-[400px]">
                         <Card
                             className="shadow-sm border-gray-100 min-h-[400px]"
-                            bodyStyle={{ padding: '0px' }}
+                            styles={{ body: { padding: '0px' } }}
                         >
                             <Tabs
                                 activeKey={activeTab}
@@ -699,6 +699,7 @@ const AdminCourseDetailPage: React.FC = () => {
                         setIsEditModalOpen(false);
                         queryClient.invalidateQueries({ queryKey: ['course', courseId] });
                     }}
+                    canEditCurriculum={course ? (course.canEditCurriculum === true) : true}
                 />
             </div>
 
@@ -709,7 +710,7 @@ const AdminCourseDetailPage: React.FC = () => {
                 onClose={() => setCourseContentDrawerOpen(false)}
                 open={courseContentDrawerOpen}
                 width="min(100%, 400px)"
-                bodyStyle={{ padding: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+                styles={{ body: { padding: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' } }}
             >
                 <div className="flex-1 min-h-0 overflow-y-auto p-4">
                     <CourseCurriculumSection

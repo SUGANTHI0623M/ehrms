@@ -124,14 +124,21 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Icon or Logo here - using primary color with white background circle for contrast
+            // App icon (same as launcher icon)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.people_alt_rounded, color: iconColor, size: 80),
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/ekta_logo.jpeg',
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             Text(

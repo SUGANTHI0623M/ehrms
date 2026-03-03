@@ -29,21 +29,14 @@ class AppColors {
     primaryLight = color.withOpacity(0.5);
   }
 
-  /// Called by ThemeProvider when theme mode changes so all AppColors.* are in sync.
+  /// Called by ThemeProvider when theme mode changes.
+  /// Keeps light colors even in dark mode so all screens remain visible.
   static void updateForBrightness(bool isDark) {
-    if (isDark) {
-      background = const Color(0xFF121212);
-      surface = const Color(0xFF1E1E1E);
-      textPrimary = const Color(0xFFE3E3E3);
-      textSecondary = const Color(0xFFB0B0B0);
-      divider = const Color(0xFF5C5C5C);
-    } else {
-      background = const Color(0xFFF5F7FA);
-      surface = Colors.white;
-      textPrimary = const Color(0xFF263238);
-      textSecondary = const Color(0xFF78909C);
-      divider = const Color(0xFFECEFF1);
-    }
+    background = const Color(0xFFF5F7FA);
+    surface = Colors.white;
+    textPrimary = const Color(0xFF263238);
+    textSecondary = const Color(0xFF78909C);
+    divider = const Color(0xFFECEFF1);
   }
 
   static Color _getDarkerColor(Color color) {

@@ -33,6 +33,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import AdminPayslipDashboard from "@/components/payslip/AdminPayslipDashboard";
 
 interface PayslipRequestsProps {
   employeeId?: string;
@@ -71,6 +72,10 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
     page: currentPage,
     limit: pageSize,
   });
+  const { data: allRequestsData, isLoading: isAllRequestsLoading } = useGetPayslipRequestsQuery(
+    { page: 1, limit: 5000 },
+    { skip: !!employeeId }
+  );
 
   const [approvePayslipRequest, { isLoading: isApproving }] = useApprovePayslipRequestMutation();
   const [rejectPayslipRequest, { isLoading: isRejecting }] = useRejectPayslipRequestMutation();
@@ -78,8 +83,8 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
 
   const requests = requestsData?.data?.requests || [];
   const pagination = requestsData?.data?.pagination;
+  const allRequests = allRequestsData?.data?.requests || [];
 
-  // Calculate stats
   const stats = {
     total: requests.length,
     pending: requests.filter((r: any) => r.status === "Pending").length,
@@ -146,41 +151,15 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
   const content = (
     <div className="w-full space-y-6">
       {!employeeId && (
-        <div>
+        <>
           <h1 className="text-3xl font-bold">Payslip Requests</h1>
           <p className="text-muted-foreground mt-1">Manage employee payslip requests</p>
-        </div>
+          <AdminPayslipDashboard
+            requests={allRequests}
+            isLoading={isAllRequestsLoading}
+          />
+        </>
       )}
-
-          {/* Stats Cards */}
-          {!employeeId && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Pending Requests</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.pending}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Approved</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Rejected</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
-              </CardContent>
-            </Card>
-          </div>
-          )}
 
           {/* Filters and Search */}
           <Card>
@@ -279,7 +258,7 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
                           <TableCell>
                             {request.status === "Approved" && request.approvedBy ? (
                               <div className="text-xs space-y-1">
-                                <div className="font-medium text-green-600">Approved by: {request.approvedBy.name || 'N/A'}</div>
+                                <div className="font-medium text-[#efaa1f]">Approved by: {request.approvedBy.name || 'N/A'}</div>
                                 {request.approvedAt && (
                                   <div className="text-muted-foreground">
                                     {formatDate(request.approvedAt)}
@@ -417,7 +396,7 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
               <AlertDialogAction
                 onClick={() => approveConfirmRequest && handleApprove(approveConfirmRequest)}
                 disabled={isApproving}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                className="w-full sm:w-auto bg-[#efaa1f] hover:bg-[#d97706]"
               >
                 {isApproving ? "Approving..." : "Sure, Approve"}
               </AlertDialogAction>

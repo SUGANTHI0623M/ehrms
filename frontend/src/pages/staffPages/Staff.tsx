@@ -256,12 +256,12 @@ const Staff = () => {
 
   const stats = statsData?.data?.stats ? [
     { title: "Total Staff", value: statsData.data.stats.total.toString(), color: "text-primary", icon: UsersIcon },
-    { title: "Active", value: statsData.data.stats.active.toString(), color: "text-green-600", icon: UsersIcon },
+    { title: "Active", value: statsData.data.stats.active.toString(), color: "text-[#efaa1f]", icon: UsersIcon },
     { title: "On Leave", value: todayAbsentCount.toString(), color: "text-yellow-600", icon: UsersIcon },
     { title: "Deactivated", value: statsData.data.stats.deactivated.toString(), color: "text-gray-500", icon: UsersIcon },
   ] : [
     { title: "Total Staff", value: "0", color: "text-primary", icon: UsersIcon },
-    { title: "Active", value: "0", color: "text-green-600", icon: UsersIcon },
+    { title: "Active", value: "0", color: "text-[#efaa1f]", icon: UsersIcon },
     { title: "On Leave", value: todayAbsentCount.toString(), color: "text-yellow-600", icon: UsersIcon },
     { title: "Deactivated", value: "0", color: "text-gray-500", icon: UsersIcon },
   ];

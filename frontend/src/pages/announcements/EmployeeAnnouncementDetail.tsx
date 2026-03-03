@@ -17,6 +17,8 @@ import { theme } from "antd";
 import { ArrowLeftOutlined, FileTextOutlined, PaperClipOutlined } from "@ant-design/icons";
 import { useGetEmployeeAnnouncementByIdQuery } from "@/store/api/announcementApi";
 import type { AnnouncementAttachment } from "@/store/api/announcementApi";
+import type { Announcement } from "@/store/api/announcementApi";
+import { getDisplayStatus, DISPLAY_STATUS_CONFIG } from "./announcementUtils";
 import dayjs from "dayjs";
 
 const { useToken } = theme;
@@ -31,7 +33,7 @@ const getApiUrl = () => {
       hostname.startsWith("192.168.") ||
       hostname.startsWith("10.") ||
       hostname.startsWith("172.16.");
-    if (isLocal) return "http://localhost:9000";
+    if (isLocal) return "http://localhost:7001";
   }
   if (import.meta.env.VITE_API_URL) {
     return (import.meta.env.VITE_API_URL as string).replace("/api", "");
@@ -42,14 +44,10 @@ const getApiUrl = () => {
 const toAssetUrl = (pathOrUrl: string) =>
   /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : `${getApiUrl()}/uploads/${pathOrUrl}`;
 
-const getStatusTag = (status: string) => {
-  const config: Record<string, { color: string; label: string }> = {
-    draft: { color: "gold", label: "Scheduled" },
-    published: { color: "green", label: "Active" },
-    expired: { color: "red", label: "Expired" },
-  };
-  const { color, label } = config[status] ?? { color: "default", label: status ? status.charAt(0).toUpperCase() + status.slice(1) : status };
-  return <Tag color={color}>{label}</Tag>;
+const getStatusTag = (announcement: Pick<Announcement, "status" | "publishDate">) => {
+  const displayStatus = getDisplayStatus(announcement);
+  const { color, text } = DISPLAY_STATUS_CONFIG[displayStatus];
+  return <Tag color={color}>{text}</Tag>;
 };
 
 const EmployeeAnnouncementDetail = () => {
@@ -94,8 +92,6 @@ const EmployeeAnnouncementDetail = () => {
     );
   }
 
-  const audienceLabel = announcement.audienceType === "all" ? "All Employees" : "Specific";
-
   return (
     <MainLayout>
       <div
@@ -127,7 +123,7 @@ const EmployeeAnnouncementDetail = () => {
               <>
                 <Typography.Text type="secondary">·</Typography.Text>
                 <Typography.Text type="secondary">
-                  Published: {dayjs(announcement.publishDate).format("DD MMM YYYY h:mm A")}
+                  Published: {dayjs(announcement.publishDate).format("DD MMM YYYY")}
                 </Typography.Text>
               </>
             )}
@@ -135,14 +131,11 @@ const EmployeeAnnouncementDetail = () => {
               <>
                 <Typography.Text type="secondary">·</Typography.Text>
                 <Typography.Text type="secondary">
-                  Expires: {dayjs(announcement.expiryDate).format("DD MMM YYYY h:mm A")}
+                  Expires: {dayjs(announcement.expiryDate).format("DD MMM YYYY")}
                 </Typography.Text>
               </>
             )}
-            <Typography.Text type="secondary">·</Typography.Text>
-            <Typography.Text type="secondary">Assigned:</Typography.Text>
-            <Tag>{audienceLabel}</Tag>
-            {getStatusTag(announcement.status || "published")}
+            {getStatusTag(announcement)}
           </Space>
           <Divider style={{ margin: 0 }} />
         </div>
@@ -154,7 +147,7 @@ const EmployeeAnnouncementDetail = () => {
               <div
                 className="overflow-hidden rounded-xl"
                 style={{
-                  maxWidth: 800,
+                  maxWidth: 960,
                   width: "100%",
                   height: 320,
                   background: token.colorFillTertiary,
@@ -170,9 +163,9 @@ const EmployeeAnnouncementDetail = () => {
           ) : (
             <div
               className="flex justify-center items-center mx-auto mb-8 rounded-xl"
-              style={{
-                maxWidth: 800,
-                width: "100%",
+            style={{
+              maxWidth: 960,
+              width: "100%",
                 height: 200,
                 background: token.colorFillTertiary,
                 color: token.colorTextTertiary,
@@ -270,7 +263,7 @@ const EmployeeAnnouncementDetail = () => {
           onCancel={() => setAttachmentModal(null)}
           footer={null}
           width={attachmentModal?.att ? (isImage(attachmentModal.att.name, attachmentModal.att.mimeType) ? 800 : 900) : 560}
-          destroyOnClose
+          destroyOnHidden
         >
           {attachmentModal && (
             <>

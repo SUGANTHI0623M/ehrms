@@ -22,11 +22,15 @@ class MyRequestsScreen extends StatefulWidget {
   final int? dashboardTabIndex;
   final void Function(int index)? onNavigateToIndex;
 
+  /// When true, this screen is the visible tab (e.g. user tapped Request in bottom nav).
+  final bool? isActiveTab;
+
   const MyRequestsScreen({
     super.key,
     this.initialTabIndex = 0,
     this.dashboardTabIndex,
     this.onNavigateToIndex,
+    this.isActiveTab,
   });
 
   @override
@@ -34,7 +38,7 @@ class MyRequestsScreen extends StatefulWidget {
 }
 
 class _MyRequestsScreenState extends State<MyRequestsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
   final GlobalKey<_LeaveRequestsTabState> _leaveTabKey = GlobalKey();
   final GlobalKey<_LoanRequestsTabState> _loanTabKey = GlobalKey();
@@ -47,13 +51,19 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     _tabController = TabController(
       length: 4,
       vsync: this,
-      initialIndex: widget.initialTabIndex,
+      initialIndex: widget.initialTabIndex.clamp(0, 3),
     );
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() {});
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(MyRequestsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Optional: refresh when becoming active tab (e.g. pull-to-refresh or tab refetch can be added here)
   }
 
   @override
@@ -65,6 +75,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       backgroundColor: colorScheme.surfaceContainerHighest,
       appBar: AppBar(
@@ -106,11 +117,11 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
             color: colorScheme.primaryContainer,
             borderRadius: BorderRadius.circular(6),
           ),
-          tabs: const [
-            Tab(text: 'Leave', icon: Icon(Icons.calendar_today)),
-            Tab(text: 'Loan', icon: Icon(Icons.account_balance_wallet)),
-            Tab(text: 'Expense', icon: Icon(Icons.receipt)),
-            Tab(text: 'Payslip', icon: Icon(Icons.description)),
+          tabs: [
+            const Tab(text: 'Leave', icon: Icon(Icons.calendar_today)),
+            const Tab(text: 'Loan', icon: Icon(Icons.account_balance_wallet)),
+            const Tab(text: 'Expense', icon: Icon(Icons.receipt)),
+            const Tab(text: 'Payslip', icon: Icon(Icons.description)),
           ],
           onTap: (index) {
             setState(() {}); // Rebuild FAB
@@ -3962,7 +3973,8 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         final pdfBytes = result['data'] as List<int>;
         // Ensure we got actual PDF bytes (not HTML error page) to avoid "something went wrong" in viewer
         const pdfMagic = [0x25, 0x50, 0x44, 0x46]; // %PDF
-        final isPdf = pdfBytes.length >= 4 &&
+        final isPdf =
+            pdfBytes.length >= 4 &&
             pdfBytes[0] == pdfMagic[0] &&
             pdfBytes[1] == pdfMagic[1] &&
             pdfBytes[2] == pdfMagic[2] &&
@@ -4111,7 +4123,11 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
         _fallbackOpenPayslipInBrowser(url);
         return;
       }
-      final isPdf = bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46; // %PDF
+      final isPdf =
+          bytes[0] == 0x25 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x44 &&
+          bytes[3] == 0x46; // %PDF
       if (!isPdf) {
         if (mounted) {
           SnackBarUtils.showSnackBar(
@@ -4126,10 +4142,7 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
 
       await _openPdf(bytes, 'view', month: month, year: year);
       if (mounted) {
-        SnackBarUtils.showSnackBar(
-          context,
-          'Payslip downloaded and opened.',
-        );
+        SnackBarUtils.showSnackBar(context, 'Payslip downloaded and opened.');
       }
     } catch (e) {
       if (mounted) {

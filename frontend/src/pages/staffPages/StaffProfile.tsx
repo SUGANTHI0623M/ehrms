@@ -14,7 +14,7 @@ import {
   SelectGroup,
   SelectLabel
 } from "@/components/ui/select";
-import { User, Edit, Save, X, Ban, CheckCircle, Calendar, DollarSign, FileText, Receipt, CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Eye, Upload } from "lucide-react";
+import { User, Edit, Save, X, Ban, CheckCircle, Calendar, DollarSign, FileText, Receipt, CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Eye, Upload, ChevronLeft, ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useParams, useNavigate } from "react-router-dom";
@@ -26,7 +26,7 @@ import Loans from "./Loans";
 import EmployeeAttendance from "./EmployeeAttendance";
 import PayslipRequests from "./PayslipRequests";
 import { useGetStaffByIdQuery, useUpdateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useUploadStaffAvatarMutation } from "@/store/api/staffApi";
-import { useGetOnboardingByStaffIdQuery, useVerifyDocumentMutation } from "@/store/api/onboardingApi";
+import { useGetOnboardingByStaffIdQuery, useVerifyDocumentMutation, useUploadOnboardingDocumentMutation } from "@/store/api/onboardingApi";
 import { useGetActiveBranchesQuery } from "@/store/api/branchApi";
 import SalaryStructureForm from "@/components/SalaryStructureForm";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -56,6 +56,11 @@ const StaffProfile = () => {
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<any>({});
+  
+  // Tab scroll functionality
+  const tabsListRef = useRef<HTMLDivElement>(null);
+  const [showLeftScroll, setShowLeftScroll] = useState(false);
+  const [showRightScroll, setShowRightScroll] = useState(false);
 
   // If no ID, redirect to staff list
   useEffect(() => {
@@ -82,11 +87,13 @@ const StaffProfile = () => {
   const attendanceTemplates = templatesData?.data?.attendanceTemplates || [];
   const leaveTemplates = templatesData?.data?.leaveTemplates || [];
   const holidayTemplates = templatesData?.data?.holidayTemplates || [];
+  const weeklyHolidayTemplates = templatesData?.data?.weeklyHolidayTemplates || [];
   const branches = branchesData?.data?.branches || [];
 
   const [updateStaff, { isLoading: isUpdating }] = useUpdateStaffMutation();
   const [verifyDocument, { isLoading: isVerifying }] = useVerifyDocumentMutation();
   const [uploadAvatar, { isLoading: isUploadingAvatar }] = useUploadStaffAvatarMutation();
+  const [uploadDocument, { isLoading: isUploadingDocument }] = useUploadOnboardingDocumentMutation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Document verification state
@@ -94,6 +101,7 @@ const StaffProfile = () => {
   const [isVerifyDialogOpen, setIsVerifyDialogOpen] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<"COMPLETED" | "REJECTED">("COMPLETED");
   const [verifyNotes, setVerifyNotes] = useState("");
+  const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
 
   // Permission checks
   const { user } = useAppSelector((state) => state.auth);
@@ -118,6 +126,8 @@ const StaffProfile = () => {
         name: employeeData.name || "",
         email: employeeData.email || "",
         phone: employeeData.phone || "",
+        alternativePhone: employeeData.alternativePhone || "",
+        countryCode: employeeData.countryCode || "",
         designation: employeeData.designation || "",
         department: employeeData.department || "",
         staffType: employeeData.staffType || "Full Time",
@@ -131,6 +141,7 @@ const StaffProfile = () => {
         attendanceTemplateId: getTemplateId(employeeData.attendanceTemplateId),
         leaveTemplateId: getTemplateId(employeeData.leaveTemplateId),
         holidayTemplateId: getTemplateId(employeeData.holidayTemplateId),
+        weeklyHolidayTemplateId: getTemplateId(employeeData.weeklyHolidayTemplateId),
         address: {
           line1: employeeData.address?.line1 || "",
           city: employeeData.address?.city || "",
@@ -154,26 +165,146 @@ const StaffProfile = () => {
     }
   }, [employeeData]);
 
+  // Check scroll position and show/hide scroll buttons
+  // Shows buttons when tabs overflow (works regardless of sidebar state or screen size)
+  const checkScrollButtons = () => {
+    if (!tabsListRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = tabsListRef.current;
+    const hasOverflow = scrollWidth > clientWidth;
+    
+    // Always show buttons when there's overflow, regardless of screen size
+    // This handles: small screens, large screens with sidebar expanded, etc.
+    if (hasOverflow) {
+      setShowLeftScroll(scrollLeft > 0);
+      setShowRightScroll(scrollLeft < scrollWidth - clientWidth - 1);
+    } else {
+      setShowLeftScroll(false);
+      setShowRightScroll(false);
+    }
+  };
+
+  // Scroll functions - scroll by tab width to show next/previous tabs
+  const scrollLeft = () => {
+    if (tabsListRef.current) {
+      // Get the first visible tab to calculate scroll amount
+      const firstTab = tabsListRef.current.querySelector('[role="tab"]') as HTMLElement;
+      const scrollAmount = firstTab ? firstTab.offsetWidth + 8 : tabsListRef.current.clientWidth * 0.6;
+      tabsListRef.current.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+      // Recheck after scroll animation
+      setTimeout(checkScrollButtons, 350);
+    }
+  };
+
+  const scrollRight = () => {
+    if (tabsListRef.current) {
+      // Get the first visible tab to calculate scroll amount
+      const firstTab = tabsListRef.current.querySelector('[role="tab"]') as HTMLElement;
+      const scrollAmount = firstTab ? firstTab.offsetWidth + 8 : tabsListRef.current.clientWidth * 0.6;
+      tabsListRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+      // Recheck after scroll animation
+      setTimeout(checkScrollButtons, 350);
+    }
+  };
+
+  // Check scroll buttons on mount and resize
+  useEffect(() => {
+    // Initial check with multiple delays to ensure DOM is ready
+    const timers = [
+      setTimeout(() => checkScrollButtons(), 100),
+      setTimeout(() => checkScrollButtons(), 300),
+      setTimeout(() => checkScrollButtons(), 500),
+    ];
+
+    const handleResize = () => {
+      setTimeout(checkScrollButtons, 200);
+    };
+
+    // Check on window resize
+    window.addEventListener('resize', handleResize);
+    
+    // Use ResizeObserver to detect when tabs container size changes
+    let resizeObserver: ResizeObserver | null = null;
+    if (tabsListRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        setTimeout(checkScrollButtons, 100);
+      });
+      resizeObserver.observe(tabsListRef.current);
+    }
+
+    return () => {
+      timers.forEach(timer => clearTimeout(timer));
+      window.removeEventListener('resize', handleResize);
+      if (resizeObserver && tabsListRef.current) {
+        resizeObserver.unobserve(tabsListRef.current);
+      }
+    };
+  }, []);
+
+  // Check scroll buttons when activeTab changes and scroll active tab into view
+  useEffect(() => {
+    setTimeout(() => {
+      checkScrollButtons();
+      // Scroll active tab into view
+      if (tabsListRef.current) {
+        const activeTabElement = tabsListRef.current.querySelector(`[data-state="active"]`) as HTMLElement;
+        if (activeTabElement) {
+          activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      }
+    }, 150);
+  }, [activeTab]);
+
   const handleSave = async () => {
     if (!id) return;
     try {
-      // Prepare update data - convert "none" to undefined and empty strings to undefined
-      const updateData: any = {
-        ...formData,
-        shiftName: formData.shiftName && formData.shiftName !== "none" ? formData.shiftName : undefined,
-        attendanceTemplateId: formData.attendanceTemplateId && formData.attendanceTemplateId !== "none" ? formData.attendanceTemplateId : undefined,
-        leaveTemplateId: formData.leaveTemplateId && formData.leaveTemplateId !== "none" ? formData.leaveTemplateId : undefined,
-        holidayTemplateId: formData.holidayTemplateId && formData.holidayTemplateId !== "none" ? formData.holidayTemplateId : undefined,
-        branchId: formData.branchId && formData.branchId !== "none" ? formData.branchId : undefined,
+      // Helper function to clean empty strings from nested objects
+      const cleanNestedObject = (obj: any): any => {
+        if (!obj || typeof obj !== 'object') return obj;
+        const cleaned: any = {};
+        for (const key in obj) {
+          const value = obj[key];
+          if (value !== null && value !== undefined && value !== "") {
+            cleaned[key] = value;
+          }
+        }
+        return Object.keys(cleaned).length > 0 ? cleaned : undefined;
       };
 
-      // Convert empty strings for enum fields to undefined to avoid validation errors
-      if (updateData.gender === "" || updateData.gender === "none") {
-        updateData.gender = undefined;
-      }
-      if (updateData.maritalStatus === "" || updateData.maritalStatus === "none") {
-        updateData.maritalStatus = undefined;
-      }
+      // Prepare update data - convert "none" to undefined and empty strings to undefined
+      const updateData: any = {
+        name: formData.name || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        alternativePhone: formData.alternativePhone && formData.alternativePhone.trim() ? formData.alternativePhone.trim() : undefined,
+        countryCode: formData.countryCode && formData.countryCode.trim() ? formData.countryCode.trim() : undefined,
+        designation: formData.designation || undefined,
+        department: formData.department || undefined,
+        staffType: formData.staffType || undefined,
+        joiningDate: formData.joiningDate && formData.joiningDate.trim() ? formData.joiningDate : undefined,
+        gender: formData.gender && formData.gender !== "" && formData.gender !== "none" ? formData.gender : undefined,
+        dob: formData.dob && formData.dob.trim() ? formData.dob : undefined,
+        maritalStatus: formData.maritalStatus && formData.maritalStatus !== "" && formData.maritalStatus !== "none" ? formData.maritalStatus : undefined,
+        bloodGroup: formData.bloodGroup && formData.bloodGroup.trim() ? formData.bloodGroup.trim() : undefined,
+        shiftName: formData.shiftName && formData.shiftName !== "none" && formData.shiftName.trim() ? formData.shiftName.trim() : undefined,
+        attendanceTemplateId: formData.attendanceTemplateId && formData.attendanceTemplateId !== "none" && formData.attendanceTemplateId.trim() ? formData.attendanceTemplateId : undefined,
+        leaveTemplateId: formData.leaveTemplateId && formData.leaveTemplateId !== "none" && formData.leaveTemplateId.trim() ? formData.leaveTemplateId : undefined,
+        holidayTemplateId: formData.holidayTemplateId && formData.holidayTemplateId !== "none" && formData.holidayTemplateId.trim() ? formData.holidayTemplateId : undefined,
+        branchId: formData.branchId && formData.branchId !== "none" && formData.branchId.trim() ? formData.branchId : undefined,
+        address: cleanNestedObject(formData.address),
+        bankDetails: cleanNestedObject(formData.bankDetails),
+        uan: formData.uan && formData.uan.trim() ? formData.uan.trim() : undefined,
+        pan: formData.pan && formData.pan.trim() ? formData.pan.trim() : undefined,
+        aadhaar: formData.aadhaar && formData.aadhaar.trim() ? formData.aadhaar.trim() : undefined,
+        pfNumber: formData.pfNumber && formData.pfNumber.trim() ? formData.pfNumber.trim() : undefined,
+        esiNumber: formData.esiNumber && formData.esiNumber.trim() ? formData.esiNumber.trim() : undefined,
+      };
+
+      // Remove undefined values to avoid sending them
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === undefined) {
+          delete updateData[key];
+        }
+      });
       
       await updateStaff({
         id,
@@ -356,7 +487,7 @@ const StaffProfile = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => handleStatusChange('Active')}
-                      className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                      className="text-[#efaa1f] hover:text-[#d97706] hover:bg-[#fffbeb] border-[#fde68a]"
                     >
                       <CheckCircle className="w-4 h-4 mr-2" /> Activate Staff
                     </Button>
@@ -367,64 +498,133 @@ const StaffProfile = () => {
           </Card>
 
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="flex flex-col lg:flex-row gap-6 mt-6 items-start w-full">
-
-              {/* FIXED LEFT SIDEBAR TABS */}
-              <TabsList
-                className="
-        flex flex-row lg:flex-col
-                  bg-card border rounded-lg py-2 px-2 gap-2
-        w-full lg:w-64 shrink-0
-        h-fit lg:sticky lg:top-24
-                  overflow-x-auto lg:overflow-x-visible
-                  [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
-      "
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-6">
+            {/* TOP TABS WITH SCROLL BUTTONS */}
+            <div className="relative w-full mb-6">
+              {/* Left Scroll Button - Show when tabs overflow */}
+              <Button
+                variant="outline"
+                size="icon"
+                className={`absolute left-0 top-1/2 -translate-y-1/2 z-30 h-10 w-10 bg-background/98 backdrop-blur-sm shadow-lg border-2 hover:bg-background transition-opacity duration-200 ${
+                  showLeftScroll ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={scrollLeft}
+                aria-label="Scroll left"
               >
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="profile">
-                  <User className="w-4 h-4 mr-2" />
-                  Profile
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="attendance">
-                  <Clock className="w-4 h-4 mr-2" />
-                  Attendance
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="salary">
-                  <DollarSign className="w-4 h-4 mr-2" />
-                  Salary Overview
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="salaryStructure">
-                  <Receipt className="w-4 h-4 mr-2" />
-                  Salary Structure
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="leaves">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Leaves
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="loans">
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  Loans
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="documents">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Documents
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="claim">
-                  <Receipt className="w-4 h-4 mr-2" />
-                  Expense Claim
-                </TabsTrigger>
-                <TabsTrigger className="justify-start w-full whitespace-nowrap" value="payslips">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Payslip Requests
-                </TabsTrigger>
-              </TabsList>
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
 
+              {/* Right Scroll Button - Show when tabs overflow */}
+              <Button
+                variant="outline"
+                size="icon"
+                className={`absolute right-0 top-1/2 -translate-y-1/2 z-30 h-10 w-10 bg-background/98 backdrop-blur-sm shadow-lg border-2 hover:bg-background transition-opacity duration-200 ${
+                  showRightScroll ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={scrollRight}
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </Button>
 
-              {/* RIGHT CONTENT */}
-              <div className="flex-1 w-full min-w-0">
+              <TabsList
+                ref={tabsListRef}
+                onScroll={checkScrollButtons}
+                className="
+                  flex flex-row
+                  bg-card border rounded-lg py-2 gap-1.5
+                  w-full
+                  min-h-[44px]
+                  overflow-x-auto
+                  overflow-y-visible
+                  scroll-smooth
+                  [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
+                  pl-12 pr-12
+                  min-[1400px]:pl-2 min-[1400px]:pr-2
+                  snap-x snap-mandatory
+                "
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+              >
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="profile"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <User className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Profile</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="attendance"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <Clock className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Attendance</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="salary"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <DollarSign className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Salary Overview</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="salaryStructure"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <Receipt className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Salary Structure</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="leaves"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <Calendar className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Leaves</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="loans"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <CreditCard className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Loans</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="documents"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <FileText className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Documents</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="claim"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <Receipt className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Expense Claim</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
+                value="payslips"
+                style={{ minWidth: 'fit-content' }}
+              >
+                <FileText className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Payslip Requests</span>
+              </TabsTrigger>
+            </TabsList>
+            </div>
+
+            {/* TAB CONTENT */}
+            <div className="w-full">
 
                 {/* TAB: PROFILE */}
-                <TabsContent value="profile" className="space-y-6 mt-0">
+                <TabsContent value="profile" className="space-y-6 mt-4">
                   <Card>
                     <CardHeader><CardTitle>Profile Information</CardTitle></CardHeader>
                     <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -473,6 +673,26 @@ const StaffProfile = () => {
                           value={isEditing ? formData.phone : employeeData.phone || "N/A"}
                           readOnly={!isEditing}
                           onChange={(e) => handleInputChange('phone', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Country Code</Label>
+                        <Input
+                          value={isEditing ? formData.countryCode : employeeData.countryCode || "N/A"}
+                          readOnly={!isEditing}
+                          onChange={(e) => handleInputChange('countryCode', e.target.value)}
+                          className={!isEditing ? "bg-muted" : ""}
+                          placeholder="e.g., 91 for India"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Alternative Phone (Optional)</Label>
+                        <Input
+                          value={isEditing ? formData.alternativePhone : employeeData.alternativePhone || "N/A"}
+                          readOnly={!isEditing}
+                          onChange={(e) => handleInputChange('alternativePhone', e.target.value)}
+                          className={!isEditing ? "bg-muted" : ""}
+                          placeholder="Alternative contact number"
                         />
                       </div>
                       <div className="space-y-2">
@@ -682,6 +902,37 @@ const StaffProfile = () => {
                                 ? (typeof employeeData.holidayTemplateId === 'object' 
                                     ? employeeData.holidayTemplateId.name 
                                     : holidayTemplates.find(t => t._id === employeeData.holidayTemplateId)?.name || "Unknown")
+                                : "Not assigned"
+                            } 
+                            readOnly 
+                            className="bg-muted" 
+                          />
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Weekly Holiday Template</Label>
+                        {isEditing ? (
+                          <Select
+                            value={formData.weeklyHolidayTemplateId || undefined}
+                            onValueChange={(value) => setFormData({ ...formData, weeklyHolidayTemplateId: value === "none" ? "" : value })}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Select weekly holiday template (optional)" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {weeklyHolidayTemplates.map((template) => (
+                                <SelectItem key={template._id} value={template._id}>
+                                  {template.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input 
+                            value={
+                              employeeData.weeklyHolidayTemplateId 
+                                ? (typeof employeeData.weeklyHolidayTemplateId === 'object' 
+                                    ? employeeData.weeklyHolidayTemplateId.name 
+                                    : weeklyHolidayTemplates.find(t => t._id === employeeData.weeklyHolidayTemplateId)?.name || "Unknown")
                                 : "Not assigned"
                             } 
                             readOnly 
@@ -1066,7 +1317,7 @@ const StaffProfile = () => {
 
                 {/* ... other tabs ... */}
                 {/* OTHER TABS */}
-                <TabsContent value="attendance" className="mt-0">
+                <TabsContent value="attendance" className="mt-4">
                   <div className="w-full">
                     {id ? (
                     <EmployeeAttendance employeeId={id} />
@@ -1080,13 +1331,13 @@ const StaffProfile = () => {
                   </div>
                 </TabsContent>
                 
-                <TabsContent value="salary" className="mt-0 space-y-6">
+                <TabsContent value="salary" className="mt-4 space-y-6">
                   <div className="w-full">
                     <SalaryOverview employeeId={id} />
                   </div>
                 </TabsContent>
 
-                <TabsContent value="salaryStructure" className="mt-0 space-y-6">
+                <TabsContent value="salaryStructure" className="mt-4 space-y-6">
                   <SalaryStructureForm 
                     staffId={id || ''} 
                     staff={employeeData}
@@ -1094,19 +1345,19 @@ const StaffProfile = () => {
                   />
                 </TabsContent>
 
-                <TabsContent value="leaves" className="mt-0">
+                <TabsContent value="leaves" className="mt-4">
                   <div className="w-full">
                     <LeavesPendingApproval employeeId={id} />
                   </div>
                 </TabsContent>
 
-                <TabsContent value="loans" className="mt-0">
+                <TabsContent value="loans" className="mt-4">
                   <div className="w-full">
                     <Loans employeeId={id} />
                   </div>
                 </TabsContent>
 
-                <TabsContent value="documents" className="mt-0">
+                <TabsContent value="documents" className="mt-4">
                   <div className="w-full space-y-6">
                     <Card>
                       <CardHeader>
@@ -1137,7 +1388,7 @@ const StaffProfile = () => {
                                 switch (doc.status) {
                                   case 'COMPLETED':
                                     return (
-                                      <Badge className="bg-green-500">
+                                      <Badge className="bg-[#efaa1f]">
                                         <CheckCircle2 className="w-3 h-3 mr-1" />
                                         Approved
                                       </Badge>
@@ -1238,9 +1489,102 @@ const StaffProfile = () => {
                                               Review
                                             </Button>
                                           )}
+                                          {canVerifyDocuments && (
+                                            <label className="cursor-pointer">
+                                              <input
+                                                type="file"
+                                                className="hidden"
+                                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                                onChange={async (e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file && onboarding?._id) {
+                                                    setUploadingDocId(doc._id);
+                                                    try {
+                                                      await uploadDocument({
+                                                        onboardingId: onboarding._id,
+                                                        documentId: doc._id,
+                                                        file,
+                                                      }).unwrap();
+                                                      message.success("Document uploaded successfully");
+                                                      refetchOnboarding();
+                                                    } catch (error: any) {
+                                                      message.error(
+                                                        error?.data?.error?.message ||
+                                                          "Failed to upload document"
+                                                      );
+                                                    } finally {
+                                                      setUploadingDocId(null);
+                                                      e.target.value = "";
+                                                    }
+                                                  }
+                                                }}
+                                                disabled={isUploadingDocument || uploadingDocId === doc._id}
+                                              />
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                asChild
+                                                disabled={isUploadingDocument || uploadingDocId === doc._id}
+                                              >
+                                                <span>
+                                                  <Upload className="w-3 h-3 mr-1" />
+                                                  {uploadingDocId === doc._id
+                                                    ? "Uploading..."
+                                                    : "Replace"}
+                                                </span>
+                                              </Button>
+                                            </label>
+                                          )}
                                         </>
                                       ) : (
-                                        <span className="text-sm text-muted-foreground">Not uploaded</span>
+                                        canVerifyDocuments ? (
+                                          <label className="cursor-pointer">
+                                            <input
+                                              type="file"
+                                              className="hidden"
+                                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                              onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file && onboarding?._id) {
+                                                  setUploadingDocId(doc._id);
+                                                  try {
+                                                    await uploadDocument({
+                                                      onboardingId: onboarding._id,
+                                                      documentId: doc._id,
+                                                      file,
+                                                    }).unwrap();
+                                                    message.success("Document uploaded successfully");
+                                                    refetchOnboarding();
+                                                  } catch (error: any) {
+                                                    message.error(
+                                                      error?.data?.error?.message ||
+                                                        "Failed to upload document"
+                                                    );
+                                                  } finally {
+                                                    setUploadingDocId(null);
+                                                    e.target.value = "";
+                                                  }
+                                                }
+                                              }}
+                                              disabled={isUploadingDocument || uploadingDocId === doc._id}
+                                            />
+                                            <Button
+                                              size="sm"
+                                              variant="default"
+                                              asChild
+                                              disabled={isUploadingDocument || uploadingDocId === doc._id}
+                                            >
+                                              <span>
+                                                <Upload className="w-3 h-3 mr-1" />
+                                                {uploadingDocId === doc._id
+                                                  ? "Uploading..."
+                                                  : "Upload"}
+                                              </span>
+                                            </Button>
+                                          </label>
+                                        ) : (
+                                          <span className="text-sm text-muted-foreground">Not uploaded</span>
+                                        )
                                       )}
                                     </div>
                                   </div>
@@ -1254,18 +1598,17 @@ const StaffProfile = () => {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="claim" className="mt-0">
+                <TabsContent value="claim" className="mt-4">
                   <div className="w-full">
                     <ExpenseClaim employeeId={id} />
                   </div>
                 </TabsContent>
 
-                <TabsContent value="payslips" className="mt-0">
+                <TabsContent value="payslips" className="mt-4">
                   <div className="w-full">
                     <PayslipRequests employeeId={id} />
                   </div>
                 </TabsContent>
-              </div>
             </div>
           </Tabs>
 

@@ -88,6 +88,7 @@ const Notifications = () => {
       notificationType === "new-live-session" ||
       notificationType === "live-session-cancelled" ||
       notificationType === "assessment-cancelled" ||
+      notificationType === "assessment-cancelled-by-learner" ||
       notificationType === "live-assessment-rescheduled" ||
       notification.link
     ) {
@@ -97,8 +98,8 @@ const Notifications = () => {
         } else {
           navigate(notification.link);
         }
-      } else if (notificationType === "assessment-cancelled" || notificationType === "live-assessment-rescheduled") {
-        navigate("/lms/employee/dashboard");
+      } else if (notificationType === "assessment-cancelled" || notificationType === "assessment-cancelled-by-learner" || notificationType === "live-assessment-rescheduled") {
+        navigate(notification.link || "/lms/employee/dashboard");
       } else {
         navigate("/lms/employee/live-sessions");
       }
@@ -287,7 +288,7 @@ const Notifications = () => {
       return ["Employee", "EmployeeAdmin"].includes(userRole);
     }
     if (
-      ["new-live-session", "live-session-cancelled", "assessment-cancelled", "live-assessment-rescheduled"].includes(notificationType)
+      ["new-live-session", "live-session-cancelled", "assessment-cancelled", "assessment-cancelled-by-learner", "live-assessment-rescheduled"].includes(notificationType)
     ) {
       return true;
     }

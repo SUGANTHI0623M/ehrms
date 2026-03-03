@@ -1671,7 +1671,7 @@ const EventMappingModal = ({
       okText="Save"
       cancelText="Cancel"
       confirmLoading={isLoading}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form 
         form={form} 

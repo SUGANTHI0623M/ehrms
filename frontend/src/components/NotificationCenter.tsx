@@ -57,6 +57,10 @@ const NotificationCenter = () => {
         toast.warning(data.title || 'Assessment cancelled', { description: data.message });
         return;
       }
+      if (event === 'assessment-cancelled-by-learner') {
+        toast.warning(data.title || 'Assessment cancelled by learner', { description: data.message });
+        return;
+      }
       if (event === 'live-assessment-rescheduled') {
         toast.info(data.title || 'Assessment rescheduled', { description: data.message });
         return;
@@ -77,6 +81,7 @@ const NotificationCenter = () => {
       'new-live-session',
       'live-session-cancelled',
       'assessment-cancelled',
+      'assessment-cancelled-by-learner',
       'live-assessment-rescheduled',
       'announcement_published',
       'candidate_applied',
@@ -124,7 +129,7 @@ const NotificationCenter = () => {
     }
 
     // Navigation logic (announcement, live session, or any notification with link)
-    if (notificationType === 'announcement_published' || notificationType === 'new-live-session' || notificationType === 'live-session-cancelled' || notificationType === 'assessment-cancelled' || notificationType === 'live-assessment-rescheduled' || notification.link) {
+    if (notificationType === 'announcement_published' || notificationType === 'new-live-session' || notificationType === 'live-session-cancelled' || notificationType === 'assessment-cancelled' || notificationType === 'assessment-cancelled-by-learner' || notificationType === 'live-assessment-rescheduled' || notification.link) {
       if (notification.link) {
         // Check if internal or external
         if (notification.link.startsWith('http')) {
@@ -134,8 +139,8 @@ const NotificationCenter = () => {
         }
       } else if (notificationType === 'new-live-session' || notificationType === 'live-session-cancelled') {
         navigate('/lms/employee/live-sessions');
-      } else if (notificationType === 'assessment-cancelled' || notificationType === 'live-assessment-rescheduled') {
-        navigate('/lms/employee/dashboard');
+      } else if (notificationType === 'assessment-cancelled' || notificationType === 'assessment-cancelled-by-learner' || notificationType === 'live-assessment-rescheduled') {
+        navigate(notification.link || '/lms/employee/dashboard');
       }
       setIsOpen(false);
       return;

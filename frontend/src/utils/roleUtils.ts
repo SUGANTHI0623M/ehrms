@@ -161,6 +161,7 @@ export const hasRouteAccess = (role: string, path: string): boolean => {
       '/role-management',
       '/attendance-setting',
       '/attendance-templates',
+      '/weekly-holiday-templates',
       '/attendance-geofence',
       '/attendance-shifts',
       '/attendance-automation-rules',

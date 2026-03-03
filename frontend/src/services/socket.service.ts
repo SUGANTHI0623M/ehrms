@@ -26,24 +26,23 @@ class SocketService {
     const hostname = window.location.hostname;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
     
+    // Determine socket URL: use VITE_SOCKET_URL or derive from VITE_API_URL, else localhost:9000
     let socketUrl: string;
-    if (isLocal) {
-      // Local development: backend is on port 9000
+    if (import.meta.env.VITE_SOCKET_URL) {
+      socketUrl = (import.meta.env.VITE_SOCKET_URL as string).replace(/^https?:\/\//, '').split('/')[0];
+    } else if (import.meta.env.VITE_API_URL) {
+      const apiUrl = (import.meta.env.VITE_API_URL as string).replace(/^https?:\/\//, '').split('/')[0];
+      socketUrl = apiUrl || hostname;
+    } else if (isLocal) {
       socketUrl = 'localhost:9000';
     } else {
-      // Production: extract backend URL from VITE_API_URL or use current hostname
-      if (import.meta.env.VITE_API_URL) {
-        // Extract hostname:port from VITE_API_URL (e.g., "http://hrms.askeva.net/api" -> "hrms.askeva.net")
-        const apiUrl = import.meta.env.VITE_API_URL.replace(/^https?:\/\//, '').split('/')[0];
-        socketUrl = apiUrl || hostname;
-      } else {
-        // Fallback: use current hostname (backend should be on same domain)
-        socketUrl = hostname;
-      }
+      socketUrl = hostname;
     }
     
-    // Use ws for local, wss for https, ws for http in production
-    const protocol = isLocal ? 'ws' : (window.location.protocol === 'https:' ? 'wss' : 'ws');
+    // Use wss when API URL is https (e.g. production); ws for local or http
+    const apiUrlStr = (import.meta.env.VITE_API_URL as string) || '';
+    const useSecureSocket = apiUrlStr.startsWith('https://');
+    const protocol = useSecureSocket ? 'wss' : (isLocal ? 'ws' : (window.location.protocol === 'https:' ? 'wss' : 'ws'));
     const fullUrl = `${protocol}://${socketUrl}`;
 
     console.log('[Socket] 🌐 Connection details:', {
@@ -119,18 +118,12 @@ class SocketService {
     });
 
     this.socket.on('connect_error', (error: any) => {
-      console.error('[Socket] ❌ Connection error:', error);
-      console.error('[Socket] 📊 Error details:', {
-        message: error.message,
-        type: error.type || 'unknown',
-        description: error.description || 'No description',
-        context: error.context || 'No context'
-      });
       this.reconnectAttempts++;
-      console.log(`[Socket] 🔄 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      
+      if (this.reconnectAttempts === 1) {
+        console.warn('[Socket] ❌ Connection error (reconnecting silently):', error.message || 'websocket error');
+      }
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error('[Socket] ❌ Max reconnection attempts reached. Stopping reconnection.');
+        console.warn('[Socket] ❌ Max reconnection attempts reached. Stopping.');
       }
     });
 

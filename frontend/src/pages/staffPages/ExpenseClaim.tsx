@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { formatINR } from "@/utils/currencyUtils";
+import AdminExpenseDashboard from "@/components/expense/AdminExpenseDashboard";
 
 interface ExpenseClaimProps {
   employeeId?: string;
@@ -69,14 +70,18 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
     page: currentPage,
     limit: pageSize,
   });
+  const { data: allReimbursementsData, isLoading: isAllExpensesLoading } = useGetReimbursementsQuery(
+    { page: 1, limit: 5000 },
+    { skip: !!employeeId }
+  );
 
   const [approveReimbursement, { isLoading: isApproving }] = useApproveReimbursementMutation();
   const [rejectReimbursement, { isLoading: isRejecting }] = useRejectReimbursementMutation();
 
   const reimbursements = reimbursementsData?.data?.reimbursements || [];
   const pagination = reimbursementsData?.data?.pagination;
+  const allReimbursements = allReimbursementsData?.data?.reimbursements || [];
 
-  // Calculate stats
   const stats = {
     total: reimbursements.length,
     pending: reimbursements.filter((r: any) => r.status === "Pending").length,
@@ -140,51 +145,15 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
   const content = (
     <div className="w-full space-y-6">
       {!employeeId && (
-        <div>
+        <>
           <h1 className="text-3xl font-bold">Expense Claims</h1>
           <p className="text-muted-foreground mt-1">Manage employee expense reimbursement requests</p>
-        </div>
+          <AdminExpenseDashboard
+            expenses={allReimbursements}
+            isLoading={isAllExpensesLoading}
+          />
+        </>
       )}
-          {/* Stats Cards */}
-          {!employeeId && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Pending Claims</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.pending}</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {formatINR(stats.pendingAmount)}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Approved</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Paid</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{stats.paid}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Amount</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatINR(stats.totalAmount)}</div>
-              </CardContent>
-            </Card>
-          </div>
-          )}
 
           {/* Filters and Search */}
           <Card>
@@ -309,7 +278,7 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
                           {reimbursement.status === "Approved" || reimbursement.status === "Processed" || reimbursement.status === "Paid" ? (
                             reimbursement.approvedBy ? (
                               <div className="text-xs space-y-1">
-                                <div className="font-medium text-green-600">Approved by: {reimbursement.approvedBy.name || 'N/A'}</div>
+                                <div className="font-medium text-[#efaa1f]">Approved by: {reimbursement.approvedBy.name || 'N/A'}</div>
                                 {reimbursement.approvedAt && (
                                   <div className="text-muted-foreground">
                                     {new Date(reimbursement.approvedAt).toLocaleDateString()}
@@ -429,7 +398,7 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
               <AlertDialogAction
                 onClick={() => approveConfirmId && handleApprove(approveConfirmId)}
                 disabled={isApproving}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                className="w-full sm:w-auto bg-[#efaa1f] hover:bg-[#d97706]"
               >
                 {isApproving ? "Approving..." : "OK, Approve"}
               </AlertDialogAction>

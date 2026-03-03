@@ -1,7 +1,9 @@
 import axios from 'axios';
-// Configure base API URL
+// Configure base API URL: respect VITE_API_URL when set, else default for local
 const getApiUrl = () => {
-    // Check if we're in browser environment and running locally
+    if (import.meta.env.VITE_API_URL) {
+        return (import.meta.env.VITE_API_URL as string).trim().replace(/\/$/, '');
+    }
     if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
         const isLocal = hostname === 'localhost' ||
@@ -9,12 +11,12 @@ const getApiUrl = () => {
             hostname === '0.0.0.0';
 
         if (isLocal) {
-            return 'http://localhost:9000/api';
+            return 'http://localhost:7001/api';
         }
     }
 
     // Fallback to env var or default
-    return import.meta.env.VITE_API_URL || 'http://localhost:9000/api';
+    return import.meta.env.VITE_API_URL || 'http://localhost:7001/api';
 };
 
 const API_URL = getApiUrl();
@@ -115,6 +117,11 @@ export const lmsService = {
 
     resetLearnerProgress: async (courseId: string, employeeId: string) => {
         const response = await api.post(`/lms/courses/${courseId}/learners/${employeeId}/reset`);
+        return response.data;
+    },
+
+    resetAllLearnersProgress: async (courseId: string) => {
+        const response = await api.post(`/lms/courses/${courseId}/learners/reset-all`);
         return response.data;
     },
 
@@ -349,10 +356,44 @@ export const lmsService = {
     },
 
     getEmployees: async () => {
-        // Fetch from existing Staff endpoint used in Staff Overview
-        // forLmsAssignment=1 lets employee portal get full staff list for session participant selection
-        const response = await api.get('/staff', { params: { limit: 50, status: 'Active', forLmsAssignment: 1, page: 1 } });
-        return response.data;
+        // Fetch ALL staff for Assign Learners: get first page then remaining pages so no one is missed (e.g. SUGANTHI)
+        // status 'all' = Active + On Leave + Deactivated (excludes only Onboarding)
+        const limit = 500;
+        const first = await api.get('/staff', { params: { limit, status: 'all', forLmsAssignment: 1, page: 1 } });
+        const data = first.data?.data ?? first.data;
+        const staff: any[] = data?.staff ?? [];
+        const pagination = data?.pagination ?? {};
+        const total = pagination.total ?? staff.length;
+        const pages = pagination.pages ?? 1;
+        if (pages > 1) {
+            const rest = await Promise.all(
+                Array.from({ length: pages - 1 }, (_, i) =>
+                    api.get('/staff', { params: { limit, status: 'all', forLmsAssignment: 1, page: i + 2 } })
+                )
+            );
+            for (const res of rest) {
+                const d = res.data?.data ?? res.data;
+                const list = d?.staff ?? [];
+                staff.push(...list);
+            }
+        }
+        return { data: { staff } };
+    },
+
+    /** Staff list for Assign Learners dropdown. Pass courseId to load staff from the course's business (so no one is missed).
+     * On 404 (endpoint not deployed), returns { data: { staff: [] }, notFound: true } so caller can fall back to getEmployees().
+     */
+    getStaffForLmsAssign: async (courseId?: string) => {
+        const params = courseId ? { courseId } : {};
+        try {
+            const response = await api.get('/lms/staff-for-assign', { params });
+            const body = response.data;
+            const staff = Array.isArray(body?.data?.staff) ? body.data.staff : (Array.isArray(body?.staff) ? body.staff : []);
+            return { data: { staff }, notFound: false };
+        } catch (err: any) {
+            if (err?.response?.status === 404) return { data: { staff: [] }, notFound: true };
+            throw err;
+        }
     },
 
     generateAIQuiz: async (data: any) => {

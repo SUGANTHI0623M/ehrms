@@ -22,6 +22,7 @@ import {
   useUpdateAnnouncementMutation,
   useGenerateAIDescriptionMutation,
 } from "@/store/api/announcementApi.ts";
+import { canEditAnnouncement } from "./announcementUtils";
 import { useGetStaffQuery } from "@/store/api/staffApi";
 import dayjs from "dayjs";
 import { disabledDatePast, disabledTimePastWhenToday } from "@/utils/dateTimePickerUtils";
@@ -36,7 +37,7 @@ const getApiUrl = () => {
       hostname.startsWith("192.168.") ||
       hostname.startsWith("10.") ||
       hostname.startsWith("172.16.");
-    if (isLocal) return "http://localhost:9000";
+    if (isLocal) return "http://localhost:7001";
   }
   if (import.meta.env.VITE_API_URL) {
     return (import.meta.env.VITE_API_URL as string).replace("/api", "");
@@ -126,6 +127,14 @@ const AnnouncementForm = () => {
       setRemovedExistingPaths([]);
     }
   }, [isEdit, announcement]);
+
+  // Redirect to view if editing a published or expired announcement (only draft/scheduled are editable)
+  useEffect(() => {
+    if (isEdit && id && announcement && !canEditAnnouncement(announcement)) {
+      message.warning("Only draft and scheduled announcements can be edited.");
+      navigate(`/announcements/${id}`, { replace: true });
+    }
+  }, [isEdit, id, announcement, navigate]);
 
   const getAiDescriptionLines = () =>
     Math.min(10, Math.max(1, parseInt(aiDescriptionLinesInput, 10) || 3));
@@ -234,6 +243,14 @@ const AnnouncementForm = () => {
       message.error("Title is required");
       return;
     }
+    if (!subject.trim()) {
+      message.error("Subject is required");
+      return;
+    }
+    if (!description.trim()) {
+      message.error("Description is required");
+      return;
+    }
     if (audienceType === "specific" && targetStaffIds.length === 0) {
       message.error("Select at least one employee when audience is Specific");
       return;
@@ -337,7 +354,7 @@ const AnnouncementForm = () => {
 
   return (
     <MainLayout>
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto w-full">
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto w-full">
         <Space direction="vertical" size="large" className="w-full">
           <div className="flex items-center gap-4">
             <AntDButton
@@ -435,44 +452,37 @@ const AnnouncementForm = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Form.Item
-                  label="Publish Date & Time (optional)"
-                  help="Cannot select a past date or time."
+                  label="Publish Date (optional)"
+                  help={publishDate && dayjs(publishDate).isBefore(dayjs().startOf("day")) ? "Publish date cannot be in the past." : "Announcement will be published at 12:00 AM (midnight) on the selected date."}
+                  validateStatus={publishDate && dayjs(publishDate).isBefore(dayjs().startOf("day")) ? "error" : undefined}
                 >
                   <DatePicker
                     className="w-full"
-                    showTime={{
-                      use12Hours: true,
-                      format: "h:mm A",
-                      disabledTime: disabledTimePastWhenToday,
-                    }}
-                    format="DD/MM/YYYY h:mm A"
-                    value={publishDate ? dayjs(publishDate) : null}
+                    format="DD/MM/YYYY"
+                    value={publishDate ? dayjs(publishDate).startOf("day") : null}
                     onChange={(date) =>
-                      setPublishDate(date ? date.format("YYYY-MM-DDTHH:mm:ss") : "")
+                      setPublishDate(date ? date.startOf("day").format("YYYY-MM-DDTHH:mm:ss") : "")
                     }
                     disabledDate={disabledDatePast}
+                    placeholder="Select publish date (will publish at midnight)"
                   />
                 </Form.Item>
                 <Form.Item
-                  label="Expiry Date & Time (optional)"
-                  help={publishDate && expiryDate && dayjs(expiryDate).isBefore(dayjs(publishDate)) ? "Expiry must be on or after publish date." : undefined}
+                  label="Expiry Date (optional)"
+                  help={publishDate && expiryDate && dayjs(expiryDate).isBefore(dayjs(publishDate)) ? "Expiry must be on or after publish date." : "Announcement will expire on the selected date."}
                   validateStatus={publishDate && expiryDate && dayjs(expiryDate).isBefore(dayjs(publishDate)) ? "error" : undefined}
                 >
                   <DatePicker
                     className="w-full"
-                    showTime={{
-                      use12Hours: true,
-                      format: "h:mm A",
-                      disabledTime: disabledTimePastWhenToday,
-                    }}
-                    format="DD/MM/YYYY h:mm A"
-                    value={expiryDate ? dayjs(expiryDate) : null}
+                    format="DD/MM/YYYY"
+                    value={expiryDate ? dayjs(expiryDate).startOf("day") : null}
                     onChange={(date) =>
-                      setExpiryDate(date ? date.format("YYYY-MM-DDTHH:mm:ss") : "")
+                      setExpiryDate(date ? date.startOf("day").format("YYYY-MM-DDTHH:mm:ss") : "")
                     }
                     disabledDate={(current) =>
                       current && publishDate ? current.isBefore(dayjs(publishDate).startOf("day")) : false
                     }
+                    placeholder="Select expiry date"
                   />
                 </Form.Item>
                 <Form.Item label="Attachments (PDF, images)">
@@ -542,7 +552,7 @@ const AnnouncementForm = () => {
                 </Form.Item>
               </div>
 
-              <Form.Item label="Subject">
+              <Form.Item label="Subject" required>
                 <AntInput
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
@@ -551,6 +561,7 @@ const AnnouncementForm = () => {
               </Form.Item>
 
               <Form.Item
+                required
                 label={
                   <div className="flex flex-wrap items-center justify-between gap-2 w-full">
                     <span>Description</span>
@@ -573,7 +584,7 @@ const AnnouncementForm = () => {
                           loading={aiLoading}
                           onClick={handleGenerateAI}
                           disabled={aiLoading || !title.trim()}
-                          className="!text-green-600 hover:!text-green-700 hover:!border-green-500 [&.ant-btn]:!h-8 [&.ant-btn]:!leading-[30px]"
+                          className="!text-[#efaa1f] hover:!text-[#d97706] hover:!border-[#efaa1f] [&.ant-btn]:!h-8 [&.ant-btn]:!leading-[30px]"
                         >
                           {aiLoading ? "Generating…" : "Generate with AI"}
                         </AntDButton>
@@ -708,7 +719,7 @@ const AnnouncementForm = () => {
                                   subsectionAiLoadingIndex !== null ||
                                   !sub.title.trim()
                                 }
-                                className="!text-green-600 hover:!text-green-700 hover:!border-green-500 [&.ant-btn]:!h-8 [&.ant-btn]:!leading-[30px]"
+                                className="!text-[#efaa1f] hover:!text-[#d97706] hover:!border-[#efaa1f] [&.ant-btn]:!h-8 [&.ant-btn]:!leading-[30px]"
                               >
                                 {subsectionAiLoadingIndex === index
                                   ? "Generating…"
@@ -741,7 +752,7 @@ const AnnouncementForm = () => {
                   block
                   icon={<PlusOutlined />}
                   onClick={addSubsection}
-                  className="h-12 text-gray-500 hover:text-green-600 hover:border-green-600"
+                  className="h-12 text-gray-500 hover:text-[#efaa1f] hover:border-[#efaa1f]"
                 >
                   Add Subsection
                 </AntDButton>
@@ -767,7 +778,7 @@ const AnnouncementForm = () => {
                     onClick={() => handleSubmit(hasScheduledPublish)}
                     loading={submitLoading}
                   >
-                    {hasScheduledPublish ? "Save announcement" : "Publish"}
+                    {hasScheduledPublish ? "Schedule Announcement" : "Publish"}
                   </AntDButton>
                 </Space>
               </div>

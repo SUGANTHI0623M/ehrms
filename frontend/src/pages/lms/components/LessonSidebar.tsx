@@ -90,26 +90,31 @@ const LessonSidebar: React.FC<LessonSidebarProps> = ({
 
     const title = course?.title || courseTitle || 'Untitled Course';
     const description = course?.description;
-    const enrolledAt = progress?.enrolledAt;
+    const enrolledAt = progress?.enrolledAt ?? progress?.createdAt;
     const completionDuration = course?.completionDuration;
 
-    // Calculate deadline (hidden when learner passed – they have access without validity)
+    // Prefer stored dueDate (reflects extensions); otherwise compute from enrollment + course duration
     const assessmentPassed = progress?.assessmentStatus === 'Passed';
     let deadline = null;
     let daysLeft: number | null = null;
-    if (!assessmentPassed && enrolledAt && completionDuration?.value) {
-        const start = dayjs(enrolledAt);
-        const unit = completionDuration.unit?.toLowerCase() || 'days';
-        const durationUnit = unit.endsWith('s') ? unit.slice(0, -1) : unit;
-        deadline = start.add(completionDuration.value, durationUnit as any);
-        daysLeft = deadline.diff(dayjs(), 'day');
+    if (!assessmentPassed) {
+        if (progress?.dueDate) {
+            deadline = dayjs(progress.dueDate);
+            daysLeft = deadline.diff(dayjs(), 'day');
+        } else if (enrolledAt && completionDuration?.value) {
+            const start = dayjs(enrolledAt);
+            const unit = completionDuration.unit?.toLowerCase() || 'days';
+            const durationUnit = unit.endsWith('s') ? unit.slice(0, -1) : unit;
+            deadline = start.add(completionDuration.value, durationUnit as any);
+            daysLeft = deadline.diff(dayjs(), 'day');
+        }
     }
 
     const getMaterialIcon = (type: string) => {
         const iconStyle = { fontSize: '14px' };
         // Using explicit hex similar to primary 142 70% 38% -> #1DA553 ~ #16A34A (tailwind green-600)
-        // I'll use #16a34a (green-600) to match standard primary
-        const primaryColor = '#16a34a';
+        // Using primary color
+        const primaryColor = '#efaa1f';
         switch (type) {
             case 'VIDEO': return <PlayCircleOutlined style={{ ...iconStyle, color: primaryColor }} />;
             case 'YOUTUBE': return <YoutubeOutlined style={{ ...iconStyle, color: '#ef4444' }} />;
@@ -127,7 +132,7 @@ const LessonSidebar: React.FC<LessonSidebarProps> = ({
                     <Progress
                         percent={progressPercentage}
                         showInfo={false}
-                        strokeColor="#16a34a"
+                        strokeColor="#efaa1f"
                         trailColor="#e2e8f0"
                         size="small"
                         strokeWidth={6}
@@ -356,8 +361,8 @@ const LessonSidebar: React.FC<LessonSidebarProps> = ({
                 .playlist-chevron { font-size: 12px; color: #94a3b8; }
                 .playlist-lesson-header { display: flex; align-items: center; gap: 10px; width: 100%; }
                 .playlist-lesson-num { width: 28px; height: 28px; min-width: 28px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
-                .playlist-lesson-done { background: #ecfdf5; border-color: #10b981; color: #059669; }
-                .playlist-lesson-active { background: #059669; border-color: #059669; color: #fff; }
+                .playlist-lesson-done { background: #fef3c7; border-color: #efaa1f; color: #d97706; }
+                .playlist-lesson-active { background: #efaa1f; border-color: #efaa1f; color: #fff; }
                 .playlist-lesson-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
                 .playlist-lesson-title { font-size: 13px; font-weight: 600; color: #334155; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .playlist-lesson-count { font-size: 11px; color: #94a3b8; }
@@ -368,7 +373,7 @@ const LessonSidebar: React.FC<LessonSidebarProps> = ({
                 .playlist-items { display: flex; flex-direction: column; gap: 2px; }
                 .playlist-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px 10px 36px; text-align: left; border: none; background: transparent; cursor: pointer; font-size: 13px; color: #475569; border-radius: 6px; transition: background 0.15s, color 0.15s; }
                 .playlist-item:hover { background: #f8fafc; color: #0f172a; }
-                .playlist-item-active { background: #fff; color: #059669; font-weight: 600; box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.2); }
+                .playlist-item-active { background: #fff; color: #efaa1f; font-weight: 600; box-shadow: 0 0 0 1px rgba(239, 170, 31, 0.2); }
                 .playlist-item-icon { flex-shrink: 0; font-size: 14px; display: flex; align-items: center; }
                 .playlist-item-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .playlist-extra-actions { padding: 8px 12px 4px 36px; }

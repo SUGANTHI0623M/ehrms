@@ -24,6 +24,8 @@ import {
   Tooltip,
   Spin,
   Skeleton,
+  Tabs,
+  Table,
 } from "antd";
 import { theme } from "antd";
 import {
@@ -38,18 +40,17 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
-  useGetTemplatesQuery,
-  useGetTemplateByIdQuery,
+  useGetCelebrationTemplatesQuery,
+  useGetCelebrationTemplateByIdQuery,
   useGetUpcomingQuery,
-  useCreateTemplateMutation,
-  useUpdateTemplateMutation,
-  useDeleteTemplateMutation,
+  useCreateCelebrationTemplateMutation,
+  useUpdateCelebrationTemplateMutation,
+  useDeleteCelebrationTemplateMutation,
   useGenerateCelebrationMessageMutation,
   type CelebrationType,
 } from "@/store/api/celebrationApi";
 import { useGetStaffQuery } from "@/store/api/staffApi";
 import { useAllDepartmentsForDropdown } from "@/hooks/useAllDepartmentsForDropdown";
-import CelebrationHighlightCard from "./CelebrationHighlightCard";
 
 const { useToken } = theme;
 const { TextArea } = Input;
@@ -175,18 +176,22 @@ export default function AdminCelebrationPage() {
     assignedStaffIds: string[];
   }>();
 
+  const [activeTab, setActiveTab] = useState<string>("upcoming");
+  const [birthdayDeptFilter, setBirthdayDeptFilter] = useState<string | null>(null);
+  const [anniversaryDeptFilter, setAnniversaryDeptFilter] = useState<string | null>(null);
+
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const { data: templatesData, isLoading } = useGetTemplatesQuery();
-  const { data: templateByIdData } = useGetTemplateByIdQuery(editingId ?? "", {
+  const { data: templatesData, isLoading } = useGetCelebrationTemplatesQuery();
+  const { data: templateByIdData } = useGetCelebrationTemplateByIdQuery(editingId ?? "", {
     skip: !editingId || !modalOpen,
   });
   const { data: upcomingData, isLoading: upcomingLoading } = useGetUpcomingQuery({ year, month });
-  const [createTemplate, { isLoading: creating }] = useCreateTemplateMutation();
-  const [updateTemplate, { isLoading: updating }] = useUpdateTemplateMutation();
-  const [deleteTemplate, { isLoading: deleting }] = useDeleteTemplateMutation();
+  const [createTemplate, { isLoading: creating }] = useCreateCelebrationTemplateMutation();
+  const [updateTemplate, { isLoading: updating }] = useUpdateCelebrationTemplateMutation();
+  const [deleteTemplate, { isLoading: deleting }] = useDeleteCelebrationTemplateMutation();
   const [generateCelebrationMessage] = useGenerateCelebrationMessageMutation();
   const { data: staffData } = useGetStaffQuery({ limit: 500, page: 1 });
   const { departments: departmentOptionsForDropdown } = useAllDepartmentsForDropdown(modalOpen);
@@ -219,6 +224,49 @@ export default function AdminCelebrationPage() {
     });
     return list;
   }, [birthdays, anniversaries]);
+
+  const TABLE_PAGE_SIZE = 10;
+  const filteredBirthdays = useMemo(() => {
+    let list = birthdays;
+    if (birthdayDeptFilter) {
+      list = list.filter((b: any) => (b.staff?.department || "").toLowerCase() === birthdayDeptFilter.toLowerCase());
+    }
+    return list;
+  }, [birthdays, birthdayDeptFilter]);
+  const filteredAnniversaries = useMemo(() => {
+    let list = anniversaries;
+    if (anniversaryDeptFilter) {
+      list = list.filter((a: any) => (a.staff?.department || "").toLowerCase() === anniversaryDeptFilter.toLowerCase());
+    }
+    return list;
+  }, [anniversaries, anniversaryDeptFilter]);
+
+  const birthdayDepartments = useMemo(() => {
+    const set = new Set<string>();
+    birthdays.forEach((b: any) => {
+      if (b.staff?.department) set.add(b.staff.department);
+    });
+    return Array.from(set).sort();
+  }, [birthdays]);
+  const anniversaryDepartments = useMemo(() => {
+    const set = new Set<string>();
+    anniversaries.forEach((a: any) => {
+      if (a.staff?.department) set.add(a.staff.department);
+    });
+    return Array.from(set).sort();
+  }, [anniversaries]);
+
+  const getDaysUntil = (dateStr: string) => {
+    const d = dayjs(dateStr).startOf("day");
+    const today = dayjs().startOf("day");
+    return d.diff(today, "day");
+  };
+  const getRecencyBadge = (daysUntil: number, isToday: boolean) => {
+    if (isToday) return { label: "Today", color: "green" };
+    if (daysUntil >= 0 && daysUntil <= 7) return { label: "This Week", color: "gold" };
+    if (daysUntil >= 0 && daysUntil <= 31) return { label: "This Month", color: "blue" };
+    return null;
+  };
 
   useEffect(() => {
     if (!modalOpen || !editingId || !templateByIdData?.data) return;
@@ -440,432 +488,509 @@ export default function AdminCelebrationPage() {
           </Col>
         </Row>
 
-        {/* KPI Cards: Birthdays & Upcoming Anniversaries (redesigned) */}
-        <Row gutter={[20, 20]}>
-          <Col xs={24} sm={12} lg={8}>
-            <Card
-              className="celebration-card-entrance celebration-card-entrance-0 celebration-kpi-card-shadow-hover"
-              loading={upcomingLoading}
-              styles={{ body: { padding: 0 } }}
-              style={{
-                borderRadius: token.borderRadiusLG,
-                borderLeft: `4px solid ${token.colorWarning}`,
-                minHeight: 220,
-                overflow: "hidden",
-                height: "100%",
-                position: "relative",
-              }}
-            >
-              <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", fontSize: 64, opacity: 0.12, pointerEvents: "none", userSelect: "none" }}>🎂</span>
-              <div style={{ padding: "16px 20px 12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: token.borderRadius, background: token.colorWarningBg, color: token.colorWarning, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
-                      <StarOutlined />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, fontFamily: "'Poppins', sans-serif" }}>
-                      <Text strong style={{ fontSize: 13, color: token.colorTextHeading, lineHeight: 1.3, fontFamily: "inherit" }}>Birthdays This Month</Text>
-                      <Text strong style={{ fontSize: 11, color: token.colorText, fontFamily: "inherit" }}>{dayjs().format("MMMM YYYY")}</Text>
-                    </div>
-                  </div>
-                  <Typography.Title level={2} style={{ margin: 0, color: token.colorWarning, fontWeight: 700 }}>{birthdays.length}</Typography.Title>
-                </div>
-              </div>
-              <Divider style={{ margin: 0 }} />
-              <div className="celebration-card-scroll celebration-kpi-list" style={{ padding: "8px 0", maxHeight: 160, overflowY: "auto" }}>
-                {birthdays.length === 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 8 }}>
-                    <span style={{ fontSize: 28 }}>🎂</span>
-                    <Text type="secondary">No birthdays this month</Text>
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 8 }} />
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ padding: "6px 20px", display: "grid", gridTemplateColumns: "1fr 72px 72px", gap: 12, alignItems: "center", borderBottom: `1px solid ${token.colorBorderSecondary}`, marginBottom: 4 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Employee</Text>
-                      </div>
-                      <div style={{ textAlign: "center" }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Birthday</Text>
-                      </div>
-                      <div style={{ textAlign: "center" }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Date</Text>
-                      </div>
-                    </div>
-                    {birthdays.map((item: any, index: number) => {
-                      const date = item.date ? dayjs(item.date) : null;
-                      const dob = item.staff?.dob ? dayjs(item.staff.dob) : null;
-                      const whichBirthday = dob && date ? date.year() - dob.year() : null;
-                      const dayNum = date ? date.date() : null;
-                      const isToday = item.isToday;
-                      return (
-                        <div key={`b-${item.staff?._id}`}>
-                          <div
-                            style={{
-                              padding: "8px 20px",
-                              display: "grid",
-                              gridTemplateColumns: "1fr 72px 72px",
-                              gap: 12,
-                              alignItems: "center",
-                              background: isToday ? token.colorWarningBg : undefined,
-                              borderLeft: isToday ? `3px solid ${token.colorWarning}` : undefined,
-                            }}
-                          >
-                            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 12 }}>
-                              <Avatar size={34} style={{ background: avatarColorFromName(item.staff?.name ?? "", token), flexShrink: 0 }}>
-                                {getInitials(item.staff?.name ?? "?")}
-                              </Avatar>
-                              <div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                  <Text strong style={{ fontSize: 13 }}>{item.staff?.name}</Text>
-                                  {isToday && <Tag className="celebration-today-pulse" color="gold" style={{ margin: 0, fontSize: 11 }}>Today 🎂</Tag>}
-                                </div>
-                                <Text type="secondary" style={{ fontSize: 11, display: "block" }}>{item.staff?.department || "—"}</Text>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: "center" }}>
-                              <Text strong style={{ fontSize: 13, color: token.colorWarning }}>{whichBirthday != null ? ordinal(whichBirthday) : "—"}</Text>
-                            </div>
-                            <div style={{ textAlign: "center" }}>
-                              <Text strong style={{ fontSize: 13, color: token.colorTextHeading, display: "block" }}>{dayNum != null ? dayNum : "—"}</Text>
-                              <Text type="secondary" style={{ fontSize: 11 }}>{date ? date.format("MMM") : "—"}</Text>
-                            </div>
-                          </div>
-                          {index < birthdays.length - 1 && <Divider style={{ margin: 0, borderColor: token.colorBorderSecondary }} />}
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={8}>
-            <Card
-              className="celebration-card-entrance celebration-card-entrance-1 celebration-kpi-card-shadow-hover"
-              loading={upcomingLoading}
-              styles={{ body: { padding: 0 } }}
-              style={{
-                borderRadius: token.borderRadiusLG,
-                borderLeft: `4px solid ${token.colorSuccess}`,
-                minHeight: 220,
-                overflow: "hidden",
-                height: "100%",
-                position: "relative",
-              }}
-            >
-              <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", fontSize: 64, opacity: 0.12, pointerEvents: "none", userSelect: "none" }}>🏆</span>
-              <div style={{ padding: "16px 20px 12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: token.borderRadius, background: token.colorSuccessBg, color: token.colorSuccess, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
-                      <TrophyOutlined />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, fontFamily: "'Poppins', sans-serif" }}>
-                      <Text strong style={{ fontSize: 13, color: token.colorTextHeading, lineHeight: 1.3, fontFamily: "inherit" }}>Upcoming Anniversaries in This Month</Text>
-                      <Text strong style={{ fontSize: 11, color: token.colorText, fontFamily: "inherit" }}>{dayjs().format("MMMM YYYY")}</Text>
-                    </div>
-                  </div>
-                  <Typography.Title level={2} style={{ margin: 0, color: token.colorSuccess, fontWeight: 700 }}>{anniversaries.length}</Typography.Title>
-                </div>
-              </div>
-              <Divider style={{ margin: 0 }} />
-              <div className="celebration-card-scroll celebration-kpi-list" style={{ padding: "8px 0", maxHeight: 160, overflowY: "auto" }}>
-                {anniversaries.length === 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 8 }}>
-                    <span style={{ fontSize: 28 }}>🌟</span>
-                    <Text type="secondary">No upcoming anniversaries this month</Text>
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 8 }} />
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ padding: "6px 20px", display: "grid", gridTemplateColumns: "1fr 90px 100px", gap: 12, alignItems: "center", borderBottom: `1px solid ${token.colorBorderSecondary}`, marginBottom: 4 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Employee</Text>
-                      </div>
-                      <div style={{ textAlign: "center" }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Anniversary</Text>
-                      </div>
-                      <div style={{ textAlign: "right", paddingRight: 4 }}>
-                        <Text strong style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: "uppercase" }}>Completed</Text>
-                      </div>
-                    </div>
-                    {anniversaries.map((item: any, index: number) => {
-                      const date = item.date ? dayjs(item.date) : null;
-                      const dayNum = date ? date.date() : null;
-                      const isToday = item.isToday;
-                      return (
-                        <div key={`a-${item.staff?._id}`}>
-                          <div
-                            style={{
-                              padding: "8px 20px",
-                              display: "grid",
-                              gridTemplateColumns: "1fr 90px 100px",
-                              gap: 12,
-                              alignItems: "center",
-                              background: isToday ? token.colorSuccessBg : undefined,
-                              borderLeft: isToday ? `3px solid ${token.colorSuccess}` : undefined,
-                            }}
-                          >
-                            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 12 }}>
-                              <Avatar size={34} style={{ background: avatarColorFromName(item.staff?.name ?? "", token), flexShrink: 0 }}>
-                                {getInitials(item.staff?.name ?? "?")}
-                              </Avatar>
-                              <div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                  <Text strong style={{ fontSize: 13 }}>{item.staff?.name}</Text>
-                                  {isToday && <Tag className="celebration-today-pulse" color="green" style={{ margin: 0, fontSize: 11 }}>Today 🌟</Tag>}
-                                </div>
-                                <Text type="secondary" style={{ fontSize: 11, display: "block" }}>{item.staff?.department || "—"}</Text>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: "center" }}>
-                              <Text strong style={{ fontSize: 13, color: token.colorSuccess, display: "block" }}>{dayNum != null ? dayOrdinal(dayNum) : "—"}</Text>
-                              <Text type="secondary" style={{ fontSize: 11 }}>{date ? date.format("MMM D") : "—"}</Text>
-                            </div>
-                            <div style={{ textAlign: "right", paddingRight: 4 }}>
-                              {item.yearsOfService != null ? (
-                                <Tag color="success" style={{ margin: 0 }}>{item.yearsOfService} {item.yearsOfService === 1 ? "yr" : "yrs"}</Tag>
-                              ) : (
-                                <span>—</span>
-                              )}
-                            </div>
-                          </div>
-                          {index < anniversaries.length - 1 && <Divider style={{ margin: 0, borderColor: token.colorBorderSecondary }} />}
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={8}>
-            <CelebrationHighlightCard celebrations={todayCelebrations} loading={upcomingLoading} />
+        <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
+          <Col>
+            <Typography.Title level={4} style={{ margin: 0, color: token.colorTextHeading }}>
+              Celebration
+            </Typography.Title>
           </Col>
         </Row>
 
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          className="celebration-page-tabs"
+          size="middle"
+          items={[
+            {
+              key: "upcoming",
+              label: <span style={{ fontWeight: 500 }}>Upcoming Celebrations</span>,
+              children: (
+                <div style={{ paddingTop: 8 }}>
+                  {/* Today's Celebrations banner */}
+                  <Card
+                    loading={upcomingLoading}
+                    style={{
+                      marginBottom: 24,
+                      borderRadius: token.borderRadiusLG,
+                      overflow: "hidden",
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                      background: todayCelebrations.length > 0
+                        ? `linear-gradient(135deg, ${token.colorPrimaryBg} 0%, ${token.colorSuccessBg} 50%, ${token.colorWarningBg} 100%)`
+                        : token.colorBgContainer,
+                    }}
+                    styles={{ body: { padding: 0 } }}
+                  >
+                    <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontSize: 32 }}>🎉</span>
+                        <div>
+                          <Typography.Text strong style={{ fontSize: 16, color: token.colorTextHeading }}>
+                            Today&apos;s Celebrations
+                          </Typography.Text>
+                          {todayCelebrations.length > 0 && (
+                            <div style={{ marginTop: 4 }}>
+                              {todayCelebrations.map((c, i) => (
+                                <Tag
+                                  key={i}
+                                  color={c.type === "birthday" ? "gold" : "cyan"}
+                                  style={{ marginRight: 8, marginBottom: 4 }}
+                                >
+                                  {c.type === "birthday" ? "🎂" : "🌟"} {c.name}
+                                  {c.department ? ` · ${c.department}` : ""}
+                                </Tag>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {todayCelebrations.length === 0 && !upcomingLoading && (
+                        <Typography.Text type="secondary">No celebrations today</Typography.Text>
+                      )}
+                    </div>
+                  </Card>
+
+                  {/* Tables side by side */}
+                  <Row gutter={[24, 24]}>
+                    <Col xs={24} lg={12}>
+                  {/* Table 1: Upcoming Birthdays */}
+                  <Card
+                    title={
+                      <span style={{ fontWeight: 600, fontSize: 16 }}>Upcoming Birthdays</span>
+                    }
+                    style={{
+                      marginBottom: 0,
+                      borderRadius: token.borderRadiusLG,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      height: "100%",
+                    }}
+                    extra={
+                      birthdayDepartments.length > 0 && (
+                        <Select
+                          placeholder="Filter by department"
+                          allowClear
+                          style={{ width: 200 }}
+                          value={birthdayDeptFilter ?? ""}
+                          onChange={(v) => setBirthdayDeptFilter(v || null)}
+                          options={[{ value: "", label: "All departments" }, ...birthdayDepartments.map((d) => ({ value: d, label: d }))]}
+                        />
+                      )
+                    }
+                  >
+                    {filteredBirthdays.length === 0 ? (
+                      <Empty description="No upcoming birthdays" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 24 }} />
+                    ) : (
+                      <>
+                        <Table
+                          dataSource={filteredBirthdays.slice(0, TABLE_PAGE_SIZE)}
+                          rowKey={(r: any) => `b-${r.staff?._id}`}
+                          loading={upcomingLoading}
+                          pagination={false}
+                          size="small"
+                          rowClassName={(r: any) => {
+                            const days = getDaysUntil(r.date);
+                            if (r.isToday || (days >= 0 && days <= 7)) return "celebration-row-highlight";
+                            return "";
+                          }}
+                          columns={[
+                            {
+                              title: "Employee",
+                              key: "employee",
+                              width: 220,
+                              render: (_: any, r: any) => (
+                                <Space>
+                                  <Avatar size="small" style={{ background: avatarColorFromName(r.staff?.name ?? "", token) }}>
+                                    {getInitials(r.staff?.name ?? "?")}
+                                  </Avatar>
+                                  <span>{r.staff?.name ?? "—"}</span>
+                                </Space>
+                              ),
+                            },
+                            { title: "Department", dataIndex: ["staff", "department"], key: "dept", width: 140, render: (v: string) => v || "—" },
+                            {
+                              title: "Birthday Date",
+                              key: "date",
+                              width: 130,
+                              render: (_: any, r: any) => (r.date ? dayjs(r.date).format("DD MMM YYYY") : "—"),
+                            },
+                            {
+                              title: "Days Until",
+                              key: "daysUntil",
+                              width: 100,
+                              render: (_: any, r: any) => {
+                                const days = getDaysUntil(r.date);
+                                if (days < 0) return "—";
+                                if (days === 0) return <Tag color="green">Today</Tag>;
+                                return days;
+                              },
+                            },
+                            {
+                              title: "",
+                              key: "badge",
+                              width: 120,
+                              render: (_: any, r: any) => {
+                                const days = getDaysUntil(r.date);
+                                const badge = getRecencyBadge(days, r.isToday);
+                                if (!badge) return null;
+                                return <Tag color={badge.color}>{badge.label}</Tag>;
+                              },
+                            },
+                          ]}
+                        />
+                        {filteredBirthdays.length > TABLE_PAGE_SIZE && (
+                          <div style={{ marginTop: 12, textAlign: "center" }}>
+                            <Typography.Text type="secondary">
+                              Showing {TABLE_PAGE_SIZE} of {filteredBirthdays.length}. View all in list.
+                            </Typography.Text>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </Card>
+                    </Col>
+                    <Col xs={24} lg={12}>
+                  {/* Table 2: Upcoming Anniversaries */}
+                  <Card
+                    title={
+                      <span style={{ fontWeight: 600, fontSize: 16 }}>Upcoming Anniversaries</span>
+                    }
+                    style={{
+                      marginBottom: 0,
+                      borderRadius: token.borderRadiusLG,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      height: "100%",
+                    }}
+                    extra={
+                      anniversaryDepartments.length > 0 && (
+                        <Select
+                          placeholder="Filter by department"
+                          allowClear
+                          style={{ width: 200 }}
+                          value={anniversaryDeptFilter ?? ""}
+                          onChange={(v) => setAnniversaryDeptFilter(v || null)}
+                          options={[{ value: "", label: "All departments" }, ...anniversaryDepartments.map((d) => ({ value: d, label: d }))]}
+                        />
+                      )
+                    }
+                  >
+                    {filteredAnniversaries.length === 0 ? (
+                      <Empty description="No upcoming anniversaries" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 24 }} />
+                    ) : (
+                      <>
+                        <Table
+                          dataSource={filteredAnniversaries.slice(0, TABLE_PAGE_SIZE)}
+                          rowKey={(r: any) => `a-${r.staff?._id}`}
+                          loading={upcomingLoading}
+                          pagination={false}
+                          size="small"
+                          rowClassName={(r: any) => {
+                            const days = getDaysUntil(r.date);
+                            if (r.isToday || (days >= 0 && days <= 7)) return "celebration-row-highlight";
+                            return "";
+                          }}
+                          columns={[
+                            {
+                              title: "Employee",
+                              key: "employee",
+                              width: 220,
+                              render: (_: any, r: any) => (
+                                <Space>
+                                  <Avatar size="small" style={{ background: avatarColorFromName(r.staff?.name ?? "", token) }}>
+                                    {getInitials(r.staff?.name ?? "?")}
+                                  </Avatar>
+                                  <span>{r.staff?.name ?? "—"}</span>
+                                </Space>
+                              ),
+                            },
+                            { title: "Department", dataIndex: ["staff", "department"], key: "dept", width: 140, render: (v: string) => v || "—" },
+                            {
+                              title: "Anniversary Date",
+                              key: "date",
+                              width: 140,
+                              render: (_: any, r: any) => (r.date ? dayjs(r.date).format("DD MMM YYYY") : "—"),
+                            },
+                            {
+                              title: "Years Completing",
+                              key: "years",
+                              width: 120,
+                              render: (_: any, r: any) =>
+                                r.yearsOfService != null ? (
+                                  <Tag color="success">{r.yearsOfService} {r.yearsOfService === 1 ? "yr" : "yrs"}</Tag>
+                                ) : (
+                                  "—"
+                                ),
+                            },
+                            {
+                              title: "Days Until",
+                              key: "daysUntil",
+                              width: 100,
+                              render: (_: any, r: any) => {
+                                const days = getDaysUntil(r.date);
+                                if (days < 0) return "—";
+                                if (days === 0) return <Tag color="green">Today</Tag>;
+                                return days;
+                              },
+                            },
+                            {
+                              title: "",
+                              key: "badge",
+                              width: 120,
+                              render: (_: any, r: any) => {
+                                const days = getDaysUntil(r.date);
+                                const badge = getRecencyBadge(days, r.isToday);
+                                if (!badge) return null;
+                                return <Tag color={badge.color}>{badge.label}</Tag>;
+                              },
+                            },
+                          ]}
+                        />
+                        {filteredAnniversaries.length > TABLE_PAGE_SIZE && (
+                          <div style={{ marginTop: 12, textAlign: "center" }}>
+                            <Typography.Text type="secondary">
+                              Showing {TABLE_PAGE_SIZE} of {filteredAnniversaries.length}. View all in list.
+                            </Typography.Text>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </Card>
+                    </Col>
+                  </Row>
+                </div>
+              ),
+            },
+            {
+              key: "templates",
+              label: <span style={{ fontWeight: 500 }}>Templates</span>,
+              children: (
+                <div style={{ marginTop: 8 }}>
         {/* Templates list in card view */}
-        <div style={{ marginTop: 32 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 20,
-              flexWrap: "wrap",
-              gap: 12,
-              paddingBottom: 16,
-              borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            }}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 20,
+            flexWrap: "wrap",
+            gap: 12,
+            paddingBottom: 16,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <Text strong style={{ fontSize: 18, color: token.colorTextHeading }}>
+              Your templates
+            </Text>
+            {templates.length > 0 && (
+              <Tag style={{ margin: 0 }}>{templates.length} template{templates.length !== 1 ? "s" : ""}</Tag>
+            )}
+          </div>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            Create Template
+          </Button>
+        </div>
+        {templates.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="No templates yet. Create one to send birthday or anniversary wishes."
+            style={{ padding: "48px 24px", background: token.colorFillQuaternary, borderRadius: token.borderRadiusLG }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <Text strong style={{ fontSize: 18, color: token.colorTextHeading }}>
-                Your templates
-              </Text>
-              {templates.length > 0 && (
-                <Tag style={{ margin: 0 }}>{templates.length} template{templates.length !== 1 ? "s" : ""}</Tag>
-              )}
-            </div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} size="large">
               Create Template
             </Button>
-          </div>
-          {templates.length === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="No templates yet. Create one to send birthday or anniversary wishes."
-              style={{ padding: "48px 24px", background: token.colorFillQuaternary, borderRadius: token.borderRadiusLG }}
-            >
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} size="large">
-                Create Template
-              </Button>
-            </Empty>
-          ) : (
-            <Row gutter={[20, 20]}>
-              {templates.map((t: any) => {
-                const isBirthday = t.type === "birthday";
-                const isAnniversary = t.type === "work_anniversary";
-                const accentColor = isBirthday ? token.colorWarning : isAnniversary ? token.colorPrimary : token.colorTextSecondary;
-                const TypeIcon = isBirthday ? StarOutlined : isAnniversary ? TrophyOutlined : FileTextOutlined;
-                const typeLabel = isBirthday ? "Birthday" : isAnniversary ? "Anniversary" : t.type || "—";
-                const messagePreview = (t.messageBody || "")
-                  .replace(/\s+/g, " ")
-                  .trim()
-                  .slice(0, 60);
-                return (
-                  <Col xs={24} sm={12} md={8} lg={6} key={t._id}>
-                    <Card
-                      hoverable
-                      size="small"
+          </Empty>
+        ) : (
+          <Row gutter={[20, 20]}>
+            {templates.map((t: any) => {
+              const isBirthday = t.type === "birthday";
+              const isAnniversary = t.type === "work_anniversary";
+              const accentColor = isBirthday ? token.colorWarning : isAnniversary ? token.colorPrimary : token.colorTextSecondary;
+              const TypeIcon = isBirthday ? StarOutlined : isAnniversary ? TrophyOutlined : FileTextOutlined;
+              const typeLabel = isBirthday ? "Birthday" : isAnniversary ? "Anniversary" : t.type || "—";
+              const messagePreview = (t.messageBody || "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 60);
+              return (
+                <Col xs={24} sm={12} md={8} lg={6} key={t._id}>
+                  <Card
+                    hoverable
+                    size="small"
+                    style={{
+                      height: "100%",
+                      minHeight: 260,
+                      borderRadius: token.borderRadiusLG,
+                      overflow: "hidden",
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      boxShadow: "none",
+                      transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+                    }}
+                    styles={{
+                      body: { padding: 0, display: "flex", flexDirection: "column", flex: 1, minHeight: 260 },
+                    }}
+                    className="celebration-template-card"
+                  >
+                    {/* Accent bar */}
+                    <div
                       style={{
-                        height: "100%",
-                        minHeight: 260,
-                        borderRadius: token.borderRadiusLG,
-                        overflow: "hidden",
-                        border: `1px solid ${token.colorBorderSecondary}`,
-                        boxShadow: "none",
-                        transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+                        height: 4,
+                        background: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor}40 100%)`,
+                        width: "100%",
+                        flexShrink: 0,
                       }}
-                      styles={{
-                        body: { padding: 0, display: "flex", flexDirection: "column", flex: 1, minHeight: 260 },
+                    />
+                    {/* Main content */}
+                    <div
+                      style={{
+                        padding: "20px 20px 16px",
+                        flex: 1,
+                        minHeight: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 12,
                       }}
-                      className="celebration-template-card"
                     >
-                      {/* Accent bar */}
-                      <div
-                        style={{
-                          height: 4,
-                          background: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor}40 100%)`,
-                          width: "100%",
-                          flexShrink: 0,
-                        }}
-                      />
-                      {/* Main content */}
-                      <div
-                        style={{
-                          padding: "20px 20px 16px",
-                          flex: 1,
-                          minHeight: 0,
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 12,
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                          <div
-                            style={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: token.borderRadius,
-                              background: `${accentColor}18`,
-                              color: accentColor,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 22,
-                              flexShrink: 0,
-                            }}
-                          >
-                            <TypeIcon />
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <Text strong ellipsis style={{ fontSize: 16, display: "block", lineHeight: 1.35, marginBottom: 6 }}>
-                              {t.name}
-                            </Text>
-                            <Tag color={isBirthday ? "gold" : isAnniversary ? "blue" : "default"} style={{ margin: 0, fontSize: 11 }}>
-                              {typeLabel}
-                            </Tag>
-                          </div>
-                        </div>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                         <div
                           style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: token.borderRadius,
+                            background: `${accentColor}18`,
+                            color: accentColor,
                             display: "flex",
                             alignItems: "center",
-                            gap: 6,
-                            padding: "8px 10px",
-                            borderRadius: token.borderRadius,
-                            background: token.colorFillTertiary,
-                            width: "fit-content",
+                            justifyContent: "center",
+                            fontSize: 22,
+                            flexShrink: 0,
                           }}
                         >
-                          <ClockCircleOutlined style={{ color: token.colorTextSecondary, fontSize: 12 }} />
-                          <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>
-                            Sends at {t.sendTime || "09:00"}
-                          </Text>
+                          <TypeIcon />
                         </div>
-                        {messagePreview ? (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: token.colorTextSecondary,
-                              lineHeight: 1.45,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              flex: 1,
-                              minHeight: 0,
-                            }}
-                          >
-                            {messagePreview}
-                            {(t.messageBody || "").trim().length > 60 ? "…" : ""}
-                          </div>
-                        ) : (
-                          <div style={{ flex: 1, minHeight: 20 }} />
-                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Text strong ellipsis style={{ fontSize: 16, display: "block", lineHeight: 1.35, marginBottom: 6 }}>
+                            {t.name}
+                          </Text>
+                          <Tag color={isBirthday ? "gold" : isAnniversary ? "blue" : "default"} style={{ margin: 0, fontSize: 11 }}>
+                            {typeLabel}
+                          </Tag>
+                        </div>
                       </div>
-                      {/* Footer: toggle + actions */}
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "12px 20px 16px",
-                          borderTop: `1px solid ${token.colorBorderSecondary}`,
-                          background: token.colorFillQuaternary,
+                          gap: 6,
+                          padding: "8px 10px",
+                          borderRadius: token.borderRadius,
+                          background: token.colorFillTertiary,
+                          width: "fit-content",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                          <Switch
-                            size="small"
-                            checked={t.autoSend}
-                            onChange={() => handleToggleAutoSend(t)}
-                            disabled={updating}
-                          />
-                          <Text type="secondary" style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            Auto send on day
-                          </Text>
+                        <ClockCircleOutlined style={{ color: token.colorTextSecondary, fontSize: 12 }} />
+                        <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>
+                          Sends at {t.sendTime || "09:00"}
+                        </Text>
+                      </div>
+                      {messagePreview ? (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: token.colorTextSecondary,
+                            lineHeight: 1.45,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            flex: 1,
+                            minHeight: 0,
+                          }}
+                        >
+                          {messagePreview}
+                          {(t.messageBody || "").trim().length > 60 ? "…" : ""}
                         </div>
-                        <Space size={4}>
-                          <Tooltip title="Edit template">
+                      ) : (
+                        <div style={{ flex: 1, minHeight: 20 }} />
+                      )}
+                    </div>
+                    {/* Footer: toggle + actions */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        padding: "12px 20px 16px",
+                        borderTop: `1px solid ${token.colorBorderSecondary}`,
+                        background: token.colorFillQuaternary,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <Switch
+                          size="small"
+                          checked={t.autoSend}
+                          onChange={() => handleToggleAutoSend(t)}
+                          disabled={updating}
+                        />
+                        <Text type="secondary" style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          Auto send on day
+                        </Text>
+                      </div>
+                      <Space size={4}>
+                        <Tooltip title="Edit template">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => {
+                              setEditingId(t._id);
+                              setModalOpen(true);
+                            }}
+                            className="celebration-template-card-action-icon"
+                            style={{ color: token.colorTextSecondary }}
+                          />
+                        </Tooltip>
+                        <Popconfirm
+                          title="Delete template"
+                          description={
+                            <>
+                              Are you sure you want to delete &quot;{t.name}&quot;? This cannot be undone.
+                            </>
+                          }
+                          okText="Delete"
+                          cancelText="Cancel"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => handleConfirmDeleteTemplate(t._id)}
+                        >
+                          <Tooltip title="Delete template (click to confirm)">
                             <Button
                               type="text"
                               size="small"
-                              icon={<EditOutlined />}
-                              onClick={() => {
-                                setEditingId(t._id);
-                                setModalOpen(true);
-                              }}
-                              className="celebration-template-card-action-icon"
+                              danger
+                              icon={<DeleteOutlined />}
+                              loading={deleting}
+                              className="celebration-template-card-action-icon celebration-template-card-action-icon-delete"
                               style={{ color: token.colorTextSecondary }}
                             />
                           </Tooltip>
-                          <Popconfirm
-                            title="Delete template"
-                            description={
-                              <>
-                                Are you sure you want to delete &quot;{t.name}&quot;? This cannot be undone.
-                              </>
-                            }
-                            okText="Delete"
-                            cancelText="Cancel"
-                            okButtonProps={{ danger: true }}
-                            onConfirm={() => handleConfirmDeleteTemplate(t._id)}
-                          >
-                            <Tooltip title="Delete template (click to confirm)">
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                loading={deleting}
-                                className="celebration-template-card-action-icon celebration-template-card-action-icon-delete"
-                                style={{ color: token.colorTextSecondary }}
-                              />
-                            </Tooltip>
-                          </Popconfirm>
-                        </Space>
-                      </div>
-                    </Card>
-                  </Col>
-                );
-              })}
-            </Row>
-          )}
-        </div>
+                        </Popconfirm>
+                      </Space>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        )}
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <Modal
@@ -881,7 +1006,7 @@ export default function AdminCelebrationPage() {
             </Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
         styles={{
           body: { maxHeight: "72vh", overflow: "auto", paddingTop: token.paddingLG },
           header: { borderBottom: `1px solid ${token.colorBorderSecondary}`, paddingBottom: token.paddingMD },
@@ -1184,6 +1309,11 @@ export default function AdminCelebrationPage() {
           </Row>
         </Form>
       </Modal>
+      <style>{`
+        .celebration-page-tabs.ant-tabs .ant-tabs-ink-bar { background: var(--ant-color-primary); }
+        .celebration-page-tabs.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--ant-color-primary); }
+        .celebration-row-highlight { background: rgba(46, 125, 50, 0.08) !important; }
+      `}</style>
     </MainLayout>
   );
 }

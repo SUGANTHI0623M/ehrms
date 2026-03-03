@@ -26,6 +26,7 @@ const staffSchema = new mongoose.Schema({
     attendanceTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'AttendanceTemplate' },
     leaveTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'LeaveTemplate' },
     holidayTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'HolidayTemplate' },
+    weeklyHolidayTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'WeeklyHolidayTemplate' },
     status: { type: String, default: 'Active' },
     joiningDate: { type: Date, default: Date.now },
     avatar: { type: String },

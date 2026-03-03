@@ -91,27 +91,11 @@ class ThemeProvider with ChangeNotifier {
     await prefs.setString(_themeModeKey, value);
   }
 
-  ThemeData _buildTheme(Brightness brightness) {
-    final isDark = brightness == Brightness.dark;
-    final colorScheme = isDark
-        ? ColorScheme.dark(
-            primary: _primaryColor,
-            onPrimary: Colors.white,
-            primaryContainer: _primaryColor.withOpacity(0.2),
-            onPrimaryContainer: const Color(0xFFE3E3E3),
-            secondary: _primaryColor.withOpacity(0.8),
-            onSecondary: Colors.white,
-            surface: const Color(0xFF1E1E1E),
-            onSurface: const Color(0xFFE3E3E3),
-            onSurfaceVariant: const Color(0xFFB0B0B0),
-            surfaceContainerHighest: const Color(0xFF2D2D2D),
-            error: AppColors.error,
-            onError: Colors.white,
-            errorContainer: AppColors.error.withOpacity(0.2),
-            onErrorContainer: const Color(0xFFE3E3E3),
-            outline: const Color(0xFF5C5C5C),
-          )
-        : ColorScheme.light(
+  ThemeData _buildTheme() {
+    // Always use light ColorScheme for visibility: white backgrounds, dark text.
+    // This ensures all screens (request, profile, attendance, etc.) are readable
+    // even when phone or app is in dark mode.
+    final colorScheme = ColorScheme.light(
             primary: _primaryColor,
             onPrimary: Colors.white,
             primaryContainer: _primaryColor.withOpacity(0.2),
@@ -131,9 +115,9 @@ class ThemeProvider with ChangeNotifier {
 
     return ThemeData(
       useMaterial3: true,
-      brightness: brightness,
+      brightness: Brightness.light,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor: const Color(0xFFF5F7FA),
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.white,
         foregroundColor: colorScheme.onSurface,
@@ -180,7 +164,7 @@ class ThemeProvider with ChangeNotifier {
       dividerTheme: DividerThemeData(color: colorScheme.outline),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: isDark ? const Color(0xFF2D2D2D) : Colors.grey.shade50,
+        fillColor: Colors.grey.shade50,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
         hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
@@ -197,6 +181,6 @@ class ThemeProvider with ChangeNotifier {
     );
   }
 
-  ThemeData getThemeData() => _buildTheme(Brightness.light);
-  ThemeData getDarkThemeData() => _buildTheme(Brightness.dark);
+  ThemeData getThemeData() => _buildTheme();
+  ThemeData getDarkThemeData() => _buildTheme();
 }

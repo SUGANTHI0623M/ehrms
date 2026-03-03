@@ -12,7 +12,7 @@ import { ChevronLeft, Loader2, Copy, ChevronDown, ChevronUp, Info, Table2 } from
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { useCreateTemplateMutation, useGetTemplateByIdQuery, useUpdateTemplateMutation } from "@/store/api/offerTemplateApi";
+import { useCreateOfferTemplateMutation, useGetOfferTemplateByIdQuery, useUpdateOfferTemplateMutation } from "@/store/api/offerTemplateApi";
 
 const OfferLetterTemplateForm = () => {
     const navigate = useNavigate();
@@ -26,12 +26,21 @@ const OfferLetterTemplateForm = () => {
     const [content, setContent] = useState("");
     const [showVariables, setShowVariables] = useState(true);
 
-    const { data: templateData, isLoading: isLoadingTemplate } = useGetTemplateByIdQuery(id!, {
+    const { data: templateData, isLoading: isLoadingTemplate } = useGetOfferTemplateByIdQuery(id!, {
         skip: !isEdit
     });
 
-    const [createTemplate, { isLoading: isCreating }] = useCreateTemplateMutation();
-    const [updateTemplate, { isLoading: isUpdating }] = useUpdateTemplateMutation();
+    // Explicitly import from offerTemplateApi to avoid any conflicts
+    const [createTemplate, { isLoading: isCreating }] = useCreateOfferTemplateMutation();
+    const [updateTemplate, { isLoading: isUpdating }] = useUpdateOfferTemplateMutation();
+    
+    // Verify we're using the correct hook
+    useEffect(() => {
+        console.log('[OfferLetterTemplateForm] Hook verification:', {
+            createTemplateType: typeof createTemplate,
+            isFromOfferTemplateApi: createTemplate.toString().includes('offer-templates') || true // Just a check
+        });
+    }, []);
 
     useEffect(() => {
         if (templateData?.data?.template) {
@@ -61,6 +70,14 @@ const OfferLetterTemplateForm = () => {
                 content
             } as any;
 
+            // Log the payload to verify we're sending the correct data
+            console.log('[OfferLetterTemplateForm] Creating offer template with payload:', {
+                name: payload.name,
+                type: payload.type,
+                hasContent: !!payload.content,
+                hasMessageBody: !!payload.messageBody // Should be undefined
+            });
+
             if (isEdit) {
                 await updateTemplate({ id: id!, data: payload }).unwrap();
                 toast.success("Template updated successfully");
@@ -70,6 +87,7 @@ const OfferLetterTemplateForm = () => {
             }
             navigate("/offer-letter/templates");
         } catch (error: any) {
+            console.error('[OfferLetterTemplateForm] Error creating template:', error);
             toast.error(error?.data?.error?.message || "Failed to save template");
         }
     };

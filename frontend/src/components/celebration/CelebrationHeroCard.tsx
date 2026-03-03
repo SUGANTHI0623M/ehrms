@@ -1,12 +1,8 @@
-import { useState } from "react";
-import { Card, Typography, Button } from "antd";
+import { Card, Typography } from "antd";
 import { theme } from "antd";
-import { CloseOutlined } from "@ant-design/icons";
 
 const { useToken } = theme;
 const { Title, Paragraph, Text } = Typography;
-
-const STORAGE_KEY = "celebration-hero-dismissed";
 
 export interface CelebrationHeroCardProps {
   type: "birthday" | "work_anniversary";
@@ -23,25 +19,6 @@ export default function CelebrationHeroCard({
   companyName,
 }: CelebrationHeroCardProps) {
   const { token } = useToken();
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      const key = `${STORAGE_KEY}-${new Date().toISOString().slice(0, 10)}`;
-      return sessionStorage.getItem(key) === "1";
-    } catch {
-      return false;
-    }
-  });
-
-  const handleDismiss = () => {
-    try {
-      const key = `${STORAGE_KEY}-${new Date().toISOString().slice(0, 10)}`;
-      sessionStorage.setItem(key, "1");
-    } catch {}
-    setDismissed(true);
-  };
-
-  if (dismissed) return null;
-
   const isBirthday = type === "birthday";
 
   return (
@@ -59,27 +36,14 @@ export default function CelebrationHeroCard({
           backgroundSize: "200% 200%",
         }}
         styles={{
-          body: { padding: "24px 48px 24px 24px", position: "relative" },
+          body: { padding: "24px 24px", position: "relative" },
         }}
       >
-        <Button
-          type="text"
-          icon={<CloseOutlined />}
-          onClick={handleDismiss}
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            color: token.colorTextSecondary,
-          }}
-          aria-label="Dismiss"
-        />
-        <div className="celebration-hero-emoji celebration-hero-emoji-1">🎂</div>
-        <div className="celebration-hero-emoji celebration-hero-emoji-2">🎉</div>
-        <div className="celebration-hero-emoji celebration-hero-emoji-3">🌟</div>
+        <div className="celebration-hero-emoji celebration-hero-emoji-popper" aria-hidden>🎉</div>
 
         <Title level={2} style={{ marginBottom: 8, color: token.colorTextHeading }}>
           {greeting}
+          {isBirthday ? " 🎂" : " 🏆"}
         </Title>
         <Paragraph
           style={{
@@ -93,7 +57,7 @@ export default function CelebrationHeroCard({
           {messageBody}
         </Paragraph>
         <Text type="secondary" style={{ fontSize: 13 }}>
-          From: {companyName}
+          From: {companyName} 🌟
         </Text>
       </Card>
 
@@ -105,19 +69,14 @@ export default function CelebrationHeroCard({
           0%, 100% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
         }
-        .celebration-hero-emoji {
+        .celebration-hero-emoji-popper {
           position: absolute;
-          font-size: 24px;
-          opacity: 0.6;
+          bottom: 16px;
+          right: 16px;
+          font-size: 28px;
+          opacity: 1;
           pointer-events: none;
-          animation: celebration-float 4s ease-in-out infinite;
-        }
-        .celebration-hero-emoji-1 { top: 20%; left: 8%; animation-delay: 0s; }
-        .celebration-hero-emoji-2 { top: 60%; right: 12%; animation-delay: 1.3s; }
-        .celebration-hero-emoji-3 { bottom: 25%; left: 15%; animation-delay: 2.6s; }
-        @keyframes celebration-float {
-          0%, 100% { transform: translateY(0) scale(1); opacity: 0.6; }
-          50% { transform: translateY(-8px) scale(1.05); opacity: 0.8; }
+          line-height: 1;
         }
       `}</style>
     </div>

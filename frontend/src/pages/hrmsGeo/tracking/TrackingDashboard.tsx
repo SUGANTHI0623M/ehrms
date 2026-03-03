@@ -193,7 +193,7 @@ const TrackingDashboard = () => {
   // Get status badge
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, { bg: string; text: string }> = {
-      Active: { bg: "bg-green-100", text: "text-green-800" },
+      Active: { bg: "bg-[#fef3c7]", text: "text-[#b45309]" },
       Inactive: { bg: "bg-yellow-100", text: "text-yellow-800" },
       Offline: { bg: "bg-gray-100", text: "text-gray-800" },
       "No Activity": { bg: "bg-gray-100", text: "text-gray-800" },
@@ -376,8 +376,8 @@ const TrackingDashboard = () => {
                                 {formatDistance(summary.totalDistance)}
                               </p>
                             </div>
-                            <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                              <Map className="w-6 h-6 text-green-600" />
+                            <div className="w-12 h-12 rounded-lg bg-[#fef3c7] flex items-center justify-center">
+                              <Map className="w-6 h-6 text-[#efaa1f]" />
                             </div>
                           </div>
                         </CardContent>

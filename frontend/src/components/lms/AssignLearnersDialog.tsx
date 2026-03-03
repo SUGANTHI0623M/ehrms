@@ -16,6 +16,8 @@ export interface AssignLearnersDialogProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /** Optional: employee IDs to exclude from the "By individual employees" dropdown (e.g. already assigned to this course). */
+  excludeEmployeeIds?: string[];
   /** Optional custom assign handler (e.g. for live session / assessment). When provided, used instead of built-in course assign. */
   onAssign?: (payload: {
     assignedTo: "Department" | "Individual";
@@ -38,28 +40,92 @@ export const AssignLearnersDialog: React.FC<AssignLearnersDialogProps> = ({
   open,
   onClose,
   onSuccess,
+  excludeEmployeeIds = [],
   onAssign,
 }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [employees, setEmployees] = useState<any[]>([]);
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
+  const [staffApiNotFound, setStaffApiNotFound] = useState(false);
 
   const { departments: departmentOptions, isLoading: departmentsLoading } = useAllDepartmentsForDropdown(open);
+
+  /** Exclude already-assigned so user can only select learners not yet assigned (for course, liveSession, assessment). */
+  const assignableEmployees = React.useMemo(() => {
+    if (!excludeEmployeeIds?.length) return employees;
+    const excludeSet = new Set(
+      excludeEmployeeIds
+        .map((id) => (id != null && typeof id === 'object' ? String((id as any)._id ?? (id as any).id ?? id) : String(id)))
+        .filter((s) => /^[a-fA-F0-9]{24}$/.test(s))
+    );
+    return employees.filter((e) => {
+      const id = e?._id != null ? String(e._id) : '';
+      return !id || !excludeSet.has(id);
+    });
+  }, [employees, excludeEmployeeIds]);
+
+  const excludeSet = React.useMemo(() => {
+    if (!excludeEmployeeIds?.length) return new Set<string>();
+    return new Set(
+      excludeEmployeeIds
+        .map((id) => (id != null && typeof id === 'object' ? String((id as any)._id ?? (id as any).id ?? id) : String(id)))
+        .filter((s) => /^[a-fA-F0-9]{24}$/.test(s))
+    );
+  }, [excludeEmployeeIds]);
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
     setEmployees([]);
+    setStaffApiNotFound(false);
     setFetchingEmployees(true);
+    const courseIdForStaff = type === "course" && resourceId && String(resourceId).trim() ? String(resourceId).trim() : undefined;
+
+    const finish = () => setFetchingEmployees(false);
+
     lmsService
-      .getEmployees()
+      .getStaffForLmsAssign(courseIdForStaff)
       .then((empRes) => {
-        setEmployees(empRes?.data?.staff ?? []);
+        const notFound = (empRes as any)?.notFound === true;
+        setStaffApiNotFound(notFound);
+        const list = empRes?.data?.staff;
+        if (Array.isArray(list) && list.length > 0) {
+          setEmployees(list);
+          finish();
+          return;
+        }
+        if (notFound && type === "course") {
+          return lmsService.getEmployees().then((fallback) => {
+            const fallbackList = fallback?.data?.staff;
+            setEmployees(Array.isArray(fallbackList) ? fallbackList : []);
+            setStaffApiNotFound(false);
+          }).finally(finish);
+        }
+        setEmployees(Array.isArray(list) ? list : []);
+        finish();
       })
-      .catch(() => message.error("Failed to load employees"))
-      .finally(() => setFetchingEmployees(false));
-  }, [open, form]);
+      .catch((err: any) => {
+        const is404 = err?.response?.status === 404;
+        setStaffApiNotFound(is404);
+        if (is404 && type === "course") {
+          lmsService
+            .getEmployees()
+            .then((fallback) => {
+              const fallbackList = fallback?.data?.staff;
+              setEmployees(Array.isArray(fallbackList) ? fallbackList : []);
+              setStaffApiNotFound(false);
+            })
+            .catch(() => {
+              message.warning("Assign-by-employee list is not available. Deploy the latest backend (GET /api/lms/staff-for-assign) or use \"By Department\" to assign.");
+            })
+            .finally(finish);
+        } else {
+          if (!is404) message.error("Failed to load employees");
+          finish();
+        }
+      });
+  }, [open, form, type, resourceId]);
 
   const handleSubmit = async () => {
     try {
@@ -92,13 +158,21 @@ export const AssignLearnersDialog: React.FC<AssignLearnersDialogProps> = ({
           dueDate: values.dueDate?.toISOString?.() ?? undefined,
         });
       } else if (type === "course") {
-        await lmsService.assignCourse(resourceId, {
+        const res = await lmsService.assignCourse(resourceId, {
           assignedTo: isByDept ? "Department" : "Individual",
           targetIds,
           ...(isByDept && departmentNames.length > 0 ? { departmentNames } : {}),
           mandatory: false,
           dueDate: undefined,
         });
+        if (res?.data?.alreadyAssigned) {
+          message.info(res.message || "All selected learners are already assigned to this course.");
+        } else {
+          message.success(`${LABELS[type]} completed successfully`);
+        }
+        onClose();
+        onSuccess?.();
+        return;
       } else {
         message.info(
           `Assignment for ${type} can be configured in the ${type} settings.`
@@ -130,7 +204,7 @@ export const AssignLearnersDialog: React.FC<AssignLearnersDialogProps> = ({
       onCancel={onClose}
       footer={null}
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}
@@ -189,6 +263,19 @@ export const AssignLearnersDialog: React.FC<AssignLearnersDialogProps> = ({
               );
             }
             if (assignmentType === "To Individuals") {
+              const isEmpty = assignableEmployees.length === 0;
+              const isAllExcluded = type !== "course" && employees.length > 0 && assignableEmployees.length === 0;
+              const placeholder = fetchingEmployees
+                ? "Loading employees..."
+                : staffApiNotFound
+                  ? "Backend update required: staff list endpoint not found. Use \"By Department\" or deploy latest API."
+                  : isAllExcluded
+                    ? "No employees left to assign (all are already assigned)"
+                    : isEmpty && type === "course"
+                      ? "No employees found for this course's organization. Add staff in Staff module or check course organization."
+                      : isEmpty
+                        ? "No assignable employees"
+                        : "Search by name or email...";
               return (
                 <Form.Item
                   name="employees"
@@ -203,15 +290,24 @@ export const AssignLearnersDialog: React.FC<AssignLearnersDialogProps> = ({
                   <Select
                     mode="multiple"
                     size="large"
-                    placeholder="Search employees..."
+                    placeholder={placeholder}
                     loading={fetchingEmployees}
-                    optionFilterProp="children"
+                    optionFilterProp="label"
+                    disabled={assignableEmployees.length === 0}
                   >
-                    {employees.map((e) => (
-                      <Option key={e._id} value={e._id}>
-                        {e.name}
-                      </Option>
-                    ))}
+                    {assignableEmployees.map((e) => {
+                      const id = e?._id != null ? String(e._id) : '';
+                      const displayName = (e.name || e.email || e.employeeId || "Unknown").trim();
+                      const alreadyAssigned = type === "course" && id && excludeSet.has(id);
+                      const label = alreadyAssigned
+                        ? `${displayName} • ${e.email || ""} (already assigned)`.trim()
+                        : [displayName, e.email].filter(Boolean).join(" • ");
+                      return (
+                        <Option key={id || displayName} value={id} label={label}>
+                          {label}
+                        </Option>
+                      );
+                    })}
                   </Select>
                 </Form.Item>
               );

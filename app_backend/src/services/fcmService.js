@@ -55,7 +55,7 @@ async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
     if (Array.isArray(token)) return { success: false, error: 'Must send to one token only, not multiple' };
     const tokenPreview = token.length > 24 ? token.substring(0, 12) + '...' + token.slice(-8) : token;
     const androidTag = options && options.androidTag ? String(options.androidTag) : null;
-    console.log('[FCM] sendToToken: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
+    console.log('[FCM] RECEIVED send request: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
     try {
         const payload = {
             token,
@@ -73,9 +73,15 @@ async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
         return { success: true };
     } catch (e) {
         const code = e.code || e.errorInfo?.code;
+        const invalidToken = code === 'messaging/registration-token-not-registered' ||
+            code === 'messaging/invalid-registration-token' ||
+            (e.message && String(e.message).includes('not found'));
         console.error('[FCM] sendToToken failed: code=', code, 'message=', e.message, 'tokenPreview=', tokenPreview);
         if (e.errorInfo) console.error('[FCM] errorInfo:', JSON.stringify(e.errorInfo));
-        return { success: false, error: e.message };
+        if (invalidToken) {
+            console.log('[FCM] sendToToken: token invalid/unregistered – caller should clear stored token');
+        }
+        return { success: false, error: e.message, invalidToken: !!invalidToken };
     }
 }
 
@@ -200,7 +206,12 @@ async function _sendToEmployee(employeeId, title, body, data = {}, options = {})
         console.log('[FCM] _sendToEmployee: no fcmToken for staffId=', staff._id, 'title=', title, '(app did not register token yet?)');
         return { success: false, error: 'No FCM token for employee' };
     }
-    return sendToToken(staff.fcmToken.trim(), { title, body, data, ...options });
+    const result = await sendToToken(staff.fcmToken.trim(), { title, body, data, ...options });
+    if (!result.success && result.invalidToken) {
+        await Staff.findByIdAndUpdate(employeeId, { $unset: { fcmToken: 1 } });
+        console.log('[FCM] _sendToEmployee: cleared invalid fcmToken for staffId=', employeeId);
+    }
+    return result;
 }
 
 async function sendExpenseApprovedNotification(expenseDoc, staff = null) {

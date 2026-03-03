@@ -45,7 +45,7 @@ import {
   useGenerateOfferLetterPreviewQuery,
 } from "@/store/api/offerApi";
 
-import { useGetTemplatesQuery } from "@/store/api/offerTemplateApi";
+import { useGetOfferTemplatesQuery } from "@/store/api/offerTemplateApi";
 import { CANDIDATE_STATUS } from "@/utils/constants";
 import { toast } from "sonner";
 import { generateOfferLetterPDF } from "@/utils/pdfGenerator";
@@ -84,6 +84,7 @@ const OfferLetterForm = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pendingOfferId, setPendingOfferId] = useState<string | null>(null);
+  const [basicSalaryError, setBasicSalaryError] = useState<string | null>(null);
   
   // Salary Structure State (Mandatory)
   const [salaryStructure, setSalaryStructure] = useState<SalaryStructureInputs>({
@@ -147,7 +148,7 @@ const OfferLetterForm = () => {
   const [updateOffer] = useUpdateOfferMutation();
   const [uploadDocuments] = useUploadOfferDocumentsMutation();
 
-  const { data: templatesData } = useGetTemplatesQuery();
+  const { data: templatesData } = useGetOfferTemplatesQuery();
   const templates = templatesData?.data?.templates || [];
   const offerLetterTemplates = templates.filter(t => t.status === 'Active');
 
@@ -240,26 +241,52 @@ const OfferLetterForm = () => {
   const jobOpenings = jobOpeningsData?.data?.jobOpenings || [];
 
   const onSubmit = async (data: OfferFormData) => {
-    // Validate dates (required)
-    if (!data.joiningDate) {
-      toast.error("Expected Joining Date is required", { duration: 3000 });
-      return;
-    }
+    // Clear previous errors
+    setBasicSalaryError(null);
 
-    if (!data.expiryDate) {
-      toast.error("Expiry Date is required", { duration: 3000 });
-      return;
-    }
-
-    // Validate role (required)
+    // Check all required fields at once
+    const missingFields: string[] = [];
+    
+    if (!data.candidateId) missingFields.push("Candidate");
+    if (!data.postingTitle) missingFields.push("Posting Title");
+    if (!data.joiningDate) missingFields.push("Expected Joining Date");
+    if (!data.expiryDate) missingFields.push("Expiry Date");
     if (!data.role || (data.role !== 'Intern' && data.role !== 'Employee')) {
-      toast.error("Role is required. Please select either 'Intern' or 'Employee'.", { duration: 3000 });
-      return;
+      missingFields.push("Role");
+      // Trigger validation to show inline error
+      setValue("role", undefined as any, { shouldValidate: true });
+    }
+    if (!salaryStructure.basicSalary || salaryStructure.basicSalary <= 0) {
+      missingFields.push("Basic Salary");
+      setBasicSalaryError("Basic Salary is required. Please enter a valid basic salary amount.");
     }
 
-    // Validate salary structure (mandatory)
-    if (!salaryStructure.basicSalary || salaryStructure.basicSalary <= 0) {
-      toast.error("Basic Salary is required. Please enter a valid basic salary amount.", { duration: 3000 });
+    // If any required fields are missing, show consolidated error and return early
+    // This prevents the handleSubmit error callback from also showing errors
+    if (missingFields.length > 0) {
+      let errorMessage = "";
+      if (missingFields.length > 1) {
+        errorMessage = "Please fill all required fields";
+      } else {
+        // If only one field is missing, show specific error
+        const fieldName = missingFields[0];
+        if (fieldName === "Basic Salary") {
+          errorMessage = "Basic Salary is required. Please enter a valid basic salary amount.";
+        } else if (fieldName === "Role") {
+          errorMessage = "Role is required. Please select either 'Intern' or 'Employee'.";
+        } else if (fieldName === "Expected Joining Date") {
+          errorMessage = "Expected Joining Date is required";
+        } else if (fieldName === "Expiry Date") {
+          errorMessage = "Expiry Date is required";
+        } else {
+          errorMessage = `${fieldName} is required`;
+        }
+      }
+      
+      // Only show toast if we have a valid message
+      if (errorMessage && errorMessage.trim() !== "") {
+        toast.error(errorMessage, { duration: 3000 });
+      }
       return;
     }
 
@@ -327,7 +354,12 @@ const OfferLetterForm = () => {
           
           setSelectedFiles([]);
         } catch (error: any) {
-          toast.error(error?.data?.error?.message || "Failed to upload documents", { duration: 3000 });
+          const uploadErrorMessage = error?.data?.error?.message || error?.message || "Failed to upload documents";
+          if (uploadErrorMessage && uploadErrorMessage.trim() !== "") {
+            toast.error(uploadErrorMessage, { duration: 3000 });
+          } else {
+            toast.error("Failed to upload documents", { duration: 3000 });
+          }
         } finally {
           setUploadingFiles(false);
         }
@@ -337,7 +369,12 @@ const OfferLetterForm = () => {
       setPendingOfferId(offerId);
       setShowPreviewModal(true);
     } catch (error: any) {
-      toast.error(error?.data?.error?.message || "Failed to save offer", { duration: 3000 });
+      const errorMessage = error?.data?.error?.message || error?.message || "Failed to save offer";
+      if (errorMessage && errorMessage.trim() !== "") {
+        toast.error(errorMessage, { duration: 3000 });
+      } else {
+        toast.error("Failed to save offer", { duration: 3000 });
+      }
     }
   };
 
@@ -438,9 +475,23 @@ const OfferLetterForm = () => {
       <main className="p-4">
         <form
           onSubmit={handleSubmit(onSubmit, (errors) => {
+            // This callback only handles react-hook-form validation errors
+            // onSubmit already handles custom validation (basic salary, etc.), so we only need to handle form field errors here
+            // Skip if no errors
+            if (!errors || Object.keys(errors).length === 0) {
+              return;
+            }
+            
+            // Get the first error message
             const firstError = errors.candidateId ?? errors.postingTitle ?? errors.joiningDate ?? errors.expiryDate ?? errors.role;
-            const message = firstError?.message ?? "Please fill in all required fields before saving.";
-            toast.error(message, { duration: 4000 });
+            
+            // Only show toast if we have a valid error message
+            if (firstError?.message && firstError.message.trim() !== "") {
+              toast.error(firstError.message, { duration: 3000 });
+            } else {
+              // Fallback to generic message if error message is empty
+              toast.error("Please fill all required fields", { duration: 3000 });
+            }
           })}
         >
           <div className="mx-auto space-y-6 max-w-4xl">
@@ -550,7 +601,8 @@ const OfferLetterForm = () => {
                           variant="outline"
                           className={cn(
                             "w-full justify-start text-left font-normal",
-                            !watch("joiningDate") && "text-muted-foreground"
+                            !watch("joiningDate") && "text-muted-foreground",
+                            errors.joiningDate && "border-red-500"
                           )}
                         >
                           <CalendarIcon className="mr-2 h-4 w-4" />
@@ -565,7 +617,11 @@ const OfferLetterForm = () => {
                         <Calendar
                           mode="single"
                           selected={watch("joiningDate")}
-                          onSelect={(date) => date && setValue("joiningDate", date)}
+                          onSelect={(date) => {
+                            if (date) {
+                              setValue("joiningDate", date, { shouldValidate: true });
+                            }
+                          }}
                           disabled={(date) => isBefore(date, todayStart())}
                           initialFocus
                         />
@@ -585,7 +641,8 @@ const OfferLetterForm = () => {
                           variant="outline"
                           className={cn(
                             "w-full justify-start text-left font-normal",
-                            !watch("expiryDate") && "text-muted-foreground"
+                            !watch("expiryDate") && "text-muted-foreground",
+                            errors.expiryDate && "border-red-500"
                           )}
                         >
                           <CalendarIcon className="mr-2 h-4 w-4" />
@@ -600,7 +657,11 @@ const OfferLetterForm = () => {
                         <Calendar
                           mode="single"
                           selected={watch("expiryDate")}
-                          onSelect={(date) => date && setValue("expiryDate", date)}
+                          onSelect={(date) => {
+                            if (date) {
+                              setValue("expiryDate", date, { shouldValidate: true });
+                            }
+                          }}
                           disabled={(date) => isBefore(date, todayStart())}
                           initialFocus
                         />
@@ -616,9 +677,15 @@ const OfferLetterForm = () => {
                     </Label>
                     <Select
                       value={watch("role") || ""}
-                      onValueChange={(value) => setValue("role", value as "Intern" | "Employee", { shouldValidate: true })}
+                      onValueChange={(value) => {
+                        setValue("role", value as "Intern" | "Employee", { shouldValidate: true });
+                        // Clear error when value is selected
+                        if (errors.role) {
+                          setValue("role", value as "Intern" | "Employee");
+                        }
+                      }}
                     >
-                      <SelectTrigger id="role">
+                      <SelectTrigger id="role" className={errors.role ? "border-red-500" : ""}>
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
@@ -626,6 +693,9 @@ const OfferLetterForm = () => {
                         <SelectItem value="Employee">Employee</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.role && (
+                      <p className="text-sm text-red-500">{errors.role.message}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -835,6 +905,10 @@ const OfferLetterForm = () => {
                         value={salaryStructure.basicSalary !== undefined && salaryStructure.basicSalary !== null ? salaryStructure.basicSalary : ''}
                         onChange={(e) => {
                           const inputValue = e.target.value;
+                          // Clear error when user starts typing
+                          if (basicSalaryError) {
+                            setBasicSalaryError(null);
+                          }
                           // Allow empty string for clearing
                           if (inputValue === '') {
                             setSalaryStructure(prev => ({
@@ -863,7 +937,11 @@ const OfferLetterForm = () => {
                         }}
                         placeholder="e.g., 50000"
                         required
+                        className={basicSalaryError ? "border-red-500" : ""}
                       />
+                      {basicSalaryError && (
+                        <p className="text-sm text-red-500">{basicSalaryError}</p>
+                      )}
                     </div>
 
                     <div className="space-y-2">

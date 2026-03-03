@@ -14,7 +14,7 @@ export const getFileUrl = (path: string | undefined | null) => {
 
     if (isLocal) {
         // Assume backend is on port 8000 for local dev
-        return `http://localhost:9000${finalPath}`;
+        return `http://localhost:7001${finalPath}`;
     }
 
     // For production, use VITE_API_URL

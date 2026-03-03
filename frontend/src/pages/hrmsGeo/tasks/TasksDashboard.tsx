@@ -298,7 +298,7 @@ const TasksDashboard = () => {
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-2 h-8 bg-green-500 rounded"></div>
+                    <div className="w-2 h-8 bg-[#efaa1f] rounded"></div>
                     <div>
                       <p className="text-sm text-muted-foreground">
                         Completed Tasks
@@ -486,7 +486,7 @@ const TasksDashboard = () => {
                             >
                               {(item.completedTasks || 0) > 0 && (
                                 <div
-                                  className="w-full bg-green-500 rounded-t transition-all hover:bg-green-600 cursor-pointer"
+                                  className="w-full bg-[#efaa1f] rounded-t transition-all hover:bg-[#d97706] cursor-pointer"
                                   style={{
                                     height: `${((item.completedTasks || 0) / maxCount) * 200}px`,
                                     minHeight: "4px",
@@ -587,7 +587,7 @@ const TasksDashboard = () => {
                     </div>
                     <div className="flex items-center justify-center gap-4 text-xs flex-wrap">
                       <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 bg-green-500 rounded"></div>
+                        <div className="w-3 h-3 bg-[#efaa1f] rounded"></div>
                         <span>Completed</span>
                       </div>
                       <div className="flex items-center gap-1">
