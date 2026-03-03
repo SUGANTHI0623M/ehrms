@@ -4643,9 +4643,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             width: 56,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
             decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest,
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: colorScheme.outline),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4655,7 +4655,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: colorScheme.onSurface,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -4663,7 +4663,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   dayAbbrev,
                   style: TextStyle(
                     fontSize: 11,
-                    color: colorScheme.onSurface,
+                    color: Colors.white,
                   ),
                 ),
               ],

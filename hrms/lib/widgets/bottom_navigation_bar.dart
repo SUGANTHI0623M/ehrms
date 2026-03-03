@@ -125,8 +125,6 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
   @override
   Widget build(BuildContext context) {
     final items = widget.items ?? _buildItems();
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = colorScheme.brightness == Brightness.dark;
 
     // Nav bar background: black
     final barBg = Colors.black;
