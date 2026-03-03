@@ -5,20 +5,21 @@ const fcmService = require('../services/fcmService');
  * POST /api/notifications/send-push (internal: called by web backend to send FCM to mobile app)
  * Body: { fcmToken?: string, staffId?: string, title: string, body: string, data?: object }
  * If fcmToken provided, send to that token. If staffId provided (and no fcmToken), look up Staff.fcmToken and send.
+ * On invalid token, clears that token from Staff so the app can re-register on next open.
  */
 const sendPush = async (req, res) => {
     try {
-        // Log as soon as request is received (for debugging "notification not receiving")
         const body = req.body || {};
         const title = body.title;
         const staffId = body.staffId;
         const hasFcmToken = !!(body.fcmToken && String(body.fcmToken).trim());
         console.log('[NOTIFICATION] RECEIVED send-push request: title=', title, 'staffId=', staffId || 'n/a', 'hasFcmToken=', hasFcmToken, 'dataKeys=', body.data ? Object.keys(body.data) : []);
 
-        let fcmToken = req.body?.fcmToken;
-        const data = req.body?.data || {};
-        const bodyText = req.body?.body;
+        let fcmToken = body.fcmToken;
+        const data = body.data || {};
+        const bodyText = body.body;
         console.log('[notificationController] send-push received: title=', title, 'body=', (bodyText || '').substring(0, 60), 'data.type=', data?.type, 'staffId=', staffId || 'n/a', 'hasFcmToken=', !!fcmToken);
+
         if (!title || typeof title !== 'string') {
             console.log('[notificationController] send-push rejected: title required');
             return res.status(400).json({
@@ -35,6 +36,7 @@ const sendPush = async (req, res) => {
             console.log('[NOTIFICATION] send-push skip: no FCM token (staff may not have app open or token not registered)');
             return res.json({ success: true, message: 'No FCM token, skip' });
         }
+
         const tokenPreview = fcmToken.length > 20 ? fcmToken.substring(0, 10) + '...' + fcmToken.slice(-8) : fcmToken;
         console.log('[NOTIFICATION] send-push calling FCM: token=', tokenPreview, 'title=', title);
         const result = await fcmService.sendToToken(fcmToken.trim(), {
@@ -44,6 +46,20 @@ const sendPush = async (req, res) => {
         });
         if (!result.success) {
             console.error('[NOTIFICATION] send-push FCM failed:', result.error);
+            if (result.invalidToken) {
+                if (staffId) {
+                    await Staff.findByIdAndUpdate(staffId, { $unset: { fcmToken: 1 } });
+                    console.log('[NOTIFICATION] send-push: cleared invalid fcmToken for staffId=', staffId);
+                } else {
+                    const r = await Staff.updateMany(
+                        { fcmToken: fcmToken.trim() },
+                        { $unset: { fcmToken: 1 } }
+                    );
+                    if (r.modifiedCount > 0) {
+                        console.log('[NOTIFICATION] send-push: cleared invalid fcmToken from', r.modifiedCount, 'Staff doc(s)');
+                    }
+                }
+            }
             return res.status(500).json({ success: false, error: { message: result.error || 'FCM send failed' } });
         }
         console.log('[NOTIFICATION] send-push success: FCM accepted message, title=', title);

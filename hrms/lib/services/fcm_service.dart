@@ -201,12 +201,13 @@ class FcmService {
   /// Sends the current FCM token to the backend so it can target this device for push.
   /// Backend should implement POST /notifications/fcm-token with body { "fcmToken": "..." }.
   /// Uses retry for getToken to handle transient IOException/ExecutionException. Never throws.
-  static Future<void> sendTokenToBackend() async {
+  /// Returns true if the token was sent successfully, false if skipped (no token / not logged in) or failed.
+  static Future<bool> sendTokenToBackend() async {
     try {
       final fcmToken = await _getTokenWithRetry();
       if (fcmToken == null || fcmToken.isEmpty) {
         _logAlways('sendTokenToBackend: no FCM token, skip');
-        return;
+        return false;
       }
       final prefs = await SharedPreferences.getInstance();
       String? authToken = prefs.getString('token');
@@ -218,7 +219,7 @@ class FcmService {
         _logAlways(
           'sendTokenToBackend: user not logged in (no auth token), skip – will retry after login',
         );
-        return;
+        return false;
       }
       _logAlways(
         'sendTokenToBackend: posting fcm-token (len=${fcmToken.length})',
@@ -235,10 +236,23 @@ class FcmService {
       _logAlways(
         'sendTokenToBackend: success status=${response.statusCode} tokenPreview=$preview',
       );
+      return response.statusCode == 200;
     } catch (e, st) {
       _logAlways('sendTokenToBackend: FAILED (getToken or POST) – $e');
       if (kDebugMode) debugPrint('$_logTag sendTokenToBackend stack: $st');
+      return false;
     }
+  }
+
+  /// Call after login to register FCM token. Sends immediately and retries once after
+  /// a short delay so token is reliably registered even if FCM was not ready on first try.
+  static Future<void> sendTokenToBackendAfterLogin() async {
+    final sent = await sendTokenToBackend();
+    if (sent) return;
+    // Token may not be ready yet (e.g. first launch). Retry once after delay.
+    _logAlways('sendTokenToBackendAfterLogin: first attempt skipped/failed, retrying in 2s');
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await sendTokenToBackend();
   }
 
   static Future<void> _onForegroundMessage(RemoteMessage message) async {
