@@ -338,6 +338,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       } catch (_) {}
 
       // Business settings (weekly off, holidays) - same as Salary Overview
+      // When staff has a weekly holiday template assigned, use it; else use business (Company.settings.business)
       Map<String, dynamic>? businessSettings;
       if (staffData['branchId'] != null &&
           staffData['branchId'] is Map &&
@@ -351,7 +352,29 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
       String weeklyOffPattern = 'standard';
       List<int> weeklyHolidays = [];
-      if (businessSettings != null &&
+      final weeklyHolidayTemplate = staffData['weeklyHolidayTemplateId'];
+      final hasTemplate = weeklyHolidayTemplate is Map<String, dynamic> &&
+          (weeklyHolidayTemplate['settings'] != null) &&
+          (weeklyHolidayTemplate['isActive'] != false);
+      if (hasTemplate) {
+        final template = weeklyHolidayTemplate;
+        final s = template['settings'] as Map<String, dynamic>? ?? {};
+        weeklyOffPattern = (s['weeklyOffPattern'] is String)
+            ? s['weeklyOffPattern'] as String
+            : 'standard';
+        if (s['weeklyHolidays'] != null && s['weeklyHolidays'] is List) {
+          weeklyHolidays = (s['weeklyHolidays'] as List)
+              .map((h) {
+                if (h is Map) {
+                  final day = h['day'];
+                  return (day is int) ? day : (day is num ? day.toInt() : -1);
+                }
+                return -1;
+              })
+              .where((day) => day >= 0 && day <= 6)
+              .toList();
+        }
+      } else if (businessSettings != null &&
           businessSettings['settings'] != null &&
           businessSettings['settings']['business'] != null) {
         final business =

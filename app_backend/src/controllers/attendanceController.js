@@ -1,4 +1,5 @@
 const Attendance = require('../models/Attendance');
+const AttendanceLog = require('../models/AttendanceLog');
 const Staff = require('../models/Staff');
 const User = require('../models/User'); // Import if needed
 const AttendanceTemplate = require('../models/AttendanceTemplate'); // Register model
@@ -6,6 +7,7 @@ const WeeklyHolidayTemplate = require('../models/WeeklyHolidayTemplate');
 const Tracking = require('../models/Tracking');
 const { reverseGeocode } = require('../services/geocodingService');
 const { calculateAttendanceStats } = require('./payrollController');
+const { getWeekOffConfigForStaff } = require('../utils/weekOffHelper');
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
@@ -13,6 +15,12 @@ cloudinary.config({
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
+
+/** Build a single address string from address, area, city, pincode. */
+function buildAddressString(address, area, city, pincode) {
+  const parts = [address, area, city, pincode].filter(Boolean);
+  return parts.length ? parts.join(', ') : '';
+}
 
 /** Insert presence tracking into trackings collection (presenceStatus: in_office on check-in, out_of_office on check-out). */
 async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceStatus, address, area, city, pincode) {
@@ -111,48 +119,6 @@ function isShiftAssignedForStaff(company, staff) {
     if (!staffShiftName) return false;
     const match = shifts.some(s => (s.name || '').toString().trim().toLowerCase() === staffShiftName.toLowerCase());
     return match;
-}
-
-/**
- * Get week-off config for a staff from staff's WeeklyHolidayTemplate only.
- * Uses weeklyholidaytemplates collection via staff.weeklyHolidayTemplateId.
- * Does NOT use business/company collection for week-off.
- * @param {Object} staff - Staff doc (must have weeklyHolidayTemplateId populated or as ObjectId)
- * @param {Object} [company] - Unused; kept for API compatibility
- * @returns {Promise<{ weeklyOffPattern: string, weeklyHolidays: Array<{day: number, name?: string}> }>}
- */
-async function getWeekOffConfigForStaff(staff, company) {
-    const defaultConfig = {
-        weeklyOffPattern: 'standard',
-        weeklyHolidays: [{ day: 0, name: 'Sunday' }],
-    };
-
-    const templateId = staff?.weeklyHolidayTemplateId;
-    if (!templateId) return defaultConfig;
-
-    // Use populated template if already loaded
-    let template = staff.weeklyHolidayTemplateId;
-    if (template && typeof template === 'object' && template._id != null) {
-        if (template.isActive === false) return defaultConfig;
-        const s = template.settings || {};
-        return {
-            weeklyOffPattern: s.weeklyOffPattern || defaultConfig.weeklyOffPattern,
-            weeklyHolidays: Array.isArray(s.weeklyHolidays) && s.weeklyHolidays.length > 0
-                ? s.weeklyHolidays
-                : defaultConfig.weeklyHolidays,
-        };
-    }
-
-    // Fetch from WeeklyHolidayTemplate collection
-    const doc = await WeeklyHolidayTemplate.findById(templateId).lean();
-    if (!doc || doc.isActive === false) return defaultConfig;
-    const s = doc.settings || {};
-    return {
-        weeklyOffPattern: s.weeklyOffPattern || defaultConfig.weeklyOffPattern,
-        weeklyHolidays: Array.isArray(s.weeklyHolidays) && s.weeklyHolidays.length > 0
-            ? s.weeklyHolidays
-            : defaultConfig.weeklyHolidays,
-    };
 }
 
 function normalizeTemplate(templateDoc) {
@@ -720,6 +686,17 @@ const checkIn = async (req, res) => {
             existing.workHours = 0;
             console.log('[Fine CHECK-IN] (half-day update) INSERTING: checkInTime=', existing.punchIn?.toISOString?.(), 'checkOutTime=null', 'lateMinutes=', existing.lateMinutes, 'earlyMinutes=', existing.earlyMinutes, 'fineAmount=', existing.fineAmount);
             await existing.save();
+            await AttendanceLog.create({
+                attendanceId: existing._id,
+                action: 'PUNCH_IN',
+                performedBy: staffId,
+                performedByName: staff.name || undefined,
+                performedByEmail: staff.email || undefined,
+                selfieUrl: selfieUrl || undefined,
+                punchInDateTime: now,
+                punchInAddress: buildAddressString(address, area, city, pincode) || undefined,
+                timestamp: now
+            }).catch(err => console.warn('[AttendanceLog] PUNCH_IN create failed:', err?.message));
             await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
             const response = existing.toObject ? existing.toObject() : existing;
             if (warnings.length > 0) response.warnings = warnings;
@@ -793,6 +770,18 @@ const checkIn = async (req, res) => {
             earlyMinutes: fineResult.earlyMinutes,
             fineAmount: fineResult.fineAmount
         });
+
+        await AttendanceLog.create({
+            attendanceId: attendance._id,
+            action: 'PUNCH_IN',
+            performedBy: staffId,
+            performedByName: staff.name || undefined,
+            performedByEmail: staff.email || undefined,
+            selfieUrl: selfieUrl || undefined,
+            punchInDateTime: now,
+            punchInAddress: buildAddressString(address, area, city, pincode) || undefined,
+            timestamp: now
+        }).catch(err => console.warn('[AttendanceLog] PUNCH_IN create failed:', err?.message));
 
         await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
 
@@ -1068,6 +1057,20 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     console.log('[Fine AMOUNT TEST] CHECK-OUT stored: lateMinutes=' + attendance.lateMinutes + ' lateFineAmount=' + lateFineAmount + ', earlyMinutes=' + attendance.earlyMinutes + ' earlyFineAmount=' + earlyFineAmount + ', totalFineAmount=' + totalFineAmount + ' (formula: lateFine + earlyFine)');
 
     await attendance.save();
+
+    await AttendanceLog.create({
+        attendanceId: attendance._id,
+        action: 'PUNCH_OUT',
+        performedBy: staff._id,
+        performedByName: staff.name || undefined,
+        performedByEmail: staff.email || undefined,
+        selfieUrl: attendance.punchOutSelfie || undefined,
+        punchInDateTime: attendance.punchIn || undefined,
+        punchOutDateTime: now,
+        punchInAddress: (attendance.location?.punchIn && buildAddressString(attendance.location.punchIn.address, attendance.location.punchIn.area, attendance.location.punchIn.city, attendance.location.punchIn.pincode)) || undefined,
+        punchOutAddress: buildAddressString(address, area, city, pincode) || undefined,
+        timestamp: now
+    }).catch(err => console.warn('[AttendanceLog] PUNCH_OUT create failed:', err?.message));
 
     console.log('[Attendance CHECK-OUT] saved:', {
         staffId: staff._id?.toString(),
@@ -1910,6 +1913,22 @@ const getMonthAttendance = async (req, res) => {
             alternateWorkDate: { $gte: startOfMonth, $lte: endOfMonth }
         }).select('alternateWorkDate').lean();
         const alternateWorkDatesInMonth = alternateWorkRecords.map(r => formatDateString(r.alternateWorkDate)).filter(Boolean);
+
+        // Attach AttendanceLog entries to each attendance (for day-detail logs)
+        const attendanceIds = attendance.map(a => a._id).filter(Boolean);
+        if (attendanceIds.length > 0) {
+            const logs = await AttendanceLog.find({ attendanceId: { $in: attendanceIds } }).sort({ timestamp: 1 }).lean();
+            const logsByAttendanceId = {};
+            logs.forEach(log => {
+                const id = log.attendanceId?.toString();
+                if (!id) return;
+                if (!logsByAttendanceId[id]) logsByAttendanceId[id] = [];
+                logsByAttendanceId[id].push(log);
+            });
+            attendance.forEach(a => {
+                a.logs = logsByAttendanceId[a._id?.toString()] || [];
+            });
+        }
 
         res.json({
             data: {

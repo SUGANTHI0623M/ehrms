@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
 import '../config/app_colors.dart';
@@ -131,6 +132,7 @@ class FcmService {
 
   static const String _logTag = '[FCM]';
   static const String _kFcmNotificationsKey = 'fcm_notifications';
+  static const String _kFcmNotificationsFileName = 'fcm_notifications.json';
   static const Duration _kFcmNotificationRetention = Duration(hours: 24);
   static const String _kLocalNotificationChannelId = kFcmNotificationChannelId;
   static const Duration _kDedupeWindow = Duration(minutes: 2);
@@ -388,59 +390,99 @@ class FcmService {
       data: data,
     );
 
-    // Show in-app snackbar with primary color background
+    // Show in-app notification at same position as app snackbars (top: padding.top + 12, left/right 16)
     final context = navigatorKey?.currentContext;
     if (context != null && context.mounted) {
       SystemSound.play(SystemSoundType.alert);
-      final media = MediaQuery.of(context);
-      final topOffset = media.padding.top + kToolbarHeight + 250;
-      final snackBarHeight = 56.0;
-      final bottomMargin = media.size.height - topOffset - snackBarHeight;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Image.asset(
-                'assets/images/notification_icon.png',
-                width: 24,
-                height: 24,
-                fit: BoxFit.contain,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  body.isNotEmpty ? body : title,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+      final overlay = Navigator.of(context, rootNavigator: true).overlay;
+      if (overlay != null) {
+        OverlayEntry? entry;
+        void remove() {
+          entry?.remove();
+          entry = null;
+        }
+        entry = OverlayEntry(
+          builder: (ctx) => Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 16,
+            right: 16,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary,
+                      AppColors.primary.withOpacity(0.85),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withOpacity(0.4),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.2),
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.notifications_outlined,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        body.isNotEmpty ? body : title,
+                        textAlign: TextAlign.left,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20, color: Colors.white),
+                      onPressed: () {
+                        remove();
+                      },
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      style: IconButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.close, size: 20, color: Colors.white),
-                onPressed: () => messenger.hideCurrentSnackBar(),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                style: IconButton.styleFrom(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-            ],
+            ),
           ),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          margin: EdgeInsets.only(
-            bottom: bottomMargin.clamp(16.0, media.size.height - 80),
-            left: 12,
-            right: 12,
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+        );
+        overlay.insert(entry!);
+        Future.delayed(const Duration(seconds: 4), () {
+          if (entry != null) remove();
+        });
+      }
     }
   }
 
@@ -486,6 +528,7 @@ class FcmService {
 
   /// Saves one notification (foreground or background) and prunes entries older than 24h.
   /// Skips storing if the same event (same dedupe key) was already stored within the last 2 minutes to avoid duplicates.
+  /// Uses file storage so background isolate writes are visible when app is resumed (no per-isolate cache).
   /// Call from foreground handler, background handler, or when user opens app via notification tap.
   static Future<void> storeNotification({
     required String title,
@@ -494,10 +537,9 @@ class FcmService {
   }) async {
     debugPrint('$_logTag storeNotification: called title="$title" bodyLength=${body.length}');
     try {
-      final prefs = await SharedPreferences.getInstance();
       final now = DateTime.now();
       final cutoff = now.subtract(_kFcmNotificationRetention);
-      final list = _loadRawList(prefs);
+      final list = await _loadRawListFromFile();
       final pruned = list.where((e) {
         final receivedAt = e['receivedAt']?.toString();
         if (receivedAt == null) return false;
@@ -529,7 +571,7 @@ class FcmService {
         'data': data,
         'receivedAt': now.toUtc().toIso8601String(),
       });
-      await prefs.setString(_kFcmNotificationsKey, jsonEncode(pruned));
+      await _saveRawListToFile(pruned);
       debugPrint('$_logTag storeNotification: STORED OK – list size now ${pruned.length}');
     } catch (e, st) {
       debugPrint('$_logTag storeNotification ERROR: $e');
@@ -537,23 +579,61 @@ class FcmService {
     }
   }
 
-  static List<dynamic> _loadRawList(SharedPreferences prefs) {
+  /// File-based storage so background isolate writes are visible when app is resumed (SharedPreferences is cached per-isolate).
+  static Future<String> _getNotificationsFilePath() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return '${dir.path}/$_kFcmNotificationsFileName';
+  }
+
+  static Future<List<dynamic>> _loadRawListFromFile() async {
     try {
-      final raw = prefs.getString(_kFcmNotificationsKey);
-      if (raw == null || raw.isEmpty) return [];
+      final path = await _getNotificationsFilePath();
+      final file = File(path);
+      if (!await file.exists()) return _migrateFromSharedPreferencesIfAny();
+      final raw = await file.readAsString();
+      if (raw.isEmpty) return [];
       final decoded = jsonDecode(raw);
       if (decoded is List) return List<dynamic>.from(decoded);
       return [];
+    } catch (e) {
+      debugPrint('$_logTag _loadRawListFromFile: $e');
+      return [];
+    }
+  }
+
+  /// One-time migration: if file doesn't exist, try reading from SharedPreferences (old storage) and write to file.
+  static Future<List<dynamic>> _migrateFromSharedPreferencesIfAny() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kFcmNotificationsKey);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      final list = List<dynamic>.from(decoded);
+      final path = await _getNotificationsFilePath();
+      await File(path).writeAsString(jsonEncode(list));
+      await prefs.remove(_kFcmNotificationsKey);
+      debugPrint('$_logTag migrated ${list.length} notifications from SharedPreferences to file');
+      return list;
     } catch (_) {
       return [];
     }
   }
 
-  /// Returns notifications received in foreground, kept for 24h from receipt. Prunes old entries.
+  static Future<void> _saveRawListToFile(List<dynamic> list) async {
+    try {
+      final path = await _getNotificationsFilePath();
+      await File(path).writeAsString(jsonEncode(list));
+    } catch (e) {
+      debugPrint('$_logTag _saveRawListToFile: $e');
+    }
+  }
+
+  /// Returns notifications received in foreground/background, kept for 24h from receipt. Prunes old entries.
+  /// Reads from file so we always see latest (including what background isolate wrote when app was in recent apps).
   static Future<List<Map<String, dynamic>>> getStoredNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
     final cutoff = DateTime.now().subtract(_kFcmNotificationRetention);
-    final list = _loadRawList(prefs);
+    final list = await _loadRawListFromFile();
     final pruned = <Map<String, dynamic>>[];
     for (final e in list) {
       if (e is! Map) continue;
@@ -565,7 +645,7 @@ class FcmService {
       pruned.add(map);
     }
     if (pruned.length != list.length) {
-      await prefs.setString(_kFcmNotificationsKey, jsonEncode(pruned));
+      await _saveRawListToFile(pruned);
     }
     debugPrint('$_logTag getStoredNotifications: returning ${pruned.length} item(s)');
     return pruned;

@@ -287,14 +287,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         );
       }
 
-      // Get weekly off pattern and weekly holidays from business settings
-      // Try to get from branchId.businessId first, then fallback to businessId
+      // Get weekly off: staff's WeeklyHolidayTemplate when assigned, else business (Company.settings.business)
       Map<String, dynamic>? businessSettings;
       if (staffData['branchId'] != null &&
           staffData['branchId'] is Map &&
           staffData['branchId']['businessId'] != null) {
-        // If branchId is populated with businessId, we need to fetch business separately
-        // For now, check if business settings are in the response
         if (staffData['branchId']['businessId'] is Map) {
           businessSettings = staffData['branchId']['businessId'];
         }
@@ -303,19 +300,42 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         businessSettings = staffData['businessId'];
       }
 
-      if (businessSettings != null &&
+      final weeklyHolidayTemplate = staffData['weeklyHolidayTemplateId'];
+      final hasTemplate = weeklyHolidayTemplate is Map<String, dynamic> &&
+          (weeklyHolidayTemplate['settings'] != null) &&
+          (weeklyHolidayTemplate['isActive'] != false);
+      if (hasTemplate) {
+        final template = weeklyHolidayTemplate;
+        final s = template['settings'] as Map<String, dynamic>? ?? {};
+        _weeklyOffPattern = (s['weeklyOffPattern'] is String)
+            ? s['weeklyOffPattern'] as String
+            : 'standard';
+        if (s['weeklyHolidays'] != null && s['weeklyHolidays'] is List) {
+          final weeklyHolidaysList = s['weeklyHolidays'] as List;
+          _weeklyHolidays = weeklyHolidaysList
+              .map((h) {
+                if (h is Map) {
+                  final day = h['day'];
+                  return (day is int) ? day : (day is num ? day.toInt() : -1);
+                }
+                return -1;
+              })
+              .where((day) => day >= 0 && day <= 6)
+              .toList();
+        } else {
+          _weeklyHolidays = [];
+        }
+      } else if (businessSettings != null &&
           businessSettings['settings'] != null &&
           businessSettings['settings']['business'] != null) {
         final business =
             businessSettings['settings']['business'] as Map<String, dynamic>;
-        // Get weeklyOffPattern - check if it exists, default to 'standard'
         final weeklyOffPatternValue = business['weeklyOffPattern'];
         _weeklyOffPattern =
             (weeklyOffPatternValue != null && weeklyOffPatternValue is String)
             ? weeklyOffPatternValue
             : 'standard';
 
-        // Get weeklyHolidays - must be a List
         if (business['weeklyHolidays'] != null &&
             business['weeklyHolidays'] is List) {
           final weeklyHolidaysList = business['weeklyHolidays'] as List;
@@ -330,10 +350,9 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               .where((day) => day >= 0 && day <= 6)
               .toList();
         } else {
-          _weeklyHolidays = []; // Default to empty if not found
+          _weeklyHolidays = [];
         }
       } else {
-        // Default values
         _weeklyOffPattern = 'standard';
         _weeklyHolidays = [];
       }

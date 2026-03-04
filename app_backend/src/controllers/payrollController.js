@@ -451,24 +451,20 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         date: { $gte: startDate, $lte: endDate }
     });
 
-    const staff = await Staff.findById(employeeId).populate('branchId');
-    
-    // Get business settings for weekly off pattern (same logic as dashboard)
-    let weeklyOffPattern = 'standard'; // default
-    let weeklyHolidays = [{ day: 0, name: 'Sunday' }]; // Default: Sunday only (same as dashboard)
-    
-    // Use same logic as dashboard: get from businessId directly
+    const staff = await Staff.findById(employeeId).populate('branchId').populate('weeklyHolidayTemplateId');
+
+    // Week-off: staff's WeeklyHolidayTemplate when assigned, else business (Company.settings.business)
+    let weeklyOffPattern = 'standard';
+    let weeklyHolidays = [{ day: 0, name: 'Sunday' }];
     if (staff && staff.businessId) {
         const Company = require('../models/Company');
         const business = await Company.findById(staff.businessId);
-        if (business && business.settings && business.settings.business) {
-            weeklyOffPattern = business.settings.business.weeklyOffPattern || 'standard';
-            // Dashboard uses: weeklyHolidays = businessSettings.weeklyHolidays || [{ day: 0, name: 'Sunday' }]
-            // Keep as array of objects (same as dashboard) - don't map to just numbers
-            weeklyHolidays = business.settings.business.weeklyHolidays || [{ day: 0, name: 'Sunday' }];
-        }
+        const { getWeekOffConfigForStaff } = require('../utils/weekOffHelper');
+        const weekOffConfig = await getWeekOffConfigForStaff(staff, business || undefined);
+        weeklyOffPattern = weekOffConfig.weeklyOffPattern;
+        weeklyHolidays = weekOffConfig.weeklyHolidays;
     }
-    
+
     console.log(`[calculateAttendanceStats] Weekly Off Pattern: ${weeklyOffPattern}`);
     console.log(`[calculateAttendanceStats] Weekly Holidays: ${JSON.stringify(weeklyHolidays)}`);
     

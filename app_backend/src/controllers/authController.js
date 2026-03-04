@@ -478,6 +478,7 @@ const getProfile = async (req, res) => {
             fullStaff = await Staff.findById(staff._id)
                 .populate('branchId')
                 .populate('businessId')
+                .populate('weeklyHolidayTemplateId')
                 .populate('candidateId') // Populate candidate to get education, experience, documents
                 .populate('department') // Assuming department might be a ref or string, populating just in case
                 .populate('designation'); // Same here

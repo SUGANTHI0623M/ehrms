@@ -70,9 +70,13 @@ export interface AttendanceLog {
     oldValue: any;
     newValue: any;
   }>;
-  ipAddress?: string;
   userAgent?: string;
   notes?: string;
+  selfieUrl?: string;
+  punchInDateTime?: string;
+  punchOutDateTime?: string;
+  punchInAddress?: string;
+  punchOutAddress?: string;
   timestamp: string;
   createdAt: string;
   updatedAt: string;
