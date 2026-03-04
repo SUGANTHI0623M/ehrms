@@ -38,6 +38,8 @@ function init() {
 
 /**
  * Send a notification to a single device token.
+ * Uses DATA-ONLY payload so the Flutter app's background handler runs when app is closed,
+ * allowing notifications to be stored and shown in the in-app Notifications screen.
  * @param {string} token - FCM device token
  * @param {object} options - { title, body, data, androidTag? } (androidTag: same tag = replace previous notification on device)
  * @returns {Promise<{ success: boolean, error?: string }>}
@@ -57,12 +59,19 @@ async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
     const androidTag = options && options.androidTag ? String(options.androidTag) : null;
     console.log('[FCM] RECEIVED send request: title=', title || 'HRMS', 'token=', tokenPreview, 'tag=', androidTag || 'none');
     try {
-        const payload = {
-            token,
-            notification: { title: title || 'HRMS', body: body || '' },
-            data: Object.fromEntries(
+        // Data-only payload: no top-level "notification". Title/body go in data so Flutter
+        // background handler runs when app is closed and can store + show in Notifications screen.
+        const dataObj = {
+            title: String(title != null ? title : 'HRMS'),
+            body: String(body != null ? body : ''),
+            message: String(body != null ? body : ''),
+            ...Object.fromEntries(
                 Object.entries(data).map(([k, v]) => [String(k), String(v == null ? '' : v)])
             ),
+        };
+        const payload = {
+            token,
+            data: dataObj,
             android: {
                 priority: 'high',
                 ...(androidTag ? { notification: { tag: androidTag } } : {}),

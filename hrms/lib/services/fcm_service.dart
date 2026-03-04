@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,10 +13,21 @@ import '../screens/requests/my_requests_screen.dart';
 import '../screens/attendance/attendance_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
 
+/// Channel ID for FCM notifications. Must match Android default channel when using data-only messages.
+const String kFcmNotificationChannelId = 'hrms_fcm_channel';
+
 /// Top-level handler for FCM messages received in background. Must be registered before runApp.
-/// Stores notification in SharedPreferences so it appears in Notifications screen.
+/// IMPORTANT: This handler is only invoked for DATA-ONLY messages (no top-level "notification" payload).
+/// If the backend sends notification+data, the OS shows the notification but does NOT call this handler,
+/// so it will not be stored. For reliable capture when app is background/terminated, backend should send
+/// data-only with title/body inside the "data" payload.
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('[FCM] backgroundHandler: Firebase.initializeApp $e');
+  }
   final data = Map<String, dynamic>.from(message.data);
   String title =
       message.notification?.title ??
@@ -30,11 +42,71 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
     '[FCM] backgroundHandler: received title=$title body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}',
   );
   await FcmService.storeNotification(title: title, body: body, data: data);
+  try {
+    await _showBackgroundNotification(title: title, body: body, data: data);
+  } catch (e) {
+    debugPrint('[FCM] backgroundHandler: _showBackgroundNotification $e');
+  }
   debugPrint('[FCM] backgroundHandler: stored ok');
+}
+
+/// Shows a local notification from the background isolate (so user sees it when message is data-only).
+@pragma('vm:entry-point')
+Future<void> _showBackgroundNotification({
+  required String title,
+  required String body,
+  required Map<String, dynamic> data,
+}) async {
+  final plugin = FlutterLocalNotificationsPlugin();
+  const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+  );
+  await plugin.initialize(
+    const InitializationSettings(android: androidSettings, iOS: iosSettings),
+  );
+  if (Platform.isAndroid) {
+    await plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(
+      AndroidNotificationChannel(
+        kFcmNotificationChannelId,
+        'HRMS Notifications',
+        description: 'Notifications for leave, attendance, requests, etc.',
+        importance: Importance.high,
+        playSound: true,
+      ),
+    );
+  }
+  const androidDetails = AndroidNotificationDetails(
+    kFcmNotificationChannelId,
+    'HRMS Notifications',
+    channelDescription: 'Notifications for leave, attendance, requests, etc.',
+    importance: Importance.high,
+    priority: Priority.high,
+    icon: '@drawable/ic_notification',
+  );
+  const iosDetails = DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+  );
+  await plugin.show(
+    DateTime.now().millisecondsSinceEpoch % 100000,
+    title,
+    body,
+    const NotificationDetails(android: androidDetails, iOS: iosDetails),
+    payload: jsonEncode(data),
+  );
 }
 
 /// Handles FCM: permission, token, foreground/background/terminated messages.
 /// Receives notifications sent from web backend (leave/expense/payslip/loan/attendance approve/reject).
+///
+/// **Background/terminated capture**: The Dart background handler runs only for DATA-ONLY messages.
+/// Backend should send FCM with title/body inside the "data" map (e.g. data["title"], data["body"] or data["message"]),
+/// and must NOT include a top-level "notification" payload. Otherwise the OS shows the notification but the handler
+/// is not invoked and the notification is not stored in the app.
 /// Call [init] from main() after Firebase.initializeApp().
 /// Set [navigatorKey] so notification taps can open screens (e.g. by module).
 class FcmService {
@@ -43,7 +115,7 @@ class FcmService {
   static const String _logTag = '[FCM]';
   static const String _kFcmNotificationsKey = 'fcm_notifications';
   static const Duration _kFcmNotificationRetention = Duration(hours: 24);
-  static const String _kLocalNotificationChannelId = 'hrms_fcm_channel';
+  static const String _kLocalNotificationChannelId = kFcmNotificationChannelId;
 
   static GlobalKey<NavigatorState>? navigatorKey;
   static final FlutterLocalNotificationsPlugin _localNotifications =

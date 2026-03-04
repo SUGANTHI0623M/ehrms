@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../bloc/auth/auth_bloc.dart';
 import '../screens/auth/login_screen.dart';
 import '../services/auth_service.dart';
+import '../services/fcm_service.dart';
 
 class DeactivationCheckWrapper extends StatefulWidget {
   const DeactivationCheckWrapper({
@@ -44,6 +45,8 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _scheduleNextCheck();
+      // Re-sync FCM token so backend has current token after reinstall/refresh
+      FcmService.sendTokenToBackend();
     } else {
       _timer?.cancel();
       _timer = null;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/presence_tracking_service.dart';
@@ -97,7 +98,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (_currentIndex != 0) {
             setState(() => _currentIndex = 0);
           } else {
-            Navigator.of(context).pop();
+            // Dashboard is the root route (pushReplacement from splash/login).
+            // Popping would leave empty stack = black screen. Exit app instead.
+            SystemNavigator.pop();
           }
         },
         child: Scaffold(

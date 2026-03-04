@@ -44,8 +44,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
     if (mounted) {
       setState(() {
         _notifications = list.where((e) {
+          final title = (e['title']?.toString() ?? '').trim();
           final body = (e['body']?.toString() ?? '').trim();
-          return body.isNotEmpty;
+          return title.isNotEmpty || body.isNotEmpty;
         }).toList();
         _isLoading = false;
       });
