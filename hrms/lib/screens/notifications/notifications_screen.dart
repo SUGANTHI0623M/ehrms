@@ -6,7 +6,8 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 
-/// Lists FCM notifications received in foreground or background, stored in SharedPreferences for 24 hours.
+/// Lists FCM notifications received in foreground, background, or when app was closed.
+/// All received notifications appear here (no need to tap them). Stored for 24 hours.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -105,7 +106,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
           ),
           const SizedBox(height: 8),
           Text(
-            'Notifications received in foreground or background\nappear here for 24 hours.',
+            'Notifications received in foreground, background, or when the app was closed\nappear here for 24 hours. You don\'t need to tap them.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
           ),

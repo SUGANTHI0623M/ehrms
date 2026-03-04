@@ -16,11 +16,11 @@ import '../screens/performance/performance_module_screen.dart';
 /// Channel ID for FCM notifications. Must match Android default channel when using data-only messages.
 const String kFcmNotificationChannelId = 'hrms_fcm_channel';
 
-/// Top-level handler for FCM messages received in background. Must be registered before runApp.
+/// Top-level handler for FCM messages received in background or when app is closed.
+/// Stores every message so it appears in the in-app Notifications screen even if the user never taps the notification.
 /// IMPORTANT: This handler is only invoked for DATA-ONLY messages (no top-level "notification" payload).
 /// If the backend sends notification+data, the OS shows the notification but does NOT call this handler,
-/// so it will not be stored. For reliable capture when app is background/terminated, backend should send
-/// data-only with title/body inside the "data" payload.
+/// so it will not be stored. Backend must send data-only with title/body inside the "data" payload.
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   try {
@@ -512,7 +512,7 @@ class FcmService {
     return pruned;
   }
 
-  static void _onNotificationOpened(RemoteMessage message) {
+  static Future<void> _onNotificationOpened(RemoteMessage message) async {
     _log('notification opened (background/terminated): data=${message.data}');
     final data = Map<String, dynamic>.from(message.data);
     final title =
@@ -524,7 +524,7 @@ class FcmService {
         data['body']?.toString() ??
         data['message']?.toString() ??
         '';
-    storeNotification(title: title, body: body, data: data);
+    await storeNotification(title: title, body: body, data: data);
     _handleNotificationData(message.data);
   }
 
