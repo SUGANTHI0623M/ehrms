@@ -41,22 +41,28 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   debugPrint(
     '[FCM] backgroundHandler: received title=$title body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}',
   );
-  await FcmService.storeNotification(title: title, body: body, data: data);
+  try {
+    await FcmService.storeNotification(title: title, body: body, data: data);
+    debugPrint('[FCM] backgroundHandler: stored in app list');
+  } catch (e) {
+    debugPrint('[FCM] backgroundHandler: storeNotification failed $e');
+  }
   try {
     await _showBackgroundNotification(title: title, body: body, data: data);
   } catch (e) {
     debugPrint('[FCM] backgroundHandler: _showBackgroundNotification $e');
   }
-  debugPrint('[FCM] backgroundHandler: stored ok');
 }
 
 /// Shows a local notification from the background isolate (so user sees it when message is data-only).
+/// Uses a stable id from [data] so duplicate messages for the same event replace the previous notification in the tray.
 @pragma('vm:entry-point')
 Future<void> _showBackgroundNotification({
   required String title,
   required String body,
   required Map<String, dynamic> data,
 }) async {
+  final id = FcmService.notificationIdFromData(data);
   final plugin = FlutterLocalNotificationsPlugin();
   const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
   const iosSettings = DarwinInitializationSettings(
@@ -78,13 +84,15 @@ Future<void> _showBackgroundNotification({
       ),
     );
   }
-  const androidDetails = AndroidNotificationDetails(
+  final tag = FcmService.dedupeKeyFromData(data);
+  final androidDetails = AndroidNotificationDetails(
     kFcmNotificationChannelId,
     'HRMS Notifications',
     channelDescription: 'Notifications for leave, attendance, requests, etc.',
     importance: Importance.high,
     priority: Priority.high,
     icon: '@drawable/ic_notification',
+    tag: tag.isNotEmpty ? tag : null,
   );
   const iosDetails = DarwinNotificationDetails(
     presentAlert: true,
@@ -92,10 +100,10 @@ Future<void> _showBackgroundNotification({
     presentSound: true,
   );
   await plugin.show(
-    DateTime.now().millisecondsSinceEpoch % 100000,
+    id,
     title,
     body,
-    const NotificationDetails(android: androidDetails, iOS: iosDetails),
+    NotificationDetails(android: androidDetails, iOS: iosDetails),
     payload: jsonEncode(data),
   );
 }
@@ -116,6 +124,23 @@ class FcmService {
   static const String _kFcmNotificationsKey = 'fcm_notifications';
   static const Duration _kFcmNotificationRetention = Duration(hours: 24);
   static const String _kLocalNotificationChannelId = kFcmNotificationChannelId;
+  static const Duration _kDedupeWindow = Duration(minutes: 2);
+
+  /// Stable id for system notification so the same event replaces the previous (avoids duplicate tray notifications).
+  static int notificationIdFromData(Map<String, dynamic> data) {
+    final key = dedupeKeyFromData(data);
+    if (key.isEmpty) return DateTime.now().millisecondsSinceEpoch % 100000;
+    return key.hashCode.abs() % 100000;
+  }
+
+  /// Key to dedupe the same notification (module+type+entityId). Used for storage dedupe and Android notification tag.
+  static String dedupeKeyFromData(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    final module = data['module']?.toString() ?? '';
+    final id = data['leaveId'] ?? data['loanId'] ?? data['expenseId'] ?? data['payslipId'] ?? data['attendanceId'] ?? data['reviewId'] ?? data['messageId'] ?? '';
+    if (type.isEmpty && module.isEmpty && id.toString().isEmpty) return '';
+    return '${module}_${type}_$id';
+  }
 
   static GlobalKey<NavigatorState>? navigatorKey;
   static final FlutterLocalNotificationsPlugin _localNotifications =
@@ -415,6 +440,8 @@ class FcmService {
     required Map<String, dynamic> data,
   }) async {
     try {
+      final id = notificationIdFromData(data);
+      final tag = dedupeKeyFromData(data);
       final androidDetails = AndroidNotificationDetails(
         _kLocalNotificationChannelId,
         'HRMS Notifications',
@@ -423,6 +450,7 @@ class FcmService {
         importance: Importance.high,
         priority: Priority.high,
         icon: '@drawable/ic_notification',
+        tag: tag.isNotEmpty ? tag : null,
       );
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
@@ -433,7 +461,6 @@ class FcmService {
         android: androidDetails,
         iOS: iosDetails,
       );
-      final id = DateTime.now().millisecondsSinceEpoch % 100000;
       await _localNotifications.show(
         id,
         title,
@@ -448,6 +475,7 @@ class FcmService {
   }
 
   /// Saves one notification (foreground or background) and prunes entries older than 24h.
+  /// Skips storing if the same event (same dedupe key) was already stored within the last 2 minutes to avoid duplicates.
   /// Call from foreground handler, background handler, or when user opens app via notification tap.
   static Future<void> storeNotification({
     required String title,
@@ -465,6 +493,23 @@ class FcmService {
         final dt = DateTime.tryParse(receivedAt);
         return dt != null && dt.isAfter(cutoff);
       }).toList();
+      final incomingKey = dedupeKeyFromData(data);
+      if (incomingKey.isNotEmpty) {
+        final dedupeCutoff = now.subtract(_kDedupeWindow);
+        final isDuplicate = pruned.any((e) {
+          final receivedAt = e['receivedAt']?.toString();
+          if (receivedAt == null) return false;
+          final dt = DateTime.tryParse(receivedAt);
+          if (dt == null || dt.isBefore(dedupeCutoff)) return false;
+          final existingData = e['data'];
+          if (existingData is! Map) return false;
+          return dedupeKeyFromData(Map<String, dynamic>.from(existingData)) == incomingKey;
+        });
+        if (isDuplicate) {
+          if (kDebugMode) debugPrint('$_logTag storeNotification: skip duplicate key=$incomingKey');
+          return;
+        }
+      }
       pruned.insert(0, {
         'title': title,
         'body': body,

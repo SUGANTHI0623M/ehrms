@@ -725,7 +725,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     final isLateIn = _isLateCheckIn(punchIn, record: record);
     final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
-    final isLowHours = _isLowWorkHours(workHours);
 
     // Fine information
     final lateMinutes = record['lateMinutes'] as num?;
@@ -1033,39 +1032,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 ),
                                 Icons.access_time,
                               ),
-                              if (isLowHours) ...[
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.red),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.timer_off,
-                                        size: 16,
-                                        color: Colors.red,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Low Work Hours',
-                                        style: TextStyle(
-                                          color: Colors.red,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
                               const SizedBox(height: 16),
 
                               // Fine Information Section

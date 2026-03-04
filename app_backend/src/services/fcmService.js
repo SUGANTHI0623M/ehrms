@@ -75,7 +75,13 @@ async function sendToToken(token, { title, body, data = {}, ...options } = {}) {
             data: dataObj,
             android: {
                 priority: 'high',
+                // Required so data-only messages are delivered when app is in background or killed.
                 ...(androidTag ? { notification: { tag: androidTag } } : {}),
+            },
+            // Optional: help delivery when app is in background (iOS).
+            apns: {
+                headers: { 'apns-priority': '10' },
+                payload: { aps: { 'content-available': 1 } },
             },
         };
         const msgId = await admin.messaging().send(payload);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
+import '../../config/app_route_observer.dart';
 import '../../services/fcm_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
@@ -15,9 +16,11 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsBindingObserver {
+class _NotificationsScreenState extends State<NotificationsScreen>
+    with WidgetsBindingObserver, RouteAware {
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;
+  ModalRoute<void>? _route;
 
   @override
   void initState() {
@@ -27,9 +30,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute && route != _route) {
+      appRouteObserver.unsubscribe(this);
+      _route = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    // User returned to this screen from another; refresh so background/closed notifications appear.
+    _load();
   }
 
   @override
