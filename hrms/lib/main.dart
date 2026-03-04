@@ -38,6 +38,7 @@ void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
+    debugPrint('[FCM] main: registering onBackgroundMessage handler (required for app closed/background → in-app list)');
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
 
     // Catch unhandled async errors (e.g. from plugins) so release build doesn't show black screen on some devices

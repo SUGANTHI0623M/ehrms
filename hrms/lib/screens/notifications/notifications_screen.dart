@@ -61,15 +61,18 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   }
 
   Future<void> _load() async {
+    debugPrint('[FCM] NotificationsScreen: _load() started');
     setState(() => _isLoading = true);
     final list = await FcmService.getStoredNotifications();
+    final filtered = list.where((e) {
+      final title = (e['title']?.toString() ?? '').trim();
+      final body = (e['body']?.toString() ?? '').trim();
+      return title.isNotEmpty || body.isNotEmpty;
+    }).toList();
+    debugPrint('[FCM] NotificationsScreen: _load() got ${list.length} stored, ${filtered.length} after filter (title/body not empty)');
     if (mounted) {
       setState(() {
-        _notifications = list.where((e) {
-          final title = (e['title']?.toString() ?? '').trim();
-          final body = (e['body']?.toString() ?? '').trim();
-          return title.isNotEmpty || body.isNotEmpty;
-        }).toList();
+        _notifications = filtered;
         _isLoading = false;
       });
     }

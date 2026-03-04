@@ -23,10 +23,16 @@ const String kFcmNotificationChannelId = 'hrms_fcm_channel';
 /// so it will not be stored. Backend must send data-only with title/body inside the "data" payload.
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
+  debugPrint('[FCM] backgroundHandler: ENTERED (app closed/background – this runs only for DATA-ONLY messages)');
+  debugPrint('[FCM] backgroundHandler: messageId=${message.messageId} hasNotification=${message.notification != null} dataKeys=${message.data.keys.toList()}');
+  if (message.notification != null) {
+    debugPrint('[FCM] backgroundHandler: WARNING message has notification payload – on Android this handler may not have been invoked; backend should send data-only');
+  }
   try {
     await Firebase.initializeApp();
+    debugPrint('[FCM] backgroundHandler: Firebase.initializeApp OK');
   } catch (e) {
-    debugPrint('[FCM] backgroundHandler: Firebase.initializeApp $e');
+    debugPrint('[FCM] backgroundHandler: Firebase.initializeApp FAILED $e');
   }
   final data = Map<String, dynamic>.from(message.data);
   String title =
@@ -39,19 +45,22 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
       data['message']?.toString() ??
       '';
   debugPrint(
-    '[FCM] backgroundHandler: received title=$title body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}',
+    '[FCM] backgroundHandler: title="$title" body=${body.length > 40 ? "${body.substring(0, 40)}..." : body}',
   );
   try {
     await FcmService.storeNotification(title: title, body: body, data: data);
-    debugPrint('[FCM] backgroundHandler: stored in app list');
-  } catch (e) {
-    debugPrint('[FCM] backgroundHandler: storeNotification failed $e');
+    debugPrint('[FCM] backgroundHandler: storeNotification completed – notification should appear in app list');
+  } catch (e, st) {
+    debugPrint('[FCM] backgroundHandler: storeNotification FAILED $e');
+    debugPrint('[FCM] backgroundHandler: stack $st');
   }
   try {
     await _showBackgroundNotification(title: title, body: body, data: data);
+    debugPrint('[FCM] backgroundHandler: local notification shown in tray');
   } catch (e) {
-    debugPrint('[FCM] backgroundHandler: _showBackgroundNotification $e');
+    debugPrint('[FCM] backgroundHandler: _showBackgroundNotification FAILED $e');
   }
+  debugPrint('[FCM] backgroundHandler: DONE');
 }
 
 /// Shows a local notification from the background isolate (so user sees it when message is data-only).
@@ -224,7 +233,7 @@ class FcmService {
 
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
-      _log('getInitialMessage: app opened from terminated via notification');
+      _logAlways('getInitialMessage: app opened from terminated via notification tap – storing and navigating');
       final data = Map<String, dynamic>.from(initialMessage.data);
       final title =
           initialMessage.notification?.title ??
@@ -241,7 +250,7 @@ class FcmService {
       _log('getInitialMessage: none (normal launch)');
     }
     _logAlways(
-      'init completed – foreground/background/terminated handlers attached',
+      'init completed – foreground/background/terminated handlers attached. Background/closed notifications show in-app ONLY if server sends DATA-ONLY (no top-level notification payload).',
     );
   }
 
@@ -353,6 +362,7 @@ class FcmService {
   }
 
   static Future<void> _onForegroundMessage(RemoteMessage message) async {
+    _logAlways('[FCM] FOREGROUND message received – storing (app was in foreground)');
     final data = Map<String, dynamic>.from(message.data);
     final title =
         message.notification?.title ??
@@ -482,6 +492,7 @@ class FcmService {
     required String body,
     required Map<String, dynamic> data,
   }) async {
+    debugPrint('$_logTag storeNotification: called title="$title" bodyLength=${body.length}');
     try {
       final prefs = await SharedPreferences.getInstance();
       final now = DateTime.now();
@@ -493,7 +504,9 @@ class FcmService {
         final dt = DateTime.tryParse(receivedAt);
         return dt != null && dt.isAfter(cutoff);
       }).toList();
+      debugPrint('$_logTag storeNotification: current list size=${pruned.length} (after 24h prune)');
       final incomingKey = dedupeKeyFromData(data);
+      debugPrint('$_logTag storeNotification: dedupeKey="$incomingKey"');
       if (incomingKey.isNotEmpty) {
         final dedupeCutoff = now.subtract(_kDedupeWindow);
         final isDuplicate = pruned.any((e) {
@@ -506,7 +519,7 @@ class FcmService {
           return dedupeKeyFromData(Map<String, dynamic>.from(existingData)) == incomingKey;
         });
         if (isDuplicate) {
-          if (kDebugMode) debugPrint('$_logTag storeNotification: skip duplicate key=$incomingKey');
+          debugPrint('$_logTag storeNotification: SKIP duplicate (same key within 2min) key=$incomingKey');
           return;
         }
       }
@@ -517,10 +530,10 @@ class FcmService {
         'receivedAt': now.toUtc().toIso8601String(),
       });
       await prefs.setString(_kFcmNotificationsKey, jsonEncode(pruned));
-      if (kDebugMode)
-        debugPrint('$_logTag storeNotification: stored title=$title');
-    } catch (e) {
+      debugPrint('$_logTag storeNotification: STORED OK – list size now ${pruned.length}');
+    } catch (e, st) {
       debugPrint('$_logTag storeNotification ERROR: $e');
+      debugPrint('$_logTag storeNotification stack: $st');
     }
   }
 
@@ -554,10 +567,12 @@ class FcmService {
     if (pruned.length != list.length) {
       await prefs.setString(_kFcmNotificationsKey, jsonEncode(pruned));
     }
+    debugPrint('$_logTag getStoredNotifications: returning ${pruned.length} item(s)');
     return pruned;
   }
 
   static Future<void> _onNotificationOpened(RemoteMessage message) async {
+    _logAlways('onMessageOpenedApp: notification tap (app was background) – storing and navigating');
     _log('notification opened (background/terminated): data=${message.data}');
     final data = Map<String, dynamic>.from(message.data);
     final title =
