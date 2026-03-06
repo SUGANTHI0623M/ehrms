@@ -84,6 +84,7 @@ class AttendanceService {
         'city': city,
         'pincode': pincode,
         'selfie': selfie,
+        'source': 'app',
       };
       if (businessId != null && businessId.isNotEmpty) {
         body['businessId'] = businessId;
@@ -138,6 +139,7 @@ class AttendanceService {
         'city': city,
         'pincode': pincode,
         'selfie': selfie,
+        'source': 'app',
       };
       final response = await _api.dio.put<Map<String, dynamic>>(
         '/attendance/checkout',

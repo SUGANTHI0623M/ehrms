@@ -8,13 +8,7 @@ const Tracking = require('../models/Tracking');
 const { reverseGeocode } = require('../services/geocodingService');
 const { calculateAttendanceStats } = require('./payrollController');
 const { getWeekOffConfigForStaff } = require('../utils/weekOffHelper');
-const cloudinary = require('cloudinary').v2;
-
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-});
+const digitalOceanService = require('../services/digitalOceanService');
 
 /** Build a single address string from address, area, city, pincode. */
 function buildAddressString(address, area, city, pincode) {
@@ -141,24 +135,30 @@ function normalizeTemplate(templateDoc) {
     };
 }
 
-const uploadToCloudinary = async (base64String) => {
+/** Upload attendance selfie to Digital Ocean S3. Returns public URL or null. */
+async function uploadAttendanceSelfie(base64String, req, companyId, employeeName, type) {
     try {
         if (!base64String) return null;
-        let uploadStr = base64String;
-        if (!base64String.startsWith('data:image')) {
-            uploadStr = 'data:image/jpeg;base64,' + base64String;
+        let base64Data = base64String;
+        if (base64String.startsWith('data:image')) {
+            base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
+        } else if (!base64String.startsWith('/9j/') && !base64String.startsWith('iVBOR')) {
+            base64Data = base64String;
         }
-
-        const uploadResponse = await cloudinary.uploader.upload(uploadStr, {
-            folder: 'attendance_selfies',
-            resource_type: 'image'
-        });
-        return uploadResponse.secure_url;
+        const buffer = Buffer.from(base64Data, 'base64');
+        const result = await digitalOceanService.uploadAttendanceImage(
+            buffer,
+            req,
+            companyId,
+            employeeName || 'unknown',
+            type || 'punch-in'
+        );
+        return result.success ? result.url : null;
     } catch (error) {
-        console.error('Cloudinary Upload Error:', error.message);
-        return null; // Should we fail? For now, allow check-in but log error
+        console.error('[Attendance] Selfie upload error:', error.message);
+        return null;
     }
-};
+}
 
 // Helper function to calculate salary structure
 function calculateSalaryStructure(salary) {
@@ -438,7 +438,12 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
 // @route   POST /api/attendance/checkin
 // @access  Private
 const checkIn = async (req, res) => {
-    const { latitude, longitude, address, area, city, pincode, selfie, businessId: bodyBusinessId } = req.body;
+    const { latitude, longitude, address, area, city, pincode, selfie, businessId: bodyBusinessId, source: bodySource } = req.body;
+
+    const VALID_SOURCES = ['app', 'software', 'webemp', 'webadmin'];
+    const source = (bodySource && VALID_SOURCES.includes(String(bodySource).toLowerCase()))
+        ? String(bodySource).toLowerCase()
+        : null;
 
     // Use req.staff from middleware
     if (!req.staff) {
@@ -637,7 +642,7 @@ const checkIn = async (req, res) => {
             // Update existing Half Day record with punchIn (do not create new, do not return "Already checked in")
             let selfieUrl = null;
             if (selfie && template.requireSelfie !== false) {
-                selfieUrl = await uploadToCloudinary(selfie);
+                selfieUrl = await uploadAttendanceSelfie(selfie, req, staff.businessId ? String(staff.businessId) : undefined, staff.name, 'punch-in');
             }
             const fineShiftStartTime = shiftTiming?.startTime || template.shiftStartTime || '09:30';
             const fineShiftEndTime = shiftTiming?.endTime || template.shiftEndTime || '18:30';
@@ -684,6 +689,7 @@ const checkIn = async (req, res) => {
             existing.fineHours = fineResult.fineHours ?? 0;
             existing.fineAmount = fineResult.fineAmount ?? 0;
             existing.workHours = 0;
+            if (source) existing.source = source;
             console.log('[Fine CHECK-IN] (half-day update) INSERTING: checkInTime=', existing.punchIn?.toISOString?.(), 'checkOutTime=null', 'lateMinutes=', existing.lateMinutes, 'earlyMinutes=', existing.earlyMinutes, 'fineAmount=', existing.fineAmount);
             await existing.save();
             await AttendanceLog.create({
@@ -708,10 +714,10 @@ const checkIn = async (req, res) => {
             return res.status(400).json({ message: 'Already checked in today' });
         }
 
-        // Upload Selfie
+        // Upload Selfie to S3 (attendance folder)
         let selfieUrl = null;
         if (selfie && template.requireSelfie !== false) {
-            selfieUrl = await uploadToCloudinary(selfie);
+            selfieUrl = await uploadAttendanceSelfie(selfie, req, staff.businessId ? String(staff.businessId) : undefined, staff.name, 'punch-in');
         }
 
         const locationData = {
@@ -763,6 +769,7 @@ const checkIn = async (req, res) => {
             punchInSelfie: selfieUrl,
             ipAddress: req.ip || req.connection.remoteAddress,
             punchInIpAddress: req.ip || req.connection.remoteAddress,
+            ...(source && { source }),
             // Fine calculation fields
             workHours: 0,
             fineHours: fineResult.fineHours,
@@ -804,7 +811,12 @@ const checkIn = async (req, res) => {
 // @route   PUT /api/attendance/checkout
 // @access  Private
 const checkOut = async (req, res) => {
-    const { latitude, longitude, address, area, city, pincode, selfie } = req.body;
+    const { latitude, longitude, address, area, city, pincode, selfie, source: bodySource } = req.body;
+
+    const VALID_SOURCES = ['app', 'software', 'webemp', 'webadmin'];
+    const source = (bodySource && VALID_SOURCES.includes(String(bodySource).toLowerCase()))
+        ? String(bodySource).toLowerCase()
+        : null;
 
     if (!req.staff) {
         return res.status(404).json({ message: 'Staff record not found' });
@@ -856,7 +868,7 @@ const checkOut = async (req, res) => {
 };
 
 async function processCheckOut(attendance, req, res, staff, now, data, template = {}) {
-    const { latitude, longitude, address, area, city, pincode, selfie } = data;
+    const { latitude, longitude, address, area, city, pincode, selfie, source } = data;
 
     // Half Day: allow updating punchOut even if already set (update existing record)
     const isHalfDayStatus = attendance && String(attendance.status || '').trim().toLowerCase() === 'half day';
@@ -968,15 +980,17 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
         }
     }
 
-    // Upload Selfie
+    // Upload Selfie to S3 (attendance folder)
     if (selfie && template.requireSelfie !== false) {
-        const selfieUrl = await uploadToCloudinary(selfie);
+        const companyId = staff.businessId ? String(staff.businessId) : undefined;
+        const selfieUrl = await uploadAttendanceSelfie(selfie, req, companyId, staff.name, 'punch-out');
         attendance.punchOutSelfie = selfieUrl;
     }
 
     // Update Fields
     attendance.punchOut = now;
     attendance.punchOutIpAddress = req.ip || req.connection.remoteAddress;
+    if (source) attendance.source = source;
 
     if (latitude && longitude) {
         if (!attendance.location) attendance.location = {};
@@ -1448,18 +1462,28 @@ const getTodayAttendance = async (req, res) => {
         }
 
         // If this date is a week-off (or we're checking), see if it's an alternate work date for this employee
-        // (compensation: employee took week-off on a weekday and will work on this date instead)
+        // (compensation: employee took week-off or comp-off on another day and will work on this date instead)
         let isAlternateWorkDate = false;
         const alternateWorkRecord = await Attendance.findOne({
             $or: [{ employeeId: req.staff._id }, { user: req.staff._id }],
             alternateWorkDate: { $gte: startOfDay, $lte: endOfDay },
-            compensationType: 'weekOff'
+            compensationType: { $in: ['weekOff', 'compOff'] }
         }).lean();
         if (alternateWorkRecord) isAlternateWorkDate = true;
 
-        // Today is the "off" day when employee has compensationType weekOff (they work on alternateWorkDate instead)
+        // Today is the "off" day when employee has compensationType weekOff or compOff (they work on alternateWorkDate instead)
         const isCompensationWeekOff = !!(attendance && attendance.compensationType === 'weekOff');
-        if (isCompensationWeekOff) {
+        const isCompensationCompOff = !!(attendance && attendance.compensationType === 'compOff');
+        if (isCompensationWeekOff || isCompensationCompOff) {
+            checkInAllowed = false;
+            checkOutAllowed = false;
+        }
+        // Paid leave day: On Leave + isPaidLeave, not comp off/week off - block check-in/check-out
+        const compType = (attendance?.compensationType || '').toString().toLowerCase();
+        const isPaidLeaveToday = !!(attendance && (attendance.status === 'On Leave' || String(attendance.status || '').toLowerCase() === 'on leave') &&
+            attendance.isPaidLeave === true &&
+            compType !== 'weekoff' && compType !== 'compoff');
+        if (isPaidLeaveToday) {
             checkInAllowed = false;
             checkOutAllowed = false;
         }
@@ -1500,6 +1524,8 @@ const getTodayAttendance = async (req, res) => {
             isWeeklyOff: isWeeklyOff,
             isAlternateWorkDate: isAlternateWorkDate,
             isCompensationWeekOff: isCompensationWeekOff,
+            isCompensationCompOff: isCompensationCompOff,
+            isPaidLeaveToday: isPaidLeaveToday,
             hasPunchIn,
             hasPunchOut,
             checkedIn
@@ -1906,10 +1932,10 @@ const getMonthAttendance = async (req, res) => {
             absentDates.push(dateStr);
         }
 
-        // Dates in this month that are alternate work dates for this employee (compensation week-off: they work on these days)
+        // Dates in this month that are alternate work dates for this employee (compensation week-off or comp-off: they work on these days)
         const alternateWorkRecords = await Attendance.find({
             $or: [{ employeeId: req.staff._id }, { user: req.staff._id }],
-            compensationType: 'weekOff',
+            compensationType: { $in: ['weekOff', 'compOff'] },
             alternateWorkDate: { $gte: startOfMonth, $lte: endOfMonth }
         }).select('alternateWorkDate').lean();
         const alternateWorkDatesInMonth = alternateWorkRecords.map(r => formatDateString(r.alternateWorkDate)).filter(Boolean);
@@ -1967,7 +1993,14 @@ const getMonthAttendance = async (req, res) => {
                             const d = formatDateString(a.date);
                             const status = (a.status || '').trim().toLowerCase();
                             const leaveType = (a.leaveType || '').trim().toLowerCase();
-                            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+                            const isPaidLeave = a.isPaidLeave === true;
+                            const compensationType = (a.compensationType || '').trim().toLowerCase();
+                            dateMap[d] = {
+                                attendanceStatus: status,
+                                attendanceLeaveType: leaveType,
+                                isPaidLeave,
+                                compensationType
+                            };
                         });
                         leaveDateSetHalf.forEach(d => {
                             if (!dateMap[d]) dateMap[d] = {};
@@ -1981,6 +2014,46 @@ const getMonthAttendance = async (req, res) => {
                             const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
                             if (isHalfDay) return sum + 0.5;
                             if (status === 'present' || status === 'approved') return sum + 1;
+                            return sum;
+                        }, 0);
+                    })(),
+                    paidLeaveDays: (() => {
+                        const leaveRecords = leaves.filter(l => l.isHalfDay === true || (l.leaveType || '').trim().toLowerCase() === 'half day');
+                        const leaveDateSetHalf = new Set();
+                        leaveRecords.forEach(leave => {
+                            let curr = new Date(leave.startDate);
+                            const end = new Date(leave.endDate);
+                            while (curr <= end) {
+                                if (curr >= startOfMonth && curr <= endOfMonth) {
+                                    leaveDateSetHalf.add(formatDateString(curr));
+                                }
+                                curr.setDate(curr.getDate() + 1);
+                            }
+                        });
+                        const dateMap = {};
+                        attendance.forEach(a => {
+                            const d = formatDateString(a.date);
+                            const status = (a.status || '').trim().toLowerCase();
+                            const leaveType = (a.leaveType || '').trim().toLowerCase();
+                            const isPaidLeave = a.isPaidLeave === true;
+                            const compensationType = (a.compensationType || '').trim().toLowerCase();
+                            dateMap[d] = {
+                                attendanceStatus: status,
+                                attendanceLeaveType: leaveType,
+                                isPaidLeave,
+                                compensationType
+                            };
+                        });
+                        leaveDateSetHalf.forEach(d => {
+                            if (!dateMap[d]) dateMap[d] = {};
+                            dateMap[d].hasHalfDayLeave = true;
+                        });
+                        return Object.entries(dateMap).reduce((sum, [date, data]) => {
+                            if (date > todayStr) return sum;
+                            const status = (data.attendanceStatus || '').trim().toLowerCase();
+                            const isPaid = data.isPaidLeave === true;
+                            const comp = (data.compensationType || '').trim().toLowerCase();
+                            if (status === 'on leave' && isPaid && comp !== 'weekoff' && comp !== 'compoff') return sum + 1;
                             return sum;
                         }, 0);
                     })(),
@@ -2003,15 +2076,22 @@ const getMonthAttendance = async (req, res) => {
                             const d = formatDateString(a.date);
                             const status = (a.status || '').trim().toLowerCase();
                             const leaveType = (a.leaveType || '').trim().toLowerCase();
-                            dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+                            const isPaidLeave = a.isPaidLeave === true;
+                            const compensationType = (a.compensationType || '').trim().toLowerCase();
+                            dateMap[d] = {
+                                attendanceStatus: status,
+                                attendanceLeaveType: leaveType,
+                                isPaidLeave,
+                                compensationType
+                            };
                         });
                         leaveDateSetHalf.forEach(d => {
                             if (!dateMap[d]) dateMap[d] = {};
                             dateMap[d].hasHalfDayLeave = true;
                         });
 
-                        return Object.entries(dateMap).reduce((sum, [date, data]) => {
-                            if (date > todayStr) return sum; // Only count dates up to today
+                        const presentOnly = Object.entries(dateMap).reduce((sum, [date, data]) => {
+                            if (date > todayStr) return sum;
                             const status = data.attendanceStatus || '';
                             const attLeaveType = data.attendanceLeaveType || '';
                             const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
@@ -2019,6 +2099,15 @@ const getMonthAttendance = async (req, res) => {
                             if (status === 'present' || status === 'approved') return sum + 1;
                             return sum;
                         }, 0);
+                        const paidLeaveOnly = Object.entries(dateMap).reduce((sum, [date, data]) => {
+                            if (date > todayStr) return sum;
+                            const status = (data.attendanceStatus || '').trim().toLowerCase();
+                            const isPaid = data.isPaidLeave === true;
+                            const comp = (data.compensationType || '').trim().toLowerCase();
+                            if (status === 'on leave' && isPaid && comp !== 'weekoff' && comp !== 'compoff') return sum + 1;
+                            return sum;
+                        }, 0);
+                        return presentOnly + paidLeaveOnly;
                     })())
                 }
             }

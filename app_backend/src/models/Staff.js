@@ -82,6 +82,13 @@ const staffSchema = new mongoose.Schema({
     // FCM token for push notifications (set by app via POST /api/notifications/fcm-token)
     fcmToken: { type: String },
 
+    // Desktop monitoring agent status: active (login), logout, exited
+    monitoringStatus: {
+        type: String,
+        enum: ['active', 'inactive', 'logout', 'exited'],
+        default: 'inactive'
+    },
+
     salary: {
         // Fixed Salary Components (Monthly)
         basicSalary: Number,

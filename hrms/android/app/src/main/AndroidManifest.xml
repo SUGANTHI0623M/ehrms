@@ -27,7 +27,7 @@
             android:resource="@drawable/ic_notification" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="hrms_fcm_channel" />
-        <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyBDN9W0gmkubT8jrEtoJ96g7IgxXsSmgsM"/>
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyBcoj_g5hxrsv3mEJCVF1Uev_JZRcFO0F8"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

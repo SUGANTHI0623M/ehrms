@@ -13,6 +13,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 const { sendOTPEmail } = require('../services/emailService');
 const cloudinary = require('cloudinary').v2;
+const digitalOceanService = require('../services/digitalOceanService');
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -1072,7 +1073,7 @@ const changePassword = async (req, res) => {
 };
 
 // -------------------------------
-// Update profile photo (Cloudinary)
+// Update profile photo (Digital Ocean S3)
 // -------------------------------
 
 const updateProfilePhoto = async (req, res) => {
@@ -1092,16 +1093,26 @@ const updateProfilePhoto = async (req, res) => {
             });
         }
 
-        // Convert buffer to base64 data URL for Cloudinary
-        const base64 = req.file.buffer.toString('base64');
-        const dataUri = `data:${req.file.mimetype || 'image/jpeg'};base64,${base64}`;
+        const companyId = req.staff?.businessId ? String(req.staff.businessId) : undefined;
+        const employeeName = req.staff?.name || req.user?.name;
 
-        const uploadResult = await cloudinary.uploader.upload(dataUri, {
-            folder: 'hrms/profile_photos',
-            resource_type: 'image'
+        const uploadResult = await digitalOceanService.uploadImage(req.file.buffer, undefined, {
+            req,
+            companyId,
+            employeeName,
+            category: 'employees',
+            subfolder: 'avatar',
+            format: req.file.mimetype?.includes('png') ? 'png' : 'jpg',
         });
 
-        const photoUrl = uploadResult.secure_url;
+        if (!uploadResult.success) {
+            return res.status(500).json({
+                success: false,
+                error: { message: uploadResult.error || 'Failed to upload profile photo' }
+            });
+        }
+
+        const photoUrl = uploadResult.url;
 
         // Update User avatar
         const user = await User.findById(userId);

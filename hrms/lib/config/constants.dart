@@ -16,7 +16,7 @@ class AppConstants {
   /// If Places/Directions return no data or straight-line only, check key restrictions
   /// (unrestricted or allow this app's package/bundle ID).
   static const String googleMapsApiKey =
-      'AIzaSyBDN9W0gmkubT8jrEtoJ96g7IgxXsSmgsM';
+      'AIzaSyBcoj_g5hxrsv3mEJCVF1Uev_JZRcFO0F8';
 
   /// Privacy policy URL (required for Play Store).
   static const String privacyPolicyUrl =

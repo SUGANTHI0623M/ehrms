@@ -146,9 +146,10 @@ const getPayrollStats = async (req, res) => {
             const workingDays = attendanceStats.workingDays || 0;
             const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? workingDays;
             const presentDays = attendanceStats.presentDays || 0;
-            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 1;
-            
-            console.log(`[getPayrollStats] Payroll exists path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
+            const paidLeaveDays = attendanceStats.paidLeaveDays || 0;
+            const effectivePaidDays = presentDays + paidLeaveDays;
+            const prorationFactor = thisMonthWorkingDays > 0 ? effectivePaidDays / thisMonthWorkingDays : 1;
+            console.log(`[getPayrollStats] Payroll exists path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, paidLeaveDays=${paidLeaveDays}, prorationFactor=${prorationFactor}`);
             
             // Get fine amount from attendance records
             const Attendance = require('../models/Attendance');
@@ -331,8 +332,10 @@ const getPayrollStats = async (req, res) => {
         const workingDays = attendanceStats.workingDays || 0;
         const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? workingDays;
         const presentDays = attendanceStats.presentDays || 0;
-        const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
-        console.log(`[getPayrollStats] No-payroll path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, prorationFactor=${prorationFactor}`);
+        const paidLeaveDays = attendanceStats.paidLeaveDays || 0;
+        const effectivePaidDays = presentDays + paidLeaveDays;
+        const prorationFactor = thisMonthWorkingDays > 0 ? effectivePaidDays / thisMonthWorkingDays : 0;
+        console.log(`[getPayrollStats] No-payroll path: thisMonthWorkingDays=${thisMonthWorkingDays}, workingDaysTillToday=${workingDays}, presentDays=${presentDays}, paidLeaveDays=${paidLeaveDays}, prorationFactor=${prorationFactor}`);
         
         // STEP 1: Prorate Gross Fixed Components
         const proratedBasicSalary = basicSalary * prorationFactor;
@@ -623,7 +626,14 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         const d = new Date(a.date).toISOString().split('T')[0];
         const status = (a.status || '').trim().toLowerCase();
         const leaveType = (a.leaveType || '').trim().toLowerCase();
-        dateMap[d] = { attendanceStatus: status, attendanceLeaveType: leaveType };
+        const isPaidLeave = a.isPaidLeave === true;
+        const compensationType = (a.compensationType || '').trim().toLowerCase();
+        dateMap[d] = {
+            attendanceStatus: status,
+            attendanceLeaveType: leaveType,
+            isPaidLeave,
+            compensationType
+        };
     });
 
     // 2. Process Leave Records for Half Day and build leave-date set (for leave count)
@@ -661,12 +671,12 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         let dayValue = 0;
         let reason = '';
         
-        // Present, Approved, or Half day status are counted (case insensitive)
+        // Present, Approved, or Half day status only (paid leave counted separately)
         // Half day = 0.5, full day = 1.0
         if (status === 'present' || status === 'approved' || status === 'half day') {
             // Check if it's half day via status, leaveType, or Leave collection
             const isHalfDay = status === 'half day' || attLeaveType === 'half day' || data.hasHalfDayLeave === true;
-            
+
             if (isHalfDay) {
                 dayValue = 0.5;
                 reason = `Half Day (status="${status}", leaveType="${attLeaveType}", hasHalfDayLeave=${data.hasHalfDayLeave})`;
@@ -712,18 +722,30 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
         }
     });
 
-    // Absent days = Working days - Present days
-    const absentDays = Math.max(0, workingDays - presentDays);
+    // Paid leave days (On Leave with isPaidLeave, excl weekOff/compOff) - separate from present
+    const paidLeaveDays = Object.entries(dateMap).reduce((sum, [date, data]) => {
+        if (date > todayStr) return sum;
+        const s = (data.attendanceStatus || '').trim().toLowerCase();
+        const isPaid = data.isPaidLeave === true;
+        const comp = (data.compensationType || '').trim().toLowerCase();
+        if (s === 'on leave' && isPaid && comp !== 'weekoff' && comp !== 'compoff') return sum + 1;
+        return sum;
+    }, 0);
+
+    // For salary proration: use (presentDays + paidLeaveDays)
+    const effectivePaidDays = presentDays + paidLeaveDays;
+    const absentDays = Math.max(0, workingDays - effectivePaidDays);
 
     const result = {
         workingDays,
         workingDaysFullMonth,
         presentDays,
+        paidLeaveDays,
         absentDays,
         holidays,
         halfDayPaidLeaveCount,
         leaveDays,
-        attendancePercentage: workingDays > 0 ? (presentDays / workingDays) * 100 : 0
+        attendancePercentage: workingDays > 0 ? (effectivePaidDays / workingDays) * 100 : 0
     };
     
     // Additional debug logging

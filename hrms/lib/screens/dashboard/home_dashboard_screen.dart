@@ -353,7 +353,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       String weeklyOffPattern = 'standard';
       List<int> weeklyHolidays = [];
       final weeklyHolidayTemplate = staffData['weeklyHolidayTemplateId'];
-      final hasTemplate = weeklyHolidayTemplate is Map<String, dynamic> &&
+      final hasTemplate =
+          weeklyHolidayTemplate is Map<String, dynamic> &&
           (weeklyHolidayTemplate['settings'] != null) &&
           (weeklyHolidayTemplate['isActive'] != false);
       if (hasTemplate) {
@@ -435,17 +436,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
 
-      // 4. Present days – prefer backend (same as payslip/salary overview); else compute from records
+      // 4. Present days and Paid Leave – separate (present excludes paid leave)
       double presentDays = 0;
-      if (backendStats != null &&
-          backendStats['attendance'] != null &&
-          (backendStats['attendance'] as Map)['presentDays'] != null) {
-        presentDays =
-            ((backendStats['attendance'] as Map)['presentDays'] as num)
-                .toDouble();
+      double paidLeaveDays = 0;
+      if (backendStats != null && backendStats['attendance'] != null) {
+        final att = backendStats['attendance'] as Map;
+        presentDays = (att['presentDays'] as num?)?.toDouble() ?? 0;
+        paidLeaveDays = (att['paidLeaveDays'] as num?)?.toDouble() ?? 0;
       }
-      // Present days = till today only (same as backend / salary overview)
-      if (presentDays == 0 && attendanceRecords.isNotEmpty) {
+      if (presentDays == 0 && paidLeaveDays == 0 && attendanceRecords.isNotEmpty) {
         final todayDate = DateTime(
           DateTime.now().year,
           DateTime.now().month,
@@ -461,19 +460,29 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 recordDate.month,
                 recordDate.day,
               );
-              if (recordDay.isAfter(todayDate)) continue; // Skip future dates
+              if (recordDay.isAfter(todayDate)) continue;
             } catch (_) {}
           }
           final status = (record['status'] as String? ?? '')
               .trim()
               .toLowerCase();
-          if (status == 'present' ||
+          final leaveType = (record['leaveType'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final isPaidLeave = record['isPaidLeave'] == true;
+          final compensationType =
+              (record['compensationType'] as String? ?? '').trim().toLowerCase();
+          final isPaidLeaveDay = status == 'on leave' &&
+              isPaidLeave &&
+              compensationType != 'weekoff' &&
+              compensationType != 'compoff';
+          final isHalfDay = status == 'half day' || leaveType == 'half day';
+
+          if (isPaidLeaveDay) {
+            paidLeaveDays += 1.0;
+          } else if (status == 'present' ||
               status == 'approved' ||
               status == 'half day') {
-            final leaveType = (record['leaveType'] as String? ?? '')
-                .trim()
-                .toLowerCase();
-            final isHalfDay = status == 'half day' || leaveType == 'half day';
             if (isHalfDay) {
               presentDays += 0.5;
             } else {
@@ -650,7 +659,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       final proratedSalary = calculateProratedSalary(
         calculatedSalary,
         thisMonthWorkingDaysForProration,
-        presentDays,
+        presentDays + paidLeaveDays,
         totalFineAmount,
       );
 
@@ -692,9 +701,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       final formatter = NumberFormat('#,##0.00');
       monthSalary = formatter.format(salaryValue);
     }
-    // Present days from dashboard stats (only 'Present' status); used for This Month Net subtitle
-    final presentDays =
+    // Present days and paid leave for This Month Net subtitle (e.g. "3 days present + 1 PL")
+    final presentDaysVal =
         _stats?['attendanceSummary']?['presentDays']?.toString() ?? '0';
+    final paidLeaveDaysVal =
+        _stats?['attendanceSummary']?['paidLeaveDays']?.toString() ?? '0';
+    final presentDaysInt = int.tryParse(presentDaysVal) ?? 0;
+    final paidLeaveInt = int.tryParse(paidLeaveDaysVal) ?? 0;
+    final presentDays = paidLeaveInt > 0
+        ? '$presentDaysInt days present + $paidLeaveInt PL'
+        : (presentDaysInt > 0 ? '$presentDaysInt days present' : '');
 
     final content = RefreshIndicator(
       onRefresh: _loadData,
@@ -1489,14 +1505,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     color: Color(0xFF1E293B),
                   ),
                 ),
-                   Text(
-                    'Pending',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
+                Text(
+                  'Pending',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
               ],
             ),
           ),
@@ -1560,9 +1576,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     ),
                   ),
                 ),
-                if (presentDays != '0' && presentDays.isNotEmpty)
+                if (presentDays.isNotEmpty)
                   Text(
-                    '$presentDays days present',
+                    presentDays,
                     style: TextStyle(
                       fontSize: 10,
                       color: Colors.grey.shade600,
@@ -2487,6 +2503,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     // Use date strings (yyyy-MM-dd) as keys to avoid conflicts and ensure accurate matching
     Map<String, String> dayStatusByDate = {};
     Map<String, String?> dayLeaveTypeByDate = {};
+    Map<String, bool> dayIsPaidLeaveByDate = {};
+    Map<String, String> dayCompensationTypeByDate = {};
     Map<String, num?> dayWorkHoursByDate = {};
     if (_monthData != null && _monthData!['attendance'] != null) {
       for (var entry in _monthData!['attendance']) {
@@ -2512,6 +2530,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           final leaveType = entry['leaveType'] as String?;
           if (leaveType != null && leaveType.isNotEmpty) {
             dayLeaveTypeByDate[dateStr] = leaveType;
+          }
+          if (entry['isPaidLeave'] == true) {
+            dayIsPaidLeaveByDate[dateStr] = true;
+          }
+          final compType = entry['compensationType'] as String?;
+          if (compType != null && compType.toString().trim().isNotEmpty) {
+            dayCompensationTypeByDate[dateStr] =
+                compType.toString().trim().toLowerCase();
           }
           num? workHours = entry['workHours'] as num?;
 
@@ -2577,7 +2603,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     // Dates in this month that are alternate work dates (employee can check-in; do not show as week-off/violet)
     Set<String> alternateWorkDatesInMonthSet = {};
-    if (_monthData != null && _monthData!['alternateWorkDatesInMonth'] != null) {
+    if (_monthData != null &&
+        _monthData!['alternateWorkDatesInMonth'] != null) {
       final altDates = _monthData!['alternateWorkDatesInMonth'] as List;
       for (var dateStr in altDates) {
         if (dateStr is String) {
@@ -2728,10 +2755,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // 3. Do NOT show violet for alternate work dates (compensation week-off days when employee can check-in)
               bool isWeekOff = weekOffDateSet.contains(dateStr);
               if (isWeekOff && alternateWorkDatesInMonthSet.contains(dateStr)) {
-                isWeekOff = false; // Alternate work date: can check-in, don't highlight as week off
+                isWeekOff =
+                    false; // Alternate work date: can check-in, don't highlight as week off
               }
               // Validation: Sundays are always week off (unless it's an alternate work date)
-              if (dayOfWeek == 0 && !alternateWorkDatesInMonthSet.contains(dateStr)) {
+              if (dayOfWeek == 0 &&
+                  !alternateWorkDatesInMonthSet.contains(dateStr)) {
                 isWeekOff = true;
               }
 
@@ -2831,13 +2860,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 }
               }
 
-              // Leave type abbreviation logic (inside isCurrentMonth block where variables are available):
-              // - If Present with leaveType → Show CL/SL/HA (green background)
-              // - If Half Day → Show "HA" (blue background)
-              // - If Leave date without attendance → Show "L" (purple background)
+              // Leave type abbreviation logic: PL=Paid Leave, L=Leave, HA=Half Day, CF=Comp Off, WF=Week Off, WD=Working Day
               final statusForDay = dayStatusByDate[dateStr] ?? '';
-              final isAbsentStatusForAbbr =
-                  (statusForDay.toString().toLowerCase() == 'absent');
+              final statusLower = statusForDay.toString().toLowerCase();
+              final isAbsentStatusForAbbr = statusLower == 'absent';
               final isPresentStatusForAbbr =
                   (statusForDay == 'Present' ||
                       statusForDay == 'Approved' ||
@@ -2846,26 +2872,32 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   !isAbsentStatusForAbbr &&
                   statusForDay != 'Rejected';
               final isHalfDayStatusForAbbr =
-                  statusForDay == 'Half Day' ||
-                  statusForDay.toLowerCase() == 'half day';
-              final hasLeaveTypeForAbbr = dayLeaveTypeByDate.containsKey(
-                dateStr,
-              );
+                  statusForDay == 'Half Day' || statusLower == 'half day';
+              final hasLeaveTypeForAbbr = dayLeaveTypeByDate.containsKey(dateStr);
+              final isOnLeaveStatus = statusLower == 'on leave';
+              final isPaidLeaveDay = dayIsPaidLeaveByDate[dateStr] == true;
+              final compType = dayCompensationTypeByDate[dateStr] ?? '';
 
               if (isPresentStatusForAbbr && hasLeaveTypeForAbbr) {
-                // Present with leaveType → Show CL/SL/HA (green background)
                 leaveTypeAbbr = AttendanceDisplayUtil.leaveTypeToAbbreviation(
                   dayLeaveTypeByDate[dateStr],
                 );
-              } else if (isHalfDayStatusForAbbr) {
-                // Half Day → Show "HA" (blue background)
-                leaveTypeAbbr = 'HA';
+              } else if (isWeekOff) {
+                leaveTypeAbbr = 'WF';
               } else if (alternateWorkDatesInMonthSet.contains(dateStr)) {
-                // Alternate Working Day → Show "WD" (light brown background)
                 leaveTypeAbbr = 'WD';
-              } else if (leaveDateSet.contains(dateStr) &&
+              } else if (isHalfDayStatusForAbbr) {
+                leaveTypeAbbr = 'HA';
+              } else if (isOnLeaveStatus &&
+                  (compType == 'compoff' || compType == 'comp off')) {
+                leaveTypeAbbr = 'CF';
+              } else if (isOnLeaveStatus &&
+                  isPaidLeaveDay &&
+                  compType != 'weekoff' &&
+                  compType != 'compoff') {
+                leaveTypeAbbr = 'PL';
+              } else if ((leaveDateSet.contains(dateStr) || isOnLeaveStatus) &&
                   !isPresentStatusForAbbr) {
-                // Leave date without attendance → Show "L" (purple background)
                 leaveTypeAbbr = 'L';
               }
 

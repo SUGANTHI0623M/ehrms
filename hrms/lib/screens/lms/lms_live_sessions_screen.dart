@@ -399,7 +399,7 @@ class _LmsLiveSessionsScreenState extends State<LmsLiveSessionsScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppColors.primary),
             child: const Text('Delete'),
           ),
         ],

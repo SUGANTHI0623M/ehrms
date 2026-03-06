@@ -18,6 +18,7 @@ const announcementRoutes = require('./src/routes/announcementRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
 const trackingRoutes = require('./src/routes/trackingRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
+const monitoringRoutes = require('./src/routes/monitoringRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -64,6 +65,7 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/monitoring', monitoringRoutes);
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

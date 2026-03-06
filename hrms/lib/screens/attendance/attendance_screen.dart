@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
@@ -6,6 +7,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/attendance_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/attendance_template_store.dart';
 import '../../utils/attendance_display_util.dart';
 import '../attendance/selfie_checkin_screen.dart';
 import '../../utils/snackbar_utils.dart';
@@ -34,6 +36,7 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen>
     with SingleTickerProviderStateMixin {
   Map<String, dynamic>? _attendanceData;
+
   /// Date we last fetched attendance status for (ensures selected-date card shows correct date)
   DateTime? _attendanceDataFetchedFor;
   final AttendanceService _attendanceService = AttendanceService();
@@ -62,6 +65,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   // Precomputed maps/sets for calendar coloring (mirrors dashboard calendar)
   final Map<String, String> _dayStatusByDate = {};
   final Map<String, String?> _dayLeaveTypeByDate = {};
+  final Map<String, bool> _dayIsPaidLeaveByDate = {};
+  final Map<String, String> _dayCompensationTypeByDate = {};
   final Map<String, num?> _dayWorkHoursByDate = {};
   final Set<String> _holidayDateSet = {};
   final Set<String> _weekOffDateSet = {};
@@ -94,8 +99,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _isWeeklyOff = false;
   bool _isAlternateWorkDate = false;
   bool _isCompensationWeekOff = false;
+  bool _isCompensationCompOff = false;
+  bool _isPaidLeaveToday = false;
   Map<String, dynamic>? _holidayInfo;
   bool? _checkedInFromApi;
+
+  /// True while fetching template details on open.
+  bool _isFetchingTemplateDetails = false;
 
   /// Company fine calculation (company.settings.payroll.fineCalculation) fetched by staff's businessId.
   Map<String, dynamic>? _fineCalculation;
@@ -136,21 +146,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Future<void> _initData({bool forceRefresh = false}) async {
     if (!mounted) return;
-    // Clear lists and show loader so we never show stale data (avoids Jan → Feb flicker)
     setState(() {
       _historyList = [];
       _monthData = null;
       _isLoadingHistory = true;
       _isLoadingMonthData = true;
       _retryingTemplateFetch = false;
+      _isFetchingTemplateDetails = true;
     });
     if (!mounted) return;
-    // Check staff's template id from profile first (from staffs collection at login) so we never show "Template not mapped" then refresh to check-in/out
-    await _updateStaffHasAttendanceTemplate();
+
+    // Fetch fresh template details on open (profile + today attendance).
+    // No re-login needed when templates change; stored in SharedPrefs for check-in alert/selfie.
+    _attendanceService.clearCachesForRefresh();
+    await _fetchAllTemplateDetails();
     if (!mounted) return;
-    // Always fetch today's attendance status on init (for Mark Attendance tab)
-    await _fetchAttendanceStatus(date: DateTime.now());
+
+    setState(() => _isFetchingTemplateDetails = false);
     if (!mounted) return;
+
     await _fetchHistory(refresh: true);
     if (!mounted) return;
     await _fetchMonthData(
@@ -160,6 +174,109 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     if (!mounted) return;
     await _fetchFineCalculation();
+  }
+
+  /// Fetches profile + today attendance, saves template details to SharedPrefs.
+  /// Ensures fresh shift, attendance template, branch, holiday info when templates change.
+  Future<void> _fetchAllTemplateDetails() async {
+    try {
+      debugPrint('[Attendance] Fetching template details...');
+      // 1. Fresh profile for staff assignment (attendanceTemplateId, branchId)
+      final profileResult = await _authService.getProfile();
+      if (!mounted) return;
+      final staffData =
+          profileResult['data']?['staffData'] as Map<String, dynamic>?;
+      final templateId = staffData?['attendanceTemplateId'];
+      final hasTemplate =
+          templateId != null &&
+          (templateId is String
+              ? templateId.toString().trim().isNotEmpty
+              : true);
+      debugPrint(
+        '[Attendance] Profile fetched: staffHasTemplate=$hasTemplate, templateId=$templateId',
+      );
+      if (mounted) setState(() => _staffHasAttendanceTemplate = hasTemplate);
+
+      // 2. Fresh today attendance (template, branch, shift, holiday, etc.)
+      final todayStr =
+          '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
+      debugPrint('[Attendance] Fetching today attendance: $todayStr');
+      final result = await _attendanceService.getAttendanceByDate(todayStr);
+      if (!mounted) return;
+
+      if (result['success'] == true && result['data'] != null) {
+        final responseBody = result['data'] as Map<String, dynamic>?;
+        Map<String, dynamic>? template;
+        if (responseBody != null) {
+          template = responseBody['template'] as Map<String, dynamic>?;
+          final branch = responseBody['branch'];
+          if (mounted) {
+            setState(() {
+              _attendanceTemplate = template;
+              _branchData = branch is Map<String, dynamic> ? branch : null;
+              _isOnLeave = responseBody['isOnLeave'] ?? false;
+              _leaveMessage = responseBody['leaveMessage'] as String?;
+              _halfDayLeave =
+                  responseBody['halfDayLeave'] as Map<String, dynamic>?;
+              _checkInAllowed = responseBody['checkInAllowed'] ?? true;
+              _checkOutAllowed = responseBody['checkOutAllowed'] ?? true;
+              _shiftAssigned = responseBody['shiftAssigned'] as bool? ?? true;
+              _isHoliday = responseBody['isHoliday'] ?? false;
+              _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
+              _isAlternateWorkDate =
+                  responseBody['isAlternateWorkDate'] ?? false;
+              _isCompensationWeekOff =
+                  responseBody['isCompensationWeekOff'] ?? false;
+              _isCompensationCompOff =
+                  responseBody['isCompensationCompOff'] ?? false;
+              _isPaidLeaveToday = responseBody['isPaidLeaveToday'] ?? false;
+              _holidayInfo = responseBody['holidayInfo'];
+              _checkedInFromApi = responseBody['checkedIn'] as bool?;
+              _attendanceStatusFetched = true;
+            });
+          }
+          final data = responseBody['data'] ?? responseBody;
+          if (mounted) {
+            setState(() {
+              _attendanceData = data is Map<String, dynamic> ? data : null;
+              _attendanceDataFetchedFor = DateTime.now();
+            });
+          }
+
+          // Store in SharedPrefs for check-in alert and selfie check-in
+          final toStore = <String, dynamic>{
+            'template': template,
+            'branch': branch,
+            'shiftAssigned': responseBody['shiftAssigned'] ?? true,
+            'isHoliday': responseBody['isHoliday'] ?? false,
+            'isWeeklyOff': responseBody['isWeeklyOff'] ?? false,
+            'holidayInfo': responseBody['holidayInfo'],
+            'checkInAllowed': responseBody['checkInAllowed'] ?? true,
+            'checkOutAllowed': responseBody['checkOutAllowed'] ?? true,
+          };
+          await AttendanceTemplateStore.saveTemplateDetails(toStore);
+          debugPrint(
+            '[Attendance] Template details saved to SharedPrefs: template=${template != null}, branch=${branch != null}, shiftAssigned=${responseBody['shiftAssigned']}',
+          );
+          debugPrint('[Attendance] Template fetch complete');
+        }
+      } else {
+        debugPrint(
+          '[Attendance] Today attendance fetch failed or empty: success=${result['success']}, hasData=${result['data'] != null}',
+        );
+        if (mounted &&
+            _attendanceTemplate == null &&
+            _staffHasAttendanceTemplate == true &&
+            !_retryingTemplateFetch) {
+          setState(() => _retryingTemplateFetch = true);
+          await _fetchAllTemplateDetails();
+        }
+      }
+    } catch (e, st) {
+      debugPrint('[Attendance] Template fetch error: $e');
+      debugPrint('[Attendance] Stack trace: $st');
+      if (mounted) setState(() => _attendanceStatusFetched = true);
+    }
   }
 
   Future<void> _fetchFineCalculation() async {
@@ -261,6 +378,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Rebuild lookup maps/sets so History calendar matches dashboard calendar.
       _dayStatusByDate.clear();
       _dayLeaveTypeByDate.clear();
+      _dayIsPaidLeaveByDate.clear();
+      _dayCompensationTypeByDate.clear();
       _dayWorkHoursByDate.clear();
       _holidayDateSet.clear();
       _weekOffDateSet.clear();
@@ -294,6 +413,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               final leaveType = entry['leaveType'] as String?;
               if (leaveType != null && leaveType.isNotEmpty) {
                 _dayLeaveTypeByDate[dateStr] = leaveType;
+              }
+              if (entry['isPaidLeave'] == true) {
+                _dayIsPaidLeaveByDate[dateStr] = true;
+              }
+              final compType = entry['compensationType'] as String?;
+              if (compType != null && compType.toString().trim().isNotEmpty) {
+                _dayCompensationTypeByDate[dateStr] = compType
+                    .toString()
+                    .trim()
+                    .toLowerCase();
               }
 
               num? workHours = entry['workHours'] as num?;
@@ -490,8 +619,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               _shiftAssigned = responseBody['shiftAssigned'] as bool? ?? true;
               _isHoliday = responseBody['isHoliday'] ?? false;
               _isWeeklyOff = responseBody['isWeeklyOff'] ?? false;
-              _isAlternateWorkDate = responseBody['isAlternateWorkDate'] ?? false;
-              _isCompensationWeekOff = responseBody['isCompensationWeekOff'] ?? false;
+              _isAlternateWorkDate =
+                  responseBody['isAlternateWorkDate'] ?? false;
+              _isCompensationWeekOff =
+                  responseBody['isCompensationWeekOff'] ?? false;
+              _isCompensationCompOff =
+                  responseBody['isCompensationCompOff'] ?? false;
+              _isPaidLeaveToday = responseBody['isPaidLeaveToday'] ?? false;
               _holidayInfo = responseBody['holidayInfo'];
               _checkedInFromApi = responseBody['checkedIn'] as bool?;
             });
@@ -506,10 +640,35 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
         }
 
-        if (mounted) setState(() {
-          _attendanceData = data;
-          _attendanceDataFetchedFor = dateToFetch;
-        });
+        if (mounted)
+          setState(() {
+            _attendanceData = data;
+            _attendanceDataFetchedFor = dateToFetch;
+          });
+
+        // Save template details for today (for check-in alert and selfie check-in)
+        final now = DateTime.now();
+        final isToday =
+            dateToFetch.year == now.year &&
+            dateToFetch.month == now.month &&
+            dateToFetch.day == now.day;
+        if (isToday && responseBody != null && responseBody is Map) {
+          final template = responseBody['template'];
+          final branch = responseBody['branch'];
+          if (template != null || (branch is Map<String, dynamic>)) {
+            final toStore = <String, dynamic>{
+              'template': template,
+              'branch': branch,
+              'shiftAssigned': responseBody['shiftAssigned'] ?? true,
+              'isHoliday': responseBody['isHoliday'] ?? false,
+              'isWeeklyOff': responseBody['isWeeklyOff'] ?? false,
+              'holidayInfo': responseBody['holidayInfo'],
+              'checkInAllowed': responseBody['checkInAllowed'] ?? true,
+              'checkOutAllowed': responseBody['checkOutAllowed'] ?? true,
+            };
+            AttendanceTemplateStore.saveTemplateDetails(toStore);
+          }
+        }
 
         // Staff has template id but response had no template (e.g. first request failed) — retry once so we don't show "Template not mapped" then refresh to punch
         if (mounted &&
@@ -705,6 +864,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final punchOut = record['punchOut'];
     final workHours = record['workHours'];
     final status = record['status'] ?? 'Present';
+    final compensationType = (record['compensationType'] as String? ?? '')
+        .toString()
+        .trim();
+    final isPaidLeave = record['isPaidLeave'] == true;
     // Prefer half-day details from Leaves collection (leaveDetails), else from attendance record
     final leaveDetails = record['leaveDetails'] as Map<String, dynamic>?;
     final leaveType =
@@ -858,17 +1021,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 Icons.info_outline,
                                 statusColor,
                               ),
-                              // Leave details from Leaves collection: Leave type, Session, Reason, Approved at, Approved by
+                              const SizedBox(height: 16),
+                              _buildDetailRow(
+                                'Compensation Type',
+                                compensationType.isNotEmpty
+                                    ? compensationType
+                                    : '-',
+                                Icons.swap_horiz,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildDetailRow(
+                                'Leave Type',
+                                leaveType != null &&
+                                        leaveType.toString().trim().isNotEmpty
+                                    ? leaveType.toString().trim()
+                                    : '-',
+                                Icons.event_busy,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildDetailRow(
+                                'Paid Leave',
+                                isPaidLeave ? 'Yes' : 'No',
+                                Icons.paid_outlined,
+                              ),
+                              // Leave details from Leaves collection: Session, Reason, Approved at, Approved by
                               if (leaveDetails != null) ...[
-                                if (leaveType != null &&
-                                    leaveType.toString().trim().isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  _buildDetailRow(
-                                    'Leave type',
-                                    leaveType.toString().trim(),
-                                    Icons.event_busy,
-                                  ),
-                                ],
                                 if (session != null && session.isNotEmpty) ...[
                                   const SizedBox(height: 16),
                                   _buildDetailRow(
@@ -1419,11 +1596,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             : isEarly
             ? Icons.schedule_rounded
             : Icons.info_outline_rounded;
-        final Color iconColor = isLate
-            ? const Color(0xFFFF9800)
-            : isEarly
-            ? const Color(0xFF2196F3)
-            : AppColors.warning;
+        final Color iconColor = AppColors.primary;
 
         final colorScheme = Theme.of(context).colorScheme;
         return Dialog(
@@ -1519,7 +1692,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       builder: (BuildContext context) {
         const String title = 'Cannot mark attendance';
         const IconData iconData = Icons.warning_amber_rounded;
-        final Color iconColor = AppColors.error;
+        final Color iconColor = AppColors.primary;
 
         final colorScheme = Theme.of(context).colorScheme;
         return Dialog(
@@ -1575,7 +1748,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   SizedBox(
                     width: double.infinity,
                     child: Material(
-                      color: AppColors.error,
+                      color: AppColors.primary,
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         onTap: () => Navigator.of(context).pop(),
@@ -2082,11 +2255,79 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return d.round();
   }
 
-  bool _isLowWorkHours(num? workHours) {
+  /// Returns shift duration in minutes (from template shiftStartTime to shiftEndTime).
+  int _getShiftHoursMinutes() {
+    final b = _getHalfDaySessionBoundaries();
+    if (b == null) return 540;
+    try {
+      final startParts = b['session1Start']!.split(':').map(int.parse).toList();
+      final endParts = b['session2End']!.split(':').map(int.parse).toList();
+      int startMins =
+          (startParts.isNotEmpty ? startParts[0] : 0) * 60 +
+          (startParts.length > 1 ? startParts[1] : 0);
+      int endMins =
+          (endParts.isNotEmpty ? endParts[0] : 0) * 60 +
+          (endParts.length > 1 ? endParts[1] : 0);
+      if (endMins <= startMins) endMins += 24 * 60;
+      return endMins - startMins;
+    } catch (_) {
+      return 540;
+    }
+  }
+
+  /// Returns half-day required hours in minutes (shift duration / 2).
+  int _getHalfDayHoursMinutes() {
+    return _getShiftHoursMinutes() ~/ 2;
+  }
+
+  /// Only show low hrs for Present and Half Day. Never for Leave, Week Off, Paid Leave.
+  /// - workHours = 0: don't show low hrs
+  /// - Present: show when workHours < shift hours
+  /// - Half Day: show when workHours < half day hours
+  bool _shouldShowLowWorkHours(dynamic record) {
+    if (record == null || record is! Map) return false;
+    final status = (record['status'] as String? ?? 'Present')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final compType = (record['compensationType'] as String? ?? '')
+        .toString()
+        .toLowerCase();
+
+    // Don't show for leave, week off, paid leave, comp off
+    if (status == 'on leave') return false;
+    if (compType == 'weekoff' || compType == 'compoff') return false;
+    if (status == 'weekend' ||
+        status == 'holiday' ||
+        status == 'absent' ||
+        status == 'rejected' ||
+        status == 'pending')
+      return false;
+
+    // Only Present and Half Day
+    final isPresent = status == 'present' || status == 'approved';
+    final isHalfDay = status == 'half day';
+    if (!isPresent && !isHalfDay) return false;
+
+    num? workHours = record['workHours'] as num?;
+    // Calculate from punchIn/punchOut if not present
+    if (workHours == null &&
+        record['punchIn'] != null &&
+        record['punchOut'] != null) {
+      try {
+        final pi = DateTime.parse(record['punchIn'].toString()).toLocal();
+        final po = DateTime.parse(record['punchOut'].toString()).toLocal();
+        workHours = po.difference(pi).inMinutes;
+      } catch (_) {}
+    }
+    if (workHours == null) return false;
     final mins = _workHoursToMinutes(workHours);
-    if (mins == null) return false;
-    // Low when < 9 hours (540 minutes)
-    return mins < 540;
+    if (mins == null || mins <= 0) return false;
+
+    if (isHalfDay) {
+      return mins < _getHalfDayHoursMinutes();
+    }
+    return mins < _getShiftHoursMinutes();
   }
 
   /// Formats work hours with unit "min" / "mins". Value from API is in minutes.
@@ -2184,7 +2425,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (isWeekOff && _alternateWorkDatesInMonth.contains(dateStr)) {
         isWeekOff = false;
       }
-      if (dayOfWeek == DateTime.sunday && !_alternateWorkDatesInMonth.contains(dateStr)) {
+      if (dayOfWeek == DateTime.sunday &&
+          !_alternateWorkDatesInMonth.contains(dateStr)) {
         isWeekOff = true;
       }
 
@@ -2260,17 +2502,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final candidate = DateTime(day.year, day.month, day.day);
         if (candidate.isAfter(today)) {
           bgColor = const Color(0xFFE2E8F0); // Not Marked - Light grey
-          textColor = const Color(0xFF475569); // Darker grey text for visibility
+          textColor = const Color(
+            0xFF475569,
+          ); // Darker grey text for visibility
         }
       }
 
       // Leave type abbreviation logic (inside isCurrentMonth block where variables are available):
-      // - If Present with leaveType → Show CL/SL/HA (green background)
-      // - If Half Day → Show "HA" (blue background)
-      // - If Leave date without attendance → Show "L" (purple background)
+      // PL=Paid Leave, L=Leave, HA=Half Day, CF=Comp Off, WF=Week Off, WD=Working Day
       final statusForDay = _dayStatusByDate[dateStr] ?? '';
-      final isAbsentStatusForAbbr =
-          (statusForDay.toString().toLowerCase() == 'absent');
+      final statusLower = statusForDay.toString().toLowerCase();
+      final isAbsentStatusForAbbr = statusLower == 'absent';
       final isPresentStatusForAbbr =
           (statusForDay == 'Present' ||
               statusForDay == 'Approved' ||
@@ -2279,29 +2521,45 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           !isAbsentStatusForAbbr &&
           statusForDay != 'Rejected';
       final isHalfDayStatusForAbbr =
-          statusForDay == 'Half Day' ||
-          statusForDay.toLowerCase() == 'half day';
+          statusForDay == 'Half Day' || statusLower == 'half day';
       final hasLeaveTypeForAbbr = _dayLeaveTypeByDate.containsKey(dateStr);
+      final isOnLeaveStatus = statusLower == 'on leave';
+      final isPaidLeave = _dayIsPaidLeaveByDate[dateStr] == true;
+      final compType = _dayCompensationTypeByDate[dateStr] ?? '';
 
       if (isPresentStatusForAbbr && hasLeaveTypeForAbbr) {
         // Present with leaveType → Show CL/SL/HA (green background)
         leaveTypeAbbr = AttendanceDisplayUtil.leaveTypeToAbbreviation(
           _dayLeaveTypeByDate[dateStr],
         );
-      } else if (isHalfDayStatusForAbbr) {
-        // Half Day → Show "HA" (blue background)
-        leaveTypeAbbr = 'HA';
+      } else if (isWeekOff) {
+        leaveTypeAbbr = 'WF';
       } else if (_alternateWorkDatesInMonth.contains(dateStr)) {
-        // Alternate Working Day → Show "WD" (light brown background)
         leaveTypeAbbr = 'WD';
-      } else if (_leaveDateSet.contains(dateStr) && !isPresentStatusForAbbr) {
-        // Leave date without attendance → Show "L" (purple background)
+      } else if (isHalfDayStatusForAbbr) {
+        leaveTypeAbbr = 'HA';
+      } else if (isOnLeaveStatus &&
+          (compType == 'compoff' || compType == 'comp off')) {
+        leaveTypeAbbr = 'CF';
+      } else if (isOnLeaveStatus &&
+          isPaidLeave &&
+          compType != 'weekoff' &&
+          compType != 'compoff') {
+        leaveTypeAbbr = 'PL';
+      } else if ((_leaveDateSet.contains(dateStr) || isOnLeaveStatus) &&
+          !isPresentStatusForAbbr) {
         leaveTypeAbbr = 'L';
       }
 
-      // Low work-hours indicator
+      // Low work-hours indicator (only Present and Half Day; not Leave/Week Off/Paid Leave)
       workHours = _dayWorkHoursByDate[dateStr];
-      isLowHours = workHours != null && _isLowWorkHours(workHours);
+      final calendarRecord = <String, dynamic>{
+        'status': statusForDay,
+        'workHours': workHours,
+        'compensationType': isWeekOff ? 'weekoff' : compType,
+        'isPaidLeave': isPaidLeave,
+      };
+      isLowHours = _shouldShowLowWorkHours(calendarRecord);
       isFuture = DateTime(day.year, day.month, day.day).isAfter(todayOnly);
     }
 
@@ -2327,8 +2585,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     color: bgColor != Colors.transparent
                         ? textColor
                         : (isCurrentMonth
-                            ? colorScheme.onSurface
-                            : colorScheme.onSurfaceVariant),
+                              ? colorScheme.onSurface
+                              : colorScheme.onSurfaceVariant),
                   ),
                 ),
                 if (leaveTypeAbbr != null && leaveTypeAbbr.isNotEmpty) ...[
@@ -2473,7 +2731,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final colorScheme = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final todayOnly = DateTime(now.year, now.month, now.day);
-    final selectedDayOnly = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+    final selectedDayOnly = DateTime(
+      _selectedDay.year,
+      _selectedDay.month,
+      _selectedDay.day,
+    );
     final isSelectedDayToday = selectedDayOnly == todayOnly;
 
     final punchIn = _attendanceData?['punchIn'];
@@ -2484,7 +2746,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         (punchIn == null && punchOut == null) &&
         ((_attendanceData?['status'] ?? '') == 'Present' ||
             (_attendanceData?['status'] ?? '') == 'Approved');
-    final canCheckIn = !isCompleted && !isAdminMarked && punchIn == null && isSelectedDayToday;
+    final canCheckIn =
+        !isCompleted && !isAdminMarked && punchIn == null && isSelectedDayToday;
     final canCheckOut = isCheckedIn && isSelectedDayToday;
 
     final punchInTime = punchIn != null ? _formatTimeShort(punchIn) : '--:--';
@@ -3140,7 +3403,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     // 2. Fallback: use _attendanceData from getAttendanceByDate when it corresponds to selected date
-    final isDataForSelectedDay = _attendanceDataFetchedFor != null &&
+    final isDataForSelectedDay =
+        _attendanceDataFetchedFor != null &&
         _selectedDay.year == _attendanceDataFetchedFor!.year &&
         _selectedDay.month == _attendanceDataFetchedFor!.month &&
         _selectedDay.day == _attendanceDataFetchedFor!.day;
@@ -3154,10 +3418,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (isDataForSelectedDay) {
       // Holiday, Weekend, Absent, On Leave with no punch record
       String status = 'Absent';
-      if (_isHoliday) status = 'Holiday';
-      else if (_isWeeklyOff) status = 'Weekend';
-      else if (_halfDayLeave != null) status = 'Half Day';
-      else if (_isOnLeave) status = 'On Leave';
+      if (_isHoliday)
+        status = 'Holiday';
+      else if (_isWeeklyOff)
+        status = 'Weekend';
+      else if (_halfDayLeave != null)
+        status = 'Half Day';
+      else if (_isOnLeave)
+        status = 'On Leave';
 
       final record = <String, dynamic>{
         'date': dateStr,
@@ -3418,68 +3686,97 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: colorScheme.surfaceContainerHighest,
-      appBar: AppBar(
-        leading: const MenuIconButton(),
-        title: Text('Attendance'),
-        actions: [
-          if (_showHistoryView)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.filter_list),
-              onSelected: (value) {
-                setState(() {
-                  _activeFilter = value;
-                });
-                if (value == 'All' || value == 'Late' || value == 'Low Hours') {
-                  final now = DateTime.now();
-                  _fetchMonthData(now.year, now.month);
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'All', child: Text('All')),
-                const PopupMenuItem(
-                  value: 'Late',
-                  child: Text('Late login / Early exit'),
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: colorScheme.surfaceContainerHighest,
+          appBar: AppBar(
+            leading: const MenuIconButton(),
+            title: Text('Attendance'),
+            actions: [
+              if (_showHistoryView)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.filter_list),
+                  onSelected: (value) {
+                    setState(() {
+                      _activeFilter = value;
+                    });
+                    if (value == 'All' ||
+                        value == 'Late' ||
+                        value == 'Low Hours') {
+                      final now = DateTime.now();
+                      _fetchMonthData(now.year, now.month);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'All', child: Text('All')),
+                    const PopupMenuItem(
+                      value: 'Late',
+                      child: Text('Late login / Early exit'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'Low Hours',
+                      child: Text('Late hours'),
+                    ),
+                  ],
                 ),
-                const PopupMenuItem(
-                  value: 'Low Hours',
-                  child: Text('Late hours'),
+            ],
+          ),
+          drawer: AppDrawer(
+            currentIndex: widget.dashboardTabIndex ?? 4,
+            onNavigateToIndex: widget.onNavigateToIndex,
+          ),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              //fine formula
+              if (1 == 0)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  color: Colors.grey.shade100,
+                  child: SelectableText(
+                    _fineCalculationFormulaText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade800,
+                      height: 1.35,
+                    ),
+                  ),
                 ),
-              ],
-            ),
-        ],
-      ),
-      drawer: AppDrawer(
-        currentIndex: widget.dashboardTabIndex ?? 4,
-        onNavigateToIndex: widget.onNavigateToIndex,
-      ),
-      body: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          //fine formula
-          if (1 == 0)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: Colors.grey.shade100,
-              child: SelectableText(
-                _fineCalculationFormulaText,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade800,
-                  height: 1.35,
-                ),
+              Expanded(
+                child: _showHistoryView
+                    ? _buildHistoryTab()
+                    : _buildMarkAttendanceTab(),
+              ),
+            ],
+          ),
+        ),
+        if (_isFetchingTemplateDetails)
+          Container(
+            color: colorScheme.surface.withOpacity(0.7),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: colorScheme.primary),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Loading attendance details...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ],
               ),
             ),
-          Expanded(
-            child: _showHistoryView
-                ? _buildHistoryTab()
-                : _buildMarkAttendanceTab(),
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -3590,7 +3887,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           : isFirstHalfLeave
           ? 'Not allowed check-in. You are on leave on first half.'
           : (_leaveMessage ?? 'Check-in is not allowed at this time.');
-      SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        ErrorMessageUtils.sanitizeForDisplay(msg),
+        isError: true,
+      );
       return;
     }
     if (isCheckedIn && _isOnLeave && !_checkOutAllowed) {
@@ -3599,7 +3900,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           : isFirstHalfLeave
           ? 'Not allowed check-out. You are on leave on first half.'
           : (_leaveMessage ?? 'Check-out is not allowed at this time.');
-      SnackBarUtils.showSnackBar(context, ErrorMessageUtils.sanitizeForDisplay(msg), isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        ErrorMessageUtils.sanitizeForDisplay(msg),
+        isError: true,
+      );
       return;
     }
 
@@ -3609,7 +3914,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return;
     }
     if (_isCompensationWeekOff) {
-      SnackBarUtils.showSnackBar(context, "Today is compensation week off", isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        "Today is compensation week off",
+        isError: true,
+      );
+      return;
+    }
+    if (_isCompensationCompOff) {
+      SnackBarUtils.showSnackBar(context, "Today is comp off", isError: true);
+      return;
+    }
+    if (_isPaidLeaveToday) {
+      SnackBarUtils.showSnackBar(context, "Today is paid leave", isError: true);
       return;
     }
     if (_isWeeklyOff &&
@@ -3817,6 +4134,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final bool _isSecondHalfLeave =
         _resolvedHalf == 'Second Half Day' || _resolvedHalf == '2';
 
+    // PRIORITY 0: Paid leave day - block check-in/out, show "Paid Leave Today"
+    if (_isPaidLeaveToday) {
+      return Card(
+        elevation: 0,
+        color: Colors.blue.withOpacity(0.05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.blue.withOpacity(0.1)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Center(
+            child: Column(
+              children: [
+                Icon(Icons.paid_outlined, size: 48, color: Colors.blue),
+                const SizedBox(height: 16),
+                Text(
+                  'Paid Leave Today',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     // PRIORITY 1: Check if On Approved Leave.
     // Full-day leave: show leave-only card (no punch). Half-day: show leave-only card only when
     // currently in leave session (check-in and check-out both disallowed); otherwise show punch card with half-day message.
@@ -3886,6 +4235,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       holidayText = "Today is compensation week off";
       holidayIcon = Icons.event_busy;
       holidayColor = Colors.orange;
+    } else if (_isCompensationCompOff) {
+      showHolidayCard = true;
+      holidayText = "Today is comp off";
+      holidayIcon = Icons.event_busy;
+      holidayColor = Colors.orange;
+    } else if (_isPaidLeaveToday) {
+      showHolidayCard = true;
+      holidayText = "Paid Leave Today";
+      holidayIcon = Icons.paid_outlined;
+      holidayColor = Colors.blue;
     } else if (_isHoliday &&
         (_attendanceTemplate?['allowAttendanceOnHolidays'] == false ||
             _attendanceTemplate?['allowAttendanceOnHolidays'] == null)) {
@@ -3981,11 +4340,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isCompensationWeekOff
+                  (_isCompensationWeekOff ||
+                          _isCompensationCompOff ||
+                          _isPaidLeaveToday)
                       ? "Punch on your alternate work date instead."
                       : _isHoliday
-                          ? (_holidayInfo?['name'] ?? "Public Holiday")
-                          : "Relax and enjoy your day!",
+                      ? (_holidayInfo?['name'] ?? "Public Holiday")
+                      : "Relax and enjoy your day!",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: holidayColor.withOpacity(0.8)),
                 ),
@@ -4444,22 +4805,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   r['status'] == 'On Leave')) {
             return false;
           }
-          // Calculate workHours (in minutes) if not present
-          num? workHours = r['workHours'];
-          if (workHours == null &&
-              r['punchIn'] != null &&
-              r['punchOut'] != null) {
-            try {
-              final punchIn = DateTime.parse(r['punchIn']).toLocal();
-              final punchOut = DateTime.parse(r['punchOut']).toLocal();
-              final duration = punchOut.difference(punchIn);
-              workHours = duration.inMinutes;
-            } catch (_) {
-              // If parsing fails, skip this record
-              return false;
-            }
-          }
-          return _isLowWorkHours(workHours);
+          return _shouldShowLowWorkHours(r);
         }).toList();
       }
       // For 'All', show all combined data (already filtered to today)
@@ -4478,7 +4824,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           return _isLateCheckOut(r['punchOut'], record: r);
         } else if (_activeFilter == 'Low Work Hours' ||
             _activeFilter == 'Low Hours') {
-          return _isLowWorkHours(r['workHours']);
+          return _shouldShowLowWorkHours(r);
         }
         return true;
       }).toList();
@@ -4499,7 +4845,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final isLateIn = _isLateCheckIn(punchIn, record: record);
     final isLateOut = _isLateCheckOut(punchOut, record: record);
     final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
-    final isLowHours = _isLowWorkHours(workHours);
+    final isLowHours = _shouldShowLowWorkHours(record);
 
     String status = record['status'] ?? 'Present';
     List<String> tags = [];
@@ -4532,11 +4878,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final leaveDetails = record['leaveDetails'] as Map<String, dynamic>?;
     final leaveType =
         (leaveDetails?['leaveType'] ?? record['leaveType']) as String?;
-    final session = (leaveDetails?['session'] ?? record['session'])?.toString();
-    String displayStatus = AttendanceDisplayUtil.formatAttendanceDisplayStatus(
-      status,
-      leaveType,
-      session,
+    // Use history card display: WF, CF, PL, HA, Present, On Leave
+    final recordForDisplay = <String, dynamic>{
+      'status': record['status'] ?? 'Present',
+      'leaveType': leaveType ?? record['leaveType'],
+      'compensationType': record['compensationType'],
+      'isPaidLeave': record['isPaidLeave'],
+    };
+    String displayStatus = AttendanceDisplayUtil.getHistoryCardDisplayStatus(
+      recordForDisplay,
     );
     Color statusColor = Colors.green;
 
@@ -4556,16 +4906,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     final punchInSelfieUrl = record['punchInSelfie'];
-    final bool hasPunchInSelfie = punchInSelfieUrl != null &&
+    final bool hasPunchInSelfie =
+        punchInSelfieUrl != null &&
         punchInSelfieUrl.toString().startsWith('http');
 
     final punchOutSelfieUrl = record['punchOutSelfie'];
-    final bool hasPunchOutSelfie = punchOutSelfieUrl != null &&
+    final bool hasPunchOutSelfie =
+        punchOutSelfieUrl != null &&
         punchOutSelfieUrl.toString().startsWith('http');
 
     String? locationAddress;
-    if (record['location'] != null &&
-        record['location']['punchIn'] != null) {
+    if (record['location'] != null && record['location']['punchIn'] != null) {
       final addr = record['location']['punchIn']['address'];
       if (addr != null && addr.toString().trim().isNotEmpty) {
         locationAddress = addr.toString();
@@ -4578,22 +4929,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       parsedDate = _extractDateOnly(record['date'] ?? '');
     } catch (_) {}
     final dateNum = parsedDate != null ? '${parsedDate.day}' : '--';
-    final dayAbbrev =
-        parsedDate != null ? DateFormat('EEE').format(parsedDate) : '---';
+    final dayAbbrev = parsedDate != null
+        ? DateFormat('EEE').format(parsedDate)
+        : '---';
     num? workHoursVal = workHours;
     if (workHoursVal == null &&
         record['punchIn'] != null &&
         record['punchOut'] != null) {
       try {
-        final pi =
-            DateTime.parse(record['punchIn'].toString()).toLocal();
-        final po =
-            DateTime.parse(record['punchOut'].toString()).toLocal();
+        final pi = DateTime.parse(record['punchIn'].toString()).toLocal();
+        final po = DateTime.parse(record['punchOut'].toString()).toLocal();
         workHoursVal = po.difference(pi).inMinutes;
       } catch (_) {}
     }
-    final totalHoursStr =
-        _formatWorkHoursAsHHmm(workHoursVal is num ? workHoursVal : null);
+    final totalHoursStr = _formatWorkHoursAsHHmm(
+      workHoursVal is num ? workHoursVal : null,
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -4627,10 +4978,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 const SizedBox(height: 2),
                 Text(
                   dayAbbrev,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.white,
-                  ),
+                  style: TextStyle(fontSize: 11, color: Colors.white),
                 ),
               ],
             ),
@@ -4647,26 +4995,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       'Check In',
                       _formatTimeShort(punchIn),
                       colorScheme,
-                      selfieUrl:
-                          hasPunchInSelfie ? punchInSelfieUrl : null,
+                      selfieUrl: hasPunchInSelfie ? punchInSelfieUrl : null,
                       onSelfieTap: hasPunchInSelfie
                           ? () => _showSelfieDialog(
-                                punchInSelfieUrl,
-                                "Check-in Selfie",
-                              )
+                              punchInSelfieUrl,
+                              "Check-in Selfie",
+                            )
                           : null,
                     ),
                     _historyTimeColumn(
                       'Check out',
                       _formatTimeShort(punchOut),
                       colorScheme,
-                      selfieUrl:
-                          hasPunchOutSelfie ? punchOutSelfieUrl : null,
+                      selfieUrl: hasPunchOutSelfie ? punchOutSelfieUrl : null,
                       onSelfieTap: hasPunchOutSelfie
                           ? () => _showSelfieDialog(
-                                punchOutSelfieUrl,
-                                "Check-out Selfie",
-                              )
+                              punchOutSelfieUrl,
+                              "Check-out Selfie",
+                            )
                           : null,
                     ),
                     _historyTimeColumn(
@@ -4701,7 +5047,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     ],
                   ),
                 ],
-                if (displayStatus != 'Present' || tags.isNotEmpty) ...[
+                if (displayStatus.isNotEmpty || tags.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 4,

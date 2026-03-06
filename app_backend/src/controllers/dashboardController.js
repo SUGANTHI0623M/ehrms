@@ -100,9 +100,11 @@ const getEmployeeDashboardStats = async (req, res) => {
         const totalWorkingDays = attendanceStats.workingDays || 0;
         const thisMonthWorkingDays = attendanceStats.workingDaysFullMonth ?? totalWorkingDays;
         const presentDays = attendanceStats.presentDays || 0;
-        const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - presentDays);
+        const paidLeaveDays = attendanceStats.paidLeaveDays || 0;
+        const effectivePaidDays = presentDays + paidLeaveDays;
+        const absentDays = attendanceStats.absentDays ?? Math.max(0, totalWorkingDays - effectivePaidDays);
 
-        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): thisMonthWD=${thisMonthWorkingDays}, workingDaysTillToday=${totalWorkingDays}, presentDays=${presentDays}, absentDays=${absentDays}`);
+        console.log(`[getEmployeeDashboardStats] attendanceStats (same as payslip/salary): thisMonthWD=${thisMonthWorkingDays}, workingDaysTillToday=${totalWorkingDays}, presentDays=${presentDays}, paidLeaveDays=${paidLeaveDays}, absentDays=${absentDays}`);
 
         // 3. Leave Metrics
         const pendingLeavesCount = await Leave.countDocuments({
@@ -244,9 +246,9 @@ const getEmployeeDashboardStats = async (req, res) => {
         let currentMonthSalary = 0;
         let payrollStatus = 'Pending';
 
-        // Use the same calculation logic as salary overview & payroll: proration = presentDays / this month WD (1 day salary = net/this month WD)
+        // Use the same calculation logic as salary overview & payroll: proration = (presentDays + paidLeaveDays) / this month WD
         if (payroll) {
-            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 1;
+            const prorationFactor = thisMonthWorkingDays > 0 ? effectivePaidDays / thisMonthWorkingDays : 1;
             
             // Get staff salary structure for correct proration
             if (staff && staff.salary) {
@@ -308,8 +310,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             // Net Salary = Gross Salary - Employee Deductions
             const netSalary = grossSalary - totalDeductions;
             
-            // Same as salary overview: proration = presentDays / this month working days
-            const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
+            // Same as salary overview: proration = (presentDays + paidLeaveDays) / this month working days
+            const prorationFactor = thisMonthWorkingDays > 0 ? effectivePaidDays / thisMonthWorkingDays : 0;
             
             // STEP 1: Prorate Gross Fixed Components
             const proratedBasicSalary = basicSalary * prorationFactor;
@@ -334,8 +336,8 @@ const getEmployeeDashboardStats = async (req, res) => {
             currentMonthSalary = proratedGrossSalary - proratedDeductions - totalFineAmount;
         }
 
-        const prorationFactor = thisMonthWorkingDays > 0 ? presentDays / thisMonthWorkingDays : 0;
-        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} / thisMonthWD=${thisMonthWorkingDays}, same as salary overview)`);
+        const prorationFactor = thisMonthWorkingDays > 0 ? effectivePaidDays / thisMonthWorkingDays : 0;
+        console.log(`[getEmployeeDashboardStats] prorationFactor: ${prorationFactor} (presentDays=${presentDays} + paidLeaveDays=${paidLeaveDays} / thisMonthWD=${thisMonthWorkingDays})`);
         console.log(`[getEmployeeDashboardStats] currentMonthSalary: ${currentMonthSalary}`);
         console.log(`[getEmployeeDashboardStats] ========================================`);
 
@@ -363,6 +365,7 @@ const getEmployeeDashboardStats = async (req, res) => {
                         totalDays: totalWorkingDays,
                         thisMonthWorkingDays: thisMonthWorkingDays,
                         presentDays: presentDays,
+                        paidLeaveDays: paidLeaveDays,
                         absentDays: absentDays,
                         halfDayPaidLeaveCount: attendanceStats.halfDayPaidLeaveCount ?? 0,
                         leaveDays: attendanceStats.leaveDays ?? 0

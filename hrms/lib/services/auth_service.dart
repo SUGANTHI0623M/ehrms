@@ -9,6 +9,7 @@ import '../config/constants.dart';
 import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 import 'fcm_service.dart';
+import 'attendance_template_store.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -368,6 +369,7 @@ class AuthService {
       }
     }
     _api.clearAuthToken();
+    await AttendanceTemplateStore.clear();
     await prefs.clear();
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();

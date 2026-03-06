@@ -118,6 +118,13 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
           label: 'Attendance',
         ),
       );
+      base.add(
+        const NavItem(
+          icon: Icons.fingerprint_outlined,
+          activeIcon: Icons.fingerprint_rounded,
+          label: 'Punch',
+        ),
+      );
     }
     return base;
   }
@@ -155,6 +162,10 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
             children: List.generate(items.length, (i) {
               final item = items[i];
               final selected = widget.currentIndex == i;
+              final isPunch = item.label == 'Punch';
+              final iconColor = selected
+                  ? Colors.white
+                  : (isPunch ? selectedColor : unselectedColor);
               return Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -178,7 +189,7 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
                     child: Icon(
                       selected ? item.activeIcon : item.icon,
                       size: 24,
-                      color: selected ? Colors.white : unselectedColor,
+                      color: iconColor,
                     ),
                   ),
                 ),
