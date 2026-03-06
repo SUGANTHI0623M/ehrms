@@ -54,8 +54,9 @@ backend/uploads/
 app_backend/uploads/
 backend/
 frontend/
+monitoring_backend/
 
-ektahr_desktop/
+
 app_backend/
 # Firebase / Google Cloud secrets (never commit)
 app_backend/firebase-service-account.json
