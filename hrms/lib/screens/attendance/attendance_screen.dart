@@ -780,9 +780,41 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 ],
               ),
             ),
-            Image.network(imageUrl, fit: BoxFit.cover),
+            SizedBox(
+              width: double.infinity,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) =>
+                    _buildImageNotFoundPlaceholder(),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildImageNotFoundPlaceholder() {
+    return Container(
+      height: 200,
+      width: double.infinity,
+      color: Colors.grey.shade200,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey.shade500),
+          const SizedBox(height: 8),
+          Text(
+            'Image not found',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -968,553 +1000,361 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final pageController = PageController();
-          int currentPage = 0;
-
-          return DraggableScrollableSheet(
-            initialChildSize: 0.9,
-            minChildSize: 0.5,
-            maxChildSize: 0.95,
-            builder: (context, scrollController) => Container(
-              color: colorScheme.surface,
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Attendance Details',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  Expanded(
-                    child: PageView(
-                      controller: pageController,
-                      onPageChanged: (index) {
-                        setModalState(() {
-                          currentPage = index;
-                        });
-                      },
-                      children: [
-                        // Page 1: Basic Details
-                        SingleChildScrollView(
-                          controller: scrollController,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Date
-                              _buildDetailRow(
-                                'Date',
-                                formattedDate,
-                                Icons.calendar_today,
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Status (with leave type e.g. Present (CL), Half Day (Session 1))
-                              _buildDetailRow(
-                                'Status',
-                                displayStatus,
-                                Icons.info_outline,
-                                statusColor,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildDetailRow(
-                                'Compensation Type',
-                                compensationType.isNotEmpty
-                                    ? compensationType
-                                    : '-',
-                                Icons.swap_horiz,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildDetailRow(
-                                'Leave Type',
-                                leaveType != null &&
-                                        leaveType.toString().trim().isNotEmpty
-                                    ? leaveType.toString().trim()
-                                    : '-',
-                                Icons.event_busy,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildDetailRow(
-                                'Paid Leave',
-                                isPaidLeave ? 'Yes' : 'No',
-                                Icons.paid_outlined,
-                              ),
-                              // Leave details from Leaves collection: Session, Reason, Approved at, Approved by
-                              if (leaveDetails != null) ...[
-                                if (session != null && session.isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  _buildDetailRow(
-                                    'Session',
-                                    _formatHalfDaySessionLabel(session),
-                                    Icons.schedule,
-                                  ),
-                                ],
-                                if (leaveReason != null &&
-                                    leaveReason
-                                        .toString()
-                                        .trim()
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  _buildDetailRow(
-                                    'Leave reason',
-                                    leaveReason.toString().trim(),
-                                    Icons.note_outlined,
-                                  ),
-                                ],
-                                if (approvedAt != null) ...[
-                                  const SizedBox(height: 16),
-                                  _buildDetailRow(
-                                    'Approved at',
-                                    _formatApprovedAt(approvedAt),
-                                    Icons.check_circle_outline,
-                                  ),
-                                ],
-                                if (approvedByName != null &&
-                                    approvedByName
-                                        .toString()
-                                        .trim()
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  _buildDetailRow(
-                                    'Approved by',
-                                    approvedByName.toString().trim(),
-                                    Icons.person_outline,
-                                  ),
-                                ],
-                              ],
-                              const SizedBox(height: 16),
-
-                              // Branch Name
-                              if (branchName != null &&
-                                  branchName.isNotEmpty) ...[
-                                _buildDetailRow(
-                                  'Branch Name',
-                                  branchName,
-                                  Icons.business,
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-
-                              // Shift Time
-                              if (_attendanceTemplate != null &&
-                                  (_attendanceTemplate!['shiftStartTime'] !=
-                                          null ||
-                                      _attendanceTemplate!['shiftEndTime'] !=
-                                          null)) ...[
-                                _buildDetailRow(
-                                  'Shift Time',
-                                  '${_attendanceTemplate!['shiftStartTime'] ?? 'N/A'} - ${_attendanceTemplate!['shiftEndTime'] ?? 'N/A'}',
-                                  Icons.access_time,
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-
-                              // Punch In
-                              _buildDetailRow(
-                                'Punch In',
-                                _formatTime(punchIn),
-                                Icons.login_rounded,
-                              ),
-                              // Only show Late Check-in tag when backend did not set lateMinutes to 0 (align with Fine Details)
-                              if (isLateIn &&
-                                  (record['lateMinutes'] == null ||
-                                      (record['lateMinutes'] as num?)
-                                              ?.toDouble() !=
-                                          0)) ...[
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.orange),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.warning,
-                                        size: 16,
-                                        color: Colors.orange,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Late Check-in',
-                                        style: TextStyle(
-                                          color: Colors.orange,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 16),
-
-                              // Punch Out
-                              _buildDetailRow(
-                                'Punch Out',
-                                _formatTime(punchOut),
-                                Icons.logout_rounded,
-                              ),
-                              if (isEarlyOut) ...[
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.red),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.exit_to_app,
-                                        size: 16,
-                                        color: Colors.red,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Early Exit',
-                                        style: TextStyle(
-                                          color: Colors.red,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 16),
-
-                              // Work Hours (stored in minutes in DB; show with unit e.g. "234 mins")
-                              _buildDetailRow(
-                                'Work Hours',
-                                _formatWorkHoursWithUnits(
-                                  workHours is num ? workHours : null,
-                                ),
-                                Icons.access_time,
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Fine Information Section
-                              if (hasFineInfo) ...[
-                                Builder(
-                                  builder: (context) {
-                                    final cs = Theme.of(context).colorScheme;
-                                    return Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: cs.surface,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: cs.outline),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(
-                                                Icons.money_off,
-                                                color: Colors.red.shade700,
-                                                size: 20,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                'Fine Details',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.red.shade700,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 12),
-                                          if (lateMinutes != null) ...[
-                                            _buildFineRow(
-                                              'Late check-in mins',
-                                              '${lateMinutes.toInt()}',
-                                              Icons.schedule,
-                                              Colors.orange,
-                                            ),
-                                            const SizedBox(height: 8),
-                                          ],
-                                          if (earlyMinutes != null) ...[
-                                            _buildFineRow(
-                                              'Early checkout mins',
-                                              '${earlyMinutes.toInt()}',
-                                              Icons.exit_to_app,
-                                              Colors.red,
-                                            ),
-                                            const SizedBox(height: 8),
-                                          ],
-                                          if (fineHours != null &&
-                                              fineHours > 0) ...[
-                                            _buildFineRow(
-                                              'Fine Hours',
-                                              '${(fineHours.toDouble() / 60).toStringAsFixed(2)} hrs',
-                                              Icons.timer,
-                                              Colors.purple,
-                                            ),
-                                            const SizedBox(height: 8),
-                                          ],
-                                          if (fineAmount != null &&
-                                              fineAmount > 0) ...[
-                                            const Divider(height: 20),
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    Icon(
-                                                      Icons.currency_rupee,
-                                                      color:
-                                                          Colors.red.shade700,
-                                                      size: 20,
-                                                    ),
-                                                    const SizedBox(width: 8),
-                                                    Text(
-                                                      'Fine Amount',
-                                                      style: TextStyle(
-                                                        fontSize: 14,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        color:
-                                                            Colors.red.shade700,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                Text(
-                                                  '₹${NumberFormat('#,##0.00').format(fineAmount)}',
-                                                  style: TextStyle(
-                                                    fontSize: 18,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.red.shade700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-
-                              // Location - Punch In (only when location is present)
-                              if (punchInAddress != null &&
-                                  punchInAddress.trim().isNotEmpty) ...[
-                                _buildDetailRow(
-                                  'Check-in Location',
-                                  punchInAddress,
-                                  Icons.location_on,
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-
-                              // Location - Punch Out (only when location is present)
-                              if (punchOutAddress != null &&
-                                  punchOutAddress.trim().isNotEmpty) ...[
-                                _buildDetailRow(
-                                  'Check-out Location',
-                                  punchOutAddress,
-                                  Icons.location_on,
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                            ],
-                          ),
-                        ),
-                        // Page 2: Selfies (if available)
-                        if (hasPunchInSelfie || hasPunchOutSelfie)
-                          SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Selfies',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                if (hasPunchInSelfie) ...[
-                                  GestureDetector(
-                                    onTap: () => _showSelfieDialog(
-                                      punchInSelfieUrl,
-                                      "Check-in Selfie",
-                                    ),
-                                    child: Container(
-                                      width: double.infinity,
-                                      height: 300,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: Colors.green,
-                                          width: 2,
-                                        ),
-                                        image: DecorationImage(
-                                          image: NetworkImage(punchInSelfieUrl),
-                                          fit: BoxFit.cover,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Check-in Selfie',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 24),
-                                ],
-                                if (hasPunchOutSelfie) ...[
-                                  GestureDetector(
-                                    onTap: () => _showSelfieDialog(
-                                      punchOutSelfieUrl,
-                                      "Check-out Selfie",
-                                    ),
-                                    child: Container(
-                                      width: double.infinity,
-                                      height: 300,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: Colors.red,
-                                          width: 2,
-                                        ),
-                                        image: DecorationImage(
-                                          image: NetworkImage(
-                                            punchOutSelfieUrl,
-                                          ),
-                                          fit: BoxFit.cover,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Check-out Selfie',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          )
-                        else
-                          // If no selfies, show empty page with message
-                          Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.camera_alt_outlined,
-                                  size: 64,
-                                  color: Colors.grey.shade400,
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No Selfies Available',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => Container(
+          color: colorScheme.surface,
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
                             ),
                           ),
-                      ],
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: statusColor),
+                            ),
+                            child: Text(
+                              displayStatus,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  // Page Indicator (if multiple pages)
-                  if (hasPunchInSelfie || hasPunchOutSelfie)
-                    Column(
-                      children: [
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildDayDetailSection(
+                        'Attendance Details',
+                        Icons.access_time,
+                        [
+                          _buildDayDetailRow('Status', displayStatus),
+                          _buildDayDetailRow(
+                            'Compensation Type',
+                            compensationType.isNotEmpty
+                                ? compensationType
+                                : '-',
+                          ),
+                          _buildDayDetailRow(
+                            'Leave Type',
+                            leaveType != null &&
+                                    leaveType.toString().trim().isNotEmpty
+                                ? leaveType.toString().trim()
+                                : '-',
+                          ),
+                          _buildDayDetailRow(
+                            'Paid Leave',
+                            isPaidLeave ? 'Yes' : 'No',
+                          ),
+                          if (session != null && session.isNotEmpty)
+                            _buildDayDetailRow(
+                              'Session',
+                              _formatHalfDaySessionLabel(session),
+                            ),
+                          if (leaveReason != null &&
+                              leaveReason.toString().trim().isNotEmpty)
+                            _buildDayDetailRow(
+                              'Leave Reason',
+                              leaveReason.toString().trim(),
+                              isFullWidth: true,
+                            ),
+                          if (approvedAt != null)
+                            _buildDayDetailRow(
+                              'Approved At',
+                              _formatApprovedAt(approvedAt),
+                            ),
+                          if (approvedByName != null &&
+                              approvedByName.toString().trim().isNotEmpty)
+                            _buildDayDetailRow(
+                              'Approved By',
+                              approvedByName.toString().trim(),
+                            ),
+                          if (branchName != null && branchName.isNotEmpty)
+                            _buildDayDetailRow('Branch Name', branchName),
+                          if (_attendanceTemplate != null &&
+                              (_attendanceTemplate!['shiftStartTime'] != null ||
+                                  _attendanceTemplate!['shiftEndTime'] != null))
+                            Builder(
+                              builder: (context) {
+                                final halfDayTimings =
+                                    _getWorkingSessionTimingsForRecord(record);
+                                final start = halfDayTimings != null
+                                    ? halfDayTimings['startTime'] ?? 'N/A'
+                                    : _attendanceTemplate!['shiftStartTime']
+                                            ?.toString() ??
+                                        'N/A';
+                                final end = halfDayTimings != null
+                                    ? halfDayTimings['endTime'] ?? 'N/A'
+                                    : _attendanceTemplate!['shiftEndTime']
+                                            ?.toString() ??
+                                        'N/A';
+                                return _buildDayDetailRow(
+                                  'Shift Time',
+                                  '$start - $end',
+                                );
+                              },
+                            ),
+                          _buildDayDetailRow(
+                            'Punch In',
+                            _formatTime(punchIn),
+                          ),
+                          if (isLateIn &&
+                              (record['lateMinutes'] == null ||
+                                  (record['lateMinutes'] as num?)
+                                          ?.toDouble() !=
+                                      0))
+                            _buildDayDetailRow(
+                              'Late Check-in',
+                              '${lateMinutes?.toInt() ?? 0} minutes',
+                              valueColor: Colors.orange.shade700,
+                            ),
+                          _buildDayDetailRow(
+                            'Punch Out',
+                            _formatTime(punchOut),
+                          ),
+                          if (isEarlyOut)
+                            _buildDayDetailRow(
+                              'Early Check-out',
+                              '${earlyMinutes?.toInt() ?? 0} minutes',
+                              valueColor: Colors.orange.shade700,
+                            ),
+                          _buildDayDetailRow(
+                            'Work Hours',
+                            _formatWorkHoursWithUnits(
+                              workHours is num ? workHours : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (hasFineInfo) ...[
+                        const SizedBox(height: 20),
+                        _buildDayDetailSection(
+                          'Fine Details',
+                          Icons.money_off,
+                          [
+                            if (lateMinutes != null)
+                              _buildDayDetailRow(
+                                'Late Check-in',
+                                '${lateMinutes.toInt()} minutes',
+                                valueColor: Colors.orange.shade700,
+                              ),
+                            if (earlyMinutes != null)
+                              _buildDayDetailRow(
+                                'Early Check-out',
+                                '${earlyMinutes.toInt()} minutes',
+                                valueColor: Colors.orange.shade700,
+                              ),
+                            if (fineHours != null && fineHours > 0)
+                              _buildDayDetailRow(
+                                'Fine Hours',
+                                '${(fineHours.toDouble() / 60).toStringAsFixed(2)} hrs',
+                                valueColor: Colors.red.shade700,
+                              ),
+                            if (fineAmount != null && fineAmount > 0)
+                              _buildDayDetailRow(
+                                'Fine Amount',
+                                '₹${NumberFormat('#,##0.00').format(fineAmount)}',
+                                valueColor: Colors.red.shade700,
+                                isBold: true,
+                              ),
+                          ],
+                        ),
+                      ],
+                      if ((punchInAddress != null &&
+                              punchInAddress.trim().isNotEmpty) ||
+                          (punchOutAddress != null &&
+                              punchOutAddress.trim().isNotEmpty)) ...[
+                        const SizedBox(height: 20),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              width: currentPage == 0 ? 24 : 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4),
-                                color: currentPage == 0
-                                    ? AppColors.primary
-                                    : Colors.grey.shade300,
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on,
+                                    size: 18,
+                                    color: AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Location',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(height: 12),
                             Container(
-                              width: currentPage == 1 ? 24 : 8,
-                              height: 8,
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4),
-                                color: currentPage == 1
-                                    ? AppColors.primary
-                                    : Colors.grey.shade300,
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (punchInAddress != null &&
+                                      punchInAddress.trim().isNotEmpty)
+                                    _buildDayDetailRow(
+                                      'Check-in Location',
+                                      punchInAddress,
+                                      isFullWidth: true,
+                                    ),
+                                  if (punchOutAddress != null &&
+                                      punchOutAddress.trim().isNotEmpty)
+                                    _buildDayDetailRow(
+                                      'Check-out Location',
+                                      punchOutAddress,
+                                      isFullWidth: true,
+                                    ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Swipe left/right to view more',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade600,
-                            fontStyle: FontStyle.italic,
-                          ),
-                          textAlign: TextAlign.center,
+                      ],
+                      if (hasPunchInSelfie || hasPunchOutSelfie) ...[
+                        const SizedBox(height: 20),
+                        _buildDayDetailSection(
+                          'Attendance Selfies',
+                          Icons.face,
+                          [
+                            if (hasPunchInSelfie)
+                              GestureDetector(
+                                onTap: () => _showSelfieDialog(
+                                  punchInSelfieUrl,
+                                  "Check-in Selfie",
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Check-in Selfie',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.network(
+                                          punchInSelfieUrl,
+                                          height: 200,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              _buildImageNotFoundPlaceholder(),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            if (hasPunchOutSelfie)
+                              GestureDetector(
+                                onTap: () => _showSelfieDialog(
+                                  punchOutSelfieUrl,
+                                  "Check-out Selfie",
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Check-out Selfie',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(
+                                        punchOutSelfieUrl,
+                                        height: 200,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            _buildImageNotFoundPlaceholder(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
                       ],
-                    ),
-                ],
+                    ],
+                  ),
+                ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1546,6 +1386,104 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ),
         ),
       ],
+    );
+  }
+
+  /// Section header + content box (matches salary breakdown form style)
+  Widget _buildDayDetailSection(
+    String title,
+    IconData icon,
+    List<Widget> children,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Row for section content (matches salary breakdown form style)
+  Widget _buildDayDetailRow(
+    String label,
+    String value, {
+    Color? valueColor,
+    bool isBold = false,
+    bool isFullWidth = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: isFullWidth
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+                    color: valueColor ?? Colors.black87,
+                  ),
+                  textAlign: TextAlign.left,
+                ),
+              ],
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Flexible(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+                      color: valueColor ?? Colors.black87,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -3702,7 +3640,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return BlocListener<AttendanceBloc, AttendanceState>(
       listener: (context, state) {
         if (!_isSubmittingFromAttendanceCamera) return;
-        if (state is AttendanceCheckInSuccess || state is AttendanceCheckOutSuccess) {
+        if (state is AttendanceCheckInSuccess ||
+            state is AttendanceCheckOutSuccess) {
           _isSubmittingFromAttendanceCamera = false;
           if (mounted) Navigator.of(context).pop();
           if (mounted) {
@@ -3731,93 +3670,93 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       child: Stack(
         children: [
           Scaffold(
-          backgroundColor: colorScheme.surfaceContainerHighest,
-          appBar: AppBar(
-            leading: const MenuIconButton(),
-            title: Text('Attendance'),
-            actions: [
-              if (_showHistoryView)
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.filter_list),
-                  onSelected: (value) {
-                    setState(() {
-                      _activeFilter = value;
-                    });
-                    if (value == 'All' ||
-                        value == 'Late' ||
-                        value == 'Low Hours') {
-                      final now = DateTime.now();
-                      _fetchMonthData(now.year, now.month);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'All', child: Text('All')),
-                    const PopupMenuItem(
-                      value: 'Late',
-                      child: Text('Late login / Early exit'),
+            backgroundColor: colorScheme.surfaceContainerHighest,
+            appBar: AppBar(
+              leading: const MenuIconButton(),
+              title: Text('Attendance'),
+              actions: [
+                if (_showHistoryView)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.filter_list),
+                    onSelected: (value) {
+                      setState(() {
+                        _activeFilter = value;
+                      });
+                      if (value == 'All' ||
+                          value == 'Late' ||
+                          value == 'Low Hours') {
+                        final now = DateTime.now();
+                        _fetchMonthData(now.year, now.month);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'All', child: Text('All')),
+                      const PopupMenuItem(
+                        value: 'Late',
+                        child: Text('Late login / Early exit'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'Low Hours',
+                        child: Text('Late hours'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            drawer: AppDrawer(
+              currentIndex: widget.dashboardTabIndex ?? 4,
+              onNavigateToIndex: widget.onNavigateToIndex,
+            ),
+            body: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                //fine formula
+                if (1 == 0)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
-                    const PopupMenuItem(
-                      value: 'Low Hours',
-                      child: Text('Late hours'),
+                    color: Colors.grey.shade100,
+                    child: SelectableText(
+                      _fineCalculationFormulaText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade800,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: _showHistoryView
+                      ? _buildHistoryTab()
+                      : _buildMarkAttendanceTab(),
+                ),
+              ],
+            ),
+          ),
+          if (_isFetchingTemplateDetails)
+            Container(
+              color: colorScheme.surface.withOpacity(0.7),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: colorScheme.primary),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Loading attendance details...',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: colorScheme.onSurface,
+                      ),
                     ),
                   ],
                 ),
-            ],
-          ),
-          drawer: AppDrawer(
-            currentIndex: widget.dashboardTabIndex ?? 4,
-            onNavigateToIndex: widget.onNavigateToIndex,
-          ),
-          body: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              //fine formula
-              if (1 == 0)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  color: Colors.grey.shade100,
-                  child: SelectableText(
-                    _fineCalculationFormulaText,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade800,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: _showHistoryView
-                    ? _buildHistoryTab()
-                    : _buildMarkAttendanceTab(),
-              ),
-            ],
-          ),
-        ),
-        if (_isFetchingTemplateDetails)
-          Container(
-            color: colorScheme.surface.withOpacity(0.7),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: colorScheme.primary),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Loading attendance details...',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                ],
               ),
             ),
-          ),
         ],
       ),
     );
@@ -3836,8 +3775,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   /// Fetches current position and address for camera-direct punch flow.
-  Future<({Position? position, String address, String? area, String? city, String? pincode})>
-      _getCurrentLocation() async {
+  Future<
+    ({
+      Position? position,
+      String address,
+      String? area,
+      String? city,
+      String? pincode,
+    })
+  >
+  _getCurrentLocation() async {
     String address = '';
     String? area;
     String? city;
@@ -3846,7 +3793,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        return (position: null, address: '', area: null, city: null, pincode: null);
+        return (
+          position: null,
+          address: '',
+          area: null,
+          city: null,
+          pincode: null,
+        );
       }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -3854,7 +3807,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        return (position: null, address: '', area: null, city: null, pincode: null);
+        return (
+          position: null,
+          address: '',
+          area: null,
+          city: null,
+          pincode: null,
+        );
       }
       position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -3870,10 +3829,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         pincode = p.postalCode;
         final parts = <String>[];
         if (p.name != null && p.name!.isNotEmpty) parts.add(p.name!);
-        if (p.street != null && p.street!.isNotEmpty && p.street != p.name) parts.add(p.street!);
-        if (p.subLocality != null && p.subLocality!.isNotEmpty) parts.add(p.subLocality!);
-        if (p.locality != null && p.locality!.isNotEmpty) parts.add(p.locality!);
-        if (p.postalCode != null && p.postalCode!.isNotEmpty) parts.add(p.postalCode!);
+        if (p.street != null && p.street!.isNotEmpty && p.street != p.name)
+          parts.add(p.street!);
+        if (p.subLocality != null && p.subLocality!.isNotEmpty)
+          parts.add(p.subLocality!);
+        if (p.locality != null && p.locality!.isNotEmpty)
+          parts.add(p.locality!);
+        if (p.postalCode != null && p.postalCode!.isNotEmpty)
+          parts.add(p.postalCode!);
         address = parts.join(', ');
       } else {
         address = 'Lat: ${position.latitude}, Lng: ${position.longitude}';
@@ -3881,7 +3844,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } catch (_) {
       address = 'Location found (Address unavailable)';
     }
-    return (position: position, address: address, area: area, city: city, pincode: pincode);
+    return (
+      position: position,
+      address: address,
+      area: area,
+      city: city,
+      pincode: pincode,
+    );
   }
 
   /// Submits attendance with captured selfie file (camera-direct flow).
@@ -3906,10 +3875,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return;
     }
     final requireSelfie = _attendanceTemplate?['requireSelfie'] ?? true;
-    final requireGeolocation = _attendanceTemplate?['requireGeolocation'] ?? true;
+    final requireGeolocation =
+        _attendanceTemplate?['requireGeolocation'] ?? true;
     if (requireGeolocation && position == null) {
       if (mounted) Navigator.of(context).pop();
-      SnackBarUtils.showSnackBar(context, 'Could not get location.', isError: true);
+      SnackBarUtils.showSnackBar(
+        context,
+        'Could not get location.',
+        isError: true,
+      );
       return;
     }
     List<int> imageBytes = await file.readAsBytes();
@@ -4246,7 +4220,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final location = await _getCurrentLocation();
     if (!mounted) return;
     Navigator.of(context).pop();
-    final requireGeolocation = _attendanceTemplate?['requireGeolocation'] ?? true;
+    final requireGeolocation =
+        _attendanceTemplate?['requireGeolocation'] ?? true;
     if (requireGeolocation && location.position == null) {
       SnackBarUtils.showSnackBar(
         context,
@@ -4258,8 +4233,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final locationStr = location.address.isNotEmpty
         ? location.address
         : (location.area != null
-            ? '${location.area}, ${location.city ?? ''}${location.pincode != null ? ' ${location.pincode}' : ''}'
-            : null);
+              ? '${location.area}, ${location.city ?? ''}${location.pincode != null ? ' ${location.pincode}' : ''}'
+              : null);
     final result = await SelfieCameraScreen.captureSelfie(
       context,
       location: locationStr,
@@ -4268,8 +4243,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         return loc.address.isNotEmpty
             ? loc.address
             : (loc.area != null
-                ? '${loc.area}, ${loc.city ?? ''}${loc.pincode != null ? ' ${loc.pincode}' : ''}'
-                : null);
+                  ? '${loc.area}, ${loc.city ?? ''}${loc.pincode != null ? ' ${loc.pincode}' : ''}'
+                  : null);
       },
     );
     if (!mounted) return;

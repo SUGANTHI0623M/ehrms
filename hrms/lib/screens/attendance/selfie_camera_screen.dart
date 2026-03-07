@@ -46,6 +46,8 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   bool _showTimeoutOverlay = false;
   String? _locationText;
   bool _isRefreshingLocation = false;
+  /// Captured photo path; when set, show preview with Retake/Submit instead of camera.
+  String? _capturedFilePath;
 
   @override
   void initState() {
@@ -100,7 +102,9 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
         ),
         title: const Text('Mark Attendance', style: TextStyle(color: Colors.white)),
       ),
-      body: Stack(
+      body: _capturedFilePath != null
+          ? _buildPreviewBody()
+          : Stack(
         fit: StackFit.expand,
         children: [
           CameraAwesomeBuilder.awesome(
@@ -142,7 +146,7 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
                   single: (single) {
                     final path = single.file?.path;
                     if (path != null && context.mounted) {
-                      Navigator.of(context).pop(File(path));
+                      setState(() => _capturedFilePath = path);
                     }
                   },
                   multiple: (_) {},
@@ -153,10 +157,52 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
           Positioned(
             left: 16,
             right: 16,
-            bottom: 100,
+            bottom: 91,
             child: _buildLocationBar(),
           ),
           if (_showTimeoutOverlay) _buildTimeoutOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewBody() {
+    final path = _capturedFilePath!;
+    return SafeArea(
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4,
+                child: Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(24),
+            color: Colors.black87,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => _capturedFilePath = null),
+                  icon: const Icon(Icons.camera_alt_outlined, color: Colors.white),
+                  label: const Text('Retake', style: TextStyle(color: Colors.white)),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).pop(File(path)),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.secondary),
+                  icon: const Icon(Icons.check),
+                  label: const Text('Submit'),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -208,20 +254,20 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
             onPhotoMode: (PhotoCameraState photoState) => GestureDetector(
               onTap: () => photoState.takePhoto(),
               child: Container(
-                width: 72,
-                height: 72,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppColors.secondary,
-                  border: Border.all(color: Colors.white, width: 3),
+                  border: Border.all(color: Colors.white, width: 2.5),
                 ),
               ),
             ),
-            onPreparingCamera: (_) => const SizedBox(width: 72, height: 72),
-            onVideoMode: (_) => const SizedBox(width: 72, height: 72),
-            onVideoRecordingMode: (_) => const SizedBox(width: 72, height: 72),
-            onPreviewMode: (_) => const SizedBox(width: 72, height: 72),
-            onAnalysisOnlyMode: (_) => const SizedBox(width: 72, height: 72),
+            onPreparingCamera: (_) => const SizedBox(width: 56, height: 56),
+            onVideoMode: (_) => const SizedBox(width: 56, height: 56),
+            onVideoRecordingMode: (_) => const SizedBox(width: 56, height: 56),
+            onPreviewMode: (_) => const SizedBox(width: 56, height: 56),
+            onAnalysisOnlyMode: (_) => const SizedBox(width: 56, height: 56),
           ),
           const SizedBox(width: 48),
         ],

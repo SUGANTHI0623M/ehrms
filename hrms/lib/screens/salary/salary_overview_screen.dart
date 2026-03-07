@@ -95,6 +95,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   /// Per-day late login fine (date yyyy-MM-dd -> amount) for Daily Breakdown in Month Salary Details.
   Map<String, double> _dailyFineAmounts = {};
 
+  /// Shift times for day details modal (from template/business settings).
+  String? _shiftStartTime;
+  String? _shiftEndTime;
+
   /// When set, use this for "This Month Net" (from backend /payrolls/stats) so it matches payslip.
   double? _backendThisMonthNet;
 
@@ -376,6 +380,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           _backendThisMonthNet = (net is num) ? net.toDouble() : null;
           final gross = stats['thisMonthGross'];
           _backendThisMonthGross = (gross is num) ? gross.toDouble() : null;
+          debugPrint(
+            '[Salary] This Month Net (backend): thisMonthNet=${stats['thisMonthNet']}, '
+            '_backendThisMonthNet=$_backendThisMonthNet, thisMonthGross=${stats['thisMonthGross']}, '
+            '_backendThisMonthGross=$_backendThisMonthGross',
+          );
         } else {
           _backendThisMonthNet = null;
           _backendThisMonthGross = null;
@@ -699,19 +708,17 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         // ONLY calculate fine for Present or Approved status
         // Skip Absent, Pending, Rejected, etc.
         if (status != 'present' && status != 'approved') continue;
-        // Try to get existing fineAmount first (from backend calculation)
-        final existingFineAmount =
-            (record['fineAmount'] as num?)?.toDouble() ?? 0.0;
-        final existingLateMinutes =
-            (record['lateMinutes'] as num?)?.toInt() ?? 0;
+        // Use attendance record data: only calculate client-side when backend
+        // hasn't provided fine data at all. If record has fineAmount/lateMinutes
+        // (including 0), trust the attendance collection.
+        final backendFineAmount = record['fineAmount'] as num?;
+        final backendLateMinutes = record['lateMinutes'] as num?;
+        double fineAmount = backendFineAmount?.toDouble() ?? 0.0;
+        int lateMinutes = backendLateMinutes?.toInt() ?? 0;
 
-        // If backend already calculated fine, use it
-        // Otherwise, calculate it client-side using the same logic
-        double fineAmount = existingFineAmount;
-        int lateMinutes = existingLateMinutes;
-
-        if (fineAmount == 0 && lateMinutes == 0) {
-          // Calculate fine client-side if not provided by backend
+        // Only calculate client-side when backend has no fine data (null).
+        // Do NOT overwrite when backend explicitly has fineAmount:0 or lateMinutes:0.
+        if (backendFineAmount == null && backendLateMinutes == null) {
           final punchInStr = record['punchIn'] as String?;
           if (punchInStr != null && dailySalary != null) {
             try {
@@ -754,15 +761,18 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             lateDays++;
             totalLateMinutes += lateMinutes;
           }
-          // Store per-day fine for Daily Breakdown (date key yyyy-MM-dd)
-          try {
-            final dateStr = record['date'] as String?;
-            if (dateStr != null && dateStr.isNotEmpty) {
-              final d = DateTime.parse(dateStr).toLocal();
-              final key = DateFormat('yyyy-MM-dd').format(d);
-              dailyFineAmounts[key] = fineAmount;
-            }
-          } catch (_) {}
+          // Store per-day fine for Daily Breakdown only when from attendance record.
+          // Do NOT store client-calculated fine so we trust backend/attendance data.
+          if (backendFineAmount != null && backendFineAmount.toDouble() > 0) {
+            try {
+              final dateStr = record['date'] as String?;
+              if (dateStr != null && dateStr.isNotEmpty) {
+                final d = DateTime.parse(dateStr).toLocal();
+                final key = DateFormat('yyyy-MM-dd').format(d);
+                dailyFineAmounts[key] = fineAmount;
+              }
+            } catch (_) {}
+          }
         }
       }
 
@@ -790,27 +800,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         }
       }
 
-      // Use backend Late Login Fine when available (e.g. when client couldn't compute) so it matches payslip
-      double finalTotalFineAmount = totalFineAmount;
-      if (backendStats != null) {
-        final deductionComponents =
-            backendStats['deductionComponents'] as List<dynamic>?;
-        if (deductionComponents != null) {
-          for (final c in deductionComponents) {
-            final map = c as Map<String, dynamic>?;
-            if (map != null &&
-                (map['name'] as String? ?? '').toLowerCase().contains(
-                  'late login fine',
-                )) {
-              final backendFine = (map['amount'] as num?)?.toDouble() ?? 0.0;
-              if (backendFine > 0) {
-                finalTotalFineAmount = backendFine;
-                break;
-              }
-            }
-          }
-        }
-      }
+      // Use only totalFineAmount from Present/Approved records (or isPaidLeave when applicable).
+      // Do NOT use backend deductionComponents for late login fine - backend may include
+      // fines from Absent/Pending; we only deduct fine when status is Present or isPaidLeave.
+      final double finalTotalFineAmount = totalFineAmount;
 
       _fineInfo = {
         'totalFineAmount': finalTotalFineAmount,
@@ -825,11 +818,18 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             _workingDaysInfo!.workingDaysFullMonth ??
             _workingDaysInfo!.workingDays;
         if (thisMonthWorkingDays > 0) {
+          final effectiveDays = _presentDays + _paidLeaveDays;
           _proratedSalary = calculateProratedSalary(
             _calculatedSalary!,
             thisMonthWorkingDays,
-            _presentDays + _paidLeaveDays,
+            effectiveDays,
             finalTotalFineAmount,
+          );
+          debugPrint(
+            '[Salary] This Month Net (prorated): thisMonthWorkingDays=$thisMonthWorkingDays, '
+            'presentDays=$_presentDays, paidLeaveDays=$_paidLeaveDays, effectiveDays=$effectiveDays, '
+            'totalFineAmount=$finalTotalFineAmount, monthlyNet=${_calculatedSalary!.monthly.netMonthlySalary}, '
+            'proratedGross=${_proratedSalary?.proratedGrossSalary}, proratedNet=${_proratedSalary?.proratedNetSalary}',
           );
         }
       }
@@ -854,6 +854,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
       if (mounted) {
         setState(() {
+          _shiftStartTime = shiftTiming?.startTime;
+          _shiftEndTime = shiftTiming?.endTime;
           _isLoading = false;
         });
       }
@@ -1025,7 +1027,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                           _allowedMonths,
                           (val) {
                             if (val != null && _allowedMonths.contains(val)) {
-                              setState(() => _selectedMonth = val);
+                              setState(() {
+                                _selectedMonth = val;
+                                _isLoading = true;
+                                _error = '';
+                              });
                               _fetchSalaryData(debounce: true);
                             }
                           },
@@ -1040,18 +1046,20 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                                     ? _allowedYears.last
                                     : _selectedYear),
                           _allowedYears,
-                          (val) {
-                            if (val != null) {
-                              setState(() {
-                                _selectedYear = val;
-                                if (_allowedMonths.isNotEmpty &&
-                                    !_allowedMonths.contains(_selectedMonth)) {
-                                  _selectedMonth = _allowedMonths.last;
-                                }
-                              });
-                              _fetchSalaryData(debounce: true);
-                            }
-                          },
+(val) {
+                              if (val != null) {
+                                setState(() {
+                                  _selectedYear = val;
+                                  if (_allowedMonths.isNotEmpty &&
+                                      !_allowedMonths.contains(_selectedMonth)) {
+                                    _selectedMonth = _allowedMonths.last;
+                                  }
+                                  _isLoading = true;
+                                  _error = '';
+                                });
+                                _fetchSalaryData(debounce: true);
+                              }
+                            },
                         ),
                       ),
                     ],
@@ -1311,6 +1319,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     final rawThisMonthNet = _proratedSalary!.proratedNetSalary;
     // Do not show negative net for card display – clamp at 0
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
+    debugPrint(
+      '[Salary] This Month Net (display): _backendThisMonthNet=$_backendThisMonthNet, '
+      'rawThisMonthNet=$rawThisMonthNet, displayThisMonthNet=$displayThisMonthNet, '
+      'thisMonthGrossDisplay=$thisMonthGrossDisplay',
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1874,6 +1887,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               final isHoliday = holidayDateSet.contains(dateStr);
               final isWeekOff = _weekOffDates.contains(dateStr);
               final isLeave = _leaveDates.contains(dateStr);
+              final isWorkingDay = !isHoliday && !isWeekOff;
 
               // Show details only for Present, Approved, or On Leave (same as Month Salary Details)
               final recordStatus = (record?['status'] as String? ?? '')
@@ -1895,6 +1909,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 isHoliday: isHoliday,
                 isWeekOff: isWeekOff,
                 isLeave: isLeave,
+                isWorkingDay: isWorkingDay,
                 onTapDetails: canShowDetails
                     ? () => _showDayDetails(
                         context,
@@ -1920,6 +1935,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     bool isHoliday = false,
     bool isWeekOff = false,
     bool isLeave = false,
+    bool isWorkingDay = false,
     VoidCallback? onTapDetails,
   }) {
     final dayName = DateFormat('EEE').format(date);
@@ -1933,6 +1949,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     IconData statusIcon = Icons.help_outline;
 
     // Attendance record takes precedence – use status from attendance when available
+    // Salary: only when (status Present/Approved) OR (On Leave AND isPaidLeave). Include fine for Present.
     if (record != null) {
       final recordStatus = (record['status'] as String? ?? '')
           .trim()
@@ -1941,10 +1958,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           .trim()
           .toLowerCase();
       final isHalfDay = recordStatus == 'half day' || leaveType == 'half day';
+      final isPaidLeave = record['isPaidLeave'] == true;
 
       status = AttendanceDisplayUtil.getDailyBreakdownStatus(record);
 
-      if (recordStatus == 'present' || recordStatus == 'approved') {
+        if (recordStatus == 'present' || recordStatus == 'approved') {
         if (isHalfDay) {
           statusColor = Colors.blue;
           statusIcon = Icons.schedule;
@@ -1954,10 +1972,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           statusIcon = Icons.check_circle;
           salaryForDay = dailySalary;
         }
+        // Prefer attendance record fine over _dailyFineAmounts (trust backend)
         final dateKey = DateFormat('yyyy-MM-dd').format(date);
         fineAmount =
-            _dailyFineAmounts[dateKey] ??
             (record['fineAmount'] as num?)?.toDouble() ??
+            _dailyFineAmounts[dateKey] ??
             0.0;
         fineMinutes =
             (record['lateMinutes'] as num?)?.toInt() ??
@@ -1970,7 +1989,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         } else if (status == 'Week Off') {
           statusColor = Colors.purple;
           statusIcon = Icons.weekend;
-        } else if (status == 'Paid Leave') {
+        } else if (isPaidLeave) {
           statusColor = Colors.blue;
           statusIcon = Icons.event_busy;
           salaryForDay = dailySalary;
@@ -1978,7 +1997,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           statusColor = Colors.blue;
           statusIcon = Icons.event_busy;
         }
-        if (status != 'Paid Leave') {
+        if (!isPaidLeave) {
           salaryForDay = 0;
         }
         fineAmount = 0;
@@ -2014,6 +2033,10 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       }
     }
 
+    // Center shows actual attendance status (Present, Pending, etc.), not "Working Day"
+    // since "Working Day" is already shown on the left
+    final centerStatusText = status == 'Working Day' ? 'Present' : status;
+
     final canShowDetails = onTapDetails != null;
 
     final content = Container(
@@ -2022,7 +2045,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       child: Row(
         children: [
           SizedBox(
-            width: 60,
+            width: 70,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2038,6 +2061,15 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                   dayName,
                   style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
                 ),
+                if (isWorkingDay)
+                  Text(
+                    'Working Day',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -2049,7 +2081,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    status,
+                    centerStatusText,
                     style: TextStyle(
                       fontSize: 12,
                       color: statusColor,
@@ -2129,7 +2161,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     );
 
     if (canShowDetails) {
-      return InkWell(onTap: onTapDetails!, child: content);
+      return InkWell(onTap: onTapDetails, child: content);
     }
     return content;
   }
@@ -2142,23 +2174,34 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     double dailySalary,
   ) {
     final dateStr = DateFormat('EEEE, dd MMMM yyyy').format(date);
+    final dateKey = DateFormat('yyyy-MM-dd').format(date);
     final status = record['status'] ?? 'N/A';
     final leaveType = record['leaveType'];
     final punchIn = record['punchIn'];
     final punchOut = record['punchOut'];
     final address = record['address'];
     final workHours = record['workHours'];
-    final lateMinutes = record['lateMinutes'] ?? 0;
-    final fineAmount =
-        (record['fineAmount'] as num?)?.toDouble() ??
-        _dailyFineAmounts[DateFormat('yyyy-MM-dd').format(date)] ??
-        0.0;
+    final lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
+    final earlyMinutes = (record['earlyMinutes'] as num?)?.toInt() ?? 0;
+    // Late login fine only for Present/Approved (never for Absent/Pending/On Leave)
+    final recordStatusForFine = (record['status'] as String? ?? '').trim().toLowerCase();
+    final fineAmount = (recordStatusForFine == 'present' ||
+                recordStatusForFine == 'approved')
+        ? ((record['fineAmount'] as num?)?.toDouble() ??
+            _dailyFineAmounts[dateKey] ??
+            0.0)
+        : 0.0;
+
+    final isHoliday =
+        _holidays.any((d) => DateFormat('yyyy-MM-dd').format(d) == dateKey);
+    final isWeekOff = _weekOffDates.contains(dateKey);
+    final isWorkingDay = !isHoliday && !isWeekOff;
 
     String formatTime(String? isoString) {
       if (isoString == null) return 'Not recorded';
       try {
         final dateTime = DateTime.parse(isoString).toLocal();
-        return DateFormat('hh:mm:ss a').format(dateTime);
+        return DateFormat('hh:mm a').format(dateTime);
       } catch (e) {
         return 'Invalid time';
       }
@@ -2168,6 +2211,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     final recordLeaveType = (leaveType as String? ?? '').trim().toLowerCase();
     final isHalfDay =
         recordStatus == 'half day' || recordLeaveType == 'half day';
+    final isPaidLeave = record['isPaidLeave'] == true;
 
     double salaryForDay = 0;
     double actualFineAmount = 0;
@@ -2177,10 +2221,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       salaryForDay = isHalfDay ? dailySalary * 0.5 : dailySalary;
       actualFineAmount = fineAmount;
       actualLateMinutes = lateMinutes;
-    } else {
-      salaryForDay = 0;
-      actualFineAmount = 0;
-      actualLateMinutes = 0;
+    } else if (recordStatus == 'on leave' && isPaidLeave) {
+      salaryForDay = dailySalary;
     }
 
     String formatWorkHoursAsMins(num workHours) {
@@ -2327,27 +2369,42 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                       'Attendance Details',
                       Icons.access_time,
                       [
-                        _buildDayDetailRow('Punch In', formatTime(punchIn)),
-                        _buildDayDetailRow('Punch Out', formatTime(punchOut)),
+                        _buildDayDetailRow('Status', status.toString()),
+                        _buildDayDetailRow(
+                          'Working Day',
+                          isWorkingDay ? 'Yes' : 'No',
+                        ),
+                        _buildDayDetailRow('Check-in', formatTime(punchIn)),
+                        _buildDayDetailRow('Check-out', formatTime(punchOut)),
                         if (workHours != null)
                           _buildDayDetailRow(
                             'Work Hours',
                             formatWorkHoursAsMins(workHours as num),
                           ),
-                        if (actualLateMinutes > 0 && actualFineAmount > 0) ...[
-                          const Divider(height: 16),
+                        if (_shiftStartTime != null || _shiftEndTime != null)
                           _buildDayDetailRow(
-                            'Late Minutes',
-                            '$actualLateMinutes minutes',
-                            valueColor: Colors.red.shade600,
+                            'Shift Time',
+                            '${_shiftStartTime ?? 'N/A'} - ${_shiftEndTime ?? 'N/A'}',
                           ),
+                        if (actualFineAmount > 0)
                           _buildDayDetailRow(
-                            'Fine Applied',
+                            'Fine Amount',
                             currencyFormat.format(actualFineAmount),
                             valueColor: Colors.red,
                             isBold: true,
                           ),
-                        ],
+                        if (actualLateMinutes > 0)
+                          _buildDayDetailRow(
+                            'Late Check-in',
+                            '$actualLateMinutes minutes',
+                            valueColor: Colors.orange.shade700,
+                          ),
+                        if (earlyMinutes > 0)
+                          _buildDayDetailRow(
+                            'Early Check-out',
+                            '$earlyMinutes minutes',
+                            valueColor: Colors.orange.shade700,
+                          ),
                       ],
                     ),
                     if (address != null) ...[

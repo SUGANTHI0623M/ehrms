@@ -17,6 +17,14 @@ import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 
+/// Returns true if [s] is half-day leave type (case and space insensitive).
+/// Backend may send "half day", "Half Day", "halfday", "half", "Half", etc.
+bool _isHalfDayLeave(String? s) {
+  if (s == null || s.isEmpty) return false;
+  final n = s.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  return n == 'halfday' || n == 'half';
+}
+
 class MyRequestsScreen extends StatefulWidget {
   final int initialTabIndex;
   final int? dashboardTabIndex;
@@ -63,7 +71,26 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   @override
   void didUpdateWidget(MyRequestsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Optional: refresh when becoming active tab (e.g. pull-to-refresh or tab refetch can be added here)
+    if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
+      _refreshCurrentTab();
+    }
+  }
+
+  void _refreshCurrentTab() {
+    switch (_tabController.index) {
+      case 0:
+        _leaveTabKey.currentState?.refresh();
+        break;
+      case 1:
+        _loanTabKey.currentState?.refresh();
+        break;
+      case 2:
+        _expenseTabKey.currentState?.refresh();
+        break;
+      case 3:
+        _payslipTabKey.currentState?.refresh();
+        break;
+    }
   }
 
   @override
@@ -506,6 +533,10 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
     });
   }
 
+  void refresh() {
+    _fetchLeaves();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -683,7 +714,7 @@ class _LeaveRequestsTabState extends State<LeaveRequestsTab> {
         iconColor: AppColors.primary,
         children: [
           _detailRow('Leave Type', leave['leaveType'] ?? ''),
-          if (leave['leaveType'] == 'Half Day')
+          if (_isHalfDayLeave(leave['leaveType']))
             _detailRow('Half day on', halfDayOnValue),
           _detailRow('Start Date', start),
           _detailRow('End Date', end),
@@ -1247,7 +1278,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
 
   int get _days {
     if (_startDate == null) return 0;
-    if (_leaveType == 'Half Day') return 0; // Handled as 0.5 on backend
+    if (_isHalfDayLeave(_leaveType)) return 0; // Handled as 0.5 on backend
     if (_isOneDay) return 1;
     if (_endDate == null) return 0;
     return _endDate!.difference(_startDate!).inDays + 1;
@@ -1335,11 +1366,11 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     }
 
     // Ensure end date is set for one day leave or half day
-    if ((_isOneDay || _leaveType == 'Half Day') && _endDate == null) {
+    if ((_isOneDay || _isHalfDayLeave(_leaveType)) && _endDate == null) {
       _endDate = _startDate;
     }
 
-    if (_leaveType == 'Half Day' && _session == null) {
+    if (_isHalfDayLeave(_leaveType) && _session == null) {
       SnackBarUtils.showSnackBar(
         context,
         'Please select a session for Half Day leave',
@@ -1348,7 +1379,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       return;
     }
 
-    final daysValue = _leaveType == 'Half Day' ? 1 : _days;
+    final daysValue = _isHalfDayLeave(_leaveType) ? 1 : _days;
 
     // Control by template days: if this leave type has a day limit, enforce it
     final maxDays = _maxDaysForCurrentType;
@@ -1395,7 +1426,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       'endDate': _endDate!.toIso8601String(),
       'days': daysValue,
       'reason': _reasonController.text,
-      'session': _leaveType == 'Half Day' ? _session : null,
+      'session': _isHalfDayLeave(_leaveType) ? _session : null,
     };
 
     setState(() => _isSubmitting = true);
@@ -1542,7 +1573,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           onChanged: (val) {
                             setState(() {
                               _leaveType = val!;
-                              if (_leaveType == 'Half Day') {
+                              if (_isHalfDayLeave(_leaveType)) {
                                 _isOneDay = true;
                                 _session = '1';
                                 if (_startDate != null) _endDate = _startDate;
@@ -1556,7 +1587,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                         ),
                       ),
 
-                    if (_leaveType == 'Half Day') ...[
+                    if (_isHalfDayLeave(_leaveType)) ...[
                       Text(
                         'Select Session',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -1652,8 +1683,8 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                       const SizedBox(height: 16),
                     ],
 
-                    if (_leaveType != 'Half Day')
-                      Padding(
+if (!_isHalfDayLeave(_leaveType))
+                        Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1712,7 +1743,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                         ),
                       ),
                     ),
-                    if (!_isOneDay && _leaveType != 'Half Day') ...[
+                    if (!_isOneDay && !_isHalfDayLeave(_leaveType)) ...[
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: InkWell(
@@ -1745,11 +1776,11 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                         ),
                       ),
                     ],
-                    if (_days > 0 || _leaveType == 'Half Day')
+                    if (_days > 0 || _isHalfDayLeave(_leaveType))
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          _leaveType == 'Half Day'
+                          _isHalfDayLeave(_leaveType)
                               ? 'Total Days: 0.5'
                               : 'Total Days: $_days',
                           style: TextStyle(
@@ -1865,6 +1896,10 @@ class _LoanRequestsTabState extends State<LoanRequestsTab> {
     setState(() {
       _showFilters = !_showFilters;
     });
+  }
+
+  void refresh() {
+    _fetchLoans();
   }
 
   @override
@@ -2734,6 +2769,10 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
     setState(() {
       _showFilters = !_showFilters;
     });
+  }
+
+  void refresh() {
+    _fetchExpenses();
   }
 
   @override
@@ -3859,6 +3898,10 @@ class _PayslipRequestsTabState extends State<PayslipRequestsTab> {
     setState(() {
       _showFilters = !_showFilters;
     });
+  }
+
+  void refresh() {
+    _fetchRequests();
   }
 
   @override

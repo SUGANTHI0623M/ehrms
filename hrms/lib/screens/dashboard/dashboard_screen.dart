@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
@@ -42,13 +43,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
+  final ValueNotifier<int> _dashboardRefreshTrigger = ValueNotifier<int>(0);
 
   @override
   void initState() {
     super.initState();
     _currentIndex = _normalizeTabIndex((widget.initialIndex ?? 0));
     PresenceTrackingService().startTracking();
+    _attendanceService.clearCachesForRefresh();
     _fetchPunchStatusForNavBar();
+  }
+
+  @override
+  void dispose() {
+    _dashboardRefreshTrigger.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchPunchStatusForNavBar() async {
@@ -56,19 +65,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     final data = res['data'] as Map<String, dynamic>?;
     if (data != null) {
-      final checkedIn = data['checkedIn'] as bool?;
       final attendance = data['data'] as Map<String, dynamic>? ?? data;
       final punchIn = attendance['punchIn'];
       final punchOut = attendance['punchOut'];
-      final hasIn = punchIn != null && punchIn.toString().isNotEmpty;
-      final hasOut = punchOut != null && punchOut.toString().isNotEmpty;
-      final isPunchedIn = checkedIn ?? (hasIn && !hasOut);
+      // Same logic as dashboard today card: punched in = has punchIn and no punchOut
+      final hasIn = punchIn != null && punchIn.toString().trim().isNotEmpty;
+      final hasOut = punchOut != null && punchOut.toString().trim().isNotEmpty;
+      final isPunchedIn = hasIn && !hasOut;
+      if (kDebugMode) {
+        debugPrint(
+          '[Dashboard] _fetchPunchStatusForNavBar: punchIn=${punchIn != null ? "set" : "null"} '
+          'punchOut=${punchOut != null ? "set" : "null"} hasIn=$hasIn hasOut=$hasOut => isPunchedInToday=$isPunchedIn',
+        );
+      }
       setState(() {
         _isPunchedInToday = isPunchedIn;
       });
       await _savePunchStateToPrefs(attendance);
     } else {
+      if (kDebugMode) debugPrint('[Dashboard] _fetchPunchStatusForNavBar: no data => isPunchedInToday=false');
       setState(() => _isPunchedInToday = false);
+      await _clearTodayPunchPrefs();
     }
   }
 
@@ -77,11 +94,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final prefs = await SharedPreferences.getInstance();
       final today = DateTime.now();
       final todayKey = '${today.year}-${today.month}-${today.day}';
-      final punchIn = attendance['punchIn']?.toString() ?? '';
-      final punchOut = attendance['punchOut']?.toString() ?? '';
+      final punchIn = attendance['punchIn']?.toString().trim() ?? '';
+      final punchOut = attendance['punchOut']?.toString().trim() ?? '';
       await prefs.setString('today_punch_date', todayKey);
       await prefs.setString('today_punch_in', punchIn);
       await prefs.setString('today_punch_out', punchOut);
+    } catch (_) {}
+  }
+
+  Future<void> _clearTodayPunchPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now();
+      final todayKey = '${today.year}-${today.month}-${today.day}';
+      final cacheDay = prefs.getString('today_punch_date');
+      if (cacheDay == todayKey) {
+        await prefs.setString('today_punch_in', '');
+        await prefs.setString('today_punch_out', '');
+      }
     } catch (_) {}
   }
 
@@ -933,12 +963,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onNavigateToIndex: _onDrawerNavigateToIndex,
         dashboardTabIndex: _currentIndex,
         isActiveTab: _currentIndex == 0,
+        refreshTrigger: _dashboardRefreshTrigger,
       ),
       MyRequestsScreen(
         key: ValueKey('Requests_$_requestsSubTabIndex'),
         initialTabIndex: _requestsSubTabIndex,
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
+        isActiveTab: _currentIndex == 1,
       ),
       SalaryOverviewScreen(
         dashboardTabIndex: _currentIndex,
@@ -979,6 +1011,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           _attendanceService.clearCachesForRefresh();
           await _fetchPunchStatusForNavBar();
+          _dashboardRefreshTrigger.value++;
         } else if (state is AttendanceCheckOutSuccess) {
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
@@ -996,6 +1029,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           _attendanceService.clearCachesForRefresh();
           await _fetchPunchStatusForNavBar();
+          _dashboardRefreshTrigger.value++;
         } else if (state is AttendanceFailure && _isSubmittingFromFingerprint) {
           _isSubmittingFromFingerprint = false;
           if (mounted) Navigator.of(context).pop();

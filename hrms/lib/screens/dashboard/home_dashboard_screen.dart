@@ -36,6 +36,9 @@ class HomeDashboardScreen extends StatefulWidget {
   /// When true, this screen is the active tab. Used to refresh once when opening.
   final bool? isActiveTab;
 
+  /// When this notifier fires (e.g. after attendance submit), refresh dashboard data.
+  final ValueListenable<int>? refreshTrigger;
+
   const HomeDashboardScreen({
     super.key,
     this.onNavigate,
@@ -43,6 +46,7 @@ class HomeDashboardScreen extends StatefulWidget {
     this.dashboardTabIndex,
     this.onNavigateToIndex,
     this.isActiveTab,
+    this.refreshTrigger,
   });
 
   @override
@@ -93,11 +97,26 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     super.initState();
     _loadData();
     _checkLiveTracking();
+    widget.refreshTrigger?.addListener(_onRefreshTriggered);
+  }
+
+  void _onRefreshTriggered() {
+    if (mounted) _loadData();
+  }
+
+  @override
+  void dispose() {
+    widget.refreshTrigger?.removeListener(_onRefreshTriggered);
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(HomeDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      oldWidget.refreshTrigger?.removeListener(_onRefreshTriggered);
+      widget.refreshTrigger?.addListener(_onRefreshTriggered);
+    }
     // Whenever user opens or switches to Dashboard tab, refresh all values
     if (widget.isActiveTab == true && oldWidget.isActiveTab != true) {
       _loadData();

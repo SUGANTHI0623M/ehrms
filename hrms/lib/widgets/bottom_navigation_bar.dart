@@ -1,6 +1,7 @@
 // hrms/lib/widgets/bottom_navigation_bar.dart
 // Reusable custom bottom navbar with dark theme and yellow accent (reference-style).
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -84,26 +85,33 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
   Future<void> _checkPunchState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      // Read cached today's attendance punch state
+      // Read cached today's attendance punch state (same logic as dashboard today card)
       final punchIn = prefs.getString('today_punch_in');
       final punchOut = prefs.getString('today_punch_out');
       final today = DateTime.now();
       final todayKey = '${today.year}-${today.month}-${today.day}';
       final cacheDay = prefs.getString('today_punch_date');
 
+      final hasIn = punchIn != null && punchIn.toString().trim().isNotEmpty;
+      final hasOut = punchOut != null && punchOut.toString().trim().isNotEmpty;
+      final isPunchedInFromPrefs = cacheDay == todayKey && hasIn && !hasOut;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[AppBottomNav] _checkPunchState: todayKey=$todayKey cacheDay=$cacheDay '
+          'punchIn=${punchIn != null ? "set" : "null"} punchOut=${punchOut != null ? "set" : "null"} '
+          'hasIn=$hasIn hasOut=$hasOut => isPunchedIn=$isPunchedInFromPrefs',
+        );
+      }
+
       if (mounted) {
         setState(() {
-          if (cacheDay == todayKey) {
-            _isPunchedIn =
-                punchIn != null &&
-                punchIn.isNotEmpty &&
-                (punchOut == null || punchOut.isEmpty);
-          } else {
-            _isPunchedIn = false;
-          }
+          _isPunchedIn = isPunchedInFromPrefs;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AppBottomNav] _checkPunchState error: $e');
+    }
   }
 
   void _handleNavigation(BuildContext context, int index) {
@@ -144,6 +152,7 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
   }
 
   Widget _buildPunchButton(BuildContext context) {
+    // Prefer dashboard today-card state when provided; else use prefs (same logic as today card)
     final isPunchedIn = widget.isPunchedInToday ?? _isPunchedIn;
     final label = isPunchedIn ? 'Punch Out' : 'Punch In';
     final icon = isPunchedIn ? Icons.logout_rounded : Icons.login_rounded;
@@ -260,7 +269,8 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
               }),
 
               // Punch In / Punch Out pill button (only for non-candidates)
-              if (1 == 0 && !_isCandidate) _buildPunchButton(context),
+             // if (1 == 0 && !_isCandidate) 
+              _buildPunchButton(context),
             ],
           ),
         ),
