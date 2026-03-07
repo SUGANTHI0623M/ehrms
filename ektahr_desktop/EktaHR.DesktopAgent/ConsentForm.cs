@@ -26,6 +26,8 @@ public class ConsentForm : Form
     private Button _btnLogin = null!;
     private Label _lblStatus = null!;
     private Panel? _exitOverlay;
+    private bool _isLoginSuccessful = false;
+    private bool _exitConfirmed = false;
 
     public ConsentForm(string deviceId, SecureStorage storage)
     {
@@ -202,8 +204,8 @@ public class ConsentForm : Form
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 10f)
         };
-        btnExit.FlatAppearance.BorderColor = accentColor;
-        btnExit.FlatAppearance.BorderSize = 1;
+        btnExit.FlatAppearance.BorderColor = Color.FromArgb(0x33, 0x33, 0x33);
+        btnExit.FlatAppearance.BorderSize = 0;
         btnExit.Region = CreateRoundedRegion(new Rectangle(0, 0, btnExit.Width, btnExit.Height), buttonRadius);
         btnExit.Click += (_, _) => ShowExitConfirm();
         pnlCard.Controls.Add(btnExit);
@@ -250,7 +252,7 @@ public class ConsentForm : Form
         overlayCard.Controls.Add(lblConfirm);
         overlayCard.Controls.Add(btnYes);
         overlayCard.Controls.Add(btnCancel);
-        btnYes.Click += (_, _) => { _exitOverlay!.Visible = false; AppState.ExitRequested = true; Application.Exit(); };
+        btnYes.Click += (_, _) => { _exitOverlay!.Visible = false; _exitConfirmed = true; AppState.ExitRequested = true; Application.Exit(); };
         btnCancel.Click += (_, _) => _exitOverlay!.Visible = false;
         _exitOverlay.Controls.Add(overlayCard);
         _exitOverlay.Resize += (s, _) => { if (s is Panel ov && ov.Controls.Count > 0) ov.Controls[0].Location = new Point((ov.Width - cardW) / 2, (ov.Height - cardH) / 2); };
@@ -258,7 +260,7 @@ public class ConsentForm : Form
 
         FormClosing += (s, e) =>
         {
-            if (e.CloseReason == CloseReason.UserClosing)
+            if (!_isLoginSuccessful && !_exitConfirmed)
             {
                 e.Cancel = true;
                 ShowExitConfirm();
@@ -314,7 +316,7 @@ public class ConsentForm : Form
         _lblStatus.Text = "Signing in...";
         _lblStatus.ForeColor = Color.FromArgb(0xEF, 0xAA, 0x1F);
 
-        var baseUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:9002/api";
+        var baseUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "https://track.ektahr.com/api";
         var syncManager = new EktaHR.DesktopAgent.SyncManager.SyncManager(new LocalQueueService(), baseUrl);
         var machineName = Environment.MachineName;
         var osVersion = Environment.OSVersion.ToString();
@@ -332,14 +334,14 @@ public class ConsentForm : Form
         }
         catch (HttpRequestException)
         {
-            _lblStatus.Text = "Cannot connect to server. Ensure monitoring backend is running (npm run start on port 9002).";
+            _lblStatus.Text = "Cannot connect to server. Ensure URL (track.ektahr.com) is reachable.";
             _lblStatus.ForeColor = Color.FromArgb(255, 120, 120);
             _btnLogin.Enabled = true;
             return;
         }
         catch (SocketException)
         {
-            _lblStatus.Text = "Cannot connect to server. Ensure monitoring backend is running (npm run start on port 9002).";
+            _lblStatus.Text = "Cannot connect to server. Ensure URL (track.ektahr.com) is reachable.";
             _lblStatus.ForeColor = Color.FromArgb(255, 120, 120);
             _btnLogin.Enabled = true;
             return;
@@ -378,6 +380,7 @@ public class ConsentForm : Form
 
         _lblStatus.Text = "Signed in. Starting monitoring...";
         _lblStatus.ForeColor = Color.FromArgb(0xEF, 0xAA, 0x1F);
+        _isLoginSuccessful = true;
         Close();
     }
 }

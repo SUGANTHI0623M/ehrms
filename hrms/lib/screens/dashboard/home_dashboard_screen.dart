@@ -10,6 +10,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/cloud_punch_card.dart';
 import '../../services/fcm_service.dart';
 import '../announcements/announcements_screen.dart';
+import '../alarm/alarm_set_sheet.dart';
 import '../notifications/notifications_screen.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/geo/live_tracking_service.dart';
@@ -444,7 +445,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         presentDays = (att['presentDays'] as num?)?.toDouble() ?? 0;
         paidLeaveDays = (att['paidLeaveDays'] as num?)?.toDouble() ?? 0;
       }
-      if (presentDays == 0 && paidLeaveDays == 0 && attendanceRecords.isNotEmpty) {
+      if (presentDays == 0 &&
+          paidLeaveDays == 0 &&
+          attendanceRecords.isNotEmpty) {
         final todayDate = DateTime(
           DateTime.now().year,
           DateTime.now().month,
@@ -470,9 +473,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               .trim()
               .toLowerCase();
           final isPaidLeave = record['isPaidLeave'] == true;
-          final compensationType =
-              (record['compensationType'] as String? ?? '').trim().toLowerCase();
-          final isPaidLeaveDay = status == 'on leave' &&
+          final compensationType = (record['compensationType'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+          final isPaidLeaveDay =
+              status == 'on leave' &&
               isPaidLeave &&
               compensationType != 'weekoff' &&
               compensationType != 'compoff';
@@ -848,6 +853,19 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           backgroundColor: Colors.white,
           foregroundColor: colorScheme.primary,
           actions: [
+            if (1 == 0)
+              IconButton(
+                icon: Icon(Icons.alarm_outlined, color: AppColors.primary),
+                tooltip: 'Alarm',
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => const AlarmSetSheet(),
+                  );
+                },
+              ),
             IconButton(
               icon: _buildNotificationIcon(_fcmNotificationCount),
               tooltip: 'Notifications',
@@ -908,6 +926,19 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.primary,
         actions: [
+          if (1 == 0)
+            IconButton(
+              icon: Icon(Icons.alarm_outlined, color: colorScheme.primary),
+              tooltip: 'Alarm',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const AlarmSetSheet(),
+                );
+              },
+            ),
           IconButton(
             icon: _buildNotificationIcon(_fcmNotificationCount),
             tooltip: 'Notifications',
@@ -2536,8 +2567,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           }
           final compType = entry['compensationType'] as String?;
           if (compType != null && compType.toString().trim().isNotEmpty) {
-            dayCompensationTypeByDate[dateStr] =
-                compType.toString().trim().toLowerCase();
+            dayCompensationTypeByDate[dateStr] = compType
+                .toString()
+                .trim()
+                .toLowerCase();
           }
           num? workHours = entry['workHours'] as num?;
 
@@ -2873,7 +2906,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   statusForDay != 'Rejected';
               final isHalfDayStatusForAbbr =
                   statusForDay == 'Half Day' || statusLower == 'half day';
-              final hasLeaveTypeForAbbr = dayLeaveTypeByDate.containsKey(dateStr);
+              final hasLeaveTypeForAbbr = dayLeaveTypeByDate.containsKey(
+                dateStr,
+              );
               final isOnLeaveStatus = statusLower == 'on leave';
               final isPaidLeaveDay = dayIsPaidLeaveByDate[dateStr] == true;
               final compType = dayCompensationTypeByDate[dateStr] ?? '';

@@ -27,11 +27,15 @@ class AppBottomNavigationBar extends StatefulWidget {
   final Function(int)? onTap;
   final List<NavItem>? items;
 
+  /// When provided, used for Punch button label (Punch In vs Punch Out). From today's attendance.
+  final bool? isPunchedInToday;
+
   const AppBottomNavigationBar({
     super.key,
     this.currentIndex = 0,
     this.onTap,
     this.items,
+    this.isPunchedInToday,
   });
 
   static int getCurrentIndex(BuildContext context) {
@@ -51,11 +55,13 @@ class AppBottomNavigationBar extends StatefulWidget {
 
 class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
   bool _isCandidate = false;
+  bool _isPunchedIn = false;
 
   @override
   void initState() {
     super.initState();
     _checkRole();
+    _checkPunchState();
   }
 
   Future<void> _checkRole() async {
@@ -75,6 +81,31 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
     } catch (_) {}
   }
 
+  Future<void> _checkPunchState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Read cached today's attendance punch state
+      final punchIn = prefs.getString('today_punch_in');
+      final punchOut = prefs.getString('today_punch_out');
+      final today = DateTime.now();
+      final todayKey = '${today.year}-${today.month}-${today.day}';
+      final cacheDay = prefs.getString('today_punch_date');
+
+      if (mounted) {
+        setState(() {
+          if (cacheDay == todayKey) {
+            _isPunchedIn =
+                punchIn != null &&
+                punchIn.isNotEmpty &&
+                (punchOut == null || punchOut.isEmpty);
+          } else {
+            _isPunchedIn = false;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
   void _handleNavigation(BuildContext context, int index) {
     HapticFeedback.lightImpact();
     if (widget.onTap != null) {
@@ -88,7 +119,7 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
   }
 
   List<NavItem> _buildItems() {
-    final base = [
+    return [
       const NavItem(
         icon: Icons.dashboard_outlined,
         activeIcon: Icons.dashboard_rounded,
@@ -110,28 +141,61 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
         label: 'Holidays',
       ),
     ];
-    if (!_isCandidate) {
-      base.add(
-        const NavItem(
-          icon: Icons.access_time_outlined,
-          activeIcon: Icons.access_time_rounded,
-          label: 'Attendance',
+  }
+
+  Widget _buildPunchButton(BuildContext context) {
+    final isPunchedIn = widget.isPunchedInToday ?? _isPunchedIn;
+    final label = isPunchedIn ? 'Punch Out' : 'Punch In';
+    final icon = isPunchedIn ? Icons.logout_rounded : Icons.login_rounded;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _handleNavigation(context, 5),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [AppColors.primary, AppColors.primaryDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withOpacity(0.45),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-      base.add(
-        const NavItem(
-          icon: Icons.fingerprint_outlined,
-          activeIcon: Icons.fingerprint_rounded,
-          label: 'Punch',
-        ),
-      );
-    }
-    return base;
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.items ?? _buildItems();
+    final navItems = widget.items ?? _buildItems();
 
     // Nav bar background: black
     final barBg = Colors.black;
@@ -156,45 +220,48 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
         top: false,
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(items.length, (i) {
-              final item = items[i];
-              final selected = widget.currentIndex == i;
-              final isPunch = item.label == 'Punch';
-              final iconColor = selected
-                  ? Colors.white
-                  : (isPunch ? selectedColor : unselectedColor);
-              return Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _handleNavigation(context, i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: selected ? selectedColor : Colors.transparent,
-                      shape: BoxShape.circle,
-                      boxShadow: selected
-                          ? [
-                              BoxShadow(
-                                color: selectedColor.withOpacity(0.4),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: Icon(
-                      selected ? item.activeIcon : item.icon,
-                      size: 24,
-                      color: iconColor,
+            children: [
+              // Regular nav icon items
+              ...List.generate(navItems.length, (i) {
+                final item = navItems[i];
+                final selected = widget.currentIndex == i;
+                final iconColor = selected ? Colors.white : unselectedColor;
+                return Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _handleNavigation(context, i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: selected ? selectedColor : Colors.transparent,
+                        shape: BoxShape.circle,
+                        boxShadow: selected
+                            ? [
+                                BoxShadow(
+                                  color: selectedColor.withOpacity(0.4),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Icon(
+                        selected ? item.activeIcon : item.icon,
+                        size: 24,
+                        color: iconColor,
+                      ),
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
+
+              // Punch In / Punch Out pill button (only for non-candidates)
+              if (1 == 0 && !_isCandidate) _buildPunchButton(context),
+            ],
           ),
         ),
       ),

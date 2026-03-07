@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "LtQpqvQRqwc=",
+  "dgSpecHash": "DsaSUPfKdHM=",
   "success": true,
-  "projectFilePath": "c:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
+  "projectFilePath": "C:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\sugan\\.nuget\\packages\\microsoft.data.sqlite\\8.0.0\\microsoft.data.sqlite.8.0.0.nupkg.sha512",
     "C:\\Users\\sugan\\.nuget\\packages\\microsoft.data.sqlite.core\\8.0.0\\microsoft.data.sqlite.core.8.0.0.nupkg.sha512",

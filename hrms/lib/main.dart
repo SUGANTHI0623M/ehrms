@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
+import 'services/alarm_service.dart';
 import 'services/fcm_service.dart';
 import 'config/app_route_observer.dart';
 import 'services/geo/live_tracking_service.dart';
@@ -70,6 +71,12 @@ void main() {
       debugPrint('[main] Firebase.initializeApp failed: $e $st');
       runApp(_InitErrorApp(message: 'App could not start. Please check your internet or reinstall.'));
       return;
+    }
+
+    try {
+      await AlarmService.initializeTimezone();
+    } catch (e) {
+      debugPrint('[main] AlarmService timezone init failed (continuing): $e');
     }
 
     try {

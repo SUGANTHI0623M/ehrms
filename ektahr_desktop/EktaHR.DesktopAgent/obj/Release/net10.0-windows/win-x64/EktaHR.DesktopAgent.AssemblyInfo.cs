@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("EktaHR.DesktopAgent")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+85a5aa4b9a230f38ea1d271ce440df9ca69e2e1f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+41673b91cecfa853973b1cb942b167a222fa05fe")]
 [assembly: System.Reflection.AssemblyProductAttribute("EktaHR.DesktopAgent")]
 [assembly: System.Reflection.AssemblyTitleAttribute("EktaHR.DesktopAgent")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

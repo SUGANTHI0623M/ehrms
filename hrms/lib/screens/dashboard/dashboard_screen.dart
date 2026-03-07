@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
@@ -37,6 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _requestsSubTabIndex = 0;
   int _attendanceSubTabIndex = 0;
   bool _isSubmittingFromFingerprint = false;
+  bool? _isPunchedInToday;
 
   final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
@@ -46,6 +48,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _currentIndex = _normalizeTabIndex((widget.initialIndex ?? 0));
     PresenceTrackingService().startTracking();
+    _fetchPunchStatusForNavBar();
+  }
+
+  Future<void> _fetchPunchStatusForNavBar() async {
+    final res = await _attendanceService.getTodayAttendance();
+    if (!mounted) return;
+    final data = res['data'] as Map<String, dynamic>?;
+    if (data != null) {
+      final checkedIn = data['checkedIn'] as bool?;
+      final attendance = data['data'] as Map<String, dynamic>? ?? data;
+      final punchIn = attendance['punchIn'];
+      final punchOut = attendance['punchOut'];
+      final hasIn = punchIn != null && punchIn.toString().isNotEmpty;
+      final hasOut = punchOut != null && punchOut.toString().isNotEmpty;
+      final isPunchedIn = checkedIn ?? (hasIn && !hasOut);
+      setState(() {
+        _isPunchedInToday = isPunchedIn;
+      });
+      await _savePunchStateToPrefs(attendance);
+    } else {
+      setState(() => _isPunchedInToday = false);
+    }
+  }
+
+  Future<void> _savePunchStateToPrefs(Map<String, dynamic> attendance) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now();
+      final todayKey = '${today.year}-${today.month}-${today.day}';
+      final punchIn = attendance['punchIn']?.toString() ?? '';
+      final punchOut = attendance['punchOut']?.toString() ?? '';
+      await prefs.setString('today_punch_date', todayKey);
+      await prefs.setString('today_punch_in', punchIn);
+      await prefs.setString('today_punch_out', punchOut);
+    } catch (_) {}
   }
 
   int _normalizeTabIndex(int index) {
@@ -187,8 +224,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 340),
               decoration: BoxDecoration(
-                color: colorScheme.surface,
+                color: const Color(0xFF2A2A2A).withOpacity(0.85),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: colorScheme.shadow.withOpacity(0.2),
@@ -216,7 +254,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -226,7 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.4,
-                      color: AppColors.textSecondary,
+                      color: Colors.white.withOpacity(0.8),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -291,8 +329,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 340),
               decoration: BoxDecoration(
-                color: colorScheme.surface,
+                color: const Color(0xFF2A2A2A).withOpacity(0.85),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: colorScheme.shadow.withOpacity(0.2),
@@ -320,7 +359,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -330,7 +369,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.4,
-                      color: colorScheme.onSurfaceVariant,
+                      color: Colors.white.withOpacity(0.8),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -938,6 +977,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             await PresenceTrackingService().setTrackingAllowed();
             PresenceTrackingService().startTracking();
           }
+          _attendanceService.clearCachesForRefresh();
+          await _fetchPunchStatusForNavBar();
         } else if (state is AttendanceCheckOutSuccess) {
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
@@ -953,6 +994,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           } else {
             await PresenceTrackingService().stopTracking();
           }
+          _attendanceService.clearCachesForRefresh();
+          await _fetchPunchStatusForNavBar();
         } else if (state is AttendanceFailure && _isSubmittingFromFingerprint) {
           _isSubmittingFromFingerprint = false;
           if (mounted) Navigator.of(context).pop();
@@ -984,6 +1027,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           bottomNavigationBar: AppBottomNavigationBar(
             currentIndex: _currentIndex.clamp(0, 5),
+            isPunchedInToday: _isPunchedInToday,
             onTap: (index) async {
               if (index == 5) {
                 // Same validations as attendance screen before check-in/check-out

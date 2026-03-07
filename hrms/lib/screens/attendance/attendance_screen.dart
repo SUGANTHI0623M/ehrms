@@ -1,15 +1,23 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
+import '../../config/constants.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/menu_icon_button.dart';
 import '../../services/attendance_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/attendance_template_store.dart';
 import '../../utils/attendance_display_util.dart';
-import '../attendance/selfie_checkin_screen.dart';
+import '../../utils/face_detection_helper.dart';
+import '../../bloc/attendance/attendance_bloc.dart';
+import 'selfie_camera_screen.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../utils/error_message_utils.dart';
 
@@ -103,6 +111,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _isPaidLeaveToday = false;
   Map<String, dynamic>? _holidayInfo;
   bool? _checkedInFromApi;
+
+  /// True when submitting from camera-direct flow; used to pop dialog on bloc success.
+  bool _isSubmittingFromAttendanceCamera = false;
 
   /// True while fetching template details on open.
   bool _isFetchingTemplateDetails = false;
@@ -1606,8 +1617,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             child: Container(
               constraints: const BoxConstraints(maxWidth: 340),
               decoration: BoxDecoration(
-                color: colorScheme.surface,
+                color: const Color(0xFF2A2A2A).withOpacity(0.85),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: colorScheme.shadow.withOpacity(0.2),
@@ -1636,7 +1648,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1646,7 +1658,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.4,
-                      color: colorScheme.onSurfaceVariant,
+                      color: Colors.white.withOpacity(0.8),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -1702,8 +1714,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             child: Container(
               constraints: const BoxConstraints(maxWidth: 340),
               decoration: BoxDecoration(
-                color: colorScheme.surface,
+                color: const Color(0xFF2A2A2A).withOpacity(0.85),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: colorScheme.shadow.withOpacity(0.2),
@@ -1731,7 +1744,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1741,7 +1754,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.4,
-                      color: AppColors.textSecondary,
+                      color: Colors.white.withOpacity(0.8),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -3686,9 +3699,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Stack(
-      children: [
-        Scaffold(
+    return BlocListener<AttendanceBloc, AttendanceState>(
+      listener: (context, state) {
+        if (!_isSubmittingFromAttendanceCamera) return;
+        if (state is AttendanceCheckInSuccess || state is AttendanceCheckOutSuccess) {
+          _isSubmittingFromAttendanceCamera = false;
+          if (mounted) Navigator.of(context).pop();
+          if (mounted) {
+            SnackBarUtils.showSnackBar(
+              context,
+              state is AttendanceCheckInSuccess
+                  ? 'Checked In Successfully!'
+                  : 'Checked Out Successfully!',
+              backgroundColor: AppColors.primary,
+            );
+            _attendanceService.clearCachesForRefresh();
+            _refreshData(forceRefresh: true);
+          }
+        } else if (state is AttendanceFailure) {
+          _isSubmittingFromAttendanceCamera = false;
+          if (mounted) Navigator.of(context).pop();
+          if (mounted) {
+            SnackBarUtils.showSnackBar(
+              context,
+              ErrorMessageUtils.sanitizeForDisplay(state.message),
+              isError: true,
+            );
+          }
+        }
+      },
+      child: Stack(
+        children: [
+          Scaffold(
           backgroundColor: colorScheme.surfaceContainerHighest,
           appBar: AppBar(
             leading: const MenuIconButton(),
@@ -3776,7 +3818,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               ),
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -3792,7 +3835,149 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  /// Opens the punch in/out (selfie check-in) screen. No-op if attendance already completed or admin-marked for today.
+  /// Fetches current position and address for camera-direct punch flow.
+  Future<({Position? position, String address, String? area, String? city, String? pincode})>
+      _getCurrentLocation() async {
+    String address = '';
+    String? area;
+    String? city;
+    String? pincode;
+    Position? position;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return (position: null, address: '', area: null, city: null, pincode: null);
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return (position: null, address: '', area: null, city: null, pincode: null);
+      }
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      if (placemarks.isNotEmpty) {
+        final p = placemarks[0];
+        area = p.subLocality ?? p.locality ?? p.name;
+        city = p.locality ?? p.administrativeArea;
+        pincode = p.postalCode;
+        final parts = <String>[];
+        if (p.name != null && p.name!.isNotEmpty) parts.add(p.name!);
+        if (p.street != null && p.street!.isNotEmpty && p.street != p.name) parts.add(p.street!);
+        if (p.subLocality != null && p.subLocality!.isNotEmpty) parts.add(p.subLocality!);
+        if (p.locality != null && p.locality!.isNotEmpty) parts.add(p.locality!);
+        if (p.postalCode != null && p.postalCode!.isNotEmpty) parts.add(p.postalCode!);
+        address = parts.join(', ');
+      } else {
+        address = 'Lat: ${position.latitude}, Lng: ${position.longitude}';
+      }
+    } catch (_) {
+      address = 'Location found (Address unavailable)';
+    }
+    return (position: position, address: address, area: area, city: city, pincode: pincode);
+  }
+
+  /// Submits attendance with captured selfie file (camera-direct flow).
+  Future<void> _submitAttendanceFromCameraFile(
+    File file, {
+    required Position? position,
+    required String address,
+    required String? area,
+    required String? city,
+    required String? pincode,
+    required bool isCheckedIn,
+  }) async {
+    final result = await FaceDetectionHelper.detectFromFile(file);
+    if (!mounted) return;
+    if (!result.valid) {
+      if (mounted) Navigator.of(context).pop();
+      SnackBarUtils.showSnackBar(
+        context,
+        result.message ?? 'Please take a selfie with exactly one face visible.',
+        isError: true,
+      );
+      return;
+    }
+    final requireSelfie = _attendanceTemplate?['requireSelfie'] ?? true;
+    final requireGeolocation = _attendanceTemplate?['requireGeolocation'] ?? true;
+    if (requireGeolocation && position == null) {
+      if (mounted) Navigator.of(context).pop();
+      SnackBarUtils.showSnackBar(context, 'Could not get location.', isError: true);
+      return;
+    }
+    List<int> imageBytes = await file.readAsBytes();
+    String base64Image = base64Encode(imageBytes);
+    final selfiePayload = 'data:image/jpeg;base64,$base64Image';
+
+    if (AppConstants.enableAttendanceFaceMatching &&
+        requireSelfie &&
+        selfiePayload.isNotEmpty) {
+      try {
+        final verify = await _authService.verifyFace(selfiePayload);
+        if (!mounted) return;
+        if (verify['success'] != true || verify['match'] != true) {
+          if (mounted) Navigator.of(context).pop();
+          SnackBarUtils.showSnackBar(
+            context,
+            ErrorMessageUtils.sanitizeForDisplay(
+              verify['message']?.toString() ?? 'Face not matching.',
+            ),
+            isError: true,
+          );
+          return;
+        }
+      } catch (_) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          SnackBarUtils.showSnackBar(
+            context,
+            'Face verification failed. Please try again.',
+            isError: true,
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    final lat = position?.latitude ?? 0.0;
+    final lng = position?.longitude ?? 0.0;
+    _isSubmittingFromAttendanceCamera = true;
+    if (isCheckedIn) {
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckOutRequested(
+          lat: lat,
+          lng: lng,
+          address: address,
+          area: area,
+          city: city,
+          pincode: pincode,
+          selfie: selfiePayload,
+        ),
+      );
+    } else {
+      context.read<AttendanceBloc>().add(
+        AttendanceCheckInRequested(
+          lat: lat,
+          lng: lng,
+          address: address,
+          area: area,
+          city: city,
+          pincode: pincode,
+          selfie: selfiePayload,
+        ),
+      );
+    }
+  }
+
+  /// Opens punch in/out via camera-direct flow: load location, open camera, submit. No-op if completed/admin-marked.
   Future<void> _openMarkAttendanceScreen() async {
     final punchIn = _attendanceData?['punchIn'];
     final punchOut = _attendanceData?['punchOut'];
@@ -4039,20 +4224,94 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (shouldBlock) return; // Block only when not allowed
     }
     if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SelfieCheckInScreen(
-          template: _attendanceTemplate,
-          isCheckedIn: isCheckedIn,
-          isCompleted: isCompleted,
+
+    // Load location first, then open camera directly
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Getting location…'),
+          ],
         ),
       ),
     );
+    final location = await _getCurrentLocation();
     if (!mounted) return;
-    // Refresh attendance screen when returning from check-in/check-out so latest punch and fine data is shown
-    _attendanceService.clearCachesForRefresh();
-    await _refreshData(forceRefresh: true);
+    Navigator.of(context).pop();
+    final requireGeolocation = _attendanceTemplate?['requireGeolocation'] ?? true;
+    if (requireGeolocation && location.position == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Location is required. Please enable location and try again.',
+        isError: true,
+      );
+      return;
+    }
+    final locationStr = location.address.isNotEmpty
+        ? location.address
+        : (location.area != null
+            ? '${location.area}, ${location.city ?? ''}${location.pincode != null ? ' ${location.pincode}' : ''}'
+            : null);
+    final result = await SelfieCameraScreen.captureSelfie(
+      context,
+      location: locationStr,
+      onRefreshLocation: () async {
+        final loc = await _getCurrentLocation();
+        return loc.address.isNotEmpty
+            ? loc.address
+            : (loc.area != null
+                ? '${loc.area}, ${loc.city ?? ''}${loc.pincode != null ? ' ${loc.pincode}' : ''}'
+                : null);
+      },
+    );
+    if (!mounted) return;
+    File? file;
+    if (result is File) {
+      file = result;
+    } else if (identical(result, useImagePickerFallback)) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Camera unavailable. Try again later.',
+        isError: true,
+      );
+      return;
+    }
+    if (file == null) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Submitting attendance…'),
+          ],
+        ),
+      ),
+    );
+    await _submitAttendanceFromCameraFile(
+      file,
+      position: location.position,
+      address: location.address,
+      area: location.area,
+      city: location.city,
+      pincode: location.pincode,
+      isCheckedIn: isCheckedIn,
+    );
+    // Success/failure handled in BlocListener; dialog popped there
   }
 
   Widget _buildAttendanceCard() {

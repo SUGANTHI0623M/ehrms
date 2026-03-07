@@ -630,11 +630,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
+      "projectUniqueName": "C:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
       "projectName": "EktaHR.DesktopAgent",
-      "projectPath": "c:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
+      "projectPath": "C:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\EktaHR.DesktopAgent.csproj",
       "packagesPath": "C:\\Users\\sugan\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\obj\\",
+      "outputPath": "C:\\Users\\sugan\\StudioProjects\\hrms_geo\\ektahr_desktop\\EktaHR.DesktopAgent\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\sugan\\AppData\\Roaming\\NuGet\\NuGet.Config"

@@ -39,7 +39,7 @@ static class Program
             cfg = storage.Load();
             if (cfg?.AccessToken == null) return;
 
-            var baseUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:9002/api";
+            var baseUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "https://track.ektahr.com/api";
 
             var queue = new LocalQueueService();
             var encryption = new EncryptionLayer();

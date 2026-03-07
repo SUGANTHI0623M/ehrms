@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
+import 'alarm_service.dart';
 import '../config/app_colors.dart';
 import '../screens/requests/my_requests_screen.dart';
 import '../screens/attendance/attendance_screen.dart';
@@ -157,6 +158,9 @@ class FcmService {
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
+  /// Exposed for AlarmService (scheduled alarms).
+  static FlutterLocalNotificationsPlugin get localNotifications => _localNotifications;
+
   static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
 
   /// Log for notification debugging – always prints in debug; use for tracing delivery issues.
@@ -292,6 +296,8 @@ class FcmService {
               playSound: true,
             ),
           );
+      // Alarm channel for scheduled reminders (works when app is closed)
+      await AlarmService.ensureAlarmChannel(_localNotifications);
     }
   }
 
