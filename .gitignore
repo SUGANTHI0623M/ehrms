@@ -56,7 +56,6 @@ backend/
 frontend/
 
 
-app_backend/
 # Firebase / Google Cloud secrets (never commit)
 app_backend/firebase-service-account.json
 **/firebase-service-account*.json
