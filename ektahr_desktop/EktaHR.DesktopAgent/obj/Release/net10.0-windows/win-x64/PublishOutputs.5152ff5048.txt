@@ -1,3 +1,0 @@
-C:\Users\sugan\StudioProjects\hrms_geo\ektahr_desktop\EktaHR.DesktopAgent\bin\Release\net10.0-windows\win-x64\publish\EktaHR.DesktopAgent.pdb
-C:\Users\sugan\StudioProjects\hrms_geo\ektahr_desktop\EktaHR.DesktopAgent\bin\Release\net10.0-windows\win-x64\publish\EktaHR.DesktopAgent.dll.config
-C:\Users\sugan\StudioProjects\hrms_geo\ektahr_desktop\EktaHR.DesktopAgent\bin\Release\net10.0-windows\win-x64\publish\EktaHR.DesktopAgent.exe
