@@ -90,6 +90,8 @@ frontend/
 
 new_app/
 
+EktaHR.DesktopAgent/
+
 
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/
