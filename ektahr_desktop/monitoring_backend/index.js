@@ -70,12 +70,7 @@ const USE_REDIS = process.env.USE_REDIS === 'true' || process.env.USE_REDIS === 
 const start = async () => {
     try {
         await connectDB();
-        // Run attendance check cron separately (every 3 sec) - does not block requests
-        const { runAttendanceCheck } = require('./src/cron/attendanceCheckCron');
-        const ATTENDANCE_CRON_INTERVAL_MS = 3 * 1000; // 3 sec
-        setInterval(() => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron]', e?.message || e)), ATTENDANCE_CRON_INTERVAL_MS);
-        setTimeout(() => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron] init', e?.message || e)), 3000); // First run after 3s
-        console.log('[Monitoring API] Attendance check cron scheduled (every 3 sec)');
+        // Attendance check runs as separate PM2 app (monitoring-attendance-cron) for load balancing
         if (!USE_REDIS) {
             console.log('[Monitoring API] No Redis (default). Processing uploads inline. No Worker needed.');
             app.listen(PORT, () => console.log(`[Monitoring API] Running on port ${PORT}`));

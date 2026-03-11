@@ -97,12 +97,12 @@ async function runAttendanceCheck() {
     return updated;
 }
 
-const STANDALONE_INTERVAL_MS = 3 * 1000; // 3 sec
+const INTERVAL_MS = 60 * 1000; // 1 min
 
 if (require.main === module) {
     const runOnce = () => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron]', e?.message || e));
     runOnce(); // run immediately
-    setInterval(runOnce, STANDALONE_INTERVAL_MS); // then every 3 sec (no exit – stop with Ctrl+C)
+    setInterval(runOnce, INTERVAL_MS); // then every 1 min (no exit – stop with Ctrl+C)
 }
 
 module.exports = { runAttendanceCheck };

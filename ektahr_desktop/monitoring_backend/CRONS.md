@@ -2,9 +2,9 @@
 
 ## Crons Implemented
 
-### 1. **attendance-check** (runs automatically every 3 sec via index.js)
+### 1. **attendance-check** (runs as separate PM2 app: `monitoring-attendance-cron`, every 1 min)
 - **Script:** `src/cron/attendanceCheckCron.js`
-- **Run:** `npm run attendance-check` (standalone) or auto via server
+- **Run:** `pm2 start ecosystem.config.js` (starts monitoring-attendance-cron) or `npm run attendance-check` (standalone)
 - **Purpose:** 
   - Queries attendances for today's check-in/check-out per active device
   - Updates MonitoringAttendanceCache (fast lookup for agent)
