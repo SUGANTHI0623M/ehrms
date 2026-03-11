@@ -5,9 +5,9 @@ const activityLogSchema = new mongoose.Schema({
     deviceId: { type: String, required: true },
     employeeID: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },
     timestamp: { type: Date, required: true },
-    keystrokes: { type: Number, default: 0 },
-    mouseClicks: { type: Number, default: 0 },
-    scrollCount: { type: Number, default: 0 },
+    keystrokes: { type: Number },
+    mouseClicks: { type: Number },
+    scrollCount: { type: Number },
     activeWindow: {
         processName: String,
         appName: String,

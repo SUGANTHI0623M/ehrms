@@ -14,7 +14,8 @@ const queue = new Bull(QUEUE_NAME, REDIS_URL, {
     }
 });
 
-queue.process(async (job) => {
+const WORKER_CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY, 10) || 8;
+queue.process(WORKER_CONCURRENCY, async (job) => {
     const { deviceId, tenantId, type } = job.data.metadata;
     console.log('[Worker] Processing job', { jobId: job.id, type, deviceId, tenantId });
     const result = await activityProcessor.processPayload(job.data);
@@ -47,7 +48,7 @@ const start = async () => {
             console.error('[Worker] Redis not reachable - jobs will not be processed until Redis is running.');
         }
         const hasRsa = !!process.env.RSA_PRIVATE_KEY;
-        console.log('[Worker] Processing queue:', QUEUE_NAME);
+        console.log('[Worker] Processing queue:', QUEUE_NAME, 'concurrency:', WORKER_CONCURRENCY);
         if (!hasRsa) console.warn('[Worker] RSA_PRIVATE_KEY not set - using raw-key fallback (works when server did not send public key; for production set RSA_PRIVATE_KEY in .env).');
     } catch (err) {
         console.error('[Worker] Failed to start:', err.message);

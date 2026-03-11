@@ -689,6 +689,7 @@ const checkIn = async (req, res) => {
             existing.fineHours = fineResult.fineHours ?? 0;
             existing.fineAmount = fineResult.fineAmount ?? 0;
             existing.workHours = 0;
+            existing.isPaidLeave = false;  // check-in: set false
             if (source) existing.source = source;
             console.log('[Fine CHECK-IN] (half-day update) INSERTING: checkInTime=', existing.punchIn?.toISOString?.(), 'checkOutTime=null', 'lateMinutes=', existing.lateMinutes, 'earlyMinutes=', existing.earlyMinutes, 'fineAmount=', existing.fineAmount);
             await existing.save();
@@ -765,6 +766,7 @@ const checkIn = async (req, res) => {
             date: startOfDay,
             punchIn: now,
             status: (isHoliday || isWeeklyOff) ? 'Present' : 'Pending',
+            isPaidLeave: false,  // check-in attendance: default false
             location: locationData,
             punchInSelfie: selfieUrl,
             ipAddress: req.ip || req.connection.remoteAddress,

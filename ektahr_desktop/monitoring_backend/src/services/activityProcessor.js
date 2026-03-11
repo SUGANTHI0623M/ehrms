@@ -8,11 +8,14 @@ const NodeRSA = require('node-rsa');
 const ActivityLog = require('../models/ActivityLog');
 const Screenshot = require('../models/Screenshot');
 const ProductivityScore = require('../models/ProductivityScore');
-const TenantSettings = require('../models/TenantSettings');
+const MonitoringSettings = require('../models/MonitoringSettings');
 const Device = require('../models/Device');
 const cloudinaryService = require('./cloudinaryService');
 
 const CLOUDINARY_RETRIES = 5;
+
+/** Cache: deviceId:tenantId -> { lastInsertedMs, lastCaptureTs } - lastInsertedMs=server time when we inserted, lastCaptureTs=payload timestamp for minutesSincePreviousScreenshot */
+const lastScreenshotCache = new Map();
 
 let serverPrivateKey = null;
 function getDecryptor() {
@@ -42,8 +45,13 @@ async function processPayload(jobData) {
     const { deviceId, tenantId, type, timestamp } = metadata;
 
     const device = await Device.findOne({ deviceId }).select('isActive status').lean();
-    if (!device || !device.isActive || device.status === 'logout' || device.status === 'exited') {
-        throw new Error('Tracking disabled: device has logged out or exited. No activity or screenshots are stored.');
+    if (!device || !device.isActive) {
+        console.warn('[ActivityProcessor] Reject: device missing or inactive', { deviceId, hasDevice: !!device, isActive: device?.isActive });
+        throw new Error('Tracking disabled: device inactive.');
+    }
+    if (device.status === 'logout' || device.status === 'exited' || device.status === 'break' || device.status === 'meeting' || device.status === 'pause') {
+        console.warn('[ActivityProcessor] Reject: device status does not allow storage', { deviceId, status: device.status });
+        throw new Error('Tracking disabled: status is ' + (device.status || 'unknown') + '. No activity or screenshots are stored.');
     }
 
     if (!/^[a-fA-F0-9]{24}$/.test(tenantId)) {
@@ -94,6 +102,16 @@ async function processPayload(jobData) {
             console.error('[ActivityProcessor] Invalid JSON after decrypt', { payloadPreview: payload.substring(0, 200), error: e.message });
             throw e;
         }
+
+        const monSettingsForActivity = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
+        if (monSettingsForActivity?.monitoringEnabled === false) {
+            throw new Error('Tracking disabled: monitoringEnabled is false.');
+        }
+        const at = monSettingsForActivity?.activityTracking ?? {};
+        if (at.enabled === false) {
+            throw new Error('Tracking disabled: activityTracking.enabled is false.');
+        }
+
         // Agent sends staffId (Staff._id hex); resolve employeeID (ObjectId) from payload or Device
         const deviceIdVal = activity.deviceId ?? activity.DeviceId ?? deviceId;
         let employeeIDObj = null;
@@ -118,52 +136,112 @@ async function processPayload(jobData) {
 
         const aw = activity.activeWindow ?? activity.ActiveWindow;
         const processNameVal = aw?.processName ?? aw?.ProcessName ?? null;
-        const activeWindowNormalized = aw ? {
+        const activeWindowRaw = aw ? {
             processName: processNameVal,
             appName: (aw.appName ?? aw.AppName) ?? (processNameVal ? processNameVal.replace(/\.[^.]+$/, '') : null),
             windowTitle: aw.windowTitle ?? aw.WindowTitle ?? null,
             durationSeconds: typeof (aw.durationSeconds ?? aw.DurationSeconds) === 'number' ? (aw.durationSeconds ?? aw.DurationSeconds) : 0
         } : null;
 
-        const log = await ActivityLog.create({
+        const logData = {
             tenantId: tenantObjId,
             deviceId: deviceIdVal,
             employeeID: employeeIDObj,
             timestamp: ts,
-            keystrokes: activity.keystrokes ?? activity.Keystrokes ?? 0,
-            mouseClicks: activity.mouseClicks ?? activity.MouseClicks ?? 0,
-            scrollCount: activity.scrollCount ?? activity.ScrollCount ?? 0,
-            activeWindow: activeWindowNormalized,
             idleSeconds: activity.idleSeconds ?? activity.IdleSeconds ?? 0
-        });
-        console.log('[ActivityProcessor] Wrote monitoringlogs', { logId: log._id, employeeID: employeeIDObj, tenantId, timestamp: ts.toISOString() });
+        };
+        if (at.trackKeyboard !== false) logData.keystrokes = activity.keystrokes ?? activity.Keystrokes ?? 0;
+        if (at.trackMouseClicks !== false) logData.mouseClicks = activity.mouseClicks ?? activity.MouseClicks ?? 0;
+        if (at.trackScroll !== false) logData.scrollCount = activity.scrollCount ?? activity.ScrollCount ?? 0;
+        if (at.trackActiveWindow !== false && activeWindowRaw) logData.activeWindow = activeWindowRaw;
 
-        const settings = await TenantSettings.findOne({ tenantId: tenantObjId }).lean();
-        const kw = (settings?.keystrokeWeight) ?? 0.1;
-        const mw = (settings?.mouseWeight) ?? 0.5;
-        const iw = (settings?.idleWeight) ?? -0.02;
-        const score = (kw * (log.keystrokes || 0)) + (mw * (log.mouseClicks || 0)) + (iw * (log.idleSeconds || 0));
+        // Fetch last activity for this device to log insert interval (testing syncSettings.activityUploadIntervalSeconds)
+        const lastLog = await ActivityLog.findOne(
+            { deviceId: deviceIdVal, tenantId: tenantObjId }
+        ).sort({ timestamp: -1 }).select('timestamp').lean();
+        const prevTs = lastLog?.timestamp ? new Date(lastLog.timestamp) : null;
+        const durationSec = prevTs ? Math.round((ts - prevTs) / 1000) : null;
 
-        await ProductivityScore.create({
-            tenantId: tenantObjId,
+        const log = await ActivityLog.create(logData);
+        console.log('[ActivityProcessor] Wrote monitoringlogs', {
+            logId: log._id,
             employeeID: employeeIDObj,
-            activityLogId: log._id,
-            timestamp: ts,
-            score,
-            keystrokes: log.keystrokes,
-            mouseClicks: log.mouseClicks,
-            idleSeconds: log.idleSeconds
+            tenantId,
+            timestamp: ts.toISOString(),
+            ...(durationSec != null && { durationSinceLastInsertSeconds: durationSec })
         });
-        console.log('[ActivityProcessor] Wrote monitoringscores', { employeeID: employeeIDObj, tenantId });
+
+        const monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
+        const psEnabled = monSettings?.productivitySettings?.enabled === true;
+
+        if (psEnabled) {
+            const ps = monSettings.productivitySettings;
+            const exp = ps.expectedActivityPerMinute ?? { keystrokes: 40, mouseClicks: 20, scrolls: 10 };
+            const idleMax = 60; // fixed for productivity score; idle alert uses root idleSettings.idleTimeMinutes
+            const weights = ps.weights ?? { activityWeight: 0.7, idleWeight: 0.3 };
+            const range = ps.scoreRange ?? { min: 0, max: 100 };
+
+            const keyScore = Math.min(1, (log.keystrokes || 0) / (exp.keystrokes || 1));
+            const mouseScore = Math.min(1, (log.mouseClicks || 0) / (exp.mouseClicks || 1));
+            const scrollScore = Math.min(1, (log.scrollCount || 0) / (exp.scrolls || 1));
+            const activityScore = (keyScore + mouseScore + scrollScore) / 3;
+            const idleSeconds = Math.min(idleMax, log.idleSeconds || 0);
+            const idleFactor = (idleMax - idleSeconds) / idleMax;
+            const score = Math.max(range.min ?? 0, Math.min(range.max ?? 100, (activityScore * weights.activityWeight + idleFactor * weights.idleWeight) * 100));
+
+            const scoreData = {
+                tenantId: tenantObjId,
+                employeeID: employeeIDObj,
+                activityLogId: log._id,
+                timestamp: ts,
+                score,
+                idleSeconds: log.idleSeconds
+            };
+            if (at.trackKeyboard !== false) scoreData.keystrokes = log.keystrokes ?? 0;
+            if (at.trackMouseClicks !== false) scoreData.mouseClicks = log.mouseClicks ?? 0;
+            if (at.trackScroll !== false) scoreData.scrollCount = log.scrollCount ?? 0;
+            await ProductivityScore.create(scoreData);
+            console.log('[ActivityProcessor] Wrote monitoringscores', {
+                employeeID: employeeIDObj,
+                tenantId,
+                ...(durationSec != null && { insertIntervalSeconds: durationSec })
+            });
+        } else {
+            console.log('[ActivityProcessor] Skipped monitoringscores (productivitySettings.enabled is false)', { employeeID: employeeIDObj, tenantId });
+        }
         const staffIdHex = employeeIDObj.toString();
         return { type: 'activity', activityLogId: log._id, employeeID: employeeIDObj, employeeId: staffIdHex, tenantId };
     }
 
     if (type === 'screenshot') {
-        const data = JSON.parse(payload);
-        const buffer = Buffer.from(data.imageBase64, 'base64');
+        console.log('[ActivityProcessor] SCREENSHOT - starting process', { deviceId, tenantId });
+        const monSettingsForScreenshot = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
+        const syncInterval = monSettingsForScreenshot?.syncSettings?.screenshotUploadIntervalMinutes ?? 5;
+        console.log('[ActivityProcessor] Screenshot settings OK', { screenshotUploadIntervalMinutes: syncInterval });
+        if (monSettingsForScreenshot?.monitoringEnabled === false) {
+            throw new Error('Tracking disabled: monitoringEnabled is false.');
+        }
+        const ssEnabled = monSettingsForScreenshot?.screenshotSettings?.enabled;
+        if (ssEnabled === false) {
+            console.log('[ActivityProcessor] Screenshot skipped: screenshotSettings.enabled is false', { tenantId });
+            throw new Error('Screenshot capture disabled in settings.');
+        }
+        let data;
+        try {
+            data = JSON.parse(payload);
+        } catch (parseErr) {
+            console.error('[ActivityProcessor] Screenshot payload JSON parse failed', { error: parseErr.message, payloadPreview: (payload || '').substring(0, 200) });
+            throw parseErr;
+        }
+        // Support both camelCase and PascalCase (agent may send either)
+        const imageB64 = data.imageBase64 ?? data.ImageBase64;
+        if (!imageB64 || typeof imageB64 !== 'string') {
+            console.error('[ActivityProcessor] Screenshot payload missing imageBase64', { dataKeys: Object.keys(data || {}) });
+            throw new Error('Screenshot payload must include imageBase64 (or ImageBase64).');
+        }
+        const buffer = Buffer.from(imageB64, 'base64');
         // Resolve employeeID (ObjectId): agent sends staffId (hex) in payload or we get from Device
-        const deviceIdVal = data.deviceId ?? deviceId;
+        const deviceIdVal = data.deviceId ?? data.DeviceId ?? deviceId;
         let employeeIDObj = null;
         const staffIdRaw = data.staffId ?? data.StaffId ?? data.employeeId ?? data.EmployeeId;
         if (staffIdRaw && typeof staffIdRaw === 'string' && /^[a-fA-F0-9]{24}$/.test(staffIdRaw)) {
@@ -177,29 +255,69 @@ async function processPayload(jobData) {
 
         const staffIdHex = employeeIDObj.toString();
         let result;
+        const dataTenantId = data.tenantId ?? data.TenantId ?? tenantId;
+        const dataTimestamp = data.timestamp ?? data.Timestamp ?? timestamp;
         for (let attempt = 1; attempt <= CLOUDINARY_RETRIES; attempt++) {
             try {
                 result = await cloudinaryService.uploadScreenshot(buffer, {
-                    tenantId: data.tenantId,
+                    tenantId: dataTenantId,
                     employeeId: staffIdHex,
-                    timestamp: data.timestamp
+                    timestamp: dataTimestamp
                 });
                 break;
             } catch (err) {
+                console.warn('[ActivityProcessor] Cloudinary upload attempt', attempt, 'failed', { error: err.message, hasCloudinaryConfig: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) });
                 if (attempt === CLOUDINARY_RETRIES) throw err;
             }
         }
+        const ts = new Date(dataTimestamp);
+        const cacheKey = `${deviceIdVal}:${tenantObjId.toString()}`;
+        const nowMs = Date.now();
+        let cached = lastScreenshotCache.get(cacheKey);
+        if (!cached) {
+            const lastScreenshot = await Screenshot.findOne(
+                { deviceId: deviceIdVal, tenantId: tenantObjId }
+            ).sort({ timestamp: -1 }).select('timestamp').lean();
+            const lastTs = lastScreenshot?.timestamp ? new Date(lastScreenshot.timestamp) : null;
+            if (lastTs) {
+                cached = { lastInsertedMs: lastTs.getTime(), lastCaptureTs: lastTs };
+            }
+        }
+        const prevCaptureTs = cached?.lastCaptureTs || null;
+        const rawMin = prevCaptureTs ? (ts - prevCaptureTs) / 60000 : null;
+        const durationMin = rawMin != null ? Math.max(0, Math.round(rawMin * 10) / 10) : null;
+
+        const minutesSinceLastInsert = cached?.lastInsertedMs != null
+            ? (nowMs - cached.lastInsertedMs) / 60000
+            : null;
+        if (cached?.lastInsertedMs != null && minutesSinceLastInsert != null && minutesSinceLastInsert < syncInterval) {
+            console.log('[ActivityProcessor] Screenshot skipped: too soon', {
+                minutesSinceLastInsert: Math.round(minutesSinceLastInsert * 10) / 10,
+                screenshotUploadIntervalMinutes: syncInterval
+            });
+            throw new Error(`Screenshot too soon: ${Math.round(minutesSinceLastInsert * 10) / 10}min since last insert (interval=${syncInterval}min). Wait for ${syncInterval}min.`);
+        }
+
         await Screenshot.create({
             tenantId: tenantObjId,
             employeeID: employeeIDObj,
-            deviceId: data.deviceId ?? deviceIdVal,
-            timestamp: new Date(data.timestamp),
+            deviceId: deviceIdVal,
+            timestamp: ts,
             cloudinaryPublicId: result.public_id,
             cloudinaryUrl: result.url,
             secureUrl: result.secure_url,
             width: result.width,
             height: result.height,
             size: result.bytes
+        });
+        lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
+        console.log('[ActivityProcessor] SCREENSHOT INSERTED monitoringscreenshots', {
+            employeeID: employeeIDObj,
+            tenantId,
+            deviceId: data.deviceId ?? deviceIdVal,
+            timestamp: ts.toISOString(),
+            cloudinaryPublicId: result.public_id,
+            ...(durationMin != null && { minutesSincePreviousScreenshot: durationMin })
         });
         return { type: 'screenshot', employeeID: employeeIDObj, employeeId: staffIdHex, tenantId, publicId: result.public_id };
     }

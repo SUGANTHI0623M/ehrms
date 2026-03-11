@@ -7,6 +7,10 @@ const connectDB = require('./src/config/db');
 const deviceRoutes = require('./src/routes/deviceRoutes');
 const activityRoutes = require('./src/routes/activityRoutes');
 const breakRoutes = require('./src/routes/breakRoutes');
+const pauseRoutes = require('./src/routes/pauseRoutes');
+const meetingRoutes = require('./src/routes/meetingRoutes');
+const summaryRoutes = require('./src/routes/summaryRoutes');
+const debugRoutes = require('./src/routes/debugRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -24,11 +28,17 @@ app.use('/api/device', deviceRoutes);
 app.use('/api/activity', (req, res, next) => {
     const ts = new Date().toISOString();
     const meta = req.body?.metadata;
-    console.log(`[${ts}] [Monitoring API] ${req.method} ${req.path}`, meta ? { type: meta.type, deviceId: meta.deviceId, tenantId: meta.tenantId, timestamp: meta.timestamp } : '(no metadata)');
+    const type = meta?.type || 'unknown';
+    console.log(`[${ts}] [Monitoring API] ${req.method} ${req.path} type=${type}`, meta ? { type: meta.type, deviceId: meta.deviceId?.substring?.(0, 12) + '...', tenantId: meta.tenantId } : '(no metadata)');
+    if (type === 'screenshot') console.log(`[${ts}] [Monitoring API] SCREENSHOT RECEIVED - will process`);
     next();
 });
 app.use('/api/activity', activityRoutes);
 app.use('/api/break', breakRoutes);
+app.use('/api/pause', pauseRoutes);
+app.use('/api/meeting', meetingRoutes);
+app.use('/api/summary', summaryRoutes);
+app.use('/api/debug', debugRoutes);
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
@@ -60,6 +70,12 @@ const USE_REDIS = process.env.USE_REDIS === 'true' || process.env.USE_REDIS === 
 const start = async () => {
     try {
         await connectDB();
+        // Run attendance check cron separately (every 3 sec) - does not block requests
+        const { runAttendanceCheck } = require('./src/cron/attendanceCheckCron');
+        const ATTENDANCE_CRON_INTERVAL_MS = 3 * 1000; // 3 sec
+        setInterval(() => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron]', e?.message || e)), ATTENDANCE_CRON_INTERVAL_MS);
+        setTimeout(() => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron] init', e?.message || e)), 3000); // First run after 3s
+        console.log('[Monitoring API] Attendance check cron scheduled (every 3 sec)');
         if (!USE_REDIS) {
             console.log('[Monitoring API] No Redis (default). Processing uploads inline. No Worker needed.');
             app.listen(PORT, () => console.log(`[Monitoring API] Running on port ${PORT}`));

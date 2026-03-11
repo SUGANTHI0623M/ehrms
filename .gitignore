@@ -70,6 +70,7 @@ app_backend/face_verify/__pycache__/
 # Test/sample data (may contain sensitive info)
 app_backend/customer_data.json
 ektahr_desktop/EktaHR.DesktopAgent/
+ektahr_desktop/EktaHR.DesktopAgent/installer_output/
 # Firebase/Google Cloud credentials (never commit)
 app_backend/firebase-service-account.json
 **/firebase-service-account*.json

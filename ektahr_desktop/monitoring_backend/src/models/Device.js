@@ -11,8 +11,9 @@ const deviceSchema = new mongoose.Schema({
     systemModel: { type: String },
     lastSeenAt: { type: Date, default: Date.now },
     isActive: { type: Boolean, default: true },
-    status: { type: String, enum: ['active', 'inactive', 'logout', 'exited'], default: 'active' },
-    consentAt: { type: Date }
+    status: { type: String, enum: ['active', 'inactive', 'logout', 'exited', 'break', 'meeting', 'pause', 'offline'], default: 'active' },
+    consentAt: { type: Date },
+    autoupdate: { type: Boolean, default: false }
 }, { timestamps: true, collection: 'monitoringdevices' });
 
 deviceSchema.index({ tenantId: 1, deviceId: 1 });

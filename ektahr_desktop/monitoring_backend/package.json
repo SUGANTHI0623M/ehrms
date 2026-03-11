@@ -10,7 +10,8 @@
     "worker:dev": "nodemon worker.js",
     "generate-rsa": "node scripts/generate-rsa-key.js",
     "retention": "node src/cron/dataRetention.js",
-    "heartbeat-offline": "node src/cron/heartbeatOffline.js"
+    "attendance-check": "node src/cron/attendanceCheckCron.js",
+    "test:monitoring": "node scripts/test-monitoring-flow.js"
   },
   "keywords": ["hrms", "monitoring", "activity", "ektahr"],
   "license": "ISC",

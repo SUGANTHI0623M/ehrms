@@ -1,0 +1,266 @@
+================================================================================
+  Ekta HR Desktop Agent - Capture Flow Explanation
+  How Keystrokes, Mouse Clicks, Scroll, and Screenshots are Captured
+================================================================================
+
+OVERVIEW
+--------
+The Ekta HR Desktop Agent is a Windows application that monitors user activity
+(keyboard, mouse, active window) and captures periodic screenshots. All data is
+encrypted, queued locally, and sent to the monitoring backend for storage.
+
+
+================================================================================
+1. CAPTURE METHODS - How Each Metric is Recorded
+================================================================================
+
+1.1 KEYSTROKES
+--------------
+- Method: Windows Low-Level Keyboard Hook (WH_KEYBOARD_LL)
+- Implementation: SystemHookManager.KeyboardHookCallback() in SystemHookManager.cs
+- How it works:
+  * SetWindowsHookEx() installs a global hook that receives every keyboard event
+  * On WM_KEYDOWN (key press, not release), a RawEvent of type Keystroke is queued
+  * Only key PRESS events are counted (not releases) - each key = 1 keystroke
+  * The hook runs system-wide; no actual key content is recorded (privacy-safe)
+- Data stored: Integer count of keystrokes per minute
+
+
+1.2 MOUSE CLICKS
+----------------
+- Method: Windows Low-Level Mouse Hook (WH_MOUSE_LL)
+- Implementation: SystemHookManager.MouseHookCallback() in SystemHookManager.cs
+- How it works:
+  * SetWindowsHookEx() installs a global mouse hook
+  * WM_LBUTTONDOWN (left click) or WM_RBUTTONDOWN (right click) = 1 mouse click
+  * Each left/right button press is counted
+- Data stored: Integer count of mouse clicks per minute
+
+
+1.3 SCROLL
+----------
+- Method: Same Windows Low-Level Mouse Hook (WH_MOUSE_LL)
+- Implementation: SystemHookManager.MouseHookCallback() in SystemHookManager.cs
+- How it works:
+  * WM_MOUSEWHEEL (vertical scroll) or WM_MOUSEHWHEEL (horizontal scroll) = 1 scroll
+  * Each wheel "notch" or scroll action increments the count
+  * Vertical and horizontal scrolls are both counted
+- Data stored: Integer count of scroll events per minute (scrollCount)
+
+
+1.4 SCREENSHOTS
+---------------
+- Method: GDI+ Graphics.CopyFromScreen() (System.Drawing)
+- Implementation: ScreenshotEngine.Capture() in ScreenshotEngine.cs
+- How it works:
+  * Timer triggers every N minutes (default: 5) per TenantSettings.screenshotFrequencyMinutes
+  * GetVirtualScreenBounds() captures the full desktop (all monitors)
+  * Bitmap is created; Graphics.CopyFromScreen() copies the screen pixels
+  * Blur rules: If the foreground window matches a blur rule (e.g. sensitive app),
+    the entire screenshot is replaced with a black rectangle for privacy
+  * Image is resized if width > 1280px (keeps aspect ratio)
+  * Compressed to JPEG (quality 65) to reduce size
+- Data stored: JPEG bytes, uploaded to Cloudinary; metadata in monitoringscreenshots
+
+
+1.5 ADDITIONAL CAPTURED DATA
+----------------------------
+- Idle seconds: GetLastInputInfo() API - time since last keyboard/mouse input
+- Active window: GetForegroundWindow() + GetWindowThreadProcessId() - process name,
+  window title, and duration the window was focused
+
+
+================================================================================
+2. AGENT-SIDE FLOW (Desktop Application)
+================================================================================
+
+STEP 1: STARTUP
+---------------
+Program.Main()
+  -> User logs in via ConsentForm (Email, Password)
+  -> Device registers with backend (POST /api/device/register)
+  -> Agent polls GET /api/device/attendance-status (every 90s) to check check-in/check-out from attendances
+  -> When user checks in (punchIn set, punchOut null): show alert "You have checked in. Start tracking.", start activity/screenshot
+  -> When user checks out (punchOut set): insert productivity for that date if not there, show alert "You have checked out. Stop tracking.", stop activity/screenshot
+  -> Receives: accessToken, staffId, serverPublicKey, screenshotFrequency, blurRules, monitoringEnabled, activityTracking
+  -> monitoringEnabled: if false, agent must NOT track anything (no activity, no screenshots)
+  -> activityTracking: { enabled, trackKeyboard, trackMouseClicks, trackScroll, trackActiveWindow }
+    - enabled=false: no activity tracking
+    - trackKeyboard=false: do not count keystrokes
+    - trackMouseClicks=false: do not count mouse clicks
+    - trackScroll=false: do not count scroll events
+    - trackActiveWindow=false: do not capture active window
+  -> LocalQueueService initializes SQLite DB at %LocalAppData%\EktaHR\Monitoring\queue.db
+  -> EncryptionLayer loads server's RSA public key for encrypting payloads
+
+
+STEP 2: HOOKS START
+-------------------
+SystemHookManager.Start()
+  -> Installs WH_KEYBOARD_LL hook (KeyboardHookCallback)
+  -> Installs WH_MOUSE_LL hook (MouseHookCallback)
+  -> Both hooks run in the agent process; events are queued in _eventBuffer
+
+
+STEP 3: ACTIVITY AGGREGATION (Every 60 seconds)
+-----------------------------------------------
+ActivityAggregator has a 60-second timer (Tick):
+  1. PollActiveWindow() - detect if user switched windows; enqueue ActiveWindow events
+  2. DrainBuffer() - get all RawEvents from the hook buffer
+  3. Aggregate: sum Keystroke, MouseClick, Scroll events
+  4. GetIdleSeconds() via GetLastInputInfo
+  5. Build ActivitySnapshot: { keystrokes, mouseClicks, scrollCount, activeWindow, idleSeconds }
+  6. Fire OnSnapshotReady event
+
+
+STEP 4: ENCRYPTION & QUEUE (On Snapshot)
+----------------------------------------
+aggregator.OnSnapshotReady handler:
+  -> EncryptionLayer.EncryptActivity(snapshot) - AES encrypt + RSA encrypt key
+  -> LocalQueueService.Enqueue(encryptedPayload, encryptedKey, metadata)
+  -> Metadata: { deviceId, tenantId, type: "activity", timestamp }
+
+
+STEP 5: SCREENSHOT (Every N minutes, e.g. 5)
+--------------------------------------------
+ScreenshotEngine has a timer (interval = screenshotFrequencyMinutes * 60 * 1000 ms):
+  1. Capture() - CopyFromScreen, apply blur rules, resize, compress JPEG
+  2. Fire OnScreenshotCaptured(bytes)
+  -> EncryptionLayer.EncryptScreenshot(...) 
+  -> LocalQueueService.Enqueue(encryptedPayload, encryptedKey, metadata)
+  -> Metadata: { deviceId, tenantId, type: "screenshot", timestamp }
+
+
+STEP 6: SYNC TO BACKEND
+-----------------------
+SyncManager has a 10-second timer (SyncLoop):
+  1. LocalQueueService.Dequeue() - get oldest pending item
+  2. POST to {baseUrl}/activity/upload with:
+     { encryptedKey, encryptedPayload, metadata: { deviceId, tenantId, type, timestamp } }
+  3. On success: MarkSuccess (delete from queue)
+  4. On failure: IncrementRetry (retry up to 10 times)
+
+
+================================================================================
+3. BACKEND FLOW (Monitoring API + Worker)
+================================================================================
+
+STEP 1: RECEIVE UPLOAD
+----------------------
+POST /api/activity/upload (rate limited: 60/min)
+  -> activityController.uploadActivity
+  -> Validates: encryptedKey, encryptedPayload, metadata (deviceId, tenantId, type, timestamp)
+  -> If USE_REDIS=false: process inline via activityProcessor.processPayload()
+  -> If USE_REDIS=true: add job to Redis Bull queue (monitoring_processing_queue)
+
+
+STEP 2: PROCESS PAYLOAD (activityProcessor)
+-------------------------------------------
+activityProcessor.processPayload():
+  1. Decrypt: use RSA private key (or raw-key fallback) to get AES key
+  2. Decrypt payload with AES
+  3. Check device is active (not logged out/exited)
+  4. Route by type:
+
+     IF type === "activity":
+       - Parse JSON: keystrokes, mouseClicks, scrollCount, idleSeconds, activeWindow
+       - Insert ActivityLog into monitoringlogs
+       - Calculate productivity score: (kw*keystrokes) + (mw*mouseClicks) + (iw*idleSeconds)
+       - Insert ProductivityScore into monitoringscores
+
+     IF type === "screenshot":
+       - Parse JSON: imageBase64, deviceId, staffId
+       - Upload image buffer to Cloudinary
+       - Insert Screenshot metadata into monitoringscreenshots (publicId, tenantId, etc.)
+
+
+================================================================================
+4. DATA STORAGE
+================================================================================
+
+| Collection           | Content                                      |
+|----------------------|-----------------------------------------------|
+| monitoringlogs       | Per-minute: keystrokes, mouseClicks, scrollCount, idleSeconds, activeWindow |
+| monitoringscores     | Per-minute: score (formula), keystrokes, mouseClicks, idleSeconds |
+| monitoringscreenshots| Metadata: tenantId, employeeID, publicId (Cloudinary URL), timestamp |
+| Cloudinary           | Actual screenshot image files (JPEG)          |
+
+
+================================================================================
+5. TIMING SUMMARY
+================================================================================
+
+| Event           | Interval           |
+|-----------------|--------------------|
+| Activity snap   | 60 seconds         |
+| Screenshot      | N minutes (default 5) |
+| Sync upload     | Every 10 seconds   |
+| Heartbeat       | Every 2 minutes    |
+
+
+================================================================================
+6. SECURITY
+================================================================================
+
+- All activity and screenshot payloads are AES-256 encrypted
+- AES key is RSA-encrypted with server's public key before upload
+- No keystroke content is ever captured (only counts)
+- Blur rules can blacken screenshots when sensitive apps are in foreground
+- Data stored in SQLite queue until successfully uploaded (offline resilience)
+
+
+================================================================================
+7.  How Everything is Detected and Stored
+================================================================================
+
+HOW IT IS DETECTED
+------------------
+The agent runs on the employee's PC and keeps a small "listener" in the
+background.
+
+  * Keystrokes: Windows tells the agent "a key was pressed." The agent only
+    counts how many times—it never sees which key or what was typed.
+
+  * Mouse clicks: Windows tells the agent "the mouse was clicked" (left or
+    right). Again, only the number of clicks is counted.
+
+  * Scroll: When the user scrolls with the mouse wheel (up, down, or sideways),
+    Windows notifies the agent. The agent counts how many scroll actions happened.
+
+  * Screenshots: Every few minutes (e.g. 5), the agent takes a picture of the
+    whole screen (like pressing Print Screen). The image is shrunk and
+    compressed. If the user is in an app that your company marked as private
+    (blur rule), the screenshot is replaced with a black image.
+
+  * Idle time: Windows tells the agent how long it has been since the user last
+    pressed a key or moved the mouse. That is stored as "idle seconds."
+
+  * Active window: The agent asks Windows "which app is in front right now?"
+    and stores the app name and window title (and how long that window was
+    in front).
+
+All of this is collected once per minute into one "activity snapshot" (numbers
+only—no key content, no text).
+
+
+HOW IT IS STORED
+----------------
+  * On the PC: Each minute's snapshot and each screenshot are encrypted and
+    saved into a small local database (queue) on the computer. The agent then
+    sends them to your server every 10 seconds, one item at a time.
+
+  * On the server: When the server receives a packet, it decrypts it. If it
+    is activity (keystroke/mouse/scroll counts, idle, active window), it
+    saves one row in "activity logs" and one row in "productivity scores."
+    If it is a screenshot, the image is uploaded to cloud storage (Cloudinary)
+    and only the link and details (who, when) are saved in the database.
+
+So in short: the agent detects actions via Windows hooks and screen capture,
+turns them into numbers and images, encrypts them, queues them on the PC, then
+sends them to the server where they are decrypted and stored in the database
+(and screenshots in the cloud).
+
+
+================================================================================
+End of Document
+================================================================================

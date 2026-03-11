@@ -5,7 +5,7 @@ const cloudinary = require('cloudinary').v2;
 const connectDB = require('../config/db');
 const ActivityLog = require('../models/ActivityLog');
 const Screenshot = require('../models/Screenshot');
-const TenantSettings = require('../models/TenantSettings');
+const MonitoringSettings = require('../models/MonitoringSettings');
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -16,7 +16,7 @@ cloudinary.config({
 async function runRetention() {
     await connectDB();
 
-    const tenants = await TenantSettings.find().lean();
+    const tenants = await MonitoringSettings.find().select('businessId tenantId dataRetention').lean();
     const activityRetention = 90;
     const screenshotRetention = 30;
 
@@ -31,17 +31,20 @@ async function runRetention() {
     let screenshotsDeleted = 0;
 
     for (const t of tenants) {
-        const aid = t.activityRetentionDays ?? activityRetention;
-        const sid = t.screenshotRetentionDays ?? screenshotRetention;
+        const tenantId = t.tenantId ?? t.businessId;
+        if (!tenantId) continue;
+        const dr = t.dataRetention ?? {};
+        const aid = dr.activityLogsDays ?? activityRetention;
+        const sid = dr.screenshotsDays ?? screenshotRetention;
         const acut = new Date(now);
         acut.setDate(acut.getDate() - aid);
         const scut = new Date(now);
         scut.setDate(scut.getDate() - sid);
 
-        const ar = await ActivityLog.deleteMany({ tenantId: t.tenantId, timestamp: { $lt: acut } });
+        const ar = await ActivityLog.deleteMany({ tenantId, timestamp: { $lt: acut } });
         activityDeleted += ar.deletedCount;
 
-        const screenshots = await Screenshot.find({ tenantId: t.tenantId, timestamp: { $lt: scut } }).lean();
+        const screenshots = await Screenshot.find({ tenantId, timestamp: { $lt: scut } }).lean();
         for (const s of screenshots) {
             try {
                 await cloudinary.uploader.destroy(s.cloudinaryPublicId);
@@ -49,7 +52,7 @@ async function runRetention() {
                 console.warn(`[Retention] Failed to delete Cloudinary asset ${s.cloudinaryPublicId}:`, e.message);
             }
         }
-        const sr = await Screenshot.deleteMany({ tenantId: t.tenantId, timestamp: { $lt: scut } });
+        const sr = await Screenshot.deleteMany({ tenantId, timestamp: { $lt: scut } });
         screenshotsDeleted += sr.deletedCount;
     }
 

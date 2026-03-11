@@ -88,7 +88,7 @@ const attendanceSchema = new mongoose.Schema(
     compensationType: { type: String, enum: ['paid', 'unpaid', 'weekOff', 'compOff'] },
     alternateWorkDate: Date,
     availableCasualLeaves: Number,
-    isPaidLeave: { type: Boolean, default: true },
+    isPaidLeave: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     fcmNotificationSentAt: { type: Date },

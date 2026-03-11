@@ -18,7 +18,7 @@ const protectDevice = async (req, res, next) => {
             }
             if (device.status === 'logout' || device.status === 'exited') {
                 console.warn('[Auth] Tracking disabled (logout/exited)', { deviceId: decoded.deviceId, status: device.status });
-                return res.status(403).json({ message: 'Tracking disabled. Device has logged out or exited.' });
+                return res.status(403).json({ message: 'Tracking disabled. Software not logged in or has exited.' });
             }
             req.device = device;
             next();

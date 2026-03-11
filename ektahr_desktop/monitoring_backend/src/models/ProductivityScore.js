@@ -6,8 +6,9 @@ const productivityScoreSchema = new mongoose.Schema({
     activityLogId: { type: mongoose.Schema.Types.ObjectId, ref: 'ActivityLog', required: true },
     timestamp: { type: Date, required: true },
     score: { type: Number, default: 0 },
-    keystrokes: { type: Number, default: 0 },
-    mouseClicks: { type: Number, default: 0 },
+    keystrokes: { type: Number },
+    mouseClicks: { type: Number },
+    scrollCount: { type: Number },
     idleSeconds: { type: Number, default: 0 }
 }, { timestamps: true, collection: 'monitoringscores' });
 
