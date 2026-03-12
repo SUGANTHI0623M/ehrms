@@ -94,3 +94,11 @@ new_app/
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/
 **/Assets.xcassets/**/_/
+
+
+
+
+ektahr_desktop/EktaHR.DesktopAgent/
+ektahr_desktop/EktaHR.DesktopAgent/installer_output/
+ektahr_desktop/output
+ektahr_desktop/publish
