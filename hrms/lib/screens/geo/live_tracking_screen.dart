@@ -107,6 +107,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   final bool _otpVerified = false;
   bool _updatingSteps = false;
   bool _submittingArrived = false;
+  /// True once arrived has been successfully sent; keeps Arrived button disabled.
+  bool _arrivedSent = false;
   Timer? _locationUploadTimer;
 
   final Floating _floating = Floating();
@@ -115,6 +117,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.task?.status == TaskStatus.arrived) _arrivedSent = true;
     _dropoffAddress =
         widget.task?.destinationLocation?.address ??
         (widget.task?.customer != null
@@ -813,7 +816,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   }
 
   Future<void> _onArrived() async {
-    if (_submittingArrived) return;
+    if (_submittingArrived || _arrivedSent) return;
     final totalKm = _totalDistanceCovered / 1000;
     final arrival = DateTime.now();
     final durationSeconds = _totalTimeElapsed.inSeconds;
@@ -861,13 +864,16 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             'fullAddress': sourceAddress,
           },
         );
-        if (mounted) setState(() => _reachedLocation = true);
+        if (mounted) setState(() {
+          _reachedLocation = true;
+          _arrivedSent = true;
+        });
         await LiveTrackingService().stopTracking();
       } catch (_) {
         if (mounted) setState(() => _submittingArrived = false);
         return;
       }
-      // Keep _submittingArrived true until navigation; prevents double-tap
+      // _arrivedSent and _submittingArrived keep Arrived button disabled
     }
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -1153,7 +1159,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                onPressed: _submittingArrived ? null : _onArrived,
+                onPressed: (_submittingArrived || _arrivedSent) ? null : _onArrived,
                 icon: _submittingArrived
                     ? const SizedBox(
                         width: 18,
@@ -1163,13 +1169,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                           color: Colors.white,
                         ),
                       )
-                    : const Icon(
-                        Icons.location_on_rounded,
+                    : Icon(
+                        _arrivedSent ? Icons.check_circle_rounded : Icons.location_on_rounded,
                         color: Colors.white,
                         size: 18,
                       ),
                 label: Text(
-                  _submittingArrived ? 'Submitting...' : 'Arrived',
+                  _arrivedSent ? 'Arrived' : (_submittingArrived ? 'Submitting...' : 'Arrived'),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

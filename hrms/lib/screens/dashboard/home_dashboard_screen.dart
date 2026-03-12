@@ -2132,6 +2132,64 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     );
   }
 
+  /// Calendar date (yyyy-MM-dd) from attendance collection. UTC/ISO date only (no local timezone shift).
+  /// Handles: ISO string, date-only string, or DateTime (UTC components).
+  String _attendanceCalendarDate(dynamic dateValue) {
+    if (dateValue == null) return '';
+    try {
+      if (dateValue is DateTime) {
+        final u = dateValue.toUtc();
+        return '${u.year}-${u.month.toString().padLeft(2, '0')}-${u.day.toString().padLeft(2, '0')}';
+      }
+      final s = dateValue.toString().trim();
+      if (s.isEmpty) return '';
+      if (s.contains('T')) return s.split('T').first;
+      if (s.length >= 10 && s[4] == '-' && s[7] == '-') return s.substring(0, 10);
+      final d = DateTime.parse(s);
+      final u = d.toUtc();
+      return '${u.year}-${u.month.toString().padLeft(2, '0')}-${u.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _attendanceDateKey(dynamic record) {
+    if (record is! Map) return '';
+    return _attendanceCalendarDate(record['date']);
+  }
+
+  /// One record per date from attendance collection: prefer record with punchIn, then latest updatedAt.
+  List<dynamic> _deduplicateAttendanceByDate(List<dynamic> attendance) {
+    if (attendance.isEmpty) return [];
+    final byDate = <String, Map<String, dynamic>>{};
+    for (final r in attendance) {
+      if (r is! Map) continue;
+      final key = _attendanceDateKey(r);
+      if (key.isEmpty) continue;
+      final existing = byDate[key];
+      if (existing == null) {
+        byDate[key] = Map<String, dynamic>.from(r);
+        continue;
+      }
+      final hasPunchIn = (r['punchIn'] != null && r['punchIn'].toString().trim().isNotEmpty);
+      final existingHasPunchIn = (existing['punchIn'] != null && existing['punchIn'].toString().trim().isNotEmpty);
+      if (hasPunchIn && !existingHasPunchIn) {
+        byDate[key] = Map<String, dynamic>.from(r);
+      } else if (hasPunchIn == existingHasPunchIn) {
+        final rUpdated = r['updatedAt'];
+        final eUpdated = existing['updatedAt'];
+        if (rUpdated != null && eUpdated != null) {
+          try {
+            final rTime = DateTime.parse(rUpdated.toString()).millisecondsSinceEpoch;
+            final eTime = DateTime.parse(eUpdated.toString()).millisecondsSinceEpoch;
+            if (rTime > eTime) byDate[key] = Map<String, dynamic>.from(r);
+          } catch (_) {}
+        }
+      }
+    }
+    return byDate.values.toList();
+  }
+
   Widget _buildMonthAttendanceCard() {
     final monthName = DateFormat('MMMM yyyy').format(_selectedMonth);
     // Prefer dashboard attendanceSummary (same source as payslip and salary overview)
@@ -2550,25 +2608,21 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       );
     }
 
-    // Use date strings (yyyy-MM-dd) as keys to avoid conflicts and ensure accurate matching
+    // Use date strings (yyyy-MM-dd) as keys; one record per date from attendance collection (deduplicate)
     Map<String, String> dayStatusByDate = {};
     Map<String, String?> dayLeaveTypeByDate = {};
     Map<String, bool> dayIsPaidLeaveByDate = {};
     Map<String, String> dayCompensationTypeByDate = {};
     Map<String, num?> dayWorkHoursByDate = {};
     Set<String> pendingWithCheckInDateSet = {};
-    if (_monthData != null && _monthData!['attendance'] != null) {
-      for (var entry in _monthData!['attendance']) {
+    final rawAttendance = _monthData != null ? (_monthData!['attendance'] as List?) ?? [] : [];
+    final attendanceDeduped = _deduplicateAttendanceByDate(rawAttendance);
+    if (attendanceDeduped.isNotEmpty) {
+      for (var entry in attendanceDeduped) {
         try {
-          // Use date-only from API so calendar day matches backend (avoids timezone shifting)
-          final dateVal = entry['date'];
-          String dateStr;
-          if (dateVal is String && dateVal.toString().contains('T')) {
-            dateStr = dateVal.toString().split('T').first;
-          } else {
-            final d = DateTime.parse(dateVal.toString()).toLocal();
-            dateStr = DateFormat('yyyy-MM-dd').format(d);
-          }
+          // Use attendance collection calendar date (UTC/ISO date only, no timezone shift)
+          final dateStr = _attendanceCalendarDate(entry['date']);
+          if (dateStr.isEmpty) continue;
           final parts = dateStr.split('-');
           if (parts.length != 3) continue;
           final dayYear = int.tryParse(parts[0]) ?? 0;

@@ -52,13 +52,29 @@ class PresenceTrackingService {
     await prefs.remove(_kPresenceTrackingDate);
   }
 
-  /// True if SharedPref has today's date (checked in today, not checked out).
+  /// True if staff is checked in for the current day and current time is still
+  /// within the check-in day (until 11:59:59 PM). After 12:00 AM next day, stops
+  /// until they check in again for that day.
   Future<bool> isTrackingAllowed() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_kPresenceTrackingDate);
     if (stored == null || stored.isEmpty) return false;
-    final today = DateTime.now().toIso8601String().split('T')[0];
-    return stored == today;
+
+    final now = DateTime.now();
+    final parts = stored.split('-');
+    if (parts.length != 3) return false;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return false;
+
+    final endOfCheckInDay = DateTime(year, month, day, 23, 59, 59, 999);
+
+    if (now.isAfter(endOfCheckInDay)) {
+      await prefs.remove(_kPresenceTrackingDate);
+      return false;
+    }
+    return true;
   }
 
   /// Check if staff can start presence tracking.

@@ -1777,7 +1777,7 @@ const getMonthAttendance = async (req, res) => {
             }
         }
 
-        // Helper function to format date string consistently (YYYY-MM-DD)
+        // Helper function to format date string consistently (YYYY-MM-DD) in server local time
         const formatDateString = (dateObj) => {
             const d = new Date(dateObj);
             const year = d.getFullYear();
@@ -1786,10 +1786,19 @@ const getMonthAttendance = async (req, res) => {
             return `${year}-${month}-${day}`;
         };
 
-        // Create a set of dates that have attendance records
+        // Attendance collection date is stored as UTC; use UTC calendar date so 2026-03-12T00:00:00.000Z → "2026-03-12" everywhere
+        const formatDateStringUTC = (dateObj) => {
+            const d = new Date(dateObj);
+            const year = d.getUTCFullYear();
+            const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // Create a set of dates that have attendance records (use UTC so calendar date matches DB)
         const attendanceDateSet = new Set();
         attendance.forEach(a => {
-            const dateStr = formatDateString(a.date);
+            const dateStr = formatDateStringUTC(a.date);
             attendanceDateSet.add(dateStr);
         });
 
@@ -1872,9 +1881,9 @@ const getMonthAttendance = async (req, res) => {
 
             // Check if attendance exists - attendance takes precedence over week off/holiday (but not over leave)
             if (attendanceDateSet.has(dateStr)) {
-                // Find the attendance record to get status
+                // Find the attendance record to get status (match by UTC calendar date)
                 const attRecord = attendance.find(a => {
-                    const attDateStr = formatDateString(a.date);
+                    const attDateStr = formatDateStringUTC(a.date);
                     return attDateStr === dateStr;
                 });
                 if (attRecord) {
@@ -1958,9 +1967,16 @@ const getMonthAttendance = async (req, res) => {
             });
         }
 
+        // Normalize attendance date to UTC calendar date (yyyy-MM-dd) so app shows correct day in all timezones
+        const attendanceForResponse = attendance.map(a => {
+            const aObj = (a && typeof a.toObject === 'function') ? a.toObject() : { ...a };
+            aObj.date = formatDateStringUTC(a.date);
+            return aObj;
+        });
+
         res.json({
             data: {
-                attendance,
+                attendance: attendanceForResponse,
                 holidays,
                 weekOffDates: filteredWeekOffDates,
                 alternateWorkDatesInMonth,

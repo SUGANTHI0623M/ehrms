@@ -71,7 +71,7 @@ app_backend/face_verify/__pycache__/
 # Test/sample data (may contain sensitive info)
 ektahr_desktop/output
 ektahr_desktop/publish
-ektahr_desktop/
+
 app_backend/customer_data.json
 ektahr_desktop/EktaHR.DesktopAgent/
 ektahr_desktop/EktaHR.DesktopAgent/installer_output/

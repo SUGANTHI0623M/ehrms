@@ -403,19 +403,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _pendingWithCheckInDateSet.clear();
 
       if (_monthData != null) {
-        // Attendance-based maps
+        // Attendance-based maps: one record per date (use attendance collection date; deduplicate)
         if (_monthData!['attendance'] != null) {
-          for (var entry in _monthData!['attendance']) {
+          final attendanceList = _deduplicateAttendanceByDate(_monthData!['attendance'] as List);
+          for (var entry in attendanceList) {
             try {
-              // Use date-only from API so calendar day matches backend (avoids timezone shifting e.g. Feb 4 UTC becoming Feb 3 in UTC-)
-              final dateVal = entry['date'];
-              String dateStr;
-              if (dateVal is String && dateVal.toString().contains('T')) {
-                dateStr = dateVal.toString().split('T').first;
-              } else {
-                final d = DateTime.parse(dateVal.toString()).toLocal();
-                dateStr = DateFormat('yyyy-MM-dd').format(d);
-              }
+              // Use attendance collection calendar date (UTC/ISO date part only, no timezone shift)
+              final dateStr = _attendanceCalendarDate(entry['date']);
+              if (dateStr.isEmpty) continue;
               final parts = dateStr.split('-');
               if (parts.length != 3) continue;
               final dayYear = int.tryParse(parts[0]) ?? 0;
@@ -828,14 +823,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  /// Normalize record date to yyyy-MM-dd for grouping (use attendance collection date field).
-  String _dateKey(dynamic record) {
+  /// Calendar date (yyyy-MM-dd) from attendance collection date field.
+  /// Uses UTC / ISO date part only so the same DB date always maps to the same day (no local timezone shift).
+  /// Handles: ISO string "2026-03-12T00:00:00.000Z", date-only "2026-03-12", or DateTime (use UTC components).
+  String _attendanceCalendarDate(dynamic dateValue) {
+    if (dateValue == null) return '';
     try {
-      final d = _extractDateOnly(record['date']);
-      return DateFormat('yyyy-MM-dd').format(d);
+      if (dateValue is DateTime) {
+        final u = dateValue.toUtc();
+        return '${u.year}-${u.month.toString().padLeft(2, '0')}-${u.day.toString().padLeft(2, '0')}';
+      }
+      final s = dateValue.toString().trim();
+      if (s.isEmpty) return '';
+      if (s.contains('T')) return s.split('T').first;
+      if (s.length >= 10 && s[4] == '-' && s[7] == '-') return s.substring(0, 10);
+      final d = DateTime.parse(s);
+      final u = d.toUtc();
+      return '${u.year}-${u.month.toString().padLeft(2, '0')}-${u.day.toString().padLeft(2, '0')}';
     } catch (_) {
       return '';
     }
+  }
+
+  String _dateKey(dynamic record) {
+    if (record is! Map) return '';
+    return _attendanceCalendarDate(record['date']);
   }
 
   /// When multiple attendance records exist for the same date, keep one per date:
@@ -889,16 +901,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     List<dynamic> combined = _deduplicateAttendanceByDate(attendance);
 
-    // Helper to check if date already has a record
+    // Helper to check if date already has a record (use same calendar date as backend, no timezone shift)
     bool hasRecord(String dateStr) {
       return combined.any((r) {
-        try {
-          final rDate = _extractDateOnly(r['date']);
-          final rDateStr = DateFormat('yyyy-MM-dd').format(rDate);
-          return rDateStr == dateStr;
-        } catch (_) {
-          return false;
-        }
+        if (r is! Map) return false;
+        return _dateKey(r) == dateStr;
       });
     }
 
