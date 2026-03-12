@@ -266,7 +266,7 @@ const Assessment: React.FC = () => {
                 className={
                   passed
                     ? "bg-[#fffbeb] text-[#efaa1f] mb-6"
-                    : "bg-red-50 text-red-600 mb-6"
+                    : "bg-red-50    mb-6"
                 }
               />
               <Title level={4} className="!m-0 mb-1">

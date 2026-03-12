@@ -4,12 +4,12 @@ import { useAppSelector } from "@/store/hooks";
 import { hasModuleAccess, getPermittedModules, getRoleDashboard } from "@/utils/roleUtils";
 import { canViewModule, getUserPermissions } from "@/utils/permissionUtils";
 import { useGetKRAStatsQuery } from "@/store/api/kraApi";
+import { useGetBusinessQuery } from "@/store/api/settingsApi";
 import {
   LayoutDashboard,
   ClipboardList,
   Users,
   TrendingUp,
-  DollarSign,
   FileText,
   Settings as SettingsIcon,
   ChevronDown,
@@ -82,6 +82,21 @@ import {
 
 import { Sheet, SheetContent } from "./ui/sheet";
 
+// Rupee Icon Component
+const RupeeIcon = ({ className, size, ...props }: { className?: string; size?: number | string; [key: string]: any }) => {
+  // Convert size prop to inline style (lucide-react icons use size prop)
+  const sizeValue = typeof size === 'number' ? `${size}px` : size || '16px';
+  return (
+    <span 
+      className={`${className || ''} font-semibold inline-flex items-center justify-center`} 
+      style={{ width: sizeValue, height: sizeValue, fontSize: sizeValue }}
+      {...props}
+    >
+      ₹
+    </span>
+  );
+};
+
 const Sidebar = ({
   mobileOpen = false,
   collapsed = false,
@@ -98,14 +113,6 @@ const Sidebar = ({
   const location = useLocation();
   const currentUser = useAppSelector((state) => state.auth.user);
   
-  // Fetch KRA statistics for dynamic badge
-  const { data: kraStats } = useGetKRAStatsQuery(undefined, {
-    skip: !currentUser, // Skip if no user
-    pollingInterval: 60000, // Poll every 60 seconds for updates (increased for better performance)
-  });
-  
-  const kraPriorityCount = kraStats?.data?.priorityCount || 0;
-
   // Check if user is Super Admin
   const isSuperAdmin = useMemo(() => {
     if (!currentUser || !currentUser.role) {
@@ -114,6 +121,20 @@ const Sidebar = ({
     const role = String(currentUser.role).trim();
     return role === "Super Admin";
   }, [currentUser]);
+  
+  // Fetch business data for company logo
+  const { data: businessData } = useGetBusinessQuery(undefined, {
+    skip: isSuperAdmin, // Skip for Super Admin as they don't have a company
+  });
+  
+  // Fetch KRA statistics for dynamic badge
+  const { data: kraStats } = useGetKRAStatsQuery(undefined, {
+    skip: !currentUser, // Skip if no user
+    pollingInterval: 60000, // Poll every 60 seconds for updates (increased for better performance)
+  });
+  
+  const kraPriorityCount = kraStats?.data?.priorityCount || 0;
+  const companyLogo = businessData?.data?.business?.logo;
 
   // Check if user has access to User Management
   // Allow access for Super Admin and Admin roles
@@ -203,14 +224,8 @@ const Sidebar = ({
         key: "interview",
         module: "interview",
       },
-      {
-        icon: Cake,
-        label: "Celebration",
-        path: "/admin/celebration",
-        module: "celebration",
-      },
       { icon: Users, label: "Staff", key: "staff", module: "staff" },
-      { icon: DollarSign, label: "Payroll", path: "/payroll/management", module: "payroll" },
+      { icon: RupeeIcon, label: "Payroll", path: "/payroll/management", module: "payroll" },
       {
         icon: MapPin,
         label: "HRMS Geo",
@@ -225,10 +240,22 @@ const Sidebar = ({
       },
       { icon: FileText, label: "LMS", key: "lms", module: "lms" },
       {
+        icon: Cake,
+        label: "Celebration",
+        path: "/admin/celebration",
+        module: "celebration",
+      },
+      {
         icon: Megaphone,
         label: "Announcements",
         path: "/announcements",
         module: "announcements",
+      },
+      {
+        icon: AlertCircle,
+        label: "Grievance",
+        key: "grievance",
+        module: "grievance",
       },
       {
         icon: SettingsIcon,
@@ -275,6 +302,11 @@ const Sidebar = ({
 
       // For Announcements, always show for Admin and Manager roles
       if (menu.module === "announcements" && (userRole === "Admin" || userRole === "Manager")) {
+        return true;
+      }
+
+      // For Grievance, always show for Admin and Manager roles
+      if (menu.module === "grievance" && (userRole === "Admin" || userRole === "Manager" || userRole === "HR" || userRole === "Senior HR")) {
         return true;
       }
 
@@ -487,6 +519,12 @@ const Sidebar = ({
           path: "/staff/attendance",
         },
         {
+          icon: Activity,
+          label: "Attendance Monitoring",
+          path: "/staff/attendance-monitoring",
+          module: "attendance_monitoring",
+        },
+        {
           icon: Calendar,
           label: "Leaves Pending Approval",
           path: "/staff/leaves-pending-approval",
@@ -552,6 +590,11 @@ const Sidebar = ({
       assets: [
         { icon: CalendarDays, label: "Assets Type", path: "/assets-type" },
         { icon: Receipt, label: "Assets", path: "/assets" },
+      ],
+      grievance: [
+        { icon: AlertCircle, label: "All Grievances", path: "/grievances", module: "grievance" },
+        { icon: BarChart3, label: "Analytics", path: "/grievances/analytics", module: "grievance" },
+        { icon: Settings, label: "Settings", path: "/grievances/settings", module: "grievance" },
       ],
       lms: [
         { icon: Library, label: "Course Library", path: "/admin/lms/course-library" },
@@ -662,14 +705,47 @@ const Sidebar = ({
     // Return the most specific match
     // Priority: 1) Exact matches, 2) Longest path length
     if (matches.length > 0) {
-      matches.sort((a, b) => {
+      // First, filter out less specific matches if a more specific one exists
+      // This prevents /staff from matching when on /staff/attendance
+      const filteredMatches = matches.filter((match) => {
+        // Get the actual path for this match
+        const matchMenuItems = subMenus[match.mainKey] || [];
+        const matchSubItem = matchMenuItems.find((sub: any) => sub.key === match.subKey);
+        const matchPath = (matchSubItem?.path?.split("?")[0] || "").replace(/\/$/, "");
+        
+        // Check if there's a more specific match (longer path) that the current path starts with
+        const hasMoreSpecific = matches.some((otherMatch) => {
+          if (otherMatch.mainKey === match.mainKey && otherMatch.subKey !== match.subKey) {
+            const otherMenuItems = subMenus[otherMatch.mainKey] || [];
+            const otherSubItem = otherMenuItems.find((sub: any) => sub.key === otherMatch.subKey);
+            const otherPath = (otherSubItem?.path?.split("?")[0] || "").replace(/\/$/, "");
+            
+            // If the other path is longer and the current path starts with it, it's more specific
+            if (otherPath.length > matchPath.length && pathWithoutQuery.startsWith(otherPath)) {
+              return true;
+            }
+            // Also check if the other path is a child of the match path and the current path matches the other path
+            if (otherPath.startsWith(matchPath + "/") && pathWithoutQuery.startsWith(otherPath)) {
+              return true;
+            }
+          }
+          return false;
+        });
+        
+        // Keep this match only if there's no more specific one
+        return !hasMoreSpecific;
+      });
+      
+      // Sort: exact matches first, then by path length (descending)
+      filteredMatches.sort((a, b) => {
         // Exact matches first
         if (a.isExact && !b.isExact) return -1;
         if (!a.isExact && b.isExact) return 1;
-        // Then by path length (descending)
+        // Then by path length (descending) - longer paths are more specific
         return b.pathLength - a.pathLength;
       });
-      return { mainKey: matches[0].mainKey, subKey: matches[0].subKey };
+      
+      return { mainKey: filteredMatches[0].mainKey, subKey: filteredMatches[0].subKey };
     }
     
     return { mainKey: null, subKey: null };
@@ -785,6 +861,12 @@ const Sidebar = ({
       return;
     }
     
+    // Special handling for grievance routes - keep Grievance menu expanded on any /grievances/* route
+    if (pathWithoutQuery.startsWith("/grievances")) {
+      setActiveMenu("grievance");
+      return;
+    }
+    
     // For non-HRMS Geo routes, use the standard logic
     const { mainKey, subKey } = getMenuKeyFromPath();
 
@@ -843,19 +925,36 @@ const Sidebar = ({
   }, [location.pathname, location.search, isSuperAdmin, subMenus]);
 
   const content = (
-    <aside className={`w-74 flex flex-col overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
-      <div className="p-6 flex items-center justify-between">
+    <aside className={`w-74 flex flex-col overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`} style={{ backgroundColor: '#2C2C2C' }}>
+      <div className="p-6 flex items-center justify-between border-b border-gray-700">
         {!collapsed && (
-          <h1 className="text-2xl font-bold text-sidebar-foreground text-center flex-1">
-            EKTA HRMS
-          </h1>
+          <div className="flex-1 flex items-center justify-center">
+            {companyLogo ? (
+              <img 
+                src={companyLogo} 
+                alt="Company Logo" 
+                className="h-12 w-auto object-contain max-w-full"
+              />
+            ) : (
+              <h1 className="text-2xl font-bold text-white text-center">
+                EKTA HRMS
+              </h1>
+            )}
+          </div>
+        )}
+        {collapsed && companyLogo && (
+          <img 
+            src={companyLogo} 
+            alt="Company Logo" 
+            className="h-10 w-10 object-contain mx-auto"
+          />
         )}
         <button
           onClick={() => onCollapse(!collapsed)}
-          className="p-2 rounded-lg hover:bg-sidebar-accent/10 transition-colors"
+          className="p-2 rounded-[5px] hover:bg-yellow-500/20 transition-colors"
           title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
-          <ChevronLeft className={`w-5 h-5 text-sidebar-foreground/80 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+          <ChevronLeft className={`w-5 h-5 text-white/80 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
@@ -865,42 +964,8 @@ const Sidebar = ({
           const isActiveLink =
             item.path && location.pathname.startsWith(item.path.split("?")[0]);
 
-          // Check if any submenu item is active (for parent highlighting)
-          // Exclude dashboard path and root path "/" from matching submenu paths
-          const dashboardPath = getRoleDashboard(userRole || "");
-          const dashboardPathBase = dashboardPath.split("?")[0];
-          const currentPathBase = location.pathname.split("?")[0];
-          
-          // Don't check for active submenu if we're on the dashboard
-          const isOnDashboard = currentPathBase === dashboardPathBase || currentPathBase === "/";
-          
-          const hasActiveSubmenu = !isOnDashboard && item.key && subMenus[item.key]?.some((sub: any) => {
-            const subPathBase = sub.path?.split("?")[0] || "";
-            const subPathQuery = sub.path?.includes("?") ? sub.path.split("?")[1] : null;
-            // Skip if submenu path is dashboard or root
-            if (subPathBase === dashboardPathBase || subPathBase === "/") return false;
-            
-            // For HRMS Geo modules, check if current path starts with the base module path
-            // e.g., /hrms-geo/tracking/live -> base is /hrms-geo/tracking
-            // This allows matching /hrms-geo/tracking/dashboard, /hrms-geo/tracking/timeline, etc.
-            if (subPathBase.startsWith("/hrms-geo/")) {
-              // Extract base module path (first 3 segments: /hrms-geo/module)
-              const pathSegments = subPathBase.split("/").filter(Boolean);
-              if (pathSegments.length >= 3) {
-                const baseModulePath = "/" + pathSegments.slice(0, 2).join("/");
-                const normalizedCurrentPath = currentPathBase.replace(/\/$/, "");
-                const normalizedBasePath = baseModulePath.replace(/\/$/, "");
-                // Check if current path is within the base module (e.g., /hrms-geo/tracking/*)
-                return (normalizedCurrentPath.startsWith(normalizedBasePath + "/") || normalizedCurrentPath === normalizedBasePath) &&
-                  (subPathQuery ? location.search.includes(subPathQuery) : true);
-              }
-            }
-            
-            // For other modules, use exact path matching
-            return sub.path &&
-              location.pathname.startsWith(subPathBase) &&
-              (subPathQuery ? location.search.includes(subPathQuery) : true);
-          });
+          // Only highlight parent if the parent path itself is active, not when a child is active
+          // This ensures only the active child is highlighted, not the parent
 
           return (
             <div key={item.label}>
@@ -909,17 +974,17 @@ const Sidebar = ({
                 <NavLink
                   to={item.path}
                   className={({ isActive }) =>
-                    `flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/10"
+                    `flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 cursor-pointer rounded-[5px] transition-all ${isActive
+                      ? "bg-primary text-white font-semibold shadow-md"
+                      : "text-white/80 hover:bg-primary/30"
                     }`
                   }
                   onClick={onClose}
                 >
                   <div className="flex items-center gap-3">
-                    <item.icon className={`w-5 h-5 ${isActiveLink ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/80"}`} />
+                    <item.icon className={`w-5 h-5 ${isActiveLink ? "text-white" : "text-white/80"}`} />
                     {!collapsed && (
-                      <span className={isActiveLink ? "text-sidebar-accent-foreground" : ""}>
+                      <span className={isActiveLink ? "text-white" : "text-white/80"}>
                         {item.label}
                       </span>
                     )}
@@ -933,33 +998,33 @@ const Sidebar = ({
                       ? setActiveMenu(isActiveParent ? null : item.key)
                       : null
                   }
-                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${isActiveParent || isActiveLink || hasActiveSubmenu
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/10"
+                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-[5px] transition-all ${isActiveParent || isActiveLink
+                    ? "bg-primary text-white font-semibold shadow-md"
+                    : "text-white/80 hover:bg-primary/30"
                     }`}
                 >
                   <div className="flex items-center gap-3">
-                    <item.icon className={`w-5 h-5 ${isActiveParent || isActiveLink || hasActiveSubmenu ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/80"}`} />
+                    <item.icon className={`w-5 h-5 ${isActiveParent || isActiveLink ? "text-white" : "text-white/80"}`} />
                     {!collapsed && (
                       item.path ? (
                         <NavLink
                           to={item.path}
-                          className={({ isActive }) => isActive ? "text-sidebar-accent-foreground" : ""}
+                          className={({ isActive }) => isActive ? "text-white" : "text-white/80"}
                           onClick={(e) => e.stopPropagation()}
                         >
                           {item.label}
                         </NavLink>
                       ) : (
-                        <span>{item.label}</span>
+                        <span className="text-white/80">{item.label}</span>
                       )
                     )}
                   </div>
 
                   {!collapsed && item.key &&
                     (isActiveParent ? (
-                      <ChevronDown className="w-4 h-4 text-sidebar-accent-foreground/80" />
+                      <ChevronDown className="w-4 h-4 text-white/80" />
                     ) : (
-                      <ChevronRight className="w-4 h-4 text-sidebar-foreground/60" />
+                      <ChevronRight className="w-4 h-4 text-white/60" />
                     ))}
                 </div>
               )}
@@ -1001,15 +1066,14 @@ const Sidebar = ({
                       }
                     }
                   } else {
-                    // For other modules, use exact path matching
-                    // Exact match gets highest priority
+                    // For other modules, use exact path matching only
+                    // Only match if the paths are exactly equal - don't match parent paths when on child paths
+                    // This prevents /staff from being highlighted when on /staff/attendance
                     if (normalizedPath === subPathBase) {
                       allMatches.push({ path: sub.path, isExact: true, pathLength: subPathBase.length });
                     }
-                    // Prefix match (current path is a child of this menu path)
-                    else if (normalizedPath.startsWith(subPathBase + "/")) {
-                      allMatches.push({ path: sub.path, isExact: false, pathLength: subPathBase.length });
-                    }
+                    // Don't do prefix matching for non-HRMS-Geo modules
+                    // This ensures only the exact matching path is highlighted
                   }
                 }
                 
@@ -1027,14 +1091,18 @@ const Sidebar = ({
                 }
                 
                 return (
-                  <div className="ml-4 mt-0.5 mb-1 pl-3 border-l-2 border-sidebar-accent/20 bg-sidebar-accent/5 rounded-r-md py-1.5 space-y-0.5">
+                  <div className="ml-4 mt-0.5 mb-1 space-y-0.5">
                     {menuItems.map((sub: any) => {
                       // Check if user has access to this submenu item
-                      // If module is defined, check explicit permission
-                      // Otherwise fall back to role checks (for legacy/settings items)
-                      const hasAccess = sub.module
-                        ? canViewModule(userPermissions, sub.module)
-                        : !sub.roles || sub.roles.includes(userRole);
+                      // Special handling for grievance module - always show for Admin, Manager, HR, Senior HR
+                      let hasAccess = false;
+                      if (sub.module === 'grievance' && (userRole === 'Admin' || userRole === 'Manager' || userRole === 'HR' || userRole === 'Senior HR')) {
+                        hasAccess = true;
+                      } else if (sub.module) {
+                        hasAccess = canViewModule(userPermissions, sub.module);
+                      } else {
+                        hasAccess = !sub.roles || sub.roles.includes(userRole);
+                      }
 
                       if (!hasAccess) return null;
 
@@ -1062,9 +1130,23 @@ const Sidebar = ({
                                                 normalizedPathForComparison === subPathForComparison;
                         }
                       } else {
-                        // For other modules, use exact path matching
-                        const mostSpecificPathForComparison = (mostSpecificActivePath?.split("?")[0] || "").replace(/\/$/, "");
-                        isSubMenuPathActive = subPathForComparison === mostSpecificPathForComparison;
+                        // For other modules, use exact path matching only
+                        // Only match if the current path exactly equals the submenu path
+                        // This prevents parent paths (like /staff) from being active when on child paths (like /staff/attendance)
+                        
+                        // First check if this is the most specific active path (from the matching logic above)
+                        if (mostSpecificActivePath) {
+                          const mostSpecificPathForComparison = (mostSpecificActivePath.split("?")[0] || "").replace(/\/$/, "");
+                          if (mostSpecificPathForComparison === subPathForComparison) {
+                            isSubMenuPathActive = true;
+                          } else {
+                            // If there's a more specific match, this item should not be active
+                            isSubMenuPathActive = false;
+                          }
+                        } else {
+                          // Fallback to exact match if no most specific path was found
+                          isSubMenuPathActive = normalizedPathForComparison === subPathForComparison;
+                        }
                       }
                       
                       // For HRMS Geo modules, prioritize activeSubMenu state to ensure consistency
@@ -1074,8 +1156,23 @@ const Sidebar = ({
                         // For HRMS Geo, use state-based check first, then path matching as fallback
                         finalIsActive = isSubMenuActive || isSubMenuPathActive;
                       } else {
-                        // For other modules, use path matching first, then state
-                        finalIsActive = isSubMenuPathActive || isSubMenuActive;
+                        // For other modules, prioritize path matching over state
+                        // This ensures the most specific path match is highlighted, not the state
+                        // The state might be set incorrectly if there are parent/child path conflicts
+                        finalIsActive = isSubMenuPathActive;
+                        
+                        // Only use activeSubMenu state if path matching didn't find anything AND it matches exactly
+                        // This prevents parent paths from being highlighted when on child paths
+                        if (!finalIsActive && isSubMenuActive) {
+                          // Double-check that the activeSubMenu state matches the current path exactly
+                          const activeSubMenuItem = menuItems.find((s: any) => s.key === activeSubMenu);
+                          if (activeSubMenuItem?.path) {
+                            const activeSubMenuPath = (activeSubMenuItem.path.split("?")[0] || "").replace(/\/$/, "");
+                            if (normalizedPathForComparison === activeSubMenuPath) {
+                              finalIsActive = true;
+                            }
+                          }
+                        }
                       }
                       
                       // Check query string if present (only if path-based matching was used)
@@ -1093,19 +1190,19 @@ const Sidebar = ({
                                   isSubMenuActive ? null : sub.key
                                 )
                               }
-                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm cursor-pointer transition-colors relative ${isSubMenuActive || finalIsActive
-                                ? "bg-sidebar-accent/30 text-sidebar-accent-foreground font-medium border-l-2 border-sidebar-accent"
-                                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground/90"
+                              className={`flex items-center justify-between px-3 py-2 rounded-[5px] text-base cursor-pointer transition-all relative ${isSubMenuActive || finalIsActive
+                                ? "bg-primary/50 text-white font-medium border-l-2 border-primary"
+                                : "text-white/70 hover:bg-primary/20 hover:text-white/90"
                                 }`}
                             >
                               <div className="flex items-center gap-2">
-                                <sub.icon className={`w-3.5 h-3.5 ${isSubMenuActive || finalIsActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
-                                <span>{sub.label}</span>
+                                <sub.icon className={`w-4 h-4 ${isSubMenuActive || finalIsActive ? "text-white" : "text-white/60"}`} />
+                                <span className={isSubMenuActive || finalIsActive ? "text-white" : "text-white/70"}>{sub.label}</span>
                               </div>
                               {isSubMenuActive ? (
-                                <ChevronDown className="w-3 h-3 text-sidebar-foreground/50" />
+                                <ChevronDown className="w-3 h-3 text-white/50" />
                               ) : (
-                                <ChevronRight className="w-3 h-3 text-sidebar-foreground/40" />
+                                <ChevronRight className="w-3 h-3 text-white/40" />
                               )}
                             </div>
                             {isSubMenuActive && (
@@ -1122,13 +1219,13 @@ const Sidebar = ({
                                       to={subItem.path}
                                       onClick={onClose}
                                       className={({ isActive }) =>
-                                        `flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors ${isActive
-                                          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground/75"
+                                        `flex items-center gap-2 px-3 py-2 rounded-[5px] text-sm transition-all ${isActive
+                                          ? "bg-primary text-white font-medium"
+                                          : "text-white/60 hover:bg-primary/30 hover:text-white/75"
                                         }`
                                       }
                                     >
-                                      <subItem.icon className="w-3 h-3" />
+                                      <subItem.icon className="w-4 h-4" />
                                       {subItem.label}
                                     </NavLink>
                                   ))}
@@ -1142,15 +1239,15 @@ const Sidebar = ({
                             className={({ isActive }) => {
                               // Use our custom finalIsActive logic for more precise matching
                               const active = finalIsActive || isActive;
-                              return `flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm transition-colors relative ${active
-                                ? "bg-sidebar-accent/30 text-sidebar-accent-foreground font-medium border-l-2 border-sidebar-accent"
-                                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground/90"
+                              return `flex items-center justify-between px-3 py-2 rounded-[5px] text-base transition-all relative ${active
+                                ? "bg-primary/50 text-white font-medium border-l-2 border-primary"
+                                : "text-white/70 hover:bg-primary/20 hover:text-white/90"
                               }`;
                             }}
                           >
                             <div className="flex items-center gap-2">
-                              <sub.icon className={`w-3.5 h-3.5 ${finalIsActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60"}`} />
-                              {sub.label}
+                              <sub.icon className={`w-4 h-4 ${finalIsActive ? "text-white" : "text-white/60"}`} />
+                              <span className={finalIsActive ? "text-white" : "text-white/70"}>{sub.label}</span>
                             </div>
                             {/* Dynamic badge for KRA/KPI showing priority count */}
                             {sub.path === "/kra" && kraPriorityCount > 0 && (
@@ -1176,7 +1273,7 @@ const Sidebar = ({
   return (
     <>
       {/* Desktop Sidebar FIXED */}
-      <div className={`hidden lg:block fixed left-0 top-0 h-screen bg-sidebar shadow-lg z-[105] overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
+      <div className={`hidden lg:block fixed left-0 top-0 h-screen shadow-lg z-[105] overflow-y-auto transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`} style={{ backgroundColor: '#2C2C2C' }}>
         {content}
       </div>
 
@@ -1184,7 +1281,8 @@ const Sidebar = ({
       <Sheet open={mobileOpen} onOpenChange={onClose}>
         <SheetContent
           side="left"
-          className="p-0 w-64 bg-sidebar rounded-none overflow-y-auto"
+          className="p-0 w-64 rounded-none overflow-y-auto"
+          style={{ backgroundColor: '#2C2C2C' }}
         >
           <button
             onClick={onClose}

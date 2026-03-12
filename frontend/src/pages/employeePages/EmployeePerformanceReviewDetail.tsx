@@ -146,7 +146,7 @@ const EmployeePerformanceReviewDetail = () => {
                (review.status === "self-review-pending" || review.status === "draft") && (
                 <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <Clock className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <Clock className="w-4 h-4  mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-orange-800">
                         Self Review Deadline: {new Date(review.reviewCycleInfo.selfReviewDeadline).toLocaleDateString()}
@@ -156,11 +156,11 @@ const EmployeePerformanceReviewDetail = () => {
                         const now = new Date();
                         const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
                         if (daysLeft < 0) {
-                          return <p className="text-xs text-red-600 mt-1">⚠️ Deadline has passed. Please submit as soon as possible.</p>;
+                          return <p className="text-xs    mt-1">⚠️ Deadline has passed. Please submit as soon as possible.</p>;
                         } else if (daysLeft === 0) {
-                          return <p className="text-xs text-red-600 mt-1">⚠️ Deadline is today! Please submit your review.</p>;
+                          return <p className="text-xs    mt-1">⚠️ Deadline is today! Please submit your review.</p>;
                         } else if (daysLeft <= 3) {
-                          return <p className="text-xs text-orange-600 mt-1">⚠️ Only {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining. Please submit soon.</p>;
+                          return <p className="text-xs  mt-1">⚠️ Only {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining. Please submit soon.</p>;
                         } else {
                           return <p className="text-xs text-orange-700 mt-1">{daysLeft} days remaining to submit your self-review.</p>;
                         }

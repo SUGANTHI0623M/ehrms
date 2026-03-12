@@ -325,7 +325,7 @@ export default function HRReview() {
           <Card>
             <CardContent className="p-4 flex items-center gap-4">
               <div className="p-3 bg-green-100 rounded-full">
-                <Check className="w-6 h-6 text-green-600" />
+                <Check className="w-6 h-6  " />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Completed</p>

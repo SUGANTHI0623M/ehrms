@@ -208,6 +208,7 @@ const ADMIN_SIDEBAR_MENUS: Record<string, { label: string; subModules?: Array<{ 
             { module: 'salary_overview', label: 'Salary Overview' },
             { module: 'salary_structure', label: 'Salary Structure' },
             { module: 'attendance', label: 'Attendance' },
+            { module: 'attendance_monitoring', label: 'Attendance Monitoring' },
             { module: 'leaves_approval', label: 'Leaves Pending Approval' },
             { module: 'loans', label: 'Loans' },
             { module: 'expense_claims', label: 'Expense Claims' },
@@ -262,6 +263,14 @@ const ADMIN_SIDEBAR_MENUS: Record<string, { label: string; subModules?: Array<{ 
     },
     'announcements': {
         label: 'Announcements',
+    },
+    'grievance': {
+        label: 'Grievance',
+        subModules: [
+            { module: 'grievance_all', label: 'All Grievances' },
+            { module: 'grievance_analytics', label: 'Analytics' },
+            { module: 'grievance_settings', label: 'Settings' },
+        ]
     },
     'assets': {
         label: 'Asset Management',

@@ -183,19 +183,22 @@ export const trackingApi = apiSlice.injectEndpoints({
 
     // Get live tracking data for all users
     getLiveTracking: builder.query<{
-      liveWorkers: LiveWorker[];
-      trackingPoints: Array<{
-        id: string;
-        staffId: string;
-        staffName: string;
-        position: [number, number];
-        address?: string;
-        timestamp: string;
-        movementType: string;
-        taskId?: string;
-        accuracy?: number;
-        speed?: number;
-      }>;
+      success: boolean;
+      data: {
+        liveWorkers: LiveWorker[];
+        trackingPoints: Array<{
+          id: string;
+          staffId: string;
+          staffName: string;
+          position: [number, number];
+          address?: string;
+          timestamp: string;
+          movementType?: string;
+          taskId?: string;
+          accuracy?: number;
+          speed?: number;
+        }>;
+      };
     }, { date?: string; staffId?: string }>({
       query: ({ date, staffId } = {}) => {
         const params = new URLSearchParams();

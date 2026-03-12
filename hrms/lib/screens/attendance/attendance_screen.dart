@@ -82,6 +82,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   final Set<String> _presentDateSet = {};
   final Set<String> _absentDateSet = {};
   final Set<String> _leaveDateSet = {};
+  final Set<String> _pendingWithCheckInDateSet = {}; // Pending + has punchIn → WA
 
   String _activeFilter = 'All'; // Filter for history list
   bool _showHistoryView =
@@ -368,6 +369,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _presentDateSet.clear();
         _absentDateSet.clear();
         _leaveDateSet.clear();
+        _pendingWithCheckInDateSet.clear();
       });
     }
     final result = await _attendanceService.getMonthAttendance(
@@ -398,6 +400,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _presentDateSet.clear();
       _absentDateSet.clear();
       _leaveDateSet.clear();
+      _pendingWithCheckInDateSet.clear();
 
       if (_monthData != null) {
         // Attendance-based maps
@@ -419,8 +422,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               final dayMonth = int.tryParse(parts[1]) ?? 0;
               if (dayYear != year || dayMonth != month) continue;
 
-              _dayStatusByDate[dateStr] =
-                  (entry['status'] as String?) ?? 'Present';
+              final statusVal = (entry['status'] as String?) ?? 'Present';
+              _dayStatusByDate[dateStr] = statusVal;
+              if (statusVal == 'Pending') {
+                final punchIn = entry['punchIn'];
+                if (punchIn != null && punchIn.toString().trim().isNotEmpty) {
+                  _pendingWithCheckInDateSet.add(dateStr);
+                }
+              }
               final leaveType = entry['leaveType'] as String?;
               if (leaveType != null && leaveType.isNotEmpty) {
                 _dayLeaveTypeByDate[dateStr] = leaveType;
@@ -819,8 +828,50 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// Normalize record date to yyyy-MM-dd for grouping (use attendance collection date field).
+  String _dateKey(dynamic record) {
+    try {
+      final d = _extractDateOnly(record['date']);
+      return DateFormat('yyyy-MM-dd').format(d);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// When multiple attendance records exist for the same date, keep one per date:
+  /// prefer record with punchIn (actual attendance), then latest by updatedAt.
+  List<dynamic> _deduplicateAttendanceByDate(List<dynamic> attendance) {
+    if (attendance.isEmpty) return [];
+    final byDate = <String, Map<String, dynamic>>{};
+    for (final r in attendance) {
+      if (r is! Map) continue;
+      final key = _dateKey(r);
+      if (key.isEmpty) continue;
+      final existing = byDate[key];
+      if (existing == null) {
+        byDate[key] = Map<String, dynamic>.from(r);
+        continue;
+      }
+      final hasPunchIn = (r['punchIn'] != null && r['punchIn'].toString().trim().isNotEmpty);
+      final existingHasPunchIn = (existing['punchIn'] != null && existing['punchIn'].toString().trim().isNotEmpty);
+      if (hasPunchIn && !existingHasPunchIn) {
+        byDate[key] = Map<String, dynamic>.from(r);
+      } else if (hasPunchIn == existingHasPunchIn) {
+        final rUpdated = r['updatedAt'];
+        final eUpdated = existing['updatedAt'];
+        if (rUpdated != null && eUpdated != null) {
+          final rTime = _extractDateOnly(rUpdated).millisecondsSinceEpoch;
+          final eTime = _extractDateOnly(eUpdated).millisecondsSinceEpoch;
+          if (rTime > eTime) byDate[key] = Map<String, dynamic>.from(r);
+        }
+      }
+    }
+    return byDate.values.toList();
+  }
+
   // Helper method to get combined history for the focused month.
   // When _monthData is null we return [] so the UI shows loader (no stale _historyList).
+  // Uses attendance collection date field; one record per date (deduplicated).
   List<dynamic> _getCombinedMonthHistory() {
     if (_monthData == null) {
       return [];
@@ -836,7 +887,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final leaveDates =
         (_monthData!['leaveDates'] as List?)?.cast<String>() ?? const [];
 
-    List<dynamic> combined = List.from(attendance);
+    List<dynamic> combined = _deduplicateAttendanceByDate(attendance);
 
     // Helper to check if date already has a record
     bool hasRecord(String dateStr) {
@@ -1197,8 +1248,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               ),
                             if (fineHours != null && fineHours > 0)
                               _buildDayDetailRow(
-                                'Fine Hours',
-                                '${(fineHours.toDouble() / 60).toStringAsFixed(2)} hrs',
+                                'Fine Min',
+                                '${fineHours.toInt()} mins',
                                 valueColor: Colors.red.shade700,
                               ),
                             if (fineAmount != null && fineAmount > 0)
@@ -2500,6 +2551,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       } else if ((_leaveDateSet.contains(dateStr) || isOnLeaveStatus) &&
           !isPresentStatusForAbbr) {
         leaveTypeAbbr = 'L';
+      } else if (_pendingWithCheckInDateSet.contains(dateStr)) {
+        leaveTypeAbbr = 'WA'; // Waiting for Approval (Pending + has check-in)
       }
 
       // Low work-hours indicator (only Present and Half Day; not Leave/Week Off/Paid Leave)

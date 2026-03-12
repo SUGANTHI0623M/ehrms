@@ -161,11 +161,11 @@ const CandidateDashboard = () => {
                 <div className="text-sm text-muted-foreground">Offer</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{dashboardData?.applicationStats?.hired || 0}</div>
+                <div className="text-2xl font-bold  ">{dashboardData?.applicationStats?.hired || 0}</div>
                 <div className="text-sm text-muted-foreground">Hired</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">{dashboardData?.applicationStats?.rejected || 0}</div>
+                <div className="text-2xl font-bold   ">{dashboardData?.applicationStats?.rejected || 0}</div>
                 <div className="text-sm text-muted-foreground">Rejected</div>
               </div>
             </div>
@@ -375,7 +375,7 @@ const CandidateDashboard = () => {
                       >
                         <div className="flex items-start gap-3 flex-1">
                           {doc.status === DOCUMENT_STATUS.COMPLETED ? (
-                            <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                            <CheckCircle2 className="w-5 h-5   mt-0.5" />
                           ) : (
                             <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                           )}

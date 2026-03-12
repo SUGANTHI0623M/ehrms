@@ -299,6 +299,13 @@ export const apiSlice = createApi({
     'Notifications',
     'Announcements',
     'CelebrationTemplates',
+    'MonitoringDashboard',
+    'EmployeeMonitoring',
+    'MonitoringSettings',
+    'Grievance',
+    'GrievanceCategory',
+    'GrievanceCommittee',
+    'GrievanceEscalationRule',
   ],
   endpoints: () => ({}),
 });

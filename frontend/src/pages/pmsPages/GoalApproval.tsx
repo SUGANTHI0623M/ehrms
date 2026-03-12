@@ -254,11 +254,11 @@ export default function GoalApproval() {
             </Card>
             <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-300">
               <CardContent className="p-4 text-center">
-                <p className="text-3xl font-bold text-green-700">
+                <p className="text-3xl font-bold ">
                   {allGoals.filter((g) => g.status === "approved").length}
                 </p>
-                <p className="text-xs text-green-700 mt-1">Approved</p>
-                <p className="text-xs text-green-600 mt-1">Active goals</p>
+                <p className="text-xs  mt-1">Approved</p>
+                <p className="text-xs   mt-1">Active goals</p>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300">
@@ -276,7 +276,7 @@ export default function GoalApproval() {
                   {goalsAwaitingCompletion.length}
                 </p>
                 <p className="text-xs text-purple-700 mt-1">Awaiting Completion</p>
-                <p className="text-xs text-purple-600 mt-1">Need approval</p>
+                <p className="text-xs  mt-1">Need approval</p>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-300">
@@ -285,7 +285,7 @@ export default function GoalApproval() {
                   {allGoals.filter((g) => g.status === "rejected").length}
                 </p>
                 <p className="text-xs text-red-700 mt-1">Rejected</p>
-                <p className="text-xs text-red-600 mt-1">Declined</p>
+                <p className="text-xs    mt-1">Declined</p>
               </CardContent>
             </Card>
           </div>
@@ -298,7 +298,7 @@ export default function GoalApproval() {
                   {allGoals.filter((g) => g.status === "modified").length}
                 </p>
                 <p className="text-xs text-orange-700 mt-1">Modified</p>
-                <p className="text-xs text-orange-600 mt-1">Needs revision</p>
+                <p className="text-xs  mt-1">Needs revision</p>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-300">
@@ -309,7 +309,7 @@ export default function GoalApproval() {
                     : 0}%
                 </p>
                 <p className="text-xs text-indigo-700 mt-1">Avg Progress</p>
-                <p className="text-xs text-indigo-600 mt-1">Across all goals</p>
+                <p className="text-xs  mt-1">Across all goals</p>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-300">
@@ -459,7 +459,7 @@ export default function GoalApproval() {
                               </div>
                             )}
                             {goal.status === "approved" && goal.updatedAt && (
-                              <div className="flex items-center gap-2 text-green-600">
+                              <div className="flex items-center gap-2  ">
                                 <CheckCircle className="w-3 h-3" />
                                 <span>
                                   Approved: {safeFormatDate(goal.updatedAt)}
@@ -475,7 +475,7 @@ export default function GoalApproval() {
                               </div>
                             )}
                             {goal.completedApprovedAt && (
-                              <div className="flex items-center gap-2 text-green-600">
+                              <div className="flex items-center gap-2  ">
                                 <CheckCircle className="w-3 h-3" />
                                 <span>
                                   Completion approved: {safeFormatDate(goal.completedApprovedAt)}
@@ -483,7 +483,7 @@ export default function GoalApproval() {
                               </div>
                             )}
                             {goal.status === "rejected" && goal.updatedAt && (
-                              <div className="flex items-center gap-2 text-red-600">
+                              <div className="flex items-center gap-2   ">
                                 <X className="w-3 h-3" />
                                 <span>
                                   Rejected: {safeFormatDate(goal.updatedAt)}
@@ -491,7 +491,7 @@ export default function GoalApproval() {
                               </div>
                             )}
                             {goal.status === "modified" && goal.updatedAt && (
-                              <div className="flex items-center gap-2 text-orange-600">
+                              <div className="flex items-center gap-2 ">
                                 <Edit className="w-3 h-3" />
                                 <span>
                                   Modification requested: {safeFormatDate(goal.updatedAt)}
@@ -554,15 +554,15 @@ export default function GoalApproval() {
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Approved</p>
-                        <p className="text-sm font-semibold text-green-600">{allGoals.filter((g) => g.status === "approved").length}</p>
+                        <p className="text-sm font-semibold  ">{allGoals.filter((g) => g.status === "approved").length}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Rejected</p>
-                        <p className="text-sm font-semibold text-red-600">{allGoals.filter((g) => g.status === "rejected").length}</p>
+                        <p className="text-sm font-semibold   ">{allGoals.filter((g) => g.status === "rejected").length}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Modified</p>
-                        <p className="text-sm font-semibold text-orange-600">{allGoals.filter((g) => g.status === "modified").length}</p>
+                        <p className="text-sm font-semibold ">{allGoals.filter((g) => g.status === "modified").length}</p>
                       </div>
                     </div>
                   </div>
@@ -702,7 +702,7 @@ export default function GoalApproval() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                            className=" border-orange-600 hover:bg-orange-50"
                             onClick={() => {
                               setSelectedGoal(goal._id);
                               setActionType("modify");
@@ -716,7 +716,7 @@ export default function GoalApproval() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-red-600 border-red-600 hover:bg-red-50"
+                            className="   border-red-600 hover:bg-red-50"
                             onClick={() => {
                               setSelectedGoal(goal._id);
                               setActionType("reject");
@@ -833,10 +833,10 @@ export default function GoalApproval() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground font-medium">Progress</span>
-                            <span className="font-bold text-green-600 text-lg">{goal.progress}%</span>
+                            <span className="font-bold   text-lg">{goal.progress}%</span>
                           </div>
                           <Progress value={goal.progress} className="h-3" />
-                          <div className="flex items-center gap-2 text-xs text-green-600 font-medium">
+                          <div className="flex items-center gap-2 text-xs   font-medium">
                             <CheckCircle className="w-3 h-3" />
                             <span>Goal completed by employee - Awaiting admin approval</span>
                           </div>
@@ -906,7 +906,7 @@ export default function GoalApproval() {
                             <Button
                               size="lg"
                               variant="outline"
-                              className="flex-1 text-orange-600 border-2 border-orange-600 hover:bg-orange-50 shadow-md font-semibold"
+                              className="flex-1  border-2 border-orange-600 hover:bg-orange-50 shadow-md font-semibold"
                               onClick={() => {
                                 setSelectedGoal(goal._id);
                                 setReopenDialogOpen(true);
@@ -1036,7 +1036,7 @@ export default function GoalApproval() {
                   {actionType === "modify" ? (
                     <Button 
                       variant="outline"
-                      className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                      className=" border-orange-600 hover:bg-orange-50"
                       onClick={() => {
                         if (modificationNotes.trim()) {
                           handleModify(selectedGoal);
@@ -1052,7 +1052,7 @@ export default function GoalApproval() {
                   ) : actionType === "reject" ? (
                     <Button 
                       variant="outline"
-                      className="text-red-600 border-red-600 hover:bg-red-50"
+                      className="   border-red-600 hover:bg-red-50"
                       onClick={() => {
                         if (modificationNotes.trim()) {
                           handleReject(selectedGoal);
@@ -1069,7 +1069,7 @@ export default function GoalApproval() {
                     <>
                       <Button 
                         variant="outline"
-                        className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                        className=" border-orange-600 hover:bg-orange-50"
                         onClick={() => {
                           if (modificationNotes.trim()) {
                             handleModify(selectedGoal);
@@ -1084,7 +1084,7 @@ export default function GoalApproval() {
                       </Button>
                       <Button 
                         variant="outline"
-                        className="text-red-600 border-red-600 hover:bg-red-50"
+                        className="   border-red-600 hover:bg-red-50"
                         onClick={() => {
                           if (modificationNotes.trim()) {
                             handleReject(selectedGoal);
@@ -1122,7 +1122,7 @@ export default function GoalApproval() {
                 Goal: <strong>{selectedGoalData?.title}</strong>
               </p>
               <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                <p className="text-sm text-green-700">
+                <p className="text-sm ">
                   This goal has been completed by the employee with 100% progress. Approving will finalize the completion and update related KRA progress.
                 </p>
               </div>
@@ -1209,7 +1209,7 @@ export default function GoalApproval() {
               {selectedGoal && (
                 <Button 
                   variant="outline"
-                  className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                  className=" border-orange-600 hover:bg-orange-50"
                   onClick={() => handleReopen(selectedGoal)}
                   disabled={isReopening}
                 >

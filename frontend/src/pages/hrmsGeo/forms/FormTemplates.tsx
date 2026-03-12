@@ -660,14 +660,14 @@ const FormTemplates = () => {
                       variant="ghost"
                       onClick={handleConfirmTemplateName}
                     >
-                      <Check className="w-4 h-4 text-green-600" />
+                      <Check className="w-4 h-4  " />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={handleCancelTemplateName}
                     >
-                      <X className="w-4 h-4 text-red-600" />
+                      <X className="w-4 h-4   " />
                     </Button>
                   </>
                 )}

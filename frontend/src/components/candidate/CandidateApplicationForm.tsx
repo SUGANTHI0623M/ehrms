@@ -2191,7 +2191,7 @@ const CandidateApplicationForm: React.FC<CandidateApplicationFormProps> = ({
                 </div>
               ) : (
                 <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                  <p className="text-sm text-red-600 font-medium">⚠️ No resume uploaded</p>
+                  <p className="text-sm    font-medium">⚠️ No resume uploaded</p>
                   <p className="text-xs text-red-500 mt-1">Please upload your resume before submitting</p>
                 </div>
               )}

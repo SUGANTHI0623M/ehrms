@@ -30,6 +30,7 @@ app_backend/.env
 hs_err_*.log
 **/hs_err_*.log
 
+
 # OS
 .DS_Store
 Thumbs.db
@@ -97,3 +98,7 @@ new_app/
 # iOS temporary asset directories
 **/AppIcon.appiconset/_/
 **/Assets.xcassets/**/_/
+frontend/node_modules/
+frontend/
+
+backend/

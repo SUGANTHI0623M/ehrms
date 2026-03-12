@@ -853,7 +853,7 @@ const TasksList = () => {
                                             });
                                           }
                                         }}
-                                        className="gap-2 border-red-300 text-red-600 hover:bg-red-50"
+                                        className="gap-2 border-red-300    hover:bg-red-50"
                                       >
                                         <X className="w-4 h-4" />
                                         Reject
@@ -929,7 +929,7 @@ const TasksList = () => {
                                               });
                                             }
                                           }}
-                                          className="gap-2 border-red-300 text-red-600 hover:bg-red-50"
+                                          className="gap-2 border-red-300    hover:bg-red-50"
                                         >
                                           <X className="w-4 h-4" />
                                           Reject

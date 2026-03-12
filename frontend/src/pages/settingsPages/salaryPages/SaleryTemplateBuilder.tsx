@@ -45,7 +45,7 @@ export default function SalaryTemplateBuilder() {
               className="p-5 flex justify-between items-center hover:bg-muted/40 transition cursor-pointer"
             >
               <div className="flex gap-4 items-center">
-                <div className="min-w-8 h-8 flex items-center justify-center rounded-full border text-green-600 font-semibold">
+                <div className="min-w-8 h-8 flex items-center justify-center rounded-full border   font-semibold">
                   {item.id}
                 </div>
                 <div>

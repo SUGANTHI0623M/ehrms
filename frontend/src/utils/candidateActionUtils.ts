@@ -95,21 +95,32 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
     }
 
     // ============================================
-    // 1. APPLIED -> SCHEDULE INTERVIEW
+    // 1. APPLIED / RE_APPLIED / APPLIED_FOR_MULTIPLE_JOBS -> SCHEDULE INTERVIEW
     // ============================================
     // Fix: Ensure we don't show "Schedule" if an interview is already attached
-    if ((status === 'APPLIED' || status === 'RE_APPLIED' || status === 'APPLIED_FOR_MULTIPLE_JOBS') && !scheduledInterview) {
+    // Check both status and displayStatus for RE_APPLIED and APPLIED_FOR_MULTIPLE_JOBS
+    const displayStatus = candidate?.displayStatus;
+    const isAppliedStatus = status === 'APPLIED' || 
+                           status === 'RE_APPLIED' || 
+                           status === 'APPLIED_FOR_MULTIPLE_JOBS' ||
+                           displayStatus === 'RE_APPLIED' ||
+                           displayStatus === 'APPLIED_FOR_MULTIPLE_JOBS';
+    
+    if (isAppliedStatus && !scheduledInterview) {
         if (canOperate) {
             return {
                 label: 'Schedule Interview',
                 type: 'SCHEDULE',
                 variant: 'default',
-                color: 'bg-blue-600 hover:bg-blue-700 text-white',
+                color: '',
                 round: 1 // Always start at Round 1
             };
         } else {
+            const label = displayStatus === 'RE_APPLIED' ? 'Re-Applied' :
+                         displayStatus === 'APPLIED_FOR_MULTIPLE_JOBS' ? 'Applied for Multiple Jobs' :
+                         'Applied';
             return {
-                label: 'Applied',
+                label,
                 type: 'VIEW_PROFILE',
                 variant: 'outline',
                 disabled: true
@@ -120,8 +131,9 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
     // ============================================
     // 2. INTERVIEW SCHEDULED / IN PROGRESS -> START INTERVIEW
     // ============================================
-    // Fix: Also catch cases where status is APPLIED but scheduledInterview exists
-    if (['INTERVIEW_SCHEDULED', 'HR_INTERVIEW_IN_PROGRESS', 'MANAGER_INTERVIEW_IN_PROGRESS'].includes(status) || (status === 'APPLIED' && scheduledInterview)) {
+    // Fix: Also catch cases where status is APPLIED/RE_APPLIED/APPLIED_FOR_MULTIPLE_JOBS but scheduledInterview exists
+    if (['INTERVIEW_SCHEDULED', 'HR_INTERVIEW_IN_PROGRESS', 'MANAGER_INTERVIEW_IN_PROGRESS', 'ROUND3_INTERVIEW_IN_PROGRESS', 'ROUND4_INTERVIEW_IN_PROGRESS'].includes(status) || 
+        ((status === 'APPLIED' || status === 'RE_APPLIED' || status === 'APPLIED_FOR_MULTIPLE_JOBS' || displayStatus === 'RE_APPLIED' || displayStatus === 'APPLIED_FOR_MULTIPLE_JOBS') && scheduledInterview)) {
         // Access Control: Admin OR Assigned Interviewer can START
         if (isAdmin || isAssignedInterviewer) {
             return {
@@ -146,7 +158,11 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
     // ============================================
     // 3. INTERVIEW COMPLETED (Transition State)
     // ============================================
-    if (status === 'INTERVIEW_COMPLETED' || status === 'HR_INTERVIEW_COMPLETED' || status === 'MANAGER_INTERVIEW_COMPLETED') {
+    if (status === 'INTERVIEW_COMPLETED' || 
+        status === 'HR_INTERVIEW_COMPLETED' || 
+        status === 'MANAGER_INTERVIEW_COMPLETED' ||
+        status === 'ROUND3_INTERVIEW_COMPLETED' ||
+        status === 'ROUND4_INTERVIEW_COMPLETED') {
         // SCENARIO 1: New to this round (Moved from previous round)
         // Backend ensures currentJobStage is incremented.
         // If we have NO scheduled interview for THIS stage, we must Schedule.
@@ -156,7 +172,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                     label: 'Schedule Interview',
                     type: 'SCHEDULE',
                     variant: 'default',
-                    color: 'bg-blue-600 hover:bg-blue-700 text-white',
+                    color: '',
                     round: currentRound
                 };
             }
@@ -219,7 +235,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                 label: 'Onboard',
                 type: 'ONBOARD',
                 variant: 'default',
-                color: 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                color: ''
             };
         }
         return {
@@ -248,7 +264,7 @@ export const getCandidateAction = (candidate: any, currentUser?: any): Candidate
                 label: 'Convert to Staff',
                 type: 'CONVERT_TO_STAFF',
                 variant: 'default',
-                color: 'bg-purple-600 hover:bg-purple-700 text-white'
+                color: ''
             };
         }
 

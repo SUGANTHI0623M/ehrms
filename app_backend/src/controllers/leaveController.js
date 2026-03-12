@@ -248,6 +248,44 @@ const getLeaveTypes = async (req, res) => {
  * Returns leave types for the Apply Leave dropdown: from staff's assigned leave template + Unpaid Leave.
  * Each item has { type, days } where days is the limit from template (null for Unpaid Leave).
  */
+/**
+ * Get availableCasualLeaves from attendances collection (latest record by date for employee).
+ * @param {ObjectId} employeeId - Staff/employee id
+ * @returns {Promise<number>} available balance (0 if none found)
+ */
+const getAvailableCasualLeavesFromAttendances = async (employeeId) => {
+    const latest = await Attendance.findOne(
+        { $or: [{ employeeId }, { user: employeeId }], availableCasualLeaves: { $exists: true, $ne: null } }
+    )
+        .sort({ date: -1 })
+        .select('availableCasualLeaves')
+        .lean();
+    const val = latest?.availableCasualLeaves;
+    return typeof val === 'number' && !Number.isNaN(val) ? val : 0;
+};
+
+/**
+ * Get total allowed leave days from staff's leave template. If multiple templates with same name
+ * exist for the business, use the latest (by updatedAt).
+ * @param {Object} staff - Staff document with populated leaveTemplateId
+ * @returns {Promise<number>} sum of leaveTypes[].days from the latest template for that name+business
+ */
+const getTotalAllowedFromTemplate = async (staff) => {
+    if (!staff?.leaveTemplateId) return 0;
+    const assigned = staff.leaveTemplateId;
+    const businessId = assigned.businessId || staff.businessId;
+    const name = assigned.name;
+    if (!businessId || !name) {
+        const days = (assigned.leaveTypes || []).reduce((sum, t) => sum + (Number(t.days) || 0), 0);
+        return days;
+    }
+    const latest = await LeaveTemplate.findOne({ businessId, name, isActive: true })
+        .sort({ updatedAt: -1 })
+        .lean();
+    if (!latest?.leaveTypes || !Array.isArray(latest.leaveTypes)) return 0;
+    return latest.leaveTypes.reduce((sum, t) => sum + (Number(t.days) || 0), 0);
+};
+
 const getLeaveTypesForApply = async (req, res) => {
     try {
         const staffId = req.staff._id;
@@ -255,9 +293,17 @@ const getLeaveTypesForApply = async (req, res) => {
 
         const list = [];
 
+        // Static option: Half Day always visible (counts as 0.5 day, deducted from availableCasualLeaves)
+        const hasHalfDay = list.some(t => (t.type || '').toLowerCase().replace(/\s+/g, '') === 'halfday');
+        if (!hasHalfDay) {
+            list.push({ type: 'Half Day', days: 0.5 });
+        }
+
         if (staff?.leaveTemplateId?.leaveTypes && Array.isArray(staff.leaveTemplateId.leaveTypes)) {
             staff.leaveTemplateId.leaveTypes.forEach(t => {
                 if (t.type) {
+                    const typeNorm = (t.type || '').toLowerCase().replace(/\s+/g, '');
+                    if (typeNorm === 'halfday') return; // already added as static
                     const days = t.days != null ? t.days : (t.limit != null ? t.limit : null);
                     list.push({ type: t.type, days });
                 }
@@ -272,6 +318,25 @@ const getLeaveTypesForApply = async (req, res) => {
         }
 
         res.json({ success: true, data: list });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: { message: error.message } });
+    }
+};
+
+/**
+ * GET /leave-balance: availableCasualLeaves from attendances, totalAllowed from leave template (latest by name for business).
+ */
+const getLeaveBalance = async (req, res) => {
+    try {
+        const staffId = req.staff._id;
+        const staff = await Staff.findById(staffId).populate('leaveTemplateId');
+        const availableCasualLeaves = await getAvailableCasualLeavesFromAttendances(staffId);
+        const totalAllowed = staff ? await getTotalAllowedFromTemplate(staff) : 0;
+        res.json({
+            success: true,
+            data: { availableCasualLeaves, totalAllowed }
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: { message: error.message } });
@@ -338,6 +403,33 @@ const createLeave = async (req, res) => {
 
         // Calculate days - 0.5 for Half Day, otherwise standard calculation
         const days = leaveType === 'Half Day' ? 0.5 : calculateDays(startDate, endDate);
+
+        const isUnpaidLeave = /^\s*unpaid(\s+leave)?\s*$/i.test(leaveType);
+
+        // Leave balance validation: use availableCasualLeaves from attendances. Unpaid Leave has no limit.
+        if (!isUnpaidLeave) {
+            const availableCasualLeaves = await getAvailableCasualLeavesFromAttendances(currentStaffId);
+            if (availableCasualLeaves <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: "You don't have enough leave balance." }
+                });
+            }
+            if (availableCasualLeaves === 0.5) {
+                if (leaveType !== 'Half Day') {
+                    return res.status(400).json({
+                        success: false,
+                        error: { message: "You don't have enough leave balance." }
+                    });
+                }
+                // 0.5 balance: only 1 Half Day allowed (days is already 0.5)
+            } else if (days > availableCasualLeaves) {
+                return res.status(400).json({
+                    success: false,
+                    error: { message: "You don't have enough leave balance." }
+                });
+            }
+        }
 
         // Validation for Half Day
         if (leaveType === 'Half Day') {
@@ -437,95 +529,8 @@ const createLeave = async (req, res) => {
             }
         }
 
-        // If limit is not null, enforce it. If null and no template, allow without restriction
-        if (limit !== null) {
-            // Use the template type name for checking (handles "Casual Leave" vs "Casual")
-            const templateTypeName = leaveConfig && leaveConfig.type ? leaveConfig.type : leaveType;
-            
-            // Use calculateAvailableLeaves to handle carryForward logic
-            const leaveDate = new Date(startDate);
-            const leaveInfo = await calculateAvailableLeaves(staff, templateTypeName, leaveDate);
-
-            // Check if leave type exists in template and has a limit
-            if (leaveInfo.baseLimit === null) {
-                // This shouldn't happen if limit is not null, but handle edge case
-                return res.status(400).json({
-                    success: false,
-                    error: {
-                        message: `Leave type ${leaveType} not found in template or has no limit configured.`,
-                    }
-                });
-            }
-
-            // Strict validation: Check if balance is already 0 or would become negative
-            // This prevents applying when limit is already fully used
-            if (leaveInfo.balance <= 0) {
-                const rangeType = leaveInfo.isMonthly ? 'month' : 'year';
-                return res.status(400).json({
-                    success: false,
-                    error: {
-                        message: `You have already used all available ${leaveType} leave for this ${rangeType}. Available: ${leaveInfo.totalAvailable} days, Used: ${leaveInfo.used} days.`,
-                        details: {
-                            baseLimit: leaveInfo.baseLimit,
-                            carriedForward: leaveInfo.carriedForward,
-                            totalAvailable: leaveInfo.totalAvailable,
-                            used: leaveInfo.used,
-                            requested: days,
-                            balance: leaveInfo.balance,
-                            range: rangeType
-                        }
-                    }
-                });
-            }
-
-            // Check if requested days exceed available balance
-            if (days > leaveInfo.balance) {
-                const rangeType = leaveInfo.isMonthly ? 'month' : 'year';
-                const message = leaveInfo.carryForwardEnabled
-                    ? `Leave request exceeds available balance for ${leaveType}. Available: ${leaveInfo.balance} days, Requested: ${days} days. Max ${leaveInfo.totalAvailable} days per ${rangeType} (${leaveInfo.baseLimit} base + ${leaveInfo.carriedForward} carried forward).`
-                    : `Leave request exceeds available balance for ${leaveType}. Available: ${leaveInfo.balance} days, Requested: ${days} days. Max ${leaveInfo.baseLimit} days allowed per ${rangeType}.`;
-
-                return res.status(400).json({
-                    success: false,
-                    error: {
-                        message: message,
-                        details: {
-                            baseLimit: leaveInfo.baseLimit,
-                            carriedForward: leaveInfo.carriedForward,
-                            totalAvailable: leaveInfo.totalAvailable,
-                            used: leaveInfo.used,
-                            requested: days,
-                            balance: leaveInfo.balance,
-                            range: rangeType
-                        }
-                    }
-                });
-            }
-
-            // Final check: Ensure used + requested doesn't exceed total available
-            if (leaveInfo.used + days > leaveInfo.totalAvailable) {
-                const rangeType = leaveInfo.isMonthly ? 'month' : 'year';
-                const message = leaveInfo.carryForwardEnabled
-                    ? `Leave limit exceeded for ${leaveType}. Max ${leaveInfo.totalAvailable} days available (${leaveInfo.baseLimit} base + ${leaveInfo.carriedForward} carried forward) per ${rangeType}. Used: ${leaveInfo.used} days, Requested: ${days} days.`
-                    : `Leave limit exceeded for ${leaveType}. Max ${leaveInfo.baseLimit} days allowed per ${rangeType}. Used: ${leaveInfo.used} days, Requested: ${days} days.`;
-
-                return res.status(400).json({
-                    success: false,
-                    error: {
-                        message: message,
-                        details: {
-                            baseLimit: leaveInfo.baseLimit,
-                            carriedForward: leaveInfo.carriedForward,
-                            totalAvailable: leaveInfo.totalAvailable,
-                            used: leaveInfo.used,
-                            requested: days,
-                            balance: leaveInfo.balance,
-                            range: rangeType
-                        }
-                    }
-                });
-            }
-        }
+        // Balance validation is done above using availableCasualLeaves from attendances.
+        // Template limit is used only for type validation and display (totalAllowed).
 
         // Check if employee already has leave (Pending or Approved) on any of the requested dates
         const existingLeave = await Leave.findOne({
@@ -691,6 +696,7 @@ module.exports = {
     getLeaves,
     getLeaveTypes,
     getLeaveTypesForApply,
+    getLeaveBalance,
     createLeave,
     updateLeaveStatus
 };

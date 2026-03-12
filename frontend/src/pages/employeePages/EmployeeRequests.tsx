@@ -1040,7 +1040,7 @@ const EmployeeRequests = () => {
                               />
                             </div>
                             {leaveModalDateError && (
-                              <div className="text-sm text-red-600 font-medium">{leaveModalDateError}</div>
+                              <div className="text-sm    font-medium">{leaveModalDateError}</div>
                             )}
                             {(leaveFormData.startDate && leaveFormData.endDate) && (
                               <div className="space-y-1">
@@ -1062,7 +1062,7 @@ const EmployeeRequests = () => {
                                     const limit = selectedLeaveType.days;
                                     const remaining = limit - days;
                                     return (
-                                      <div className={`text-xs ${days > limit ? 'text-red-600 font-semibold' : remaining < 3 ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+                                      <div className={`text-xs ${days > limit ? '   font-semibold' : remaining < 3 ? 'text-yellow-600' : 'text-muted-foreground'}`}>
                                         Monthly limit: {limit} days
                                         {days > limit && ` (Exceeds limit by ${(days - limit).toFixed(1)} days)`}
                                         {days <= limit && ` (${remaining.toFixed(1)} days remaining this month)`}
@@ -1148,7 +1148,7 @@ const EmployeeRequests = () => {
                             <TableCell>
                               {leave.status === "Rejected" && leave.rejectionReason ? (
                                 <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{leave.rejectionReason}</span>
+                                  <span className="text-sm   ">{leave.rejectionReason}</span>
                                 </div>
                               ) : leave.status === "Approved" ? (
                                 <span className="text-sm text-muted-foreground">-</span>
@@ -1179,7 +1179,7 @@ const EmployeeRequests = () => {
                                 </div>
                               ) : leave.status === "Rejected" && leave.rejectedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {leave.rejectedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm   ">Rejected by: {leave.rejectedBy.name || 'N/A'}</div>
                                   {leave.rejectedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(leave.rejectedAt)}
@@ -1476,7 +1476,7 @@ const EmployeeRequests = () => {
                                 <TableCell>
                                   {loan.status === "Rejected" && loan.rejectionReason ? (
                                     <div className="max-w-xs">
-                                      <span className="text-sm text-red-600">{loan.rejectionReason}</span>
+                                      <span className="text-sm   ">{loan.rejectionReason}</span>
                                     </div>
                                   ) : loan.status === "Approved" || loan.status === "Active" ? (
                                     <span className="text-sm text-muted-foreground">-</span>
@@ -1496,7 +1496,7 @@ const EmployeeRequests = () => {
                                     </div>
                                   ) : loan.status === "Rejected" && loan.rejectedBy ? (
                                     <div>
-                                      <div className="font-medium text-sm text-red-600">Rejected by: {loan.rejectedBy.name || 'N/A'}</div>
+                                      <div className="font-medium text-sm   ">Rejected by: {loan.rejectedBy.name || 'N/A'}</div>
                                       {loan.rejectedAt && (
                                         <div className="text-xs text-muted-foreground">
                                           {formatDate(loan.rejectedAt)}
@@ -1519,7 +1519,7 @@ const EmployeeRequests = () => {
                                         </div>
                                         <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
                                           <div className="text-xs text-muted-foreground">Paid EMIs</div>
-                                          <div className="text-lg font-semibold text-green-600">{paidInstallments.length}</div>
+                                          <div className="text-lg font-semibold  ">{paidInstallments.length}</div>
                                         </div>
                                         <div className="p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950">
                                           <div className="text-xs text-muted-foreground">Remaining EMIs</div>
@@ -1534,7 +1534,7 @@ const EmployeeRequests = () => {
                                       {paidInstallments.length > 0 && (
                                         <div>
                                           <h4 className="font-semibold mb-2 flex items-center gap-2">
-                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                            <CheckCircle className="w-4 h-4  " />
                                             Payment History
                                           </h4>
                                           <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -1558,13 +1558,13 @@ const EmployeeRequests = () => {
                                                     </div>
                                                     <div className="flex items-center gap-2 ml-6">
                                                       <span className="text-xs text-muted-foreground">
-                                                        Paid in: <span className="font-semibold text-green-700">{paymentMonthYear}</span> Payroll
+                                                        Paid in: <span className="font-semibold ">{paymentMonthYear}</span> Payroll
                                                       </span>
                                                     </div>
                                                   </div>
                                                   <div className="flex items-center gap-2">
-                                                    <DollarSign className="w-4 h-4 text-green-600" />
-                                                    <span className="font-semibold text-green-600">₹{(inst.amount || loan.emi).toLocaleString()}</span>
+                                                    <DollarSign className="w-4 h-4  " />
+                                                    <span className="font-semibold  ">₹{(inst.amount || loan.emi).toLocaleString()}</span>
                                                   </div>
                                                 </div>
                                               );
@@ -1903,7 +1903,7 @@ const EmployeeRequests = () => {
                             <TableCell>
                               {expense.status === "Rejected" && expense.rejectionReason ? (
                                 <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{expense.rejectionReason}</span>
+                                  <span className="text-sm   ">{expense.rejectionReason}</span>
                                 </div>
                               ) : expense.status === "Approved" || expense.status === "Paid" || expense.status === "Processed" ? (
                                 <span className="text-sm text-muted-foreground">-</span>
@@ -1923,7 +1923,7 @@ const EmployeeRequests = () => {
                                 </div>
                               ) : expense.status === "Rejected" && expense.rejectedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {expense.rejectedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm   ">Rejected by: {expense.rejectedBy.name || 'N/A'}</div>
                                   {expense.rejectedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(expense.rejectedAt)}
@@ -2140,7 +2140,7 @@ const EmployeeRequests = () => {
                             <TableCell>
                               {request.status === "Rejected" && request.rejectionReason ? (
                                 <div className="max-w-xs">
-                                  <span className="text-sm text-red-600">{request.rejectionReason}</span>
+                                  <span className="text-sm   ">{request.rejectionReason}</span>
                                 </div>
                               ) : (
                                 <span className="text-sm text-muted-foreground">-</span>
@@ -2158,7 +2158,7 @@ const EmployeeRequests = () => {
                                 </div>
                               ) : request.status === "Rejected" && request.rejectedBy ? (
                                 <div>
-                                  <div className="font-medium text-sm text-red-600">Rejected by: {request.rejectedBy.name || 'N/A'}</div>
+                                  <div className="font-medium text-sm   ">Rejected by: {request.rejectedBy.name || 'N/A'}</div>
                                   {request.rejectedAt && (
                                     <div className="text-xs text-muted-foreground">
                                       {formatDate(request.rejectedAt)}

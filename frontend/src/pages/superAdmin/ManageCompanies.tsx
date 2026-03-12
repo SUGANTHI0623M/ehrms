@@ -448,7 +448,7 @@ const ManageCompanies = () => {
                                   onClick={() => handleResume(company)}
                                   disabled={isResuming}
                                 >
-                                  <Play className="w-4 h-4 text-green-600" />
+                                  <Play className="w-4 h-4  " />
                                 </Button>
                               ) : (
                                 <Button
@@ -459,7 +459,7 @@ const ManageCompanies = () => {
                                     setIsSuspendDialogOpen(true);
                                   }}
                                 >
-                                  <Ban className="w-4 h-4 text-orange-600" />
+                                  <Ban className="w-4 h-4 " />
                                 </Button>
                               )}
                               {company.isActive ? (
@@ -472,7 +472,7 @@ const ManageCompanies = () => {
                                   }}
                                   title="Deactivate Company"
                                 >
-                                  <XCircle className="w-4 h-4 text-orange-600" />
+                                  <XCircle className="w-4 h-4 " />
                                 </Button>
                               ) : (
                                 <Button
@@ -481,7 +481,7 @@ const ManageCompanies = () => {
                                   onClick={() => handleActivate(company)}
                                   disabled={isActivating}
                                 >
-                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                  <CheckCircle className="w-4 h-4  " />
                                 </Button>
                               )}
                               {company.subscriptionStatus === 'trial' && (
@@ -506,7 +506,7 @@ const ManageCompanies = () => {
                                 }}
                                 title="Delete Company"
                               >
-                                <Trash2 className="w-4 h-4 text-red-600" />
+                                <Trash2 className="w-4 h-4   " />
                               </Button>
                             </div>
                           </TableCell>

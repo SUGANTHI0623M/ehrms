@@ -435,14 +435,14 @@ const OfferLetterList = () => {
                                       <>
                                         <DropdownMenuItem 
                                           onClick={() => handleAcceptOffer(offer._id)} 
-                                          className="text-green-600"
+                                          className=" "
                                         >
                                           <FileText className="mr-2 h-4 w-4" />
                                           Mark as Accepted
                                         </DropdownMenuItem>
                                         <DropdownMenuItem 
                                           onClick={() => handleRejectOffer(offer._id)} 
-                                          className="text-red-600"
+                                          className="  "
                                         >
                                           <FileText className="mr-2 h-4 w-4" />
                                           Mark as Rejected

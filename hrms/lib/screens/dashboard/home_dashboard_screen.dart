@@ -2556,6 +2556,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     Map<String, bool> dayIsPaidLeaveByDate = {};
     Map<String, String> dayCompensationTypeByDate = {};
     Map<String, num?> dayWorkHoursByDate = {};
+    Set<String> pendingWithCheckInDateSet = {};
     if (_monthData != null && _monthData!['attendance'] != null) {
       for (var entry in _monthData!['attendance']) {
         try {
@@ -2576,7 +2577,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               dayMonth != _selectedMonth.month) {
             continue;
           }
-          dayStatusByDate[dateStr] = entry['status'] ?? 'Present';
+          final statusVal = entry['status'] ?? 'Present';
+          dayStatusByDate[dateStr] = statusVal;
+          if (statusVal == 'Pending') {
+            final punchIn = entry['punchIn'];
+            if (punchIn != null && punchIn.toString().trim().isNotEmpty) {
+              pendingWithCheckInDateSet.add(dateStr);
+            }
+          }
           final leaveType = entry['leaveType'] as String?;
           if (leaveType != null && leaveType.isNotEmpty) {
             dayLeaveTypeByDate[dateStr] = leaveType;
@@ -2953,6 +2961,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               } else if ((leaveDateSet.contains(dateStr) || isOnLeaveStatus) &&
                   !isPresentStatusForAbbr) {
                 leaveTypeAbbr = 'L';
+              } else if (pendingWithCheckInDateSet.contains(dateStr)) {
+                leaveTypeAbbr = 'WA'; // Waiting for Approval (Pending + has check-in)
               }
 
               // Low work-hours indicator
@@ -3004,6 +3014,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               // workHours from API/local are in minutes; low when < 9 hours (540 mins)
               final workHoursMins = _workHoursToMinutes(workHours);
               isLowHours = workHoursMins != null && workHoursMins < 540;
+              // Don't show low work hours red dot for comp off, leave, week off, or absent
+              if (isWeekOff ||
+                  compType == 'compoff' ||
+                  compType == 'comp off' ||
+                  isOnLeaveStatus ||
+                  isAbsentStatusForAbbr ||
+                  (leaveDateSet.contains(dateStr) && !isPresentStatusForAbbr)) {
+                isLowHours = false;
+              }
               isFuture = DateTime(
                 dayDate.year,
                 dayDate.month,

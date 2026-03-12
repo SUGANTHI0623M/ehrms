@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ArrowLeft, Receipt, Users, Search, ChevronRight, Upload, FileText, Calendar as CalendarIcon, DollarSign, TrendingUp, X } from "lucide-react";
+import { ArrowLeft, Receipt, Users, Search, ChevronRight, Upload, FileText, Calendar as CalendarIcon, TrendingUp, X } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useGetStaffByIdQuery, useGetStaffQuery, useUploadOfferLetterMutation } from "@/store/api/staffApi";
@@ -444,28 +444,11 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
           {/* Header - Only show when not in tab */}
           {!propEmployeeId && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    if (window.history.length > 1) {
-                      navigate(-1);
-                    } else {
-                      navigate('/salary-structure');
-                    }
-                  }}
-                  className="shrink-0"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </Button>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold">Salary Structure</h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {staff.name} ({staff.employeeId})
-                  </p>
-                </div>
-              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold">Salary Structure</h1>
+              <Button variant="outline" onClick={() => navigate('/staff')}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Staff
+              </Button>
             </div>
           )}
 
@@ -578,7 +561,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                   </div>
                   <div className="p-4 bg-red-50 dark:bg-red-950 rounded-lg">
                     <p className="text-sm text-muted-foreground">Absent Days</p>
-                    <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                    <p className="text-2xl font-bold    dark:text-red-400">
                       {workingDaysInfo.workingDays - presentDays}
                     </p>
                   </div>
@@ -615,13 +598,13 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                       </div>
                       <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg">
                         <div className="text-xs text-muted-foreground">Full Day Leaves</div>
-                        <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
+                        <div className="text-lg font-bold  dark:text-purple-400">
                           {attendanceRecords.filter((r: any) => r.status === 'On Leave').length}
                         </div>
                       </div>
                       <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg">
                         <div className="text-xs text-muted-foreground">Half Day Leaves</div>
-                        <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
+                        <div className="text-lg font-bold  dark:text-orange-400">
                           {attendanceRecords.filter((r: any) => 
                             r.status === 'Half Day' || (r.status === 'Pending' && r.halfDaySession && r.leaveType === 'Half Day')
                           ).length}
@@ -824,7 +807,7 @@ const SalaryStructureView = ({ employeeId: propEmployeeId }: SalaryStructureView
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Absent Days:</span>
-                          <span className="font-semibold text-red-600 dark:text-red-400">
+                          <span className="font-semibold    dark:text-red-400">
                             {workingDaysInfo.workingDays - presentDays}
                           </span>
                         </div>

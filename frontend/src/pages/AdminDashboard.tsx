@@ -7,12 +7,26 @@ import MainLayout from "@/components/MainLayout";
 import { useGetAdminDashboardQuery } from "@/store/api/adminDashboardApi";
 import { useGetCandidatesQuery } from "@/store/api/candidateApi";
 import { useGetDepartmentsQuery } from "@/store/api/jobOpeningApi";
+// Rupee Icon Component
+const RupeeIcon = ({ className, size, ...props }: { className?: string; size?: number | string; [key: string]: any }) => {
+  // Convert size prop to inline style (lucide-react icons use size prop)
+  const sizeValue = typeof size === 'number' ? `${size}px` : size || '16px';
+  return (
+    <span 
+      className={`${className || ''} font-semibold inline-flex items-center justify-center`} 
+      style={{ width: sizeValue, height: sizeValue, fontSize: sizeValue }}
+      {...props}
+    >
+      ₹
+    </span>
+  );
+};
+
 import {
   Users,
   UserCheck,
   Briefcase,
   TrendingUp,
-  Wallet as DollarSign,
   FileText,
   BookOpen,
   Package,
@@ -605,7 +619,7 @@ const AdminDashboard = () => {
                 <CardTitle className="text-sm font-medium">
                   Avg Salary (Gross)
                 </CardTitle>
-                <DollarSign className="w-4 h-4 text-muted-foreground" />
+                <span className="text-base font-semibold text-muted-foreground">₹</span>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
@@ -631,7 +645,7 @@ const AdminDashboard = () => {
                       <XAxis dataKey="department" />
                       <YAxis />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="count" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey="count" fill="#EFAA1F" radius={[4, 4, 0, 0]}>
                         <LabelList
                           dataKey="count"
                           position="top"
@@ -667,13 +681,13 @@ const AdminDashboard = () => {
                         >
                           <stop
                             offset="5%"
-                            stopColor="#82ca9d"
-                            stopOpacity={0.8}
+                            stopColor="#EFAA1F"
+                            stopOpacity={1}
                           />
                           <stop
                             offset="95%"
-                            stopColor="#82ca9d"
-                            stopOpacity={0.1}
+                            stopColor="#EFAA1F"
+                            stopOpacity={1}
                           />
                         </linearGradient>
                       </defs>
@@ -684,7 +698,7 @@ const AdminDashboard = () => {
                       <Area
                         type="monotone"
                         dataKey="count"
-                        stroke="#82ca9d"
+                        stroke="#EFAA1F"
                         fillOpacity={1}
                         fill="url(#colorRole)"
                       />
@@ -858,7 +872,7 @@ const AdminDashboard = () => {
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-orange-600">
+                  <div className="text-2xl font-bold ">
                     {dashboardData.pendingRequests.leaves || 0}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -877,7 +891,7 @@ const AdminDashboard = () => {
                   <Wallet className="w-4 h-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-blue-600">
+                  <div className="text-2xl font-bold">
                     {dashboardData.pendingRequests.loans || 0}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -898,7 +912,7 @@ const AdminDashboard = () => {
                   <Receipt className="w-4 h-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold ">
                     {dashboardData.pendingRequests.payslipRequests || 0}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -915,7 +929,7 @@ const AdminDashboard = () => {
             ============================================ */}
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold flex items-center gap-2">
-            <DollarSign className="w-6 h-6" />
+            <span className="text-2xl font-semibold">₹</span>
             Payroll Analytics
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -950,7 +964,7 @@ const AdminDashboard = () => {
                 <CardTitle className="text-sm font-medium">
                   Total Payroll Processed
                 </CardTitle>
-                <DollarSign className="w-4 h-4 text-muted-foreground" />
+                <span className="text-base font-semibold text-muted-foreground">₹</span>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">

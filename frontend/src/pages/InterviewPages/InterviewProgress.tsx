@@ -28,6 +28,7 @@ import {
   Circle,
   Upload,
   Eye,
+  ArrowLeft,
 } from "lucide-react";
 
 const getStatusIcon = (isCompleted: boolean, status: string) => {
@@ -403,6 +404,7 @@ const InterviewProgress = () => {
                 onClick={() => navigate("/candidates")}
                 className="flex-1 sm:flex-none"
               >
+                <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Candidates
               </Button>
             </div>
@@ -413,7 +415,7 @@ const InterviewProgress = () => {
             <Card className="border-2 border-green-200 bg-green-50 dark:bg-green-950">
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
-                  <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-1" />
+                  <CheckCircle2 className="w-6 h-6   dark:text-green-400 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-2">
                       Candidate Converted to Employee
@@ -434,7 +436,7 @@ const InterviewProgress = () => {
             <Card className="border-2 border-orange-200 bg-orange-50 dark:bg-orange-950">
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
-                  <AlertCircle className="w-6 h-6 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-1" />
+                  <AlertCircle className="w-6 h-6  dark:text-orange-400 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-2">
                       Candidate Already Hired for Another Job

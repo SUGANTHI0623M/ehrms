@@ -93,7 +93,7 @@ const GoogleCalendarConfig = () => {
                     <p className="font-medium text-green-900 dark:text-green-100">
                       Successfully connected to Google Calendar
                     </p>
-                    <p className="text-sm text-green-700 dark:text-green-300">
+                    <p className="text-sm  dark:text-green-300">
                       Your calendar is now synced with HRMS
                     </p>
                   </div>

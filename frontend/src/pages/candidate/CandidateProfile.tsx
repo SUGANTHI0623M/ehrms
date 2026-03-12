@@ -72,6 +72,7 @@ import { toast } from "sonner";
 import { format, parseISO, isValid } from "date-fns";
 import { getCountryOptions, phoneUtils } from "@/utils/countryCodeUtils";
 import { DatePicker as UiDatePicker } from "@/components/ui/date-picker";
+import { storeUserAvatar } from "@/utils/userAvatar";
 
 const CandidateProfile = () => {
   const navigate = useNavigate();
@@ -382,8 +383,11 @@ const CandidateProfile = () => {
       const result = await uploadProfilePicture(formData).unwrap();
       toast.success("Profile picture uploaded successfully");
       // Update preview with Cloudinary URL if returned
-      if (result.data?.profilePicture) {
-        setProfilePicturePreview(result.data.profilePicture);
+      if (result.data?.profilePicture || result.data?.avatar) {
+        const avatarUrl = result.data?.profilePicture || result.data?.avatar;
+        setProfilePicturePreview(avatarUrl);
+        // Store avatar in localStorage
+        storeUserAvatar(avatarUrl);
       }
       refetch();
     } catch (error: any) {
@@ -2147,7 +2151,7 @@ const CandidateProfile = () => {
                           >
                             <div className="flex items-start gap-3 flex-1">
                               {doc.status === DOCUMENT_STATUS.COMPLETED ? (
-                                <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                                <CheckCircle2 className="w-5 h-5   mt-0.5" />
                               ) : (
                                 <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                               )}
@@ -2506,7 +2510,7 @@ const CandidateProfile = () => {
                     >
                       <div className="flex items-start gap-3 flex-1">
                         {doc.status === DOCUMENT_STATUS.COMPLETED ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                          <CheckCircle2 className="w-5 h-5   mt-0.5" />
                         ) : (
                           <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                         )}
@@ -2837,7 +2841,7 @@ const CandidateProfile = () => {
                     >
                       <div className="flex items-start gap-3 flex-1">
                         {doc.status === DOCUMENT_STATUS.COMPLETED ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                          <CheckCircle2 className="w-5 h-5   mt-0.5" />
                         ) : (
                           <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                         )}

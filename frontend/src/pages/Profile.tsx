@@ -207,7 +207,7 @@ const Profile = () => {
             <div className="flex items-center gap-3">
               {user.isActive ? (
                 <>
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                  <CheckCircle2 className="w-5 h-5  " />
                   <span className="font-medium">Active</span>
                   <Badge variant="default" className="bg-green-600">
                     Account Active
@@ -215,7 +215,7 @@ const Profile = () => {
                 </>
               ) : (
                 <>
-                  <XCircle className="w-5 h-5 text-red-600" />
+                  <XCircle className="w-5 h-5   " />
                   <span className="font-medium">Inactive</span>
                   <Badge variant="destructive">Account Deactivated</Badge>
                 </>
@@ -286,12 +286,12 @@ const Profile = () => {
               <div className="flex items-center gap-2 pt-2">
                 {company.isActive ? (
                   <>
-                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    <CheckCircle2 className="w-4 h-4  " />
                     <span className="text-sm text-muted-foreground">Company is active</span>
                   </>
                 ) : (
                   <>
-                    <XCircle className="w-4 h-4 text-red-600" />
+                    <XCircle className="w-4 h-4   " />
                     <span className="text-sm text-muted-foreground">Company is inactive</span>
                   </>
                 )}

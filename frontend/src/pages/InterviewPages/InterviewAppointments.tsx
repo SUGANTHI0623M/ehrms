@@ -389,7 +389,7 @@ const InterviewAppointments = () => {
         {
           title: "Today",
           value: statsData.data.stats.today.toString(),
-          color: "text-green-600",
+          color: " ",
         },
         {
           title: "Upcoming",
@@ -404,7 +404,7 @@ const InterviewAppointments = () => {
       ]
     : [
         { title: "Total", value: "0", color: "text-primary" },
-        { title: "Today", value: "0", color: "text-green-600" },
+        { title: "Today", value: "0", color: " " },
         { title: "Upcoming", value: "0", color: "text-orange-500" },
         { title: "Completed", value: "0", color: "text-muted-foreground" },
       ];

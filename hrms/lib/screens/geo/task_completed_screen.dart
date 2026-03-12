@@ -136,6 +136,12 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
 
   bool get _displayPhotoProof => _task?.photoProof ?? widget.photoProof;
 
+  /// Only true when a form was actually submitted (had assigned forms and filled them).
+  bool get _displayFormSubmitted {
+    if (_task != null && _task!.formFilled != null) return _task!.formFilled!;
+    return widget.formSubmitted;
+  }
+
   static String _formatDuration(Duration d) {
     final secs = d.inSeconds;
     if (secs < 60) return secs == 1 ? '1 sec' : '$secs secs';
@@ -219,7 +225,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       ),
     );
 
-    if (widget.formSubmitted &&
+    if (_displayFormSubmitted &&
         (widget.formSubmittedAt != null || widget.otpVerifiedAt != null)) {
       events.add(
         _TimelineEvent(
@@ -423,7 +429,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                         value: widget.geoFence ? 'Inside' : 'Outside',
                       ),
                       _divider(),
-                      _verificationRow('Form Submitted', widget.formSubmitted),
+                      _verificationRow('Form Submitted', _displayFormSubmitted),
                       _divider(),
                       _verificationRow(
                         'Photo Proof',

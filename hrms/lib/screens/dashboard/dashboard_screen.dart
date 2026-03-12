@@ -138,6 +138,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _onRequestsTabIndexChanged(int index) {
+    if (!mounted) return;
+    setState(() => _requestsSubTabIndex = index.clamp(0, 3));
+  }
+
   /// Fetches current position and address. Returns null position on failure.
   Future<({Position? position, String address, String? area, String? city, String? pincode})>
       _getCurrentLocation() async {
@@ -881,15 +886,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    final todayRes = await _attendanceService.getTodayAttendance();
+    final todayRes = await _attendanceService.getTodayAttendance(forceRefresh: true);
     bool isCheckedIn = false;
     if (todayRes['data'] is Map<String, dynamic>) {
       final d = todayRes['data'] as Map<String, dynamic>;
-      final punchIn = d['punchIn'];
-      final punchOut = d['punchOut'];
-      final hasIn = punchIn != null && punchIn.toString().isNotEmpty;
-      final hasOut = punchOut != null && punchOut.toString().isNotEmpty;
-      isCheckedIn = hasIn && !hasOut;
+      // Prefer backend's checkedIn; else same extraction as _fetchPunchStatusForNavBar (punchIn/punchOut in data.data)
+      if (d['checkedIn'] == true) {
+        isCheckedIn = true;
+      } else if (d['checkedIn'] == false) {
+        isCheckedIn = false;
+      } else {
+        final attendance = d['data'] as Map<String, dynamic>? ?? d;
+        final punchIn = attendance['punchIn'];
+        final punchOut = attendance['punchOut'];
+        final hasIn = punchIn != null && punchIn.toString().trim().isNotEmpty;
+        final hasOut = punchOut != null && punchOut.toString().trim().isNotEmpty;
+        isCheckedIn = hasIn && !hasOut;
+      }
     }
 
     List<int> imageBytes = await file.readAsBytes();
@@ -970,6 +983,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         initialTabIndex: _requestsSubTabIndex,
         dashboardTabIndex: _currentIndex,
         onNavigateToIndex: _onDrawerNavigateToIndex,
+        onTabIndexChanged: _onRequestsTabIndexChanged,
         isActiveTab: _currentIndex == 1,
       ),
       SalaryOverviewScreen(

@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import PageTransition from "@/components/PageTransition";
 import { ReactNode, useState, useEffect } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { useUserAvatar } from "@/hooks/useUserAvatar";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -17,6 +18,9 @@ export default function MainLayout({ children, sidebar }: MainLayoutProps) {
   const currentUser = useAppSelector((state) => state.auth.user);
   const isCandidate = currentUser?.role === "Candidate";
   const isEmployee = currentUser?.role === "Employee" || currentUser?.role === "EmployeeAdmin";
+  
+  // Fetch and store user avatar
+  useUserAvatar();
 
   // Use custom sidebar if provided, otherwise use role-based default
   const renderSidebar = () => {

@@ -691,7 +691,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                                 otpVerified: otpVerified,
                                                 geoFence:
                                                     widget.isWithinGeofence,
-                                                formSubmitted: _formFilled,
+                                                formSubmitted: _hasFormAssigned && _formFilled,
                                                 photoProof: _photoProofDone,
                                                 arrivalTime: widget.arrivalTime,
                                                 otpVerifiedAt:

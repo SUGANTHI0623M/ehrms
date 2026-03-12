@@ -9,6 +9,16 @@ import MainLayout from "@/components/MainLayout";
 import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
 import { useGetBusinessQuery, useUpdateAttendanceSettingsMutation } from "@/store/api/settingsApi";
 import { message } from "antd";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Helper function to calculate mid-point time from start and end times
 const calculateMidPointTime = (startTime: string, endTime: string): string | null => {
@@ -86,6 +96,8 @@ export default function ShiftSettings() {
     }
   });
   const [showForm, setShowForm] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [shiftToDeleteIndex, setShiftToDeleteIndex] = useState<number | null>(null);
   const initializedRef = useRef(false);
 
   // Only initialize once when data is first loaded
@@ -188,9 +200,55 @@ export default function ShiftSettings() {
     setShowForm(true);
   };
 
-  const handleDelete = (index: number) => {
-    const newList = shiftList.filter((_, i) => i !== index);
+  const handleDeleteClick = (index: number) => {
+    setShiftToDeleteIndex(index);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (shiftToDeleteIndex === null) return;
+    
+    const newList = shiftList.filter((_, i) => i !== shiftToDeleteIndex);
     setShiftList(newList);
+    
+    // Save to database immediately
+    try {
+      const shiftsToSave = newList.map(shift => ({
+        name: shift.name,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        graceTime: shift.graceTime || { value: 10, unit: 'minutes' },
+        halfDaySettings: shift.halfDaySettings ? {
+          enabled: shift.halfDaySettings.enabled || false,
+          customMidPointTime: shift.halfDaySettings.customMidPointTime || null,
+          firstHalfEndTime: shift.halfDaySettings.firstHalfEndTime || null,
+          secondHalfStartTime: shift.halfDaySettings.secondHalfStartTime || null,
+          firstHalfLogoutGraceMinutes: shift.halfDaySettings.firstHalfLogoutGraceMinutes || 30,
+          secondHalfLoginGraceMinutes: shift.halfDaySettings.secondHalfLoginGraceMinutes ?? 
+            (shift.halfDaySettings.secondHalfStrictLogin === false ? 10 : 0),
+          secondHalfStrictLogin: (shift.halfDaySettings.secondHalfLoginGraceMinutes ?? 
+            (shift.halfDaySettings.secondHalfStrictLogin === false ? 10 : 0)) === 0
+        } : {
+          enabled: false,
+          customMidPointTime: null,
+          firstHalfEndTime: null,
+          secondHalfStartTime: null,
+          firstHalfLogoutGraceMinutes: 30,
+          secondHalfLoginGraceMinutes: 0,
+          secondHalfStrictLogin: true
+        }
+      }));
+      
+      await updateSettings({ shifts: shiftsToSave }).unwrap();
+      message.success("Shift deleted successfully");
+      setDeleteDialogOpen(false);
+      setShiftToDeleteIndex(null);
+    } catch (error: any) {
+      console.error('Error deleting shift:', error);
+      message.error(error?.data?.error?.message || "Failed to delete shift");
+      // Revert local state on error
+      setShiftList(shiftList);
+    }
   };
 
   const handleSaveShift = async () => {
@@ -778,7 +836,7 @@ export default function ShiftSettings() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleDelete(index)}
+                      onClick={() => handleDeleteClick(index)}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -800,6 +858,27 @@ export default function ShiftSettings() {
             </Button>
           </div>
         )}
+
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Shift</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete the shift "{shiftToDeleteIndex !== null ? shiftList[shiftToDeleteIndex]?.name : ''}"? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                disabled={isUpdating}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isUpdating ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </MainLayout>
   );

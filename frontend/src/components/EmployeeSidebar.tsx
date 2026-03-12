@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
-  DollarSign,
   Calendar,
   ClipboardList,
   Clock,
@@ -48,6 +47,8 @@ import {
   ChevronLeft,
   Cake,
   Megaphone,
+  AlertCircle,
+  Activity,
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Menu, Divider } from "antd";
@@ -67,9 +68,24 @@ import {
   SoundOutlined,
 } from "@ant-design/icons";
 import { useAppSelector } from "@/store/hooks";
-
+import { useGetBusinessQuery } from "@/store/api/settingsApi";
 
 import { lmsService } from "@/services/lmsService";
+
+// Rupee Icon Component
+const RupeeIcon = ({ className, size, ...props }: { className?: string; size?: number | string; [key: string]: any }) => {
+  // Convert size prop to inline style (lucide-react icons use size prop)
+  const sizeValue = typeof size === 'number' ? `${size}px` : size || '16px';
+  return (
+    <span 
+      className={`${className || ''} font-semibold inline-flex items-center justify-center`} 
+      style={{ width: sizeValue, height: sizeValue, fontSize: sizeValue }}
+      {...props}
+    >
+      ₹
+    </span>
+  );
+};
 
 interface EmployeeSidebarProps {
   mobileOpen?: boolean;
@@ -117,6 +133,7 @@ const ADMIN_SUBMENUS: Record<string, Array<{
     { icon: Banknote, label: "Salary Overview", path: "/staff-overview" },
     { icon: FileText, label: "Salary Structure", path: "/salary-structure" },
     { icon: CalendarCheck, label: "Attendance", path: "/staff/attendance" },
+    { icon: Activity, label: "Attendance Monitoring", path: "/staff/attendance-monitoring", module: "attendance_monitoring" },
     { icon: Calendar, label: "Leaves Pending Approval", path: "/staff/leaves-pending-approval" },
     { icon: Wallet, label: "Loans", path: "/staff/loans" },
     { icon: Receipt, label: "Expense Claims", path: "/staff/expense-claims" },
@@ -175,6 +192,12 @@ const ADMIN_SUBMENUS: Record<string, Array<{
   announcements: [
     { icon: Megaphone, label: "Announcements", path: "/announcements", module: "announcements" },
   ],
+  grievance: [
+    // For employees with admin access - show admin options (NO Settings for employees)
+    { icon: AlertCircle, label: "All Grievances", path: "/grievances", module: "grievance" },
+    { icon: BarChart3, label: "Analytics", path: "/grievances/analytics", module: "grievance" },
+    // Settings is admin-only, not shown to employees even with admin access
+  ],
   settings: [
     { icon: UserRoundPlus, label: "User Management", path: "/user-management" },
     { icon: CalendarCheck, label: "Attendance Settings", path: "/attendance-setting" },
@@ -192,11 +215,12 @@ const ADMIN_MENU_CONFIG: Record<string, { label: string; icon: React.ComponentTy
   'interview': { label: 'Interview', icon: ClipboardList, mainPath: '/candidates' },
   'celebration': { label: 'Celebration', icon: Cake, mainPath: '/admin/celebration' },
   'staff': { label: 'Staff', icon: Users, mainPath: '/staff' },
-  'payroll': { label: 'Payroll', icon: DollarSign, mainPath: '/payroll/management' },
+  'payroll': { label: 'Payroll', icon: RupeeIcon, mainPath: '/payroll/management' },
   'hrms-geo': { label: 'HRMS Geo', icon: MapPin, mainPath: '/hrms-geo/dashboard' },
   'performance': { label: 'Performance', icon: TrendingUp, mainPath: '/performance' },
   'lms': { label: 'LMS', icon: FileText, mainPath: '/admin/lms/course-library' },
   'announcements': { label: 'Announcements', icon: Megaphone, mainPath: '/announcements' },
+  'grievance': { label: 'Grievance', icon: AlertCircle, mainPath: '/grievances' },
   'assets': { label: 'Asset Management', icon: SettingsIcon, mainPath: '/assets' },
   'integrations': { label: 'Integrations', icon: Plug2, mainPath: '/integrations' },
   'settings': { label: 'Settings', icon: SettingsIcon, mainPath: '/settings' },
@@ -215,6 +239,10 @@ const EmployeeSidebar = ({
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const currentUser = useAppSelector((state) => state.auth.user);
   const [lmsAccessEnabled, setLmsAccessEnabled] = useState(true);
+  
+  // Fetch business data for company logo
+  const { data: businessData } = useGetBusinessQuery();
+  const companyLogo = businessData?.data?.business?.logo;
 
   useEffect(() => {
     lmsService.getMyLmsAccess().then((res) => {
@@ -290,6 +318,11 @@ const EmployeeSidebar = ({
       icon: <SoundOutlined />,
       label: "Announcements",
     },
+    {
+      key: "/grievances/my",
+      icon: <FileTextOutlined />,
+      label: "My Grievances",
+    },
     // {
     //   key: "/employee/hrms-geo",
     //   icon: <AppstoreOutlined />,
@@ -343,6 +376,7 @@ const EmployeeSidebar = ({
       'salary_overview': 'staff',
       'salary_structure': 'staff',
       'attendance': 'staff',
+      'attendance_monitoring': 'staff',
       'leaves_approval': 'staff',
       'loans': 'staff',
       'expense_claims': 'staff',
@@ -394,6 +428,10 @@ const EmployeeSidebar = ({
       'company_policy': 'settings',
       'onboarding_documents': 'settings',
       'others': 'settings',
+      // Grievance sub-modules
+      'grievance_all': 'grievance',
+      'grievance_analytics': 'grievance',
+      'grievance_settings': 'grievance',
     };
     
     // Get unique parent modules from sidebarPermissions (either direct parent or mapped from sub-module)
@@ -445,6 +483,7 @@ const EmployeeSidebar = ({
           '/staff-overview': 'salary_overview',
           '/salary-structure': 'salary_structure',
           '/staff/attendance': 'attendance',
+          '/staff/attendance-monitoring': 'attendance_monitoring',
           '/staff/leaves-pending-approval': 'leaves_approval',
           '/staff/loans': 'loans',
           '/staff/expense-claims': 'expense_claims',
@@ -466,6 +505,9 @@ const EmployeeSidebar = ({
           '/payroll/management': 'payroll_management',
           '/admin/celebration': 'celebration',
           '/announcements': 'announcements',
+          '/grievances': 'grievance_all',
+          '/grievances/analytics': 'grievance_analytics',
+          '/grievances/settings': 'grievance_settings',
           '/hrms-geo/dashboard': 'hrms_geo_dashboard',
           '/hrms-geo/tracking/live': 'tracking',
           '/hrms-geo/forms/responses': 'forms',
@@ -508,6 +550,35 @@ const EmployeeSidebar = ({
         // Filter submenu items based on granular permissions
         // If parent module is selected, show all items; otherwise filter by sub-module permissions
         const filteredSubmenuItems = submenuItems.filter((item) => {
+          // Special handling for grievance module
+          if (module === 'grievance') {
+            // Settings is admin-only - never show to employees, even with admin permissions
+            if (item.path === '/grievances/settings') {
+              return false; // Settings is admin-only, not for employees
+            }
+            
+            // Check if user has parent module permission or specific sub-module permission
+            const hasParentPermission = sidebarPerms.includes(module);
+            const subModuleName = pathToSubModuleMap[item.path] || item.module;
+            const hasSubModulePermission = subModuleName && sidebarPerms.includes(subModuleName);
+            
+            // If user has admin grievance permission (parent or sub-module), show admin items
+            if (hasParentPermission || hasSubModulePermission) {
+              // Show admin items (exclude employee-specific items with roles property)
+              if (item.roles && item.roles.includes('Employee')) {
+                return false; // Don't show employee items in admin submenu
+              }
+              return true;
+            }
+            // If user is employee without admin permission, show only employee-specific items
+            if (item.roles && item.roles.includes('Employee')) {
+              return true;
+            }
+            // Don't show admin items to employees without admin permission
+            return false;
+          }
+          
+          // For other modules, use existing logic
           // If parent module is in permissions, show all submenu items
           if (sidebarPerms.includes(module)) {
             return true;
@@ -663,6 +734,7 @@ const EmployeeSidebar = ({
           'salary_overview': 'staff',
           'salary_structure': 'staff',
           'attendance': 'staff',
+          'attendance_monitoring': 'staff',
           'leaves_approval': 'staff',
           'loans': 'staff',
           'expense_claims': 'staff',
@@ -706,6 +778,10 @@ const EmployeeSidebar = ({
           'company_policy': 'settings',
           'onboarding_documents': 'settings',
           'others': 'settings',
+          // Grievance sub-modules
+          'grievance_all': 'grievance',
+          'grievance_analytics': 'grievance',
+          'grievance_settings': 'grievance',
         };
         
         // Get unique parent modules from sidebarPermissions
@@ -835,6 +911,7 @@ const EmployeeSidebar = ({
       'salary_overview': 'staff',
       'salary_structure': 'staff',
       'attendance': 'staff',
+      'attendance_monitoring': 'staff',
       'leaves_approval': 'staff',
       'loans': 'staff',
       'expense_claims': 'staff',
@@ -879,6 +956,10 @@ const EmployeeSidebar = ({
       'company_policy': 'settings',
       'onboarding_documents': 'settings',
       'others': 'settings',
+      // Grievance sub-modules
+      'grievance_all': 'grievance',
+      'grievance_analytics': 'grievance',
+      'grievance_settings': 'grievance',
     };
     
     // Get unique parent modules
@@ -961,6 +1042,7 @@ const EmployeeSidebar = ({
       'salary_overview': 'staff',
       'salary_structure': 'staff',
       'attendance': 'staff',
+      'attendance_monitoring': 'staff',
       'leaves_approval': 'staff',
       'loans': 'staff',
       'expense_claims': 'staff',
@@ -1005,6 +1087,10 @@ const EmployeeSidebar = ({
       'company_policy': 'settings',
       'onboarding_documents': 'settings',
       'others': 'settings',
+      // Grievance sub-modules
+      'grievance_all': 'grievance',
+      'grievance_analytics': 'grievance',
+      'grievance_settings': 'grievance',
     };
     
     // Get unique parent modules from sidebarPermissions (either direct parent or mapped from sub-module)
@@ -1151,6 +1237,8 @@ const EmployeeSidebar = ({
       '/employee/tasks',
       '/employee/announcements',
       '/employee/profile',
+      '/grievances/my',
+      '/grievances/raise',
     ];
     for (const route of employeeRoutes) {
       if (pathWithoutQuery === route || pathWithoutQuery.startsWith(route + '/')) {
@@ -1197,6 +1285,7 @@ const EmployeeSidebar = ({
       'salary_overview': 'staff',
       'salary_structure': 'staff',
       'attendance': 'staff',
+      'attendance_monitoring': 'staff',
       'leaves_approval': 'staff',
       'loans': 'staff',
       'expense_claims': 'staff',
@@ -1319,26 +1408,44 @@ const EmployeeSidebar = ({
   const sidebarContent = (
     <aside
       data-collapsed={collapsed ? "true" : undefined}
-      className={`employee-sidebar-aside flex flex-col h-full bg-sidebar transition-all duration-300 ${collapsed ? "w-20 overflow-x-hidden" : "w-64 overflow-y-auto"}`}
+      className={`employee-sidebar-aside flex flex-col h-full transition-all duration-300 ${collapsed ? "w-20 overflow-x-hidden" : "w-64 overflow-y-auto"}`}
+      style={{ backgroundColor: '#2C2C2C' }}
     >
       <div
-        className={`flex items-center border-b border-sidebar-border min-h-[4.5rem] transition-all duration-300 ${collapsed ? "justify-center p-2" : "justify-between p-4"}`}
+        className={`flex items-center border-b border-gray-700 min-h-[4.5rem] transition-all duration-300 ${collapsed ? "justify-center p-2" : "justify-between p-4"}`}
       >
         {!collapsed && (
-          <div className="flex-1 text-center min-w-0">
-            <h1 className="text-xl font-bold text-sidebar-foreground truncate">Employee Portal</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">askeva HRMS</p>
+          <div className="flex-1 flex items-center justify-center min-w-0">
+            {companyLogo ? (
+              <img 
+                src={companyLogo} 
+                alt="Company Logo" 
+                className="h-12 w-auto object-contain max-w-full"
+              />
+            ) : (
+              <div className="text-center">
+                <h1 className="text-xl font-bold text-white truncate">Employee Portal</h1>
+                <p className="text-xs text-white/60 mt-0.5">askeva HRMS</p>
+              </div>
+            )}
           </div>
+        )}
+        {collapsed && companyLogo && (
+          <img 
+            src={companyLogo} 
+            alt="Company Logo" 
+            className="h-10 w-10 object-contain mx-auto"
+          />
         )}
         <button
           type="button"
           onClick={() => onCollapse(!collapsed)}
-          className="p-2 rounded-lg hover:bg-sidebar-accent/10 transition-colors flex-shrink-0"
+          className="p-2 rounded-[5px] hover:bg-yellow-500/20 transition-colors flex-shrink-0"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ChevronLeft
-            className={`w-5 h-5 text-sidebar-foreground/80 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
+            className={`w-5 h-5 text-white/80 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
           />
         </button>
       </div>
@@ -1359,7 +1466,68 @@ const EmployeeSidebar = ({
             background: "transparent",
             width: collapsed ? 80 : "100%",
           }}
+          theme="dark"
         />
+        <style>{`
+          .employee-sidebar-menu {
+            background: transparent !important;
+          }
+          .employee-sidebar-menu .ant-menu-item {
+            border-radius: 5px !important;
+            margin: 4px 0 !important;
+            height: auto !important;
+            line-height: 1.5 !important;
+            padding: 8px 12px !important;
+          }
+          .employee-sidebar-menu .ant-menu-item-selected {
+            background: hsl(var(--primary)) !important;
+            color: white !important;
+            font-weight: 600 !important;
+          }
+          .employee-sidebar-menu .ant-menu-item:hover {
+            background: hsl(var(--primary) / 0.3) !important;
+            color: white !important;
+          }
+          .employee-sidebar-menu .ant-menu-item a,
+          .employee-sidebar-menu .ant-menu-item span {
+            color: rgba(255, 255, 255, 0.8) !important;
+          }
+          .employee-sidebar-menu .ant-menu-item-selected a,
+          .employee-sidebar-menu .ant-menu-item-selected span {
+            color: white !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu {
+            border-radius: 5px !important;
+            margin: 4px 0 !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu-title {
+            border-radius: 5px !important;
+            padding: 8px 12px !important;
+            margin: 0 !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu-selected > .ant-menu-submenu-title {
+            background: hsl(var(--primary)) !important;
+            color: white !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu-title:hover {
+            background: hsl(var(--primary) / 0.3) !important;
+            color: white !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu-inline > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+            color: rgba(255, 255, 255, 0.6) !important;
+          }
+          .employee-sidebar-menu .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+            color: white !important;
+          }
+          .employee-sidebar-menu .ant-menu-sub .ant-menu-item {
+            margin-left: 16px !important;
+            padding-left: 24px !important;
+          }
+          .employee-sidebar-menu .ant-menu-sub .ant-menu-item-selected {
+            background: hsl(var(--primary) / 0.5) !important;
+            border-left: 2px solid hsl(var(--primary)) !important;
+          }
+        `}</style>
       </nav>
     </aside>
   );
@@ -1369,18 +1537,31 @@ const EmployeeSidebar = ({
       {/* Desktop Sidebar - Fixed position with toggle, same pattern as admin Sidebar */}
       <div
         data-collapsed={collapsed ? "true" : undefined}
-        className={`employee-sidebar hidden lg:block fixed left-0 top-0 h-screen bg-sidebar shadow-lg z-[105] transition-all duration-300 ${collapsed ? "w-20 overflow-hidden" : "w-64 overflow-y-auto"}`}
+        className={`employee-sidebar hidden lg:block fixed left-0 top-0 h-screen shadow-lg z-[105] transition-all duration-300 ${collapsed ? "w-20 overflow-hidden" : "w-64 overflow-y-auto"}`}
+        style={{ backgroundColor: '#2C2C2C' }}
       >
         {sidebarContent}
       </div>
 
       {/* Mobile Sidebar - Use Sheet; no collapse on mobile, full width */}
       <Sheet open={mobileOpen} onOpenChange={onClose}>
-        <SheetContent side="left" className="p-0 w-64 bg-sidebar rounded-none overflow-y-auto">
-          <aside className="w-64 flex flex-col overflow-y-auto h-full bg-sidebar">
-            <div className="p-4 border-b border-sidebar-border">
-              <h1 className="text-xl font-bold text-sidebar-foreground text-center">Employee Portal</h1>
-              <p className="text-xs text-muted-foreground text-center mt-0.5">askeva HRMS</p>
+        <SheetContent side="left" className="p-0 w-64 rounded-none overflow-y-auto" style={{ backgroundColor: '#2C2C2C' }}>
+          <aside className="w-64 flex flex-col overflow-y-auto h-full" style={{ backgroundColor: '#2C2C2C' }}>
+            <div className="p-4 border-b border-gray-700">
+              {companyLogo ? (
+                <div className="flex justify-center">
+                  <img 
+                    src={companyLogo} 
+                    alt="Company Logo" 
+                    className="h-12 w-auto object-contain"
+                  />
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-xl font-bold text-white text-center">Employee Portal</h1>
+                  <p className="text-xs text-white/60 text-center mt-0.5">askeva HRMS</p>
+                </>
+              )}
             </div>
             <nav className="flex-1 p-4">
               <Menu
@@ -1391,6 +1572,8 @@ const EmployeeSidebar = ({
                 onClick={handleMenuClick}
                 onOpenChange={handleOpenChange}
                 inlineCollapsed={false}
+                className="employee-sidebar-menu"
+                theme="dark"
                 style={{ borderRight: 0, height: "100%", background: "transparent" }}
               />
             </nav>

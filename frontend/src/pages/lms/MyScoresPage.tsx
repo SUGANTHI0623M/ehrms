@@ -107,7 +107,7 @@ const MyScoresPage: React.FC = () => {
                                 <div>
                                     <Text type="secondary" className="text-xs uppercase tracking-wider">Assessments</Text>
                                     <div className="text-2xl font-bold text-gray-800">
-                                        <span className="text-green-600">{summary.passedAssessments} passed</span>
+                                        <span className=" ">{summary.passedAssessments} passed</span>
                                         {summary.failedAssessments > 0 && <span className="text-red-500"> / {summary.failedAssessments} failed</span>}
                                     </div>
                                 </div>
@@ -288,7 +288,7 @@ const MyScoresPage: React.FC = () => {
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                                                             <div>
                                                                 <span className="text-gray-500">Selected: </span>
-                                                                <span className={r.isCorrect ? 'text-green-700' : 'text-red-700'}>{userAns || '—'}</span>
+                                                                <span className={r.isCorrect ? '' : 'text-red-700'}>{userAns || '—'}</span>
                                                             </div>
                                                             <div>
                                                                 <span className="text-gray-500">Correct: </span>

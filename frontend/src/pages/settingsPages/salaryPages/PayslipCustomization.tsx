@@ -29,7 +29,7 @@ export default function PayslipCustomization() {
           <div>
             <p className="font-semibold text-lg">
               Default Salary Slip Template
-              <span className="ml-2 bg-green-100 text-green-700 text-xs px-2 py-[2px] rounded">
+              <span className="ml-2 bg-green-100  text-xs px-2 py-[2px] rounded">
                 Employee
               </span>
             </p>

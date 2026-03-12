@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { useAppSelector } from "@/store/hooks";
 import { getRoleDashboard } from "@/utils/roleUtils";
+import SetupGuard from "./SetupGuard";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -48,7 +49,9 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     });
   }
 
-  return <>{children}</>;
+  // Wrap children with SetupGuard to check setup completion
+  // SetupGuard will allow settings routes and block others if setup is incomplete
+  return <SetupGuard>{children}</SetupGuard>;
 };
 
 export default ProtectedRoute;

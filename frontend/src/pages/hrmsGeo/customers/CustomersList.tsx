@@ -189,17 +189,23 @@ const CustomersList = () => {
 
   // Handle form input change
   const handleInputChange = (field: string, value: any) => {
+    // For pincode, only allow numeric characters
+    let processedValue = value;
+    if (field === 'pincode') {
+      processedValue = String(value).replace(/\D/g, ''); // Remove all non-digit characters
+    }
+    
     if (field.startsWith("custom_")) {
       const customFieldName = field.replace("custom_", "");
       setFormData((prev) => ({
         ...prev,
         customFields: {
           ...prev.customFields,
-          [customFieldName]: value,
+          [customFieldName]: processedValue,
         },
       }));
     } else {
-      setFormData((prev) => ({ ...prev, [field]: value }));
+      setFormData((prev) => ({ ...prev, [field]: processedValue }));
     }
     // Clear error for this field
     if (formErrors[field]) {
@@ -213,17 +219,23 @@ const CustomersList = () => {
 
   // Handle edit form input change
   const handleEditInputChange = (field: string, value: any) => {
+    // For pincode, only allow numeric characters
+    let processedValue = value;
+    if (field === 'pincode') {
+      processedValue = String(value).replace(/\D/g, ''); // Remove all non-digit characters
+    }
+    
     if (field.startsWith("custom_")) {
       const customFieldName = field.replace("custom_", "");
       setEditFormData((prev) => ({
         ...prev,
         customFields: {
           ...prev.customFields,
-          [customFieldName]: value,
+          [customFieldName]: processedValue,
         },
       }));
     } else {
-      setEditFormData((prev) => ({ ...prev, [field]: value }));
+      setEditFormData((prev) => ({ ...prev, [field]: processedValue }));
     }
     // Clear error for this field
     if (editFormErrors[field]) {
@@ -251,7 +263,13 @@ const CustomersList = () => {
       errors.emailId = "Invalid email format";
     }
     if (!editFormData.city.trim()) errors.city = "City is required";
-    if (!editFormData.pincode.trim()) errors.pincode = "Pincode is required";
+    if (!editFormData.pincode.trim()) {
+      errors.pincode = "Pincode is required";
+    } else if (!/^\d+$/.test(editFormData.pincode)) {
+      errors.pincode = "Pincode must contain only numbers";
+    } else if (editFormData.pincode.length < 4 || editFormData.pincode.length > 10) {
+      errors.pincode = "Pincode must be between 4 and 10 digits";
+    }
 
     // Customer number length when country code is set (same as Add form)
     const editCode = editCountryCode?.trim();
@@ -333,7 +351,13 @@ const CustomersList = () => {
       errors.emailId = "Invalid email format";
     }
     if (!formData.city.trim()) errors.city = "City is required";
-    if (!formData.pincode.trim()) errors.pincode = "Pincode is required";
+    if (!formData.pincode.trim()) {
+      errors.pincode = "Pincode is required";
+    } else if (!/^\d+$/.test(formData.pincode)) {
+      errors.pincode = "Pincode must contain only numbers";
+    } else if (formData.pincode.length < 4 || formData.pincode.length > 10) {
+      errors.pincode = "Pincode must be between 4 and 10 digits";
+    }
 
     // Validate customer number (mobile) length when country code is selected
     if (formData.customerNumber.trim() && countryCode) {
@@ -959,7 +983,7 @@ const CustomersList = () => {
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
                                   String(customer.status).toLowerCase() === "active"
-                                    ? "bg-green-100 text-green-700"
+                                    ? "bg-green-100 "
                                     : "bg-gray-100 text-gray-700"
                                 }`}
                               >
@@ -1214,9 +1238,14 @@ const CustomersList = () => {
                 Pincode <span className="text-red-500">*</span>
               </Label>
               <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={10}
                 value={formData.pincode}
                 onChange={(e) => handleInputChange("pincode", e.target.value)}
                 className={formErrors.pincode ? "border-red-500" : ""}
+                placeholder="Enter pincode (numbers only)"
               />
               {formErrors.pincode && (
                 <p className="text-[10px] text-red-500">{formErrors.pincode}</p>
@@ -1365,11 +1394,16 @@ const CustomersList = () => {
                 Pincode <span className="text-red-500">*</span>
               </Label>
               <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={10}
                 value={editFormData.pincode}
                 onChange={(e) =>
                   handleEditInputChange("pincode", e.target.value)
                 }
                 className={editFormErrors.pincode ? "border-red-500" : ""}
+                placeholder="Enter pincode (numbers only)"
               />
               {editFormErrors.pincode && (
                 <p className="text-[10px] text-red-500">

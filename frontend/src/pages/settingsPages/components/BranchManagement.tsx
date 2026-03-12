@@ -787,14 +787,19 @@ const BranchManagement: React.FC = () => {
                   </Label>
                   <Input
                     id="pincode"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={10}
                     value={formData.address.pincode}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const numericValue = e.target.value.replace(/\D/g, '');
                       setFormData({
                         ...formData,
-                        address: { ...formData.address, pincode: e.target.value },
-                      })
-                    }
-                    placeholder="Enter pincode"
+                        address: { ...formData.address, pincode: numericValue },
+                      });
+                    }}
+                    placeholder="Enter pincode (numbers only)"
                   />
                 </div>
               </div>

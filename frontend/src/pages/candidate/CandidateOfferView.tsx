@@ -21,6 +21,7 @@ import {
   Building2,
   MapPin,
   Clock,
+  ArrowLeft,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -135,14 +136,14 @@ const CandidateOfferView = () => {
       <main className="p-4 md:p-6">
         <div className="mx-auto max-w-4xl space-y-6">
           {/* Header */}
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Job Offer</h1>
-              <p className="text-muted-foreground mt-1">
-                Review your offer letter and respond
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold">Job Offer</h1>
+            <Button variant="outline" onClick={() => navigate("/candidate/profile")}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Profile
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
               {offer.isRevision && (
                 <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                   Revised Offer - Revision {offer.revisionNumber || 1}
@@ -165,7 +166,6 @@ const CandidateOfferView = () => {
                 {offer.status}
               </Badge>
             </div>
-          </div>
 
           {/* Revision Notice */}
           {offer.isRevision && (
@@ -386,12 +386,12 @@ const CandidateOfferView = () => {
             <Card className="border-green-200 bg-green-50">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <CheckCircle className="h-5 w-5  " />
                   <div>
                     <p className="font-medium text-green-900">
                       Offer Accepted
                     </p>
-                    <p className="text-sm text-green-700">
+                    <p className="text-sm ">
                       You accepted this offer on{" "}
                       {offer.acceptedAt
                         ? format(new Date(offer.acceptedAt), "PPP 'at' p")
@@ -408,7 +408,7 @@ const CandidateOfferView = () => {
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
-                  <XCircle className="h-5 w-5 text-red-600" />
+                  <XCircle className="h-5 w-5   " />
                   <div>
                     <p className="font-medium text-red-900">Offer Rejected</p>
                     <p className="text-sm text-red-700">
@@ -428,13 +428,6 @@ const CandidateOfferView = () => {
               </CardContent>
             </Card>
           )}
-
-          {/* Back Button */}
-          <div className="flex justify-start">
-            <Button variant="outline" onClick={() => navigate("/candidate/profile")}>
-              Back to Profile
-            </Button>
-          </div>
         </div>
 
         {/* Reject Offer Dialog */}

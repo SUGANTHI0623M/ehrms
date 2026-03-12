@@ -1,9 +1,24 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, UserCheck, TrendingUp, DollarSign, FileText, Calendar } from "lucide-react";
+import { Users, UserCheck, TrendingUp, FileText, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import MainLayout from "@/components/MainLayout";
 import { useGetDashboardStatsQuery } from "@/store/api/dashboardApi";
 import { formatDistanceToNow } from "date-fns";
+
+// Rupee Icon Component
+const RupeeIcon = ({ className, size, ...props }: { className?: string; size?: number | string; [key: string]: any }) => {
+  // Convert size prop to inline style (lucide-react icons use size prop)
+  const sizeValue = typeof size === 'number' ? `${size}px` : size || '16px';
+  return (
+    <span 
+      className={`${className || ''} font-semibold inline-flex items-center justify-center`} 
+      style={{ width: sizeValue, height: sizeValue, fontSize: sizeValue }}
+      {...props}
+    >
+      ₹
+    </span>
+  );
+};
 
 const Dashboard = () => {
   const { data, isLoading, error } = useGetDashboardStatsQuery();
@@ -12,12 +27,12 @@ const Dashboard = () => {
     { icon: Users, label: "Total Employees", value: data.data.stats.totalEmployees.toString(), change: "+12%", variant: "primary" },
     { icon: UserCheck, label: "Hired This Month", value: data.data.stats.hiredThisMonth.toString(), change: "+8%", variant: "success" },
     { icon: TrendingUp, label: "Avg Performance", value: `${data.data.stats.avgPerformance}/10`, change: "+0.3", variant: "info" },
-    { icon: DollarSign, label: "Payroll Processed", value: `₹${(data.data.stats.totalPayroll / 100000).toFixed(1)}L`, change: "On time", variant: "accent" },
+    { icon: RupeeIcon, label: "Payroll Processed", value: `₹${(data.data.stats.totalPayroll / 100000).toFixed(1)}L`, change: "On time", variant: "accent" },
   ] : [
     { icon: Users, label: "Total Employees", value: "0", change: "+0%", variant: "primary" },
     { icon: UserCheck, label: "Hired This Month", value: "0", change: "+0%", variant: "success" },
     { icon: TrendingUp, label: "Avg Performance", value: "0/10", change: "+0", variant: "info" },
-    { icon: DollarSign, label: "Payroll Processed", value: "₹0", change: "On time", variant: "accent" },
+    { icon: RupeeIcon, label: "Payroll Processed", value: "₹0", change: "On time", variant: "accent" },
   ];
 
   const recentActivity = data?.data?.recentActivity?.map(activity => ({
@@ -105,7 +120,7 @@ const Dashboard = () => {
                     Generate Report
                   </Button>
                   <Button className="w-full justify-start" variant="outline">
-                    <DollarSign className="w-4 h-4 mr-2" />
+                    <span className="w-4 h-4 mr-2 font-semibold flex items-center">₹</span>
                     Process Payroll
                   </Button>
                 </CardContent>

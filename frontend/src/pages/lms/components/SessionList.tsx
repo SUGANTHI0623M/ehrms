@@ -67,7 +67,7 @@ const SessionList: React.FC<SessionListProps> = ({ sessions, onJoin, isAdmin }) 
                                 {session.platform}
                             </div>
                         ) : (
-                            <div className="flex items-center text-orange-600">
+                            <div className="flex items-center ">
                                 <MapPin className="w-4 h-4 mr-2" />
                                 {session.location}
                             </div>

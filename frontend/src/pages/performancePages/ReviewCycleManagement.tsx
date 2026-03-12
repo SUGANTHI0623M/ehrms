@@ -1232,7 +1232,7 @@ const ReviewCycleManagement = () => {
                         size="sm"
                         onClick={() => handleDeleteClick(cycle._id)}
                         disabled={isDeleting || isCycleActiveWithReviews(cycle)}
-                        className="text-red-600 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="   hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

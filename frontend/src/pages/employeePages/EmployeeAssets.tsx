@@ -91,7 +91,7 @@ const EmployeeAssets = () => {
             <div>
               <p className="text-sm text-muted-foreground">Status</p>
               <span className={`inline-block px-2 py-1 rounded text-sm font-medium ${
-                asset.status === "Working" ? "bg-green-100 text-green-700" :
+                asset.status === "Working" ? "bg-green-100 " :
                 asset.status === "Under Maintenance" ? "bg-yellow-100 text-yellow-700" :
                 asset.status === "Damaged" ? "bg-red-100 text-red-700" :
                 "bg-gray-100 text-gray-700"
@@ -185,7 +185,7 @@ const EmployeeAssets = () => {
       key: "status",
       render: (text: string) => {
         const statusColors: Record<string, string> = {
-          "Working": "bg-green-100 text-green-700",
+          "Working": "bg-green-100 ",
           "Under Maintenance": "bg-yellow-100 text-yellow-700",
           "Damaged": "bg-red-100 text-red-700",
           "Retired": "bg-gray-100 text-gray-700",

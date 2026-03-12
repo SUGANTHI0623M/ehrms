@@ -240,7 +240,7 @@ const LeavesPendingApproval = ({ employeeId }: LeavesPendingApprovalProps = {}) 
                               ) : leave.status === "Rejected" && (leave.rejectionReason || leave.rejectedBy) ? (
                                 <div className="text-xs space-y-1">
                                   {leave.rejectionReason && (
-                                    <div className="font-medium text-red-600 mb-1">Reason: {leave.rejectionReason}</div>
+                                    <div className="font-medium    mb-1">Reason: {leave.rejectionReason}</div>
                                   )}
                                   {leave.rejectedBy && (
                                     <div className="text-muted-foreground">

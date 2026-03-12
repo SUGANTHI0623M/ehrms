@@ -750,7 +750,7 @@ const FormResponses = () => {
                                     </Button>
                                   )}
                                   {item.hasResponse && item.isSubmitted && (
-                                    <span className="text-green-600 flex items-center gap-1">
+                                    <span className="  flex items-center gap-1">
                                       <CheckCircle2 className="w-4 h-4" />
                                       Done
                                     </span>

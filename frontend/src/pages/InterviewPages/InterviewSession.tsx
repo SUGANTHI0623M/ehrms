@@ -460,7 +460,7 @@ export const InterviewSession = ({ interviewId }: { interviewId: string }) => {
                     <RadioGroupItem value="REJECT" id="reject" />
                     <Label
                       htmlFor="reject"
-                      className="font-semibold cursor-pointer text-red-600 text-sm sm:text-base"
+                      className="font-semibold cursor-pointer    text-sm sm:text-base"
                     >
                       Reject Candidate
                     </Label>
@@ -500,7 +500,7 @@ export const InterviewSession = ({ interviewId }: { interviewId: string }) => {
           <Card>
             <CardContent className="pt-6">
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-green-600">
+                <div className="flex items-center gap-2  ">
                   <CheckCircle2 className="h-5 w-5" />
                   <span className="font-semibold">{roundName} Completed</span>
                 </div>

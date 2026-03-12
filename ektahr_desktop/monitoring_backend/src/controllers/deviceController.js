@@ -510,7 +510,17 @@ exports.startDevice = async (req, res) => {
     }
 };
 
-/** GET /device/attendance-status - Return attendance-based tracking status. */
+/** Start of current day UTC (for day-boundary checks). */
+function startOfTodayUTC() {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+}
+
+/** GET /device/attendance-status - Return attendance-based tracking status.
+ *  Track only when staff has checked in for TODAY and not yet checked out.
+ *  After 12:00 AM, if staff did not check out the previous day, stop tracking until they check in for the new date.
+ */
 exports.getAttendanceStatus = async (req, res) => {
     try {
         const deviceId = req.device?.deviceId;
@@ -531,17 +541,16 @@ exports.getAttendanceStatus = async (req, res) => {
             });
         }
         let cache = await MonitoringAttendanceCache.findOne({ deviceId }).lean();
-        // When cache missing (cron hasn't run yet), upsert optimistically from Attendance so tracking can start
+        const todayStart = startOfTodayUTC();
+        // When cache missing (cron hasn't run yet), upsert from Attendance for today only
         if (!cache && device.employeeID && device.tenantId) {
             try {
                 const Attendance = require(path.join(appBackendRoot, 'src', 'models', 'Attendance'));
-                const today = new Date();
-                today.setUTCHours(0, 0, 0, 0);
-                const endOfToday = new Date(today);
+                const endOfToday = new Date(todayStart);
                 endOfToday.setUTCDate(endOfToday.getUTCDate() + 1);
                 const att = await Attendance.findOne({
                     $or: [{ employeeId: device.employeeID }, { user: device.employeeID }],
-                    date: { $gte: today, $lt: endOfToday }
+                    date: { $gte: todayStart, $lt: endOfToday }
                 }).select('punchIn punchOut').lean();
                 const punchIn = att?.punchIn ? new Date(att.punchIn) : null;
                 const punchOut = att?.punchOut ? new Date(att.punchOut) : null;
@@ -568,27 +577,38 @@ exports.getAttendanceStatus = async (req, res) => {
             }
         }
         if (!cache) {
-            console.log('[attendance-status] shouldTrack=true (no cache, allow tracking)', { deviceId });
+            console.log('[attendance-status] shouldTrack=false (no cache, require check-in for today)', { deviceId });
             return res.status(200).json({
-                shouldTrack: true,
+                shouldTrack: false,
                 alertToShow: null,
                 alertMessage: null,
                 lastCheckIn: null,
                 lastCheckOut: null
             });
         }
-        if (!cache.shouldTrack) {
-            console.log('[attendance-status] shouldTrack=false: not checked in today', { deviceId, lastCheckIn: cache.lastCheckIn, lastCheckOut: cache.lastCheckOut });
+        // Day boundary: if cache says track but lastCheckIn is from a previous day, stop tracking until check-in for today
+        let shouldTrack = !!cache.shouldTrack;
+        const lastCheckInDate = cache.lastCheckIn ? new Date(cache.lastCheckIn) : null;
+        if (shouldTrack && lastCheckInDate && lastCheckInDate < todayStart) {
+            console.log('[attendance-status] shouldTrack=false: check-in was previous day, require check-in for today', { deviceId, lastCheckIn: cache.lastCheckIn });
+            shouldTrack = false;
+            await MonitoringAttendanceCache.findOneAndUpdate(
+                { deviceId },
+                { $set: { shouldTrack: false, lastUpdated: new Date() } }
+            );
+        }
+        if (!shouldTrack) {
+            console.log('[attendance-status] shouldTrack=false: not checked in today or already checked out', { deviceId, lastCheckIn: cache.lastCheckIn, lastCheckOut: cache.lastCheckOut });
         } else {
-            console.log('[attendance-status] shouldTrack=true', { deviceId });
+            console.log('[attendance-status] shouldTrack=true: checked in today, not yet checked out', { deviceId });
         }
         const alertMessage = cache.alertToShow === 'start_tracking'
             ? 'You have checked in. Start tracking.'
             : cache.alertToShow === 'stop_tracking'
                 ? 'You have checked out. Stop tracking.'
                 : null;
-        res.status(200).json({
-            shouldTrack: !!cache.shouldTrack,
+        return res.status(200).json({
+            shouldTrack,
             alertToShow: cache.alertToShow || null,
             alertMessage,
             lastCheckIn: cache.lastCheckIn || null,

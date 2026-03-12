@@ -1694,7 +1694,7 @@ const AssessmentManagement = () => {
           wrapClassName="lms-modal"
           title={
             <div className="flex items-center gap-3 py-3 border-b border-gray-100 mb-0">
-              <div className="p-2 rounded-lg bg-orange-50 text-orange-600">
+              <div className="p-2 rounded-lg bg-orange-50 ">
                 <FileTextOutlined className="text-xl" />
               </div>
               <div>
@@ -1838,7 +1838,7 @@ const AssessmentManagement = () => {
                                         size="small"
                                         icon={<DeleteOutlined />}
                                         onClick={() => remove(name)}
-                                        className="text-red-500 hover:text-red-600"
+                                        className="text-red-500 hover:  "
                                       >
                                         Remove
                                       </Button>
@@ -2228,7 +2228,7 @@ const AssessmentManagement = () => {
                                       <span
                                         className={
                                           r.isCorrect
-                                            ? "text-green-700"
+                                            ? ""
                                             : "text-red-700"
                                         }
                                       >

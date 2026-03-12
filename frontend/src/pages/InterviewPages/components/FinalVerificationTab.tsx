@@ -43,7 +43,7 @@ const FinalVerificationTab: React.FC<FinalVerificationTabProps> = ({
                         <div className="space-y-2 text-sm">
                             <div className="flex items-center gap-2">
                                 {allDocumentsVerified ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                    <CheckCircle2 className="w-4 h-4  " />
                                 ) : (
                                     <Clock className="w-4 h-4 text-gray-400" />
                                 )}
@@ -51,7 +51,7 @@ const FinalVerificationTab: React.FC<FinalVerificationTabProps> = ({
                             </div>
                             <div className="flex items-center gap-2">
                                 {allContactsVerified ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                    <CheckCircle2 className="w-4 h-4  " />
                                 ) : (
                                     <Clock className="w-4 h-4 text-gray-400" />
                                 )}
@@ -59,7 +59,7 @@ const FinalVerificationTab: React.FC<FinalVerificationTabProps> = ({
                             </div>
                             <div className="flex items-center gap-2">
                                 {addressVerified ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                    <CheckCircle2 className="w-4 h-4  " />
                                 ) : (
                                     <Clock className="w-4 h-4 text-gray-400" />
                                 )}
@@ -113,11 +113,11 @@ const FinalVerificationTab: React.FC<FinalVerificationTabProps> = ({
                                 <CheckCircle2 className="w-5 h-5" />
                                 <span className="font-semibold">Candidate Converted to Staff</span>
                             </div>
-                            <p className="text-sm text-green-700 mt-1">
+                            <p className="text-sm  mt-1">
                                 The candidate has been successfully verified and added to the staff list.
                             </p>
                             {verification.clearedAt && (
-                                <p className="text-xs text-green-600 mt-1">
+                                <p className="text-xs   mt-1">
                                     Cleared on: {formatDate(verification.clearedAt)}
                                 </p>
                             )}
@@ -136,7 +136,7 @@ const FinalVerificationTab: React.FC<FinalVerificationTabProps> = ({
                                 </p>
                             )}
                             {verification.failedAt && (
-                                <p className="text-xs text-red-600 mt-1">
+                                <p className="text-xs    mt-1">
                                     Rejected on: {formatDate(verification.failedAt)}
                                 </p>
                             )}

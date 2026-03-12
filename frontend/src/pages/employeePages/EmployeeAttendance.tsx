@@ -484,7 +484,7 @@ const EmployeeAttendance = () => {
                           <div className="text-sm text-muted-foreground">Getting location...</div>
                         ) : location ? (
                           <div className="text-sm">
-                            <div className="text-green-600 font-medium">Location captured</div>
+                            <div className="  font-medium">Location captured</div>
                             <div className="text-muted-foreground mt-1">{location.address}</div>
                           </div>
                         ) : locationError ? (

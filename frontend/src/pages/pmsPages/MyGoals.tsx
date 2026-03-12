@@ -615,7 +615,7 @@ export default function MyGoals() {
           <Card>
             <CardContent className="p-4 flex items-center gap-4">
               <div className="p-3 bg-green-100 rounded-full">
-                <CheckCircle className="w-6 h-6 text-green-600" />
+                <CheckCircle className="w-6 h-6  " />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Approved</p>
@@ -757,11 +757,11 @@ export default function MyGoals() {
                               {goal.status === "modified" && goal.modificationNotes && (
                                 <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
                                   <div className="flex items-start gap-2">
-                                    <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                                    <AlertCircle className="w-5 h-5  mt-0.5 flex-shrink-0" />
                                     <div className="flex-1">
                                       <p className="text-sm font-medium text-orange-900">Modification Requested</p>
                                       <p className="text-sm text-orange-800 mt-1">{goal.modificationNotes}</p>
-                                      <p className="text-xs text-orange-600 mt-2">
+                                      <p className="text-xs  mt-2">
                                         Please update your goal based on the feedback above and resubmit for approval.
                                       </p>
                                     </div>
@@ -867,11 +867,11 @@ export default function MyGoals() {
                               {goal.status === "modified" && goal.modificationNotes && (
                                 <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
                                   <div className="flex items-start gap-2">
-                                    <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                                    <AlertCircle className="w-5 h-5  mt-0.5 flex-shrink-0" />
                                     <div className="flex-1">
                                       <p className="text-sm font-medium text-orange-900">Modification Requested</p>
                                       <p className="text-sm text-orange-800 mt-1">{goal.modificationNotes}</p>
-                                      <p className="text-xs text-orange-600 mt-2">
+                                      <p className="text-xs  mt-2">
                                         Please update your goal based on the feedback above and resubmit for approval.
                                       </p>
                                     </div>

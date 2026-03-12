@@ -229,7 +229,7 @@ const ScheduleInterviewModal = ({ isOpen, onClose, candidateId, candidateName, r
                 )}
                 {flowData && !roundDetails && (
                     <div className="pt-2 border-t border-gray-200">
-                        <p className="text-xs text-orange-600">
+                        <p className="text-xs ">
                             No interview flow configured for this job or round {roundNumber} is not enabled. Please configure the interview flow first.
                         </p>
                     </div>

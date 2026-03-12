@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, CheckCircle, XCircle, DollarSign, FileText, X } from "lucide-react";
+import { Search, CheckCircle, XCircle, FileText, X } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
 import {
   useGetReimbursementsQuery,
@@ -291,7 +291,7 @@ const ExpenseClaim = ({ employeeId }: ExpenseClaimProps = {}) => {
                           ) : reimbursement.status === "Rejected" && (reimbursement.rejectionReason || reimbursement.rejectedBy) ? (
                             <div className="text-xs space-y-1">
                               {reimbursement.rejectionReason && (
-                                <div className="font-medium text-red-600 mb-1">Reason: {reimbursement.rejectionReason}</div>
+                                <div className="font-medium    mb-1">Reason: {reimbursement.rejectionReason}</div>
                               )}
                               {reimbursement.rejectedBy && (
                                 <div className="text-muted-foreground">

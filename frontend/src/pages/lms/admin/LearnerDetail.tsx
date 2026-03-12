@@ -243,7 +243,7 @@ const LearnerDetail = () => {
                                             const now = dayjs();
                                             if (record.status === 'Completed' || record.assessmentStatus === 'Passed') return '—';
                                             const daysLeft = due.diff(now, 'day');
-                                            if (daysLeft < 0) return <span className="text-red-600">Overdue</span>;
+                                            if (daysLeft < 0) return <span className="  ">Overdue</span>;
                                             if (daysLeft === 0) return 'Due today';
                                             const weeks = Math.floor(daysLeft / 7);
                                             const d = daysLeft % 7;
@@ -528,7 +528,7 @@ const LearnerDetail = () => {
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                                                             <div>
                                                                 <span className="text-gray-500">Selected: </span>
-                                                                <span className={r.isCorrect ? 'text-green-700' : 'text-red-700'}>{userAns || '—'}</span>
+                                                                <span className={r.isCorrect ? '' : 'text-red-700'}>{userAns || '—'}</span>
                                                             </div>
                                                             <div>
                                                                 <span className="text-gray-500">Correct: </span>

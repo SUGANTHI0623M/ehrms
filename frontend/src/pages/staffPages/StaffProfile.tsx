@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,10 +14,10 @@ import {
   SelectGroup,
   SelectLabel
 } from "@/components/ui/select";
-import { User, Edit, Save, X, Ban, CheckCircle, Calendar, DollarSign, FileText, Receipt, CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Eye, Upload, ChevronLeft, ChevronRight } from "lucide-react";
+import { User, Edit, Save, X, Ban, CheckCircle, Calendar, FileText, Receipt, CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Eye, Upload, Check, Activity, ArrowLeft } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
 import ExpenseClaim from "./ExpenseClaim";
 import LeavesPendingApproval from "./LeavesPendingApproval";
@@ -25,9 +25,18 @@ import SalaryOverview from "./SalaryOverview";
 import Loans from "./Loans";
 import EmployeeAttendance from "./EmployeeAttendance";
 import PayslipRequests from "./PayslipRequests";
-import { useGetStaffByIdQuery, useUpdateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useUploadStaffAvatarMutation } from "@/store/api/staffApi";
+import { useGetStaffByIdQuery, useGetStaffQuery, useUpdateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useUploadStaffAvatarMutation } from "@/store/api/staffApi";
 import { useGetOnboardingByStaffIdQuery, useVerifyDocumentMutation, useUploadOnboardingDocumentMutation } from "@/store/api/onboardingApi";
 import { useGetActiveBranchesQuery } from "@/store/api/branchApi";
+import { useGetDepartmentsQuery, useCreateDepartmentMutation } from "@/store/api/jobOpeningApi";
+import { useGetUsersQuery } from "@/store/api/userApi";
+import { useGetEmployeeMonitoringDetailsQuery } from "@/store/api/monitoringApi";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import SalaryStructureForm from "@/components/SalaryStructureForm";
 import { Skeleton } from "@/components/ui/skeleton";
 import { message } from "antd";
@@ -46,21 +55,959 @@ import {
 import { useAppSelector } from "@/store/hooks";
 import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
 import { formatErrorMessage } from "@/utils/errorFormatter";
+import { storeUserAvatar } from "@/utils/userAvatar";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Pagination } from "@/components/ui/pagination";
+import { Monitor, MonitorSpeaker, FileText as FileTextIcon, MousePointerClick, TrendingUp, Camera } from "lucide-react";
+
+// Monitoring Tab Component
+const MonitoringTabContent = ({ employeeId, isTabActive = true }: { employeeId: string; isTabActive?: boolean }) => {
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date());
+  const [activeMonitoringTab, setActiveMonitoringTab] = useState("device");
+  
+  // Pagination states for different sections
+  const [activityLogsPage, setActivityLogsPage] = useState(1);
+  const [productivityScoresPage, setProductivityScoresPage] = useState(1);
+  const [breaksPage, setBreaksPage] = useState(1);
+  const [screenshotsPage, setScreenshotsPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  
+  // Screenshot preview state
+  const [selectedScreenshot, setSelectedScreenshot] = useState<{ url: string; timestamp: string } | null>(null);
+  
+  // Set start date to beginning of current month
+  useEffect(() => {
+    const now = new Date();
+    setStartDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    setEndDate(now);
+  }, []);
+
+  const { data: monitoringData, isLoading, refetch } = useGetEmployeeMonitoringDetailsQuery(
+    {
+      employeeId,
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      page: activityLogsPage,
+      limit: pageSize,
+    },
+    { 
+      skip: !employeeId || !isTabActive, 
+      refetchOnMountOrArgChange: true,
+      // Polling interval to automatically refresh data every 30 seconds when tab is active
+      pollingInterval: isTabActive ? 30000 : 0, // Only poll when tab is active
+    }
+  );
+  
+  // Reset pagination when date range changes
+  useEffect(() => {
+    setActivityLogsPage(1);
+    setProductivityScoresPage(1);
+    setBreaksPage(1);
+    setScreenshotsPage(1);
+  }, [startDate, endDate]);
+
+  // Refetch data when parent tab becomes active
+  useEffect(() => {
+    if (employeeId && isTabActive) {
+      refetch();
+    }
+  }, [isTabActive, employeeId, refetch]);
+
+  // Refetch data when switching between monitoring sub-tabs
+  useEffect(() => {
+    if (employeeId && activeMonitoringTab && isTabActive) {
+      refetch();
+    }
+  }, [activeMonitoringTab, employeeId, isTabActive, refetch]);
+
+  // Refetch data when date range changes
+  useEffect(() => {
+    if (employeeId && isTabActive) {
+      refetch();
+    }
+  }, [startDate, endDate, employeeId, isTabActive, refetch]);
+
+  const monitoring = monitoringData?.data;
+
+  // Calculate statistics
+  const activityStats = useMemo(() => {
+    if (!monitoring?.activityLogs || monitoring.activityLogs.length === 0) {
+      return null;
+    }
+    
+    const totalKeystrokes = monitoring.activityLogs.reduce((sum: number, log: any) => sum + (log.keystrokes || 0), 0);
+    const totalMouseClicks = monitoring.activityLogs.reduce((sum: number, log: any) => sum + (log.mouseClicks || 0), 0);
+    const totalIdleSeconds = monitoring.activityLogs.reduce((sum: number, log: any) => sum + (log.idleSeconds || 0), 0);
+    const totalScrolls = monitoring.activityLogs.reduce((sum: number, log: any) => sum + (log.scrollCount || 0), 0);
+    const activeTime = monitoring.activityLogs.length * 5; // Assuming 5 minutes per log entry
+    
+    return {
+      totalKeystrokes,
+      totalMouseClicks,
+      totalIdleSeconds,
+      totalIdleMinutes: Math.round(totalIdleSeconds / 60),
+      totalIdleHours: Math.round(totalIdleSeconds / 3600 * 10) / 10,
+      totalScrolls,
+      activeTimeMinutes: activeTime,
+      logCount: monitoring.activityLogs.length
+    };
+  }, [monitoring?.activityLogs]);
+
+  const productivityStats = useMemo(() => {
+    if (!monitoring?.productivityScores || monitoring.productivityScores.length === 0) {
+      return null;
+    }
+    
+    const scores = monitoring.productivityScores.map((s: any) => s.score || 0);
+    const avgScore = scores.reduce((sum: number, score: number) => sum + score, 0) / scores.length;
+    const maxScore = Math.max(...scores);
+    const minScore = Math.min(...scores);
+    
+    return {
+      average: Math.round(avgScore * 100) / 100,
+      max: Math.round(maxScore * 100) / 100,
+      min: Math.round(minScore * 100) / 100,
+      count: scores.length
+    };
+  }, [monitoring?.productivityScores]);
+
+  const breakStats = useMemo(() => {
+    if (!monitoring?.breaks || monitoring.breaks.length === 0) {
+      return null;
+    }
+    
+    const completedBreaks = monitoring.breaks.filter((b: any) => b.endTime);
+    const totalBreakSeconds = completedBreaks.reduce((sum: number, b: any) => sum + (b.totalSeconds || 0), 0);
+    const activeBreaks = monitoring.breaks.filter((b: any) => !b.endTime);
+    
+    return {
+      total: monitoring.breaks.length,
+      completed: completedBreaks.length,
+      active: activeBreaks.length,
+      totalBreakMinutes: Math.round(totalBreakSeconds / 60),
+      totalBreakHours: Math.round(totalBreakSeconds / 3600 * 10) / 10
+    };
+  }, [monitoring?.breaks]);
+
+  // Aggregate active window/app usage - group by appName and windowTitle, calculate total time
+  const aggregatedAppUsage = useMemo(() => {
+    if (!monitoring?.activityLogs || monitoring.activityLogs.length === 0) {
+      return [];
+    }
+
+    const appMap = new Map<string, {
+      appName: string;
+      processName?: string;
+      windowTitle?: string;
+      totalDurationSeconds: number;
+      totalKeystrokes: number;
+      totalMouseClicks: number;
+      totalScrolls: number;
+      firstSeen: Date;
+      lastSeen: Date;
+      count: number;
+    }>();
+
+    monitoring.activityLogs.forEach((log: any) => {
+      if (!log.activeWindow || (!log.activeWindow.appName && !log.activeWindow.windowTitle)) {
+        return;
+      }
+
+      // Create a unique key for grouping
+      const appName = log.activeWindow.appName || 'Unknown App';
+      const windowTitle = log.activeWindow.windowTitle || '';
+      const key = `${appName}|||${windowTitle}`;
+
+      if (!appMap.has(key)) {
+        appMap.set(key, {
+          appName,
+          processName: log.activeWindow.processName,
+          windowTitle: windowTitle || undefined,
+          totalDurationSeconds: 0,
+          totalKeystrokes: 0,
+          totalMouseClicks: 0,
+          totalScrolls: 0,
+          firstSeen: new Date(log.timestamp),
+          lastSeen: new Date(log.timestamp),
+          count: 0
+        });
+      }
+
+      const entry = appMap.get(key)!;
+      entry.totalDurationSeconds += log.activeWindow.durationSeconds || 0;
+      entry.totalKeystrokes += log.keystrokes || 0;
+      entry.totalMouseClicks += log.mouseClicks || 0;
+      entry.totalScrolls += log.scrollCount || 0;
+      entry.count += 1;
+
+      const logDate = new Date(log.timestamp);
+      if (logDate < entry.firstSeen) {
+        entry.firstSeen = logDate;
+      }
+      if (logDate > entry.lastSeen) {
+        entry.lastSeen = logDate;
+      }
+    });
+
+    // Convert to array and sort by total duration (most used first)
+    return Array.from(appMap.values())
+      .map(entry => ({
+        ...entry,
+        totalDurationMinutes: Math.round(entry.totalDurationSeconds / 60),
+        totalDurationHours: Math.round(entry.totalDurationSeconds / 3600 * 10) / 10
+      }))
+      .sort((a, b) => b.totalDurationSeconds - a.totalDurationSeconds);
+  }, [monitoring?.activityLogs]);
+
+  return (
+    <div className="w-full space-y-4 sm:space-y-6">
+      {/* Date Range Selector */}
+      <Card>
+        <CardHeader className="pb-3 sm:pb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+            <CardTitle className="text-base sm:text-lg">Monitoring Period</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="w-full sm:w-auto"
+            >
+              Refresh Data
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0">
+              <Label className="text-xs sm:text-sm mb-1.5 block">Start Date</Label>
+              <Input
+                type="date"
+                value={startDate.toISOString().split('T')[0]}
+                onChange={(e) => setStartDate(new Date(e.target.value))}
+                className="w-full text-sm sm:text-base"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <Label className="text-xs sm:text-sm mb-1.5 block">End Date</Label>
+              <Input
+                type="date"
+                value={endDate.toISOString().split('T')[0]}
+                onChange={(e) => setEndDate(new Date(e.target.value))}
+                className="w-full text-sm sm:text-base"
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs for Monitoring Sections */}
+      <Tabs value={activeMonitoringTab} onValueChange={setActiveMonitoringTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 h-auto">
+          <TabsTrigger value="device" className="text-xs sm:text-sm">
+            <Activity className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Device
+          </TabsTrigger>
+          <TabsTrigger value="apps" className="text-xs sm:text-sm">
+            <Monitor className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Apps Usage
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="text-xs sm:text-sm">
+            <MousePointerClick className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Activity
+          </TabsTrigger>
+          <TabsTrigger value="productivity" className="text-xs sm:text-sm">
+            <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Productivity
+          </TabsTrigger>
+          <TabsTrigger value="breaks" className="text-xs sm:text-sm">
+            <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Breaks
+          </TabsTrigger>
+          <TabsTrigger value="screenshots" className="text-xs sm:text-sm">
+            <Camera className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5" />
+            Screenshots
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Device Tab */}
+        <TabsContent value="device" className="mt-4">
+          <Card>
+        <CardHeader className="pb-3 sm:pb-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+            Device Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {isLoading ? (
+            <div className="space-y-3 sm:space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-3/4" />
+            </div>
+          ) : monitoring?.device ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Device ID</Label>
+                <p className="text-sm sm:text-base font-medium break-all">{monitoring.device.deviceId || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Machine Name</Label>
+                <p className="text-sm sm:text-base font-medium">{monitoring.device.machineName || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">OS Version</Label>
+                <p className="text-sm sm:text-base font-medium">{monitoring.device.osVersion || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">System IP</Label>
+                <p className="text-sm sm:text-base font-medium">{monitoring.device.systemIp || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">System Model</Label>
+                <p className="text-sm sm:text-base font-medium">{monitoring.device.systemModel || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Last Seen</Label>
+                <p className="text-sm sm:text-base font-medium">
+                  {monitoring.device.lastSeenAt
+                    ? format(new Date(monitoring.device.lastSeenAt), "MMM d, yyyy HH:mm")
+                    : '-'}
+                </p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Agent Version</Label>
+                <p className="text-sm sm:text-base font-medium">{monitoring.device.agentVersion || '-'}</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-muted/30">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Status</Label>
+                <div className="mt-1">
+                  <Badge
+                    variant={monitoring.device.status === 'active' ? 'default' : 'secondary'}
+                    className={`text-xs sm:text-sm ${monitoring.device.status === 'active' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                  >
+                    {monitoring.device.status ? monitoring.device.status.charAt(0).toUpperCase() + monitoring.device.status.slice(1) : 'Unknown'}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 sm:py-12 text-muted-foreground">
+              <Activity className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 opacity-50" />
+              <p className="text-sm sm:text-base font-medium mb-1">No device information available</p>
+              <p className="text-xs sm:text-sm">No monitoring device is currently registered for this employee</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+        </TabsContent>
+
+        {/* Apps Usage Tab - Aggregated */}
+        <TabsContent value="apps" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3 sm:pb-6 bg-primary/5">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Monitor className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+                Application Usage Summary
+              </CardTitle>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                Total time spent in each application/window
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20 w-full" />
+                  ))}
+                </div>
+              ) : aggregatedAppUsage && aggregatedAppUsage.length > 0 ? (
+                <div className="space-y-3 sm:space-y-4">
+                  {aggregatedAppUsage.map((app: any, index: number) => (
+                    <div key={index} className="p-3 sm:p-4 border-2 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 hover:from-primary/10 hover:to-primary/15 transition-all">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0">
+                          <MonitorSpeaker className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm sm:text-base font-semibold text-foreground mb-1">
+                                {app.appName}
+                              </p>
+                              {app.processName && app.processName !== app.appName && (
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  Process: {app.processName}
+                                </p>
+                              )}
+                              {app.windowTitle && (
+                                <p className="text-xs sm:text-sm text-muted-foreground truncate" title={app.windowTitle}>
+                                  <FileTextIcon className="w-3 h-3 inline mr-1" />
+                                  {app.windowTitle}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              <Badge variant="default" className="text-xs sm:text-sm">
+                                {app.totalDurationHours > 0 
+                                  ? `${app.totalDurationHours}h ${app.totalDurationMinutes % 60}m`
+                                  : `${app.totalDurationMinutes}m`}
+                              </Badge>
+                              <p className="text-xs text-muted-foreground">
+                                {app.count} session{app.count !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Total Keystrokes</p>
+                              <p className="text-sm font-semibold">{app.totalKeystrokes.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Total Clicks</p>
+                              <p className="text-sm font-semibold">{app.totalMouseClicks.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Total Scrolls</p>
+                              <p className="text-sm font-semibold">{app.totalScrolls.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">First Seen</p>
+                              <p className="text-sm font-semibold">{format(app.firstSeen, "MMM d, HH:mm")}</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t">
+                            <p className="text-xs text-muted-foreground">
+                              Last seen: {format(app.lastSeen, "MMM d, yyyy HH:mm")}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 sm:py-12 text-muted-foreground">
+                  <Monitor className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm sm:text-base font-medium mb-1">No application usage data</p>
+                  <p className="text-xs sm:text-sm">No active window data available for the selected period</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Activity Tab */}
+        <TabsContent value="activity" className="mt-4 space-y-4 sm:space-y-6">
+              <Card>
+            <CardHeader className="pb-3 sm:pb-6">
+              <CardTitle className="text-base sm:text-lg">Activity Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-24 sm:h-28 w-full" />
+              ))}
+            </div>
+          ) : activityStats ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-3 sm:p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Keystrokes</Label>
+                <p className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-400">
+                  {activityStats.totalKeystrokes.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">{activityStats.logCount} log entries</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-green-50 dark:bg-green-950/20">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Mouse Clicks</Label>
+                <p className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-400">
+                  {activityStats.totalMouseClicks.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Across all sessions</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-purple-50 dark:bg-purple-950/20">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Scrolls</Label>
+                <p className="text-xl sm:text-2xl font-bold text-purple-700 dark:text-purple-400">
+                  {activityStats.totalScrolls.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Scroll events</p>
+              </div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20">
+                <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Idle Time</Label>
+                <p className="text-xl sm:text-2xl font-bold text-amber-700 dark:text-amber-400">
+                  {activityStats.totalIdleHours > 0 
+                    ? `${activityStats.totalIdleHours}h ${activityStats.totalIdleMinutes % 60}m`
+                    : `${activityStats.totalIdleMinutes}m`}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">{activityStats.totalIdleSeconds.toLocaleString()} seconds</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 sm:py-12 text-muted-foreground">
+              <Activity className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 opacity-50" />
+              <p className="text-sm sm:text-base font-medium mb-1">No activity data available</p>
+              <p className="text-xs sm:text-sm">No activity logs found for the selected period</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+          {/* Recent Activity Logs with Pagination */}
+          {monitoring?.activityLogs && monitoring.activityLogs.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Activity Logs</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-2 sm:space-y-3">
+                  {monitoring.activityLogs
+                    .slice((activityLogsPage - 1) * pageSize, activityLogsPage * pageSize)
+                    .map((log: any, index: number) => (
+                      <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs sm:text-sm font-medium mb-1">
+                            {format(new Date(log.timestamp), "MMM d, yyyy HH:mm:ss")}
+                          </p>
+                          {log.activeWindow && (
+                            <div className="space-y-1 mt-1">
+                              {log.activeWindow.appName && (
+                                <p className="text-xs text-muted-foreground">
+                                  <Monitor className="w-3 h-3 inline mr-1" />
+                                  App: <span className="font-medium text-foreground">{log.activeWindow.appName}</span>
+                                </p>
+                              )}
+                              {log.activeWindow.windowTitle && (
+                                <p className="text-xs text-muted-foreground truncate" title={log.activeWindow.windowTitle}>
+                                  <FileTextIcon className="w-3 h-3 inline mr-1" />
+                                  {log.activeWindow.windowTitle}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:gap-3">
+                          {log.keystrokes > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              ⌨️ {log.keystrokes} keys
+                            </Badge>
+                          )}
+                          {log.mouseClicks > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              🖱️ {log.mouseClicks} clicks
+                            </Badge>
+                          )}
+                          {log.scrollCount > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              📜 {log.scrollCount} scrolls
+                            </Badge>
+                          )}
+                          {log.idleSeconds > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              ⏸️ {Math.round(log.idleSeconds / 60)}m idle
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                {monitoring.activityLogs.length > pageSize && (
+                  <Pagination
+                    page={activityLogsPage}
+                    pageSize={pageSize}
+                    total={monitoring.activityLogs.length}
+                    pages={Math.ceil(monitoring.activityLogs.length / pageSize)}
+                    onPageChange={(newPage) => {
+                      setActivityLogsPage(newPage);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    onPageSizeChange={(newSize) => {
+                      setPageSize(newSize);
+                      setActivityLogsPage(1);
+                    }}
+                    showPageSizeSelector={true}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Productivity Tab */}
+        <TabsContent value="productivity" className="mt-4 space-y-4 sm:space-y-6">
+          {/* Productivity Summary */}
+          {productivityStats && (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Productivity Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="p-3 sm:p-4 border rounded-lg bg-emerald-50 dark:bg-emerald-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Average Score</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+                      {productivityStats.average}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Based on {productivityStats.count} scores</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-teal-50 dark:bg-teal-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Highest Score</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-teal-700 dark:text-teal-400">
+                      {productivityStats.max}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Peak performance</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-rose-50 dark:bg-rose-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Lowest Score</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-rose-700 dark:text-rose-400">
+                      {productivityStats.min}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Minimum recorded</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-indigo-50 dark:bg-indigo-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Scores</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-indigo-700 dark:text-indigo-400">
+                      {productivityStats.count}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Score entries</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Productivity Scores Detail with Pagination */}
+          {monitoring?.productivityScores && monitoring.productivityScores.length > 0 && (
+            <Card>
+          <CardHeader className="pb-3 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg">Productivity Scores</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-2 sm:space-y-3">
+              {monitoring.productivityScores
+                .slice((productivityScoresPage - 1) * pageSize, productivityScoresPage * pageSize)
+                .map((score: any, index: number) => (
+                <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs sm:text-sm font-medium mb-1">
+                      {format(new Date(score.timestamp), "MMM d, yyyy HH:mm:ss")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Productivity Score: <span className="font-semibold text-foreground">{Math.round(score.score * 100) / 100}</span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      ⌨️ {score.keystrokes || 0} keys
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      🖱️ {score.mouseClicks || 0} clicks
+                    </Badge>
+                    {score.idleSeconds > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        ⏸️ {Math.round(score.idleSeconds / 60)}m idle
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {monitoring.productivityScores.length > pageSize && (
+              <Pagination
+                page={productivityScoresPage}
+                pageSize={pageSize}
+                total={monitoring.productivityScores.length}
+                pages={Math.ceil(monitoring.productivityScores.length / pageSize)}
+                onPageChange={(newPage) => {
+                  setProductivityScoresPage(newPage);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setProductivityScoresPage(1);
+                }}
+                showPageSizeSelector={true}
+              />
+            )}
+          </CardContent>
+        </Card>
+          )}
+        </TabsContent>
+
+        {/* Breaks Tab */}
+        <TabsContent value="breaks" className="mt-4 space-y-4 sm:space-y-6">
+          {/* Break Summary */}
+          {breakStats && (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Break Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="p-3 sm:p-4 border rounded-lg bg-sky-50 dark:bg-sky-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Breaks</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-sky-700 dark:text-sky-400">
+                      {breakStats.total}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">All break records</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-cyan-50 dark:bg-cyan-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Completed</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-cyan-700 dark:text-cyan-400">
+                      {breakStats.completed}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">With end time</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-orange-50 dark:bg-orange-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Active Breaks</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-orange-700 dark:text-orange-400">
+                      {breakStats.active}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Currently ongoing</p>
+                  </div>
+                  <div className="p-3 sm:p-4 border rounded-lg bg-pink-50 dark:bg-pink-950/20">
+                    <Label className="text-xs sm:text-sm text-muted-foreground mb-1 block">Total Break Time</Label>
+                    <p className="text-xl sm:text-2xl font-bold text-pink-700 dark:text-pink-400">
+                      {breakStats.totalBreakHours > 0 
+                        ? `${breakStats.totalBreakHours}h ${breakStats.totalBreakMinutes % 60}m`
+                        : `${breakStats.totalBreakMinutes}m`}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Total duration</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Breaks Detail with Pagination */}
+          {monitoring?.breaks && monitoring.breaks.length > 0 && (
+            <Card>
+          <CardHeader className="pb-3 sm:pb-6">
+            <CardTitle className="text-base sm:text-lg">Break Records</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-2 sm:space-y-3">
+              {monitoring.breaks
+                .slice((breaksPage - 1) * pageSize, breaksPage * pageSize)
+                .map((breakItem: any, index: number) => (
+                <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs sm:text-sm font-medium mb-1">
+                      {format(new Date(breakItem.startTime), "MMM d, yyyy HH:mm:ss")}
+                      {breakItem.endTime && (
+                        <span className="text-muted-foreground">
+                          {' - '}{format(new Date(breakItem.endTime), "HH:mm:ss")}
+                        </span>
+                      )}
+                    </p>
+                    {breakItem.totalSeconds ? (
+                      <p className="text-xs text-muted-foreground">
+                        Duration: <span className="font-medium text-foreground">
+                          {breakItem.totalSeconds >= 3600 
+                            ? `${Math.floor(breakItem.totalSeconds / 3600)}h ${Math.floor((breakItem.totalSeconds % 3600) / 60)}m ${breakItem.totalSeconds % 60}s`
+                            : breakItem.totalSeconds >= 60
+                            ? `${Math.floor(breakItem.totalSeconds / 60)}m ${breakItem.totalSeconds % 60}s`
+                            : `${breakItem.totalSeconds}s`}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Ongoing break</p>
+                    )}
+                  </div>
+                  <Badge variant={breakItem.endTime ? "default" : "secondary"} className="text-xs">
+                    {breakItem.source || 'Unknown'} {!breakItem.endTime && '(Active)'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+            {monitoring.breaks.length > pageSize && (
+              <Pagination
+                page={breaksPage}
+                pageSize={pageSize}
+                total={monitoring.breaks.length}
+                pages={Math.ceil(monitoring.breaks.length / pageSize)}
+                onPageChange={(newPage) => {
+                  setBreaksPage(newPage);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setBreaksPage(1);
+                }}
+                showPageSizeSelector={true}
+              />
+            )}
+          </CardContent>
+        </Card>
+          )}
+        </TabsContent>
+
+        {/* Screenshots Tab */}
+        <TabsContent value="screenshots" className="mt-4 space-y-4 sm:space-y-6">
+          {monitoring?.screenshots && monitoring.screenshots.length > 0 ? (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Screenshots</CardTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                  {monitoring.screenshots.length} screenshot{monitoring.screenshots.length !== 1 ? 's' : ''} captured
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                  {monitoring.screenshots
+                    .slice((screenshotsPage - 1) * pageSize, screenshotsPage * pageSize)
+                    .map((screenshot: any, index: number) => (
+                      <div key={index} className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-card">
+                        {screenshot.secureUrl || screenshot.cloudinaryUrl ? (
+                          <div 
+                            className="relative group cursor-pointer"
+                            onClick={() => setSelectedScreenshot({
+                              url: screenshot.secureUrl || screenshot.cloudinaryUrl,
+                              timestamp: screenshot.timestamp
+                            })}
+                          >
+                            <img
+                              src={screenshot.secureUrl || screenshot.cloudinaryUrl}
+                              alt={`Screenshot ${index + 1}`}
+                              className="w-full h-48 object-cover"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
+                              <Eye className="w-6 h-6 text-white" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full h-48 bg-muted flex items-center justify-center">
+                            <Camera className="w-8 h-8 text-muted-foreground opacity-50" />
+                          </div>
+                        )}
+                        <div className="p-2 sm:p-3">
+                          <p className="text-xs text-muted-foreground mb-1">
+                            {format(new Date(screenshot.timestamp), "MMM d, yyyy HH:mm")}
+                          </p>
+                          {screenshot.width && screenshot.height && (
+                            <p className="text-xs text-muted-foreground">
+                              {screenshot.width} × {screenshot.height}px
+                            </p>
+                          )}
+                          {screenshot.size && (
+                            <p className="text-xs text-muted-foreground">
+                              {(screenshot.size / 1024).toFixed(2)} KB
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                {monitoring.screenshots.length > pageSize && (
+                  <Pagination
+                    page={screenshotsPage}
+                    pageSize={pageSize}
+                    total={monitoring.screenshots.length}
+                    pages={Math.ceil(monitoring.screenshots.length / pageSize)}
+                    onPageChange={(newPage) => {
+                      setScreenshotsPage(newPage);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    onPageSizeChange={(newSize) => {
+                      setPageSize(newSize);
+                      setScreenshotsPage(1);
+                    }}
+                    showPageSizeSelector={true}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Screenshots</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-center py-8 sm:py-12 text-muted-foreground">
+                  <Camera className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm sm:text-base font-medium mb-1">No screenshots available</p>
+                  <p className="text-xs sm:text-sm">No screenshots were captured for the selected period</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Screenshot Preview Dialog */}
+          <Dialog open={!!selectedScreenshot} onOpenChange={(open) => !open && setSelectedScreenshot(null)}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Screenshot Preview</DialogTitle>
+                {selectedScreenshot && (
+                  <DialogDescription>
+                    Captured on {format(new Date(selectedScreenshot.timestamp), "MMM d, yyyy 'at' HH:mm:ss")}
+                  </DialogDescription>
+                )}
+              </DialogHeader>
+              {selectedScreenshot && (
+                <div className="space-y-4">
+                  <div className="relative w-full flex items-center justify-center bg-muted rounded-lg overflow-hidden">
+                    <img
+                      src={selectedScreenshot.url}
+                      alt="Screenshot Preview"
+                      className="max-w-full max-h-[70vh] object-contain"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(selectedScreenshot.url, '_blank')}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Open in New Tab
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = selectedScreenshot.url;
+                        link.download = `screenshot-${format(new Date(selectedScreenshot.timestamp), 'yyyy-MM-dd-HH-mm-ss')}.png`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+};
 
 const StaffProfile = () => {
-  const [activeTab, setActiveTab] = useState("profile");
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabFromUrl || "profile");
   const { id } = useParams();
   const navigate = useNavigate();
+  
+  // Update active tab when URL parameter changes
+  useEffect(() => {
+    if (tabFromUrl) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<any>({});
+  const currentUser = useAppSelector((state) => state.auth.user);
   
-  // Tab scroll functionality
-  const tabsListRef = useRef<HTMLDivElement>(null);
-  const [showLeftScroll, setShowLeftScroll] = useState(false);
-  const [showRightScroll, setShowRightScroll] = useState(false);
+  // Tab scroll functionality - removed since we're using grid layout now
 
   // If no ID, redirect to staff list
   useEffect(() => {
@@ -102,11 +1049,105 @@ const StaffProfile = () => {
   const [verifyStatus, setVerifyStatus] = useState<"COMPLETED" | "REJECTED">("COMPLETED");
   const [verifyNotes, setVerifyNotes] = useState("");
   const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
+  const [openDepartment, setOpenDepartment] = useState(false);
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const [newDepartmentName, setNewDepartmentName] = useState("");
 
   // Permission checks
   const { user } = useAppSelector((state) => state.auth);
   const permissions = user ? getUserPermissions(user.role, user.roleId as any, user.permissions) : [];
   const canVerifyDocuments = hasAction(permissions, 'staff', 'update') || hasAction(permissions, 'staff', 'edit') || user?.role === 'Admin' || user?.role === 'Super Admin';
+
+  // Fetch departments
+  const { data: departmentsData, refetch: refetchDepartments } = useGetDepartmentsQuery();
+  const [createDepartment] = useCreateDepartmentMutation();
+  const departments = departmentsData?.data?.departments || [];
+  
+  // Get all staff to extract unique departments
+  const { data: allStaffForDepartments } = useGetStaffQuery({ limit: 100, page: 1 });
+  const allStaffMembers = allStaffForDepartments?.data?.staff || [];
+  
+  // Get unique departments from all staff data and combine with API departments
+  const uniqueDepartments = useMemo(() => {
+    const departmentsSet = new Set<string>();
+    
+    // Add departments from the API (source of truth)
+    departments.forEach((dept: any) => {
+      if (dept.name) {
+        departmentsSet.add(dept.name);
+      }
+    });
+    
+    // Add departments from all staff records (to catch any that might not be in the departments table)
+    allStaffMembers.forEach((member: any) => {
+      if (member.department) {
+        departmentsSet.add(member.department);
+      }
+    });
+    
+    return Array.from(departmentsSet).sort();
+  }, [departments, allStaffMembers]);
+
+  // Get users with role Employee and subRole Manager for reporting manager selection
+  const { data: usersData } = useGetUsersQuery({ 
+    limit: 100, 
+    page: 1,
+    isActive: 'true'
+  });
+  const allUsers = usersData?.data?.users || [];
+  const managerUserIds = allUsers
+    .filter((user: any) => user.role === 'Employee' && user.subRole === 'Manager')
+    .map((user: any) => user._id);
+  
+  // Get all staff for reporting manager selection - filter to only those with manager users
+  const { data: allStaffForManagerData } = useGetStaffQuery({ limit: 100, status: "Active", page: 1 });
+  const allStaffForManager = (allStaffForManagerData?.data?.staff || []).filter((staffMember: any) => {
+    const staffUserId = typeof staffMember.userId === 'object' ? staffMember.userId?._id : staffMember.userId;
+    return staffUserId && managerUserIds.includes(staffUserId);
+  });
+
+  const handleCreateDepartment = async () => {
+    if (!newDepartmentName.trim()) {
+      toast.error("Please enter a department name");
+      return;
+    }
+
+    // Check if department already exists (case-insensitive)
+    const existing = departments.find((d: any) => d.name.toLowerCase() === newDepartmentName.trim().toLowerCase());
+    if (existing) {
+      toast.info("Department already exists");
+      handleInputChange('department', existing.name);
+      setNewDepartmentName("");
+      setDepartmentSearch("");
+      setOpenDepartment(false);
+      return;
+    }
+
+    try {
+      const result = await createDepartment({ name: newDepartmentName.trim() }).unwrap();
+      if (result.success) {
+        handleInputChange('department', result.data.department.name);
+        toast.success("Department created successfully");
+        setNewDepartmentName("");
+        setDepartmentSearch("");
+        setOpenDepartment(false);
+        refetchDepartments();
+      }
+    } catch (error: any) {
+      const errorMessage = error?.data?.error?.message || "Failed to create department";
+      if (errorMessage.toLowerCase().includes("already exists") || errorMessage.toLowerCase().includes("duplicate")) {
+        toast.info("Department already exists");
+        refetchDepartments().then(() => {
+          const existingDept = departments.find((d: any) => d.name.toLowerCase() === newDepartmentName.trim().toLowerCase());
+          if (existingDept) {
+            handleInputChange('department', existingDept.name);
+          }
+        });
+      } else {
+        toast.error(errorMessage);
+      }
+    }
+  };
 
   const employeeData = staffDataResponse?.data?.staff;
   const candidateData = employeeData?.candidateId && typeof employeeData.candidateId === 'object' ? employeeData.candidateId : null;
@@ -119,6 +1160,16 @@ const StaffProfile = () => {
         if (!template) return "";
         if (typeof template === 'string') return template;
         if (typeof template === 'object' && template._id) return template._id;
+        return "";
+      };
+
+      // Extract ID from object or string - helper function for type safety
+      const getId = (value: any): string => {
+        if (!value) return "";
+        if (typeof value === 'string') return value;
+        if (typeof value === 'object' && value !== null && '_id' in value) {
+          return (value as { _id: string })._id || "";
+        }
         return "";
       };
 
@@ -136,7 +1187,9 @@ const StaffProfile = () => {
         dob: employeeData.dob ? new Date(employeeData.dob).toISOString().split('T')[0] : '',
         maritalStatus: employeeData.maritalStatus || "",
         bloodGroup: employeeData.bloodGroup || "",
-        branchId: typeof employeeData.branchId === 'string' ? employeeData.branchId : (employeeData.branchId?._id || ""),
+        branchId: getId(employeeData.branchId),
+        employeeId: employeeData.employeeId || "",
+        managerId: getId(employeeData.managerId),
         shiftName: employeeData.shiftName || "",
         attendanceTemplateId: getTemplateId(employeeData.attendanceTemplateId),
         leaveTemplateId: getTemplateId(employeeData.leaveTemplateId),
@@ -165,94 +1218,7 @@ const StaffProfile = () => {
     }
   }, [employeeData]);
 
-  // Check scroll position and show/hide scroll buttons
-  // Shows buttons when tabs overflow (works regardless of sidebar state or screen size)
-  const checkScrollButtons = () => {
-    if (!tabsListRef.current) return;
-    const { scrollLeft, scrollWidth, clientWidth } = tabsListRef.current;
-    const hasOverflow = scrollWidth > clientWidth;
-    
-    // Always show buttons when there's overflow, regardless of screen size
-    // This handles: small screens, large screens with sidebar expanded, etc.
-    if (hasOverflow) {
-      setShowLeftScroll(scrollLeft > 0);
-      setShowRightScroll(scrollLeft < scrollWidth - clientWidth - 1);
-    } else {
-      setShowLeftScroll(false);
-      setShowRightScroll(false);
-    }
-  };
-
-  // Scroll functions - scroll by tab width to show next/previous tabs
-  const scrollLeft = () => {
-    if (tabsListRef.current) {
-      // Get the first visible tab to calculate scroll amount
-      const firstTab = tabsListRef.current.querySelector('[role="tab"]') as HTMLElement;
-      const scrollAmount = firstTab ? firstTab.offsetWidth + 8 : tabsListRef.current.clientWidth * 0.6;
-      tabsListRef.current.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
-      // Recheck after scroll animation
-      setTimeout(checkScrollButtons, 350);
-    }
-  };
-
-  const scrollRight = () => {
-    if (tabsListRef.current) {
-      // Get the first visible tab to calculate scroll amount
-      const firstTab = tabsListRef.current.querySelector('[role="tab"]') as HTMLElement;
-      const scrollAmount = firstTab ? firstTab.offsetWidth + 8 : tabsListRef.current.clientWidth * 0.6;
-      tabsListRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-      // Recheck after scroll animation
-      setTimeout(checkScrollButtons, 350);
-    }
-  };
-
-  // Check scroll buttons on mount and resize
-  useEffect(() => {
-    // Initial check with multiple delays to ensure DOM is ready
-    const timers = [
-      setTimeout(() => checkScrollButtons(), 100),
-      setTimeout(() => checkScrollButtons(), 300),
-      setTimeout(() => checkScrollButtons(), 500),
-    ];
-
-    const handleResize = () => {
-      setTimeout(checkScrollButtons, 200);
-    };
-
-    // Check on window resize
-    window.addEventListener('resize', handleResize);
-    
-    // Use ResizeObserver to detect when tabs container size changes
-    let resizeObserver: ResizeObserver | null = null;
-    if (tabsListRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        setTimeout(checkScrollButtons, 100);
-      });
-      resizeObserver.observe(tabsListRef.current);
-    }
-
-    return () => {
-      timers.forEach(timer => clearTimeout(timer));
-      window.removeEventListener('resize', handleResize);
-      if (resizeObserver && tabsListRef.current) {
-        resizeObserver.unobserve(tabsListRef.current);
-      }
-    };
-  }, []);
-
-  // Check scroll buttons when activeTab changes and scroll active tab into view
-  useEffect(() => {
-    setTimeout(() => {
-      checkScrollButtons();
-      // Scroll active tab into view
-      if (tabsListRef.current) {
-        const activeTabElement = tabsListRef.current.querySelector(`[data-state="active"]`) as HTMLElement;
-        if (activeTabElement) {
-          activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
-      }
-    }, 150);
-  }, [activeTab]);
+  // Scroll functionality removed - using grid layout instead
 
   const handleSave = async () => {
     if (!id) return;
@@ -281,6 +1247,8 @@ const StaffProfile = () => {
         department: formData.department || undefined,
         staffType: formData.staffType || undefined,
         joiningDate: formData.joiningDate && formData.joiningDate.trim() ? formData.joiningDate : undefined,
+        employeeId: formData.employeeId && formData.employeeId.trim() ? formData.employeeId.trim() : undefined,
+        managerId: formData.managerId && formData.managerId !== "none" && formData.managerId.trim() ? formData.managerId : undefined,
         gender: formData.gender && formData.gender !== "" && formData.gender !== "none" ? formData.gender : undefined,
         dob: formData.dob && formData.dob.trim() ? formData.dob : undefined,
         maritalStatus: formData.maritalStatus && formData.maritalStatus !== "" && formData.maritalStatus !== "none" ? formData.maritalStatus : undefined,
@@ -379,11 +1347,15 @@ const StaffProfile = () => {
   return (
     <MainLayout>
       <main className="p-3 sm:p-4 lg:p-6">
-        <Button onClick={() => navigate(-1)} className="mb-4 w-full sm:w-auto">
-          ← Back
-        </Button>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold">Staff Profile</h1>
+          <Button variant="outline" onClick={() => navigate('/staff')}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Staff
+          </Button>
+        </div>
 
-        <div className="space-y-6 mt-3">
+        <div className="space-y-6">
 
           {/* HEADER CARD */}
           <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
@@ -410,11 +1382,21 @@ const StaffProfile = () => {
                         const file = e.target.files?.[0];
                         if (file && id) {
                           try {
-                            await uploadAvatar({
+                            const result = await uploadAvatar({
                               staffId: id,
                               file,
                             }).unwrap();
                             message.success("Avatar uploaded successfully");
+                            // Store avatar in localStorage if this is the current user's profile
+                            const employeeData = staffDataResponse?.data?.staff;
+                            if (currentUser && employeeData?.userId && 
+                                (typeof employeeData.userId === 'object' 
+                                  ? employeeData.userId._id?.toString() 
+                                  : employeeData.userId?.toString()) === currentUser.id) {
+                              if (result.data?.avatar) {
+                                storeUserAvatar(result.data.avatar);
+                              }
+                            }
                             refetch();
                           } catch (error: any) {
                             message.error(
@@ -478,7 +1460,7 @@ const StaffProfile = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => handleStatusChange('Deactivated')}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                      className="   hover:text-red-700 hover:bg-red-50 border-red-200"
                     >
                       <Ban className="w-4 h-4 mr-2" /> Deactivate Staff
                     </Button>
@@ -499,123 +1481,82 @@ const StaffProfile = () => {
 
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-6">
-            {/* TOP TABS WITH SCROLL BUTTONS */}
-            <div className="relative w-full mb-6">
-              {/* Left Scroll Button - Show when tabs overflow */}
-              <Button
-                variant="outline"
-                size="icon"
-                className={`absolute left-0 top-1/2 -translate-y-1/2 z-30 h-10 w-10 bg-background/98 backdrop-blur-sm shadow-lg border-2 hover:bg-background transition-opacity duration-200 ${
-                  showLeftScroll ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
-                onClick={scrollLeft}
-                aria-label="Scroll left"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </Button>
-
-              {/* Right Scroll Button - Show when tabs overflow */}
-              <Button
-                variant="outline"
-                size="icon"
-                className={`absolute right-0 top-1/2 -translate-y-1/2 z-30 h-10 w-10 bg-background/98 backdrop-blur-sm shadow-lg border-2 hover:bg-background transition-opacity duration-200 ${
-                  showRightScroll ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
-                onClick={scrollRight}
-                aria-label="Scroll right"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </Button>
-
+            {/* TOP TABS WITH GRID LAYOUT - ALL TABS VISIBLE WITHOUT SCROLLING */}
+            <div className="w-full mb-6">
               <TabsList
-                ref={tabsListRef}
-                onScroll={checkScrollButtons}
-                className="
-                  flex flex-row
-                  bg-card border rounded-lg py-2 gap-1.5
-                  w-full
-                  min-h-[44px]
-                  overflow-x-auto
-                  overflow-y-visible
-                  scroll-smooth
-                  [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
-                  pl-12 pr-12
-                  min-[1400px]:pl-2 min-[1400px]:pr-2
-                  snap-x snap-mandatory
-                "
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+                className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 h-auto gap-1.5 p-1.5"
               >
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="profile"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <User className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Profile</span>
+                <User className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Profile</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="attendance"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <Clock className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Attendance</span>
+                <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Attendance</span>
               </TabsTrigger>
+              {(currentUser?.role === 'Admin' || currentUser?.role === 'HR' || currentUser?.role === 'Manager' || currentUser?.role === 'Super Admin') && (
+                <TabsTrigger 
+                  value="monitoring"
+                  className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
+                >
+                  <Activity className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                  <span>Monitoring</span>
+                </TabsTrigger>
+              )}
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="salary"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <DollarSign className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Salary Overview</span>
+                <span className="text-base sm:text-lg mr-1.5 flex-shrink-0 font-semibold">₹</span>
+                <span>Salary Overview</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="salaryStructure"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <Receipt className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Salary Structure</span>
+                <Receipt className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Salary Structure</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="leaves"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <Calendar className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Leaves</span>
+                <Calendar className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Leaves</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="loans"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <CreditCard className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Loans</span>
+                <CreditCard className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Loans</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="documents"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <FileText className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Documents</span>
+                <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Documents</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="claim"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <Receipt className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Expense Claim</span>
+                <Receipt className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Expense Claim</span>
               </TabsTrigger>
               <TabsTrigger 
-                className="flex items-center justify-center whitespace-nowrap px-2.5 sm:px-3 md:px-4 flex-shrink-0" 
                 value="payslips"
-                style={{ minWidth: 'fit-content' }}
+                className="text-xs sm:text-sm flex items-center justify-center whitespace-nowrap"
               >
-                <FileText className="w-4 h-4 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Payslip Requests</span>
+                <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                <span>Payslip Requests</span>
               </TabsTrigger>
             </TabsList>
             </div>
@@ -638,7 +1579,20 @@ const StaffProfile = () => {
                       </div>
                       <div className="space-y-2">
                         <Label>Employee ID</Label>
-                        <Input value={employeeData.employeeId || "N/A"} readOnly className="bg-muted" />
+                        {isEditing ? (
+                          <Input
+                            value={formData.employeeId || ""}
+                            onChange={(e) => handleInputChange('employeeId', e.target.value)}
+                            placeholder="Enter employee code"
+                          />
+                        ) : (
+                          <Input value={employeeData.employeeId || "N/A"} readOnly className="bg-muted" />
+                        )}
+                        {isEditing && (
+                          <p className="text-xs text-muted-foreground">
+                            Employee code must be unique. If the code already exists, you will see an error message.
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label>Designation</Label>
@@ -698,27 +1652,133 @@ const StaffProfile = () => {
                       <div className="space-y-2">
                         <Label>Department</Label>
                         {isEditing ? (
-                          <Select
-                            value={formData.department}
-                            onValueChange={(val) => handleInputChange('department', val)}
-                          >
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="HR">HR</SelectItem>
-                              <SelectItem value="Development">Development</SelectItem>
-                              <SelectItem value="Marketing">Marketing</SelectItem>
-                              <SelectItem value="Engineering">Engineering</SelectItem>
-                              <SelectItem value="IT">IT</SelectItem>
-                              <SelectItem value="Sales">Sales</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <Popover open={openDepartment} onOpenChange={setOpenDepartment}>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" role="combobox" aria-expanded={openDepartment} className="w-full justify-between">
+                                {formData.department ? formData.department : "Select or enter department..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[300px] p-0">
+                              <Command>
+                                <CommandInput
+                                  placeholder="Search or type new department..."
+                                  value={departmentSearch}
+                                  onValueChange={(value) => {
+                                    setDepartmentSearch(value);
+                                    setNewDepartmentName(value);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && departmentSearch.trim()) {
+                                      e.preventDefault();
+                                      setNewDepartmentName(departmentSearch);
+                                      handleCreateDepartment();
+                                    }
+                                  }}
+                                />
+                                <CommandList>
+                                  <CommandEmpty>
+                                    <div className="p-2 space-y-2">
+                                      <div className="text-sm text-muted-foreground text-center">
+                                        No department found.
+                                      </div>
+                                      {departmentSearch.trim() && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="w-full"
+                                          onClick={() => {
+                                            setNewDepartmentName(departmentSearch);
+                                            handleCreateDepartment();
+                                          }}
+                                        >
+                                          <X className="h-4 w-4 mr-2 rotate-45" />
+                                          Add "{departmentSearch}"
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </CommandEmpty>
+                                  <CommandGroup>
+                                    {departments
+                                      .filter((dept: any) =>
+                                        !departmentSearch || dept.name.toLowerCase().includes(departmentSearch.toLowerCase())
+                                      )
+                                      .map((dept: any) => (
+                                        <CommandItem
+                                          key={dept._id}
+                                          value={dept.name}
+                                          onSelect={(currentValue) => {
+                                            handleInputChange('department', dept.name);
+                                            setOpenDepartment(false);
+                                            setDepartmentSearch("");
+                                          }}
+                                        >
+                                          <Check className={cn("mr-2 h-4 w-4", formData.department === dept.name ? "opacity-100" : "opacity-0")} />
+                                          {dept.name}
+                                        </CommandItem>
+                                      ))}
+                                    {uniqueDepartments
+                                      .filter((dept) => !departments.some((d: any) => d.name.toLowerCase() === dept.toLowerCase()))
+                                      .filter((dept) =>
+                                        !departmentSearch || dept.toLowerCase().includes(departmentSearch.toLowerCase())
+                                      )
+                                      .map((dept) => (
+                                        <CommandItem
+                                          key={dept}
+                                          value={dept}
+                                          onSelect={(currentValue) => {
+                                            handleInputChange('department', dept);
+                                            setOpenDepartment(false);
+                                            setDepartmentSearch("");
+                                          }}
+                                        >
+                                          <Check className={cn("mr-2 h-4 w-4", formData.department === dept ? "opacity-100" : "opacity-0")} />
+                                          {dept}
+                                        </CommandItem>
+                                      ))}
+                                    {departmentSearch.trim() && 
+                                     !departments.some((d: any) => d.name.toLowerCase() === departmentSearch.toLowerCase()) &&
+                                     !uniqueDepartments.some((d) => d.toLowerCase() === departmentSearch.toLowerCase()) && (
+                                      <CommandItem
+                                        onSelect={() => {
+                                          setNewDepartmentName(departmentSearch);
+                                          handleCreateDepartment();
+                                        }}
+                                        className="text-primary font-medium"
+                                      >
+                                        <X className="h-4 w-4 mr-2 rotate-45" />
+                                        Add "{departmentSearch}" as new department
+                                      </CommandItem>
+                                    )}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         ) : (
                           <Input value={employeeData.department || "N/A"} readOnly />
                         )}
                       </div>
                       <div className="space-y-2">
                         <Label>Reporting Manager</Label>
-                        <Input value={getManagerName(employeeData.managerId) || ""} readOnly className="bg-muted" placeholder="Not assigned" />
+                        {isEditing ? (
+                          <Select
+                            value={formData.managerId || "none"}
+                            onValueChange={(value) => handleInputChange('managerId', value === "none" ? "" : value)}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Select reporting manager (optional)" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {allStaffForManager.map((staffMember: any) => (
+                                <SelectItem key={staffMember._id} value={staffMember._id}>
+                                  {staffMember.name} ({staffMember.employeeId})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input value={getManagerName(employeeData.managerId) || ""} readOnly className="bg-muted" placeholder="Not assigned" />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label>Role</Label>
@@ -946,14 +2006,17 @@ const StaffProfile = () => {
                           {isEditing ? (
                             <Select
                               value={formData.branchId || undefined}
-                              onValueChange={(value) => setFormData({ ...formData, branchId: value === "none" ? "" : value })}
+                              onValueChange={(value) => {
+                                const newBranchId = value === "none" ? "" : value;
+                                setFormData({ ...formData, branchId: newBranchId });
+                              }}
                             >
                               <SelectTrigger><SelectValue placeholder="Select branch (optional)" /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="none">None</SelectItem>
                                 {branches.map((branch) => (
                                   <SelectItem key={branch._id} value={branch._id}>
-                                    {branch.branchName} {branch.isHeadOffice ? "(Head Office)" : ""} - {branch.branchCode}
+                                    {branch.branchName} {(branch as any).isHeadOffice ? "(Head Office)" : ""} - {branch.branchCode}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -962,10 +2025,13 @@ const StaffProfile = () => {
                             <Input 
                               value={
                                 employeeData.branchId 
-                                  ? (typeof employeeData.branchId === 'object' 
-                                      ? `${employeeData.branchId.branchName} ${employeeData.branchId.isHeadOffice ? "(Head Office)" : ""} - ${employeeData.branchId.branchCode}`
+                                  ? (typeof employeeData.branchId === 'object' && employeeData.branchId !== null
+                                      ? `${(employeeData.branchId as any).branchName} ${(employeeData.branchId as any).isHeadOffice ? "(Head Office)" : ""} - ${(employeeData.branchId as any).branchCode}`
                                       : branches.find(b => b._id === employeeData.branchId) 
-                                        ? `${branches.find(b => b._id === employeeData.branchId)?.branchName} ${branches.find(b => b._id === employeeData.branchId)?.isHeadOffice ? "(Head Office)" : ""} - ${branches.find(b => b._id === employeeData.branchId)?.branchCode}`
+                                        ? (() => {
+                                            const branch = branches.find(b => b._id === employeeData.branchId);
+                                            return `${branch?.branchName} ${(branch as any)?.isHeadOffice ? "(Head Office)" : ""} - ${branch?.branchCode}`;
+                                          })()
                                         : "Unknown")
                                   : "Not assigned"
                               } 
@@ -1205,10 +2271,10 @@ const StaffProfile = () => {
                           onChange={(e) => handleInputChange('bankDetails.upiId', e.target.value)}
                         />
                       </div>
-                      <div>
+                      {/* <div>
                         <Label>Verification Status</Label>
                         <div className="pt-2"><Badge variant="outline">Pending</Badge></div>
-                      </div>
+                      </div> */}
                     </CardContent>
                   </Card>
 
@@ -1330,6 +2396,12 @@ const StaffProfile = () => {
                     )}
                   </div>
                 </TabsContent>
+
+                {(currentUser?.role === 'Admin' || currentUser?.role === 'HR' || currentUser?.role === 'Manager' || currentUser?.role === 'Super Admin') && (
+                  <TabsContent value="monitoring" className="mt-4">
+                    <MonitoringTabContent employeeId={id || ''} isTabActive={activeTab === 'monitoring'} />
+                  </TabsContent>
+                )}
                 
                 <TabsContent value="salary" className="mt-4 space-y-6">
                   <div className="w-full">

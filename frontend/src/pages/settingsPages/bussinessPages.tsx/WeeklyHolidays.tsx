@@ -140,9 +140,9 @@ export default function WeeklyHolidays() {
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">Pattern Details:</p>
                           <ul className="text-sm space-y-1 list-disc list-inside ml-4">
-                            <li>Odd Saturdays (1st, 3rd, 5th, etc.) are <strong className="text-green-600">working days</strong></li>
-                            <li>Even Saturdays (2nd, 4th, 6th, etc.) are <strong className="text-red-600">weekly off</strong></li>
-                            <li>All Sundays are <strong className="text-red-600">weekly off</strong></li>
+                            <li>Odd Saturdays (1st, 3rd, 5th, etc.) are <strong className=" ">working days</strong></li>
+                            <li>Even Saturdays (2nd, 4th, 6th, etc.) are <strong className="  ">weekly off</strong></li>
+                            <li>All Sundays are <strong className="  ">weekly off</strong></li>
                           </ul>
                         </div>
                       ) : (

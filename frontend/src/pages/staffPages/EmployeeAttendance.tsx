@@ -23,7 +23,7 @@ import { useGetEmployeeAttendanceQuery, useUpdateAttendanceMutation, useMarkAtte
 import { useGetEmployeeHolidaysQuery } from "@/store/api/holidayApi";
 import { useGetBusinessQuery, useGetLeaveTemplateByIdQuery } from "@/store/api/settingsApi";
 import { useGetStaffByIdQuery } from "@/store/api/staffApi";
-import { useGetLeavesQuery } from "@/store/api/leaveApi";
+import { useGetLeavesQuery, useGetCasualLeaveBalanceQuery } from "@/store/api/leaveApi";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, parseISO } from "date-fns";
 import { useAppSelector } from "@/store/hooks";
@@ -32,6 +32,7 @@ import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { formatINR } from "@/utils/currencyUtils";
 
 interface EmployeeAttendanceProps {
@@ -52,6 +53,45 @@ interface DayAttendance {
   isRejected: boolean;
 }
 
+// Helper function to check if a leave type matches any template leave type
+// Handles cases where leave type might have "Leave" suffix (e.g., "Casual Leave" matches "Casual")
+const matchesTemplateLeaveType = (leaveType: string, templateLeaveTypes: string[]): boolean => {
+  if (!leaveType || !templateLeaveTypes || templateLeaveTypes.length === 0) {
+    return false;
+  }
+  
+  const normalizedLeaveType = leaveType.trim().toLowerCase();
+  
+  // First check exact match (case-insensitive)
+  if (templateLeaveTypes.some(templateType => templateType.trim().toLowerCase() === normalizedLeaveType)) {
+    return true;
+  }
+  
+  // Check if leave type starts with any template type (e.g., "Casual Leave" starts with "Casual")
+  if (templateLeaveTypes.some(templateType => {
+    const normalizedTemplate = templateType.trim().toLowerCase();
+    return normalizedLeaveType.startsWith(normalizedTemplate) || 
+           normalizedTemplate.startsWith(normalizedLeaveType);
+  })) {
+    return true;
+  }
+  
+  // Check if removing "Leave" suffix makes them match (e.g., "Casual Leave" -> "Casual")
+  const leaveTypeWithoutSuffix = normalizedLeaveType.replace(/\s*leave\s*$/i, '').trim();
+  if (leaveTypeWithoutSuffix && templateLeaveTypes.some(templateType => {
+    const normalizedTemplate = templateType.trim().toLowerCase();
+    const templateWithoutSuffix = normalizedTemplate.replace(/\s*leave\s*$/i, '').trim();
+    return leaveTypeWithoutSuffix === normalizedTemplate || 
+           normalizedTemplate === leaveTypeWithoutSuffix ||
+           leaveTypeWithoutSuffix === templateWithoutSuffix ||
+           templateWithoutSuffix === leaveTypeWithoutSuffix;
+  })) {
+    return true;
+  }
+  
+  return false;
+};
+
 const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
   const currentUser = useAppSelector((state) => state.auth.user);
   const isAdmin = currentUser?.role === "Admin" || currentUser?.role === "Super Admin";
@@ -62,12 +102,17 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
   const [editData, setEditData] = useState<any>({});
   const [fineAdjustment, setFineAdjustment] = useState<string>("auto"); // "auto", "0", "1x", "2x", "3x", "custom"
   const [customFineAmount, setCustomFineAmount] = useState<number>(0);
+  const [lateFineAdjustment, setLateFineAdjustment] = useState<string>("auto"); // "auto", "0", "custom"
+  const [earlyFineAdjustment, setEarlyFineAdjustment] = useState<string>("auto"); // "auto", "0", "custom"
+  const [customLateFineAmount, setCustomLateFineAmount] = useState<number>(0);
+  const [customEarlyFineAmount, setCustomEarlyFineAmount] = useState<number>(0);
   const [isPaidLeave, setIsPaidLeave] = useState<boolean>(true); // For casual leave: paid or unpaid
   const [isLeaveBalanceModalOpen, setIsLeaveBalanceModalOpen] = useState(false); // Modal for leave balance info
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false); // Modal for leave selection
   const [selectedLeaveType, setSelectedLeaveType] = useState<string>(""); // Selected leave type in modal
   const [selectedPaidLeave, setSelectedPaidLeave] = useState<boolean>(true); // Paid/unpaid selection in modal
-  const [compensationType, setCompensationType] = useState<'paid' | 'unpaid' | 'weekOff'>('paid'); // Compensation type for half day/leave
+  const [compensationType, setCompensationType] = useState<'paid' | 'unpaid' | 'weekOff' | 'compOff'>('paid'); // Compensation type for half day/leave
+  const [paidHolidayNote, setPaidHolidayNote] = useState<string>(""); // Note for Paid Holiday
   const [alternateWorkDate, setAlternateWorkDate] = useState<Date | null>(null); // Alternate work date for week off
 
   // Month/Year selection for attendance view
@@ -268,12 +313,15 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
       return { total: 0, used: 0, usedFromAttendance: 0, usedFromRequests: 0, available: 0 };
     }
 
-    // Find casual leave config - handle both "Casual Leave" and "casual" (case-insensitive)
-    const casualConfig = (leaveTemplate as any).leaveTypes.find((lt: any) => {
-      const type = (lt.type || '').toLowerCase().trim();
-      return type === 'casual leave' || type === 'casual';
-    });
-    const total = casualConfig?.days || 0;
+    // Sum all leave types from template (not just casual)
+    const total = (leaveTemplate as any).leaveTypes.reduce((sum: number, lt: any) => {
+      return sum + (lt.days || 0);
+    }, 0);
+    
+    // Get all leave type names from template for matching
+    const templateLeaveTypes = (leaveTemplate as any).leaveTypes.map((lt: any) => 
+      (lt.type || '').trim()
+    ).filter((type: string) => type.length > 0);
 
     const currentMonth = monthStart.getMonth();
     const currentYear = monthStart.getFullYear();
@@ -292,22 +340,25 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
     };
 
     // Count used casual leaves from attendance records in current month
-    // Half-day leaves count as 0.5 days, full-day leaves count as 1 day
-    const usedFromAttendance = attendanceRecords.reduce((sum: number, record: any) => {
+    // Group by date to avoid counting duplicate records for the same date (matching backend logic)
+    const dateLeaveMap = new Map<string, number>();
+    
+    attendanceRecords.forEach((record: any) => {
       const recordDate = new Date(record.date);
       const isInCurrentMonth = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
       
-      // Check if it's a casual leave (handle both "Casual Leave" and "casual" case-insensitively)
-      const isCasualLeave = record.leaveType && 
-        (record.leaveType.toLowerCase().trim() === 'casual leave' || record.leaveType.toLowerCase().trim() === 'casual');
+      if (!isInCurrentMonth) {
+        return;
+      }
       
-      if (
-        isCasualLeave &&
-        isInCurrentMonth
-      ) {
+      // Check if it matches any leave type from template
+      const matchesTemplateLeave = record.leaveType && 
+        matchesTemplateLeaveType(record.leaveType.trim(), templateLeaveTypes);
+      
+      if (matchesTemplateLeave && (record.status === 'On Leave' || record.status === 'Half Day')) {
         // IMPORTANT: Exclude week off compensation - week off does NOT count as casual leave usage
-        if (record.compensationType === 'weekOff') {
-          return sum; // Week off compensation doesn't deduct from casual leaves
+        if (record.compensationType === 'weekOff' || record.compensationType === 'compOff') {
+          return; // Week off compensation doesn't deduct from casual leaves
         }
         
         // Check if it's a half-day leave
@@ -316,58 +367,59 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                          (record.status === "On Leave" && record.halfDaySession) ||
                          (record.halfDaySession && (record.halfDaySession === "First Half Day" || record.halfDaySession === "Second Half Day"));
         
-        if (isHalfDay) {
-          return sum + 0.5; // Half-day counts as 0.5 days
-        } else if (record.status === "On Leave" || record.status === "Half Day") {
-          return sum + 1; // Full-day counts as 1 day
+        const leaveDays = isHalfDay ? 0.5 : 1;
+        const dateKey = `${recordDate.getFullYear()}-${recordDate.getMonth()}-${recordDate.getDate()}`;
+        
+        // If this date already has a leave recorded, use the first one we encounter (to handle duplicates)
+        if (!dateLeaveMap.has(dateKey)) {
+          dateLeaveMap.set(dateKey, leaveDays);
         }
       }
-      return sum;
-    }, 0);
-
-    // Count used casual leaves from approved leave requests in current month
-    // Leave requests already have days field (0.5 for half-day, 1 for full-day)
-    // Filter for casual leaves (handle both "casual" and "Casual Leave" case-insensitively)
-    const allApprovedLeaves = leavesData?.data?.leaves || [];
-    const approvedLeaves = allApprovedLeaves.filter((leave: any) => {
-      const leaveType = (leave.leaveType || '').toLowerCase().trim();
-      return leaveType === 'casual leave' || leaveType === 'casual';
     });
     
-    const usedFromRequests = approvedLeaves.reduce((sum: number, leave: any) => {
-      const daysInMonth = getLeaveDaysInMonth(leave.startDate, leave.endDate, currentYear, currentMonth + 1);
-      // If the leave spans multiple months, calculate the portion in current month
-      // For simplicity, if leave has halfDayType, it's 0.5 days, otherwise use the days field
-      if (leave.halfDayType) {
-        // Half-day leave - count 0.5 days if it falls in current month
-        return daysInMonth > 0 ? sum + 0.5 : sum;
-      } else {
-        // Full-day leave - use the days field, but only count days in current month
-        return sum + Math.min(leave.days || 1, daysInMonth);
+    // If there's a current selection (from the leave modal), account for it in the calculation
+    // This allows showing the projected balance when half-day is selected
+    if (selectedDate && selectedLeaveType === "Casual Leave" && isLeaveModalOpen) {
+      const selectedDateKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth()}-${selectedDate.getDate()}`;
+      const isSelectedDateInCurrentMonth = selectedDate.getMonth() === currentMonth && selectedDate.getFullYear() === currentYear;
+      
+      if (isSelectedDateInCurrentMonth) {
+        // Check if this is a half-day leave (from editData status or halfDaySession)
+        const isCurrentHalfDay = editData.status === "Half Day" || editData.halfDaySession;
+        const currentLeaveDays = isCurrentHalfDay ? 0.5 : 1;
+        
+        // Only add if this date doesn't already have a leave recorded
+        if (!dateLeaveMap.has(selectedDateKey)) {
+          dateLeaveMap.set(selectedDateKey, currentLeaveDays);
+        }
       }
-    }, 0);
+    }
+    
+    // Sum up all unique date leaves
+    // NOTE: Only count from attendance collection since approved leaves create attendance records
+    // Counting both would be double-counting
+    const usedFromAttendance = Array.from(dateLeaveMap.values()).reduce((sum, days) => sum + days, 0);
 
-    // Total used = attendance records + approved leave requests (in days, can be decimal)
-    const used = usedFromAttendance + usedFromRequests;
+    // Calculate available leaves based only on attendance records
+    const used = usedFromAttendance;
     const available = Math.max(0, total - used);
     
     // Debug logging for half-day calculation
-    const casualLeaveRecords = attendanceRecords.filter((r: any) => {
+    const templateLeaveRecords = attendanceRecords.filter((r: any) => {
       const recordDate = new Date(r.date);
       const isInCurrentMonth = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
-      const isCasualLeave = r.leaveType && 
-        (r.leaveType.toLowerCase().trim() === 'casual leave' || r.leaveType.toLowerCase().trim() === 'casual');
-      return isCasualLeave && isInCurrentMonth;
+      const matchesTemplateLeave = r.leaveType && matchesTemplateLeaveType(r.leaveType.trim(), templateLeaveTypes);
+      return matchesTemplateLeave && isInCurrentMonth;
     });
     
-    console.log('[EmployeeAttendance] Casual Leave Calculation with Half-Days:', {
+    console.log('[EmployeeAttendance] Leave Balance Calculation with Half-Days:', {
       totalAllocated: total,
+      templateLeaveTypes: templateLeaveTypes,
       usedFromAttendance: Math.round(usedFromAttendance * 10) / 10,
-      usedFromRequests: Math.round(usedFromRequests * 10) / 10,
       totalUsed: Math.round(used * 10) / 10,
       available: Math.round(available * 10) / 10,
       breakdown: {
-        attendanceRecords: casualLeaveRecords.map((r: any) => ({
+        attendanceRecords: templateLeaveRecords.map((r: any) => ({
           date: r.date,
           status: r.status,
           leaveType: r.leaveType,
@@ -375,10 +427,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
           isHalfDay: r.status === "Half Day" || (r.status === "On Leave" && r.halfDaySession),
           countedAs: r.status === "Half Day" || (r.status === "On Leave" && r.halfDaySession) ? 0.5 : 1
         })),
-        halfDayCount: casualLeaveRecords.filter((r: any) => 
+        halfDayCount: templateLeaveRecords.filter((r: any) => 
           r.status === "Half Day" || (r.status === "On Leave" && r.halfDaySession)
         ).length,
-        fullDayCount: casualLeaveRecords.filter((r: any) => 
+        fullDayCount: templateLeaveRecords.filter((r: any) => 
           (r.status === "On Leave" || r.status === "Half Day") && 
           !(r.status === "Half Day" || (r.status === "On Leave" && r.halfDaySession))
         ).length
@@ -389,10 +441,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
       total, 
       used: Math.round(used * 10) / 10, // Round to 1 decimal place
       usedFromAttendance: Math.round(usedFromAttendance * 10) / 10,
-      usedFromRequests: Math.round(usedFromRequests * 10) / 10,
+      usedFromRequests: 0, // Not used anymore - all leaves are in attendance collection
       available: Math.round(available * 10) / 10 
     };
-  }, [leaveTemplate, attendanceRecords, leavesData, monthStart]);
+  }, [leaveTemplate, attendanceRecords, leavesData, monthStart, selectedDate, selectedLeaveType, isLeaveModalOpen, editData.status, editData.halfDaySession]);
 
   // Create day attendance map
   const attendanceMap = useMemo(() => {
@@ -666,6 +718,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
       });
       setFineAdjustment("auto");
       setCustomFineAmount(0);
+      setLateFineAdjustment("auto");
+      setEarlyFineAdjustment("auto");
+      setCustomLateFineAmount(0);
+      setCustomEarlyFineAmount(0);
       setCompensationType('paid');
       setAlternateWorkDate(null);
       setIsDetailDialogOpen(true);
@@ -708,17 +764,40 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
         alternateWorkDate: dayData.attendance?.alternateWorkDate || null,
       });
       setFineAdjustment("auto");
+      setCustomFineAmount(0);
+      setLateFineAdjustment("auto");
+      setEarlyFineAdjustment("auto");
+      setCustomLateFineAmount(0);
+      setCustomEarlyFineAmount(0);
       setCompensationType('weekOff');
       setAlternateWorkDate(dayData.attendance?.alternateWorkDate ? new Date(dayData.attendance.alternateWorkDate) : null);
       setIsDetailDialogOpen(true);
       return;
     }
 
-    // If clicking On Leave, open dialog to select leave type and compensation
+    // If clicking On Leave, directly open leave selection modal (like AdminAttendance)
     if (newStatus === "On Leave") {
       setSelectedDate(dayData.date);
-      setIsLeaveBalanceModalOpen(true);
-      // After leave balance modal, we'll open the edit dialog
+      
+      // Initialize with existing leave data if available
+      if (dayData.attendance?.leaveType) {
+        setSelectedLeaveType(dayData.attendance.leaveType);
+        setCompensationType(dayData.attendance.compensationType || 'paid');
+        setAlternateWorkDate(dayData.attendance.alternateWorkDate ? new Date(dayData.attendance.alternateWorkDate) : null);
+        setPaidHolidayNote(dayData.attendance.remarks || dayData.attendance.notes || "");
+      } else {
+        // Default to Casual Leave if available, otherwise Paid Holiday
+        if (casualLeaveInfo.available > 0) {
+          setSelectedLeaveType("Casual Leave");
+        } else {
+          setSelectedLeaveType("Paid Holiday");
+        }
+        setCompensationType('paid');
+        setAlternateWorkDate(null);
+        setPaidHolidayNote("");
+      }
+      
+      setIsLeaveModalOpen(true);
       return;
     }
 
@@ -757,18 +836,42 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
     
     switch (status) {
       case "Present":
-        return <Badge variant="default" className="bg-[#efaa1f] hover:bg-[#efaa1f]">Present</Badge>;
+        return (
+          <Badge variant="default" className="bg-[#efaa1f] hover:bg-[#d97706] text-white border-[#efaa1f] font-semibold">
+            Present
+          </Badge>
+        );
       case "Absent":
-        return <Badge variant="destructive">Absent</Badge>;
+        return (
+          <Badge variant="destructive" className="bg-red-600 hover:bg-red-700 text-white border-red-600 font-semibold">
+            Absent
+          </Badge>
+        );
       case "Half Day":
-        return <Badge variant="secondary">Half Day</Badge>;
+        return (
+          <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-orange-500 font-semibold">
+            Half Day
+          </Badge>
+        );
       case "On Leave":
         if (isWeekOff) {
-          return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">Week Off</Badge>;
+          return (
+            <Badge className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600 font-semibold">
+              Week Off
+            </Badge>
+          );
         }
-        return <Badge variant="outline">On Leave</Badge>;
+        return (
+          <Badge className="bg-purple-600 hover:bg-purple-700 text-white border-purple-600 font-semibold">
+            On Leave
+          </Badge>
+        );
       default:
-        return <Badge variant="secondary">Not Marked</Badge>;
+        return (
+          <Badge variant="secondary" className="bg-gray-500 hover:bg-gray-600 text-white border-gray-500 font-semibold">
+            Not Marked
+          </Badge>
+        );
     }
   };
 
@@ -791,21 +894,59 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
     } else {
       setEditData(dayData.attendance || {});
       setIsEditing(false);
-      // Set fine adjustment based on existing fine
-      // If fine is explicitly 0, set to "0" to show it was removed
-      // If fine exists and is > 0, check if it's a custom value or calculated
-      const existingFine = dayData.attendance?.fineAmount;
+      
+      // Initialize fine adjustment based on stored values (same logic as AdminAttendance)
+      const existingFine = dayData.attendance?.fineAmount || 0;
+      const lateMinutes = dayData.attendance?.lateMinutes || 0;
+      const earlyMinutes = dayData.attendance?.earlyMinutes || 0;
+      
+      // Initialize late fine adjustment
+      if (lateMinutes > 0) {
+        // If there's a stored fineAmount and late minutes exist, try to estimate late portion
+        // For now, set to auto - admin can adjust if needed
+        setLateFineAdjustment("auto");
+        // If fineAmount exists and only late minutes (no early), assume it's all late fine
+        if (existingFine > 0 && earlyMinutes <= 0) {
+          setLateFineAdjustment("custom");
+          setCustomLateFineAmount(existingFine);
+        } else {
+          setCustomLateFineAmount(0);
+        }
+      } else {
+        setLateFineAdjustment("0");
+        setCustomLateFineAmount(0);
+      }
+      
+      // Initialize early fine adjustment
+      if (earlyMinutes > 0) {
+        setEarlyFineAdjustment("auto");
+        // If fineAmount exists and only early minutes (no late), assume it's all early fine
+        if (existingFine > 0 && lateMinutes <= 0) {
+          setEarlyFineAdjustment("custom");
+          setCustomEarlyFineAmount(existingFine);
+        } else {
+          setCustomEarlyFineAmount(0);
+        }
+      } else {
+        setEarlyFineAdjustment("0");
+        setCustomEarlyFineAmount(0);
+      }
+      
+      // Initialize overall fine adjustment
       if (existingFine === 0) {
-        // Fine was explicitly set to 0 (removed)
         setFineAdjustment("0");
         setCustomFineAmount(0);
-      } else if (existingFine && existingFine > 0) {
-        // Fine exists - check if it matches calculated or is custom
-        // For now, default to custom so user can see the exact amount
-        setFineAdjustment("custom");
-        setCustomFineAmount(existingFine);
+      } else if (existingFine > 0) {
+        // If both late and early exist, use overall custom
+        // If only one exists, it's already set above
+        if (lateMinutes > 0 && earlyMinutes > 0) {
+          setFineAdjustment("auto"); // Will be calculated from late + early
+          setCustomFineAmount(existingFine);
+        } else {
+          setFineAdjustment("auto");
+          setCustomFineAmount(existingFine);
+        }
       } else {
-        // No fine set yet, default to auto
         setFineAdjustment("auto");
         setCustomFineAmount(0);
       }
@@ -938,8 +1079,8 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
       // Check if there's enough balance
       if (casualLeaveInfo.available < leaveDays) {
         const usedBreakdown = 
-          casualLeaveInfo.usedFromAttendance > 0 || casualLeaveInfo.usedFromRequests > 0
-            ? ` (${casualLeaveInfo.usedFromAttendance.toFixed(1)} from attendance, ${casualLeaveInfo.usedFromRequests.toFixed(1)} from approved requests)`
+          casualLeaveInfo.usedFromAttendance > 0
+            ? ` (${casualLeaveInfo.usedFromAttendance.toFixed(1)} from attendance)`
             : "";
         const availableDisplay = casualLeaveInfo.available > 0 ? casualLeaveInfo.available.toFixed(1) : 0;
         message.warning(
@@ -1044,40 +1185,72 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
 
       // Add leave type and compensation if status is On Leave
       if (finalStatus === "On Leave" && editData.leaveType) {
-        // Normalize leaveType to match enum values (always use "Casual Leave" not "casual")
-        let normalizedLeaveType = editData.leaveType;
-        if (editData.leaveType && (editData.leaveType.toLowerCase().trim() === 'casual' || editData.leaveType.toLowerCase().trim() === 'casual leave')) {
-          normalizedLeaveType = "Casual Leave";
+        attendanceData.leaveType = editData.leaveType;
+        
+        // Validate Paid Holiday requires note
+        if (editData.leaveType === "Paid Holiday") {
+          if (!paidHolidayNote && !editData.remarks && !editData.notes) {
+            message.error("Please provide a reason/note for Paid Holiday");
+            return;
+          }
+          attendanceData.remarks = paidHolidayNote || editData.notes || editData.remarks || "";
+          attendanceData.notes = paidHolidayNote || editData.notes || editData.remarks || "";
         }
         
-        // Validate: Week off compensation cannot be used with Casual Leave
-        if (compensationType === 'weekOff' && normalizedLeaveType === "Casual Leave") {
-          message.error("Casual Leave is not available when Week Off compensation is selected. Please select another leave type.");
-          return;
-        }
-        
-        attendanceData.leaveType = normalizedLeaveType;
-        attendanceData.compensationType = compensationType;
-        
-        // Always send alternateWorkDate - null if not weekOff or no date selected
-        if (compensationType === 'weekOff' && alternateWorkDate) {
-          attendanceData.alternateWorkDate = alternateWorkDate.toISOString();
+        // Validate Comp Off requires alternate work date
+        if (editData.leaveType === "Comp Off" || compensationType === 'compOff') {
+          if (!alternateWorkDate && !editData.alternateWorkDate) {
+            message.error("Please select an alternate work date for Comp Off");
+            return;
+          }
+          attendanceData.compensationType = 'compOff';
+          if (alternateWorkDate) {
+            attendanceData.alternateWorkDate = alternateWorkDate.toISOString();
+          } else if (editData.alternateWorkDate) {
+            attendanceData.alternateWorkDate = typeof editData.alternateWorkDate === 'string' 
+              ? editData.alternateWorkDate 
+              : new Date(editData.alternateWorkDate).toISOString();
+          }
+        } else if (editData.leaveType === "Week Off" || compensationType === 'weekOff') {
+          // Validate Week Off requires alternate work date
+          if (!alternateWorkDate && !editData.alternateWorkDate) {
+            message.error("Please select an alternate work date for Week Off");
+            return;
+          }
+          attendanceData.compensationType = 'weekOff';
+          if (alternateWorkDate) {
+            attendanceData.alternateWorkDate = alternateWorkDate.toISOString();
+          } else if (editData.alternateWorkDate) {
+            attendanceData.alternateWorkDate = typeof editData.alternateWorkDate === 'string' 
+              ? editData.alternateWorkDate 
+              : new Date(editData.alternateWorkDate).toISOString();
+          }
         } else {
-          attendanceData.alternateWorkDate = null; // Explicitly set to null to clear
+          attendanceData.compensationType = compensationType || 'paid';
+          attendanceData.alternateWorkDate = null;
         }
         
-        // Set isPaidLeave based on compensation type
-        if (compensationType === 'paid') {
+        // Set isPaidLeave based on leave type and compensation type
+        const currentCompType = attendanceData.compensationType || compensationType;
+        if (editData.leaveType === "Paid Holiday" || editData.leaveType === "Casual Leave") {
           attendanceData.isPaidLeave = true;
-        } else if (compensationType === 'unpaid') {
+        } else if (editData.leaveType === "Comp Off" || editData.leaveType === "Week Off") {
+          // Comp Off and Week Off with alternate date - treated as paid
+          attendanceData.isPaidLeave = true;
+        } else if (currentCompType === 'paid') {
+          attendanceData.isPaidLeave = true;
+        } else if (currentCompType === 'unpaid') {
           attendanceData.isPaidLeave = false;
-        } else if (compensationType === 'weekOff') {
-          // Week off with alternate date - treated as paid for the alternate date
+        } else if (currentCompType === 'weekOff' || currentCompType === 'compOff') {
+          // Week off/Comp off with alternate date - treated as paid
           attendanceData.isPaidLeave = true;
         }
       }
 
-      // Only include punchIn/punchOut if they have values
+      // Handle punch times
+      // Track if punch times are being changed (for fine recalculation)
+      const punchTimesChanged = editData.punchIn !== undefined || editData.punchOut !== undefined;
+      
       if (editData.punchIn) {
         attendanceData.punchIn = editData.punchIn;
       }
@@ -1085,88 +1258,83 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
         attendanceData.punchOut = editData.punchOut;
       }
 
-      // Handle fine adjustment
-      // IMPORTANT: Only send fine fields if admin has explicitly set them (not "auto")
-      // If "auto", don't send fine fields so backend will recalculate based on punch times
-      if (fineAdjustment === "0") {
-        // Explicitly set fine to 0
-        attendanceData.fineAmount = 0;
-        attendanceData.lateMinutes = 0;
-        attendanceData.earlyMinutes = 0;
-        attendanceData.fineHours = 0;
-      } else if (fineAdjustment === "1x" || fineAdjustment === "2x" || fineAdjustment === "3x") {
-        // Get staff salary for calculation - use proper salary structure calculation
-        const staffData = staff;
-        if (staffData?.salary) {
-          try {
-            // Import salary calculation utilities
-            const { calculateWorkingDays } = await import("@/utils/salaryCalculation.util");
-            
-            // Calculate working days for the selected month
-            const selectedDateObj = selectedDate || new Date();
-            const monthYear = selectedDateObj.getFullYear();
-            const monthIndex = selectedDateObj.getMonth();
-            
-            // Get holidays for the month
-            const monthHolidays = holidays.map((h: any) => new Date(h.date));
-            
-            // Get weekly off pattern
-            const weeklyOffPattern = businessData?.data?.business?.settings?.business?.weeklyOffPattern || 'standard';
-            
-            // Calculate full month working days
-            const fullMonthWorkingDaysInfo = calculateWorkingDays(
-              monthYear,
-              monthIndex,
-              monthHolidays,
-              weeklyOffPattern
-            );
-            const workingDays = fullMonthWorkingDaysInfo.workingDays || 30;
-            
-            // Calculate monthly gross salary from salary structure
-            const salary = staffData.salary as any;
-            let monthlyGrossSalary = 0;
-            
-            if (salary.basicSalary) {
-              // New structure with components
-              monthlyGrossSalary = salary.basicSalary + (salary.hra || 0) + (salary.transportAllowance || 0) + (salary.medicalAllowance || 0) + (salary.specialAllowance || 0);
-            } else if (salary.grossMonthly) {
-              monthlyGrossSalary = salary.grossMonthly;
-            } else if (salary.gross) {
-              monthlyGrossSalary = salary.gross;
-            } else if (salary.ctcYearly) {
-              // If only CTC is available, approximate gross as 80% of CTC
-              monthlyGrossSalary = (salary.ctcYearly / 12) * 0.8;
-            }
-            
-            // Calculate daily salary based on full month working days
-            const dailySalary = monthlyGrossSalary / workingDays;
-            
-            const multiplier = fineAdjustment === "1x" ? 1 : fineAdjustment === "2x" ? 2 : 3;
-            attendanceData.fineAmount = dailySalary * multiplier;
-            // Keep existing late/early minutes but override fine amount
-          } catch (error) {
-            console.error('Error calculating daily salary for fine:', error);
-            // Fallback to simple calculation
-            const salary = staffData.salary as any;
-            let dailySalary = 0;
-            if (salary.basicSalary) {
-              const monthlyGross = salary.basicSalary + (salary.hra || 0) + (salary.transportAllowance || 0) + (salary.medicalAllowance || 0) + (salary.specialAllowance || 0);
-              dailySalary = monthlyGross / 30;
-            } else if (salary.gross) {
-              dailySalary = salary.gross / 30;
-            } else if (salary.grossMonthly) {
-              dailySalary = salary.grossMonthly / 30;
-            }
-            const multiplier = fineAdjustment === "1x" ? 1 : fineAdjustment === "2x" ? 2 : 3;
-            attendanceData.fineAmount = dailySalary * multiplier;
-          }
+      // Fine adjustment logic
+      // Only send fine adjustments if admin explicitly set them (not "auto")
+      // If all are "auto" and only punch times changed, backend will recalculate fines from punch times
+      
+      const hasExplicitFineAdjustments = 
+        lateFineAdjustment !== "auto" || 
+        earlyFineAdjustment !== "auto" || 
+        fineAdjustment !== "auto";
+      
+      if (hasExplicitFineAdjustments) {
+        // Admin explicitly adjusted fines - send fine adjustment data
+        
+        // Handle late fine adjustment
+        if (lateFineAdjustment === "0") {
+          // Remove late fine - set late minutes to 0
+          attendanceData.lateMinutes = 0;
+        } else if (lateFineAdjustment === "1x" || lateFineAdjustment === "2x" || lateFineAdjustment === "3x") {
+          // Set multiplier - backend will calculate fine based on late minutes × multiplier
+          const multiplier = lateFineAdjustment === "1x" ? 1 : lateFineAdjustment === "2x" ? 2 : 3;
+          attendanceData.lateFineMultiplier = multiplier;
+          // Keep existing lateMinutes, backend will apply multiplier
+        } else if (lateFineAdjustment === "custom") {
+          // Custom late fine amount
+          attendanceData.lateFineAmount = customLateFineAmount;
         }
-      } else if (fineAdjustment === "custom") {
-        attendanceData.fineAmount = customFineAmount || 0;
-        // Keep existing late/early minutes but override fine amount
+        // If "auto", don't send lateMinutes - backend will recalculate from punch times
+        
+        // Handle early exit fine adjustment
+        if (earlyFineAdjustment === "0") {
+          // Remove early exit fine - set early minutes to 0
+          attendanceData.earlyMinutes = 0;
+        } else if (earlyFineAdjustment === "1x" || earlyFineAdjustment === "2x" || earlyFineAdjustment === "3x") {
+          // Set multiplier - backend will calculate fine based on early minutes × multiplier
+          const multiplier = earlyFineAdjustment === "1x" ? 1 : earlyFineAdjustment === "2x" ? 2 : 3;
+          attendanceData.earlyFineMultiplier = multiplier;
+          // Keep existing earlyMinutes, backend will apply multiplier
+        } else if (earlyFineAdjustment === "custom") {
+          // Custom early fine amount
+          attendanceData.earlyFineAmount = customEarlyFineAmount;
+        }
+        // If "auto", don't send earlyMinutes - backend will recalculate from punch times
+        
+        // Calculate total fine amount from late + early
+        // If individual adjustments are set, calculate total from them
+        if (lateFineAdjustment !== "auto" || earlyFineAdjustment !== "auto") {
+          // Individual adjustments are set - calculate total
+          const lateFine = lateFineAdjustment === "custom" ? customLateFineAmount : 
+                          (lateFineAdjustment === "0" ? 0 : null);
+          const earlyFine = earlyFineAdjustment === "custom" ? customEarlyFineAmount : 
+                           (earlyFineAdjustment === "0" ? 0 : null);
+          
+          // If we have concrete values (custom or 0), calculate total
+          if (lateFine !== null && earlyFine !== null) {
+            const total = (lateFine || 0) + (earlyFine || 0);
+            attendanceData.fineAmount = total;
+          }
+          // For multipliers, backend will calculate total from late + early fines
+        } else {
+          // Individual adjustments are auto - use overall adjustment
+          // This is allowed when admin manually sets attendance times
+          if (fineAdjustment === "0") {
+            // Remove all fines
+            attendanceData.fineAmount = 0;
+            attendanceData.lateMinutes = 0;
+            attendanceData.earlyMinutes = 0;
+            attendanceData.fineHours = 0;
+          } else if (fineAdjustment === "custom") {
+            // Overall custom fine amount (when admin manually sets times)
+            attendanceData.fineAmount = customFineAmount || 0;
+          }
+          // If "auto", backend will calculate from punch times
+        }
+      } else {
+        // All fine adjustments are "auto" - don't send any fine fields
+        // Backend will recalculate fines from punch times automatically
+        // This allows proper recalculation when admin only changes punch times or switches from custom to auto
       }
-      // If "auto", backend will calculate fine automatically - don't send fine fields
-      // This ensures backend recalculates fine based on updated punch times
       
       if (editData._id) {
         // Update existing attendance
@@ -1175,6 +1343,9 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
           data: attendanceData,
         }).unwrap();
         message.success("Attendance updated successfully");
+        
+        // Refetch attendance data to update leave balance display
+        refetchAttendance();
         
         // If fine was auto-calculated, the backend will have recalculated it
         // Refresh attendance data to show updated fine
@@ -1194,6 +1365,9 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
         }).unwrap();
         message.success("Attendance marked successfully");
         
+        // Refetch attendance data to update leave balance display
+        refetchAttendance();
+        
         // If fine was auto-calculated, the backend will have calculated it
         if (fineAdjustment === "auto" && result?.data?.attendance) {
           console.log('[Attendance] Fine auto-calculated:', {
@@ -1208,6 +1382,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
       setIsDetailDialogOpen(false);
       setFineAdjustment("auto");
       setCustomFineAmount(0);
+      setLateFineAdjustment("auto");
+      setEarlyFineAdjustment("auto");
+      setCustomLateFineAmount(0);
+      setCustomEarlyFineAmount(0);
       
       // Always refetch to get updated fine information
       await refetchAttendance();
@@ -1220,6 +1398,176 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
     if (!selectedDate) return null;
     return daysAttendance.find((d) => isSameDay(d.date, selectedDate));
   }, [selectedDate, daysAttendance]);
+  
+  // Check if admin manually set attendance times (in editing mode)
+  const isManuallySetAttendance = useMemo(() => {
+    if (!selectedDayData?.attendance) return false;
+    // If we're editing and punch times are set, admin has control
+    return isEditing && (editData.punchIn || editData.punchOut || 
+                         (selectedDayData.attendance.punchIn && selectedDayData.attendance.punchOut));
+  }, [isEditing, editData, selectedDayData]);
+  
+  // Calculate fine from late minutes based on adjustment
+  const calculateLateFine = useMemo(() => {
+    if (!selectedDayData?.attendance) return 0;
+    
+    const lateMinutes = selectedDayData.attendance.lateMinutes || 0;
+    if (lateMinutes <= 0) return 0;
+    
+    // If fine is removed (0), return 0
+    if (lateFineAdjustment === "0") {
+      return 0;
+    }
+    
+    // If custom amount is set, use it
+    if (lateFineAdjustment === "custom") {
+      return customLateFineAmount || 0;
+    }
+    
+    // For multipliers (1x, 2x, 3x) or auto, use stored fineAmount if available
+    if (lateFineAdjustment === "1x" || lateFineAdjustment === "2x" || lateFineAdjustment === "3x" || lateFineAdjustment === "auto") {
+      // If there's a stored fineAmount and we have late minutes, estimate late portion
+      if (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0) {
+        // If only late minutes exist (no early), use the full fineAmount
+        const earlyMinutes = selectedDayData.attendance.earlyMinutes || 0;
+        if (earlyMinutes <= 0) {
+          return selectedDayData.attendance.fineAmount;
+        }
+        // If both exist, we can't split accurately without backend calculation
+        return null;
+      }
+      return null;
+    }
+    
+    return 0;
+  }, [selectedDayData, lateFineAdjustment, customLateFineAmount]);
+  
+  // Calculate fine from early minutes based on adjustment
+  const calculateEarlyFine = useMemo(() => {
+    if (!selectedDayData?.attendance) return 0;
+    
+    const earlyMinutes = selectedDayData.attendance.earlyMinutes || 0;
+    if (earlyMinutes <= 0) return 0;
+    
+    // If fine is removed (0), return 0
+    if (earlyFineAdjustment === "0") {
+      return 0;
+    }
+    
+    // If custom amount is set, use it
+    if (earlyFineAdjustment === "custom") {
+      return customEarlyFineAmount || 0;
+    }
+    
+    // For multipliers (1x, 2x, 3x) or auto, use stored fineAmount if available
+    if (earlyFineAdjustment === "1x" || earlyFineAdjustment === "2x" || earlyFineAdjustment === "3x" || earlyFineAdjustment === "auto") {
+      // If there's a stored fineAmount and we have early minutes, estimate early portion
+      if (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0) {
+        // If only early minutes exist (no late), use the full fineAmount
+        const lateMinutes = selectedDayData.attendance.lateMinutes || 0;
+        if (lateMinutes <= 0) {
+          return selectedDayData.attendance.fineAmount;
+        }
+        // If both exist, we can't split accurately without backend calculation
+        return null;
+      }
+      return null;
+    }
+    
+    return 0;
+  }, [selectedDayData, earlyFineAdjustment, customEarlyFineAmount]);
+  
+  // Calculate total fine amount from late + early
+  const calculatedTotalFine = useMemo(() => {
+    // Priority 1: If individual adjustments are set (custom or 0), calculate from them
+    // Check if we have custom adjustments set (even if value is 0)
+    const hasCustomLate = lateFineAdjustment === "custom";
+    const hasCustomEarly = earlyFineAdjustment === "custom";
+    
+    if (hasCustomLate || hasCustomEarly) {
+      // Calculate from custom amounts (including 0 values)
+      const lateFine = hasCustomLate ? (customLateFineAmount || 0) : 0;
+      const earlyFine = hasCustomEarly ? (customEarlyFineAmount || 0) : 0;
+      const total = lateFine + earlyFine;
+      return total;
+    }
+    
+    // If fines are removed (set to 0), return 0
+    if (lateFineAdjustment === "0" && earlyFineAdjustment === "0") {
+      return 0;
+    }
+    if (lateFineAdjustment === "0" && earlyFineAdjustment === "auto") {
+      // Only early fine exists
+      const earlyFine = calculateEarlyFine;
+      return earlyFine !== null ? (earlyFine || 0) : null;
+    }
+    if (earlyFineAdjustment === "0" && lateFineAdjustment === "auto") {
+      // Only late fine exists
+      const lateFine = calculateLateFine;
+      return lateFine !== null ? (lateFine || 0) : null;
+    }
+    
+    // Priority 2: If overall custom fine is set and individual adjustments are auto
+    if (fineAdjustment === "custom" && lateFineAdjustment === "auto" && earlyFineAdjustment === "auto") {
+      return customFineAmount;
+    }
+    
+    // Priority 3: Use stored fineAmount from DB if available (when adjustments are auto)
+    if (selectedDayData?.attendance && selectedDayData.attendance.fineAmount !== undefined && selectedDayData.attendance.fineAmount !== null) {
+      // If individual adjustments are auto, use stored value
+      if (lateFineAdjustment === "auto" && earlyFineAdjustment === "auto") {
+        return selectedDayData.attendance.fineAmount;
+      }
+    }
+    
+    // Otherwise, return null (backend will calculate)
+    return null;
+  }, [calculateLateFine, calculateEarlyFine, lateFineAdjustment, earlyFineAdjustment, fineAdjustment, customFineAmount, customLateFineAmount, customEarlyFineAmount, selectedDayData]);
+  
+  // Auto-sync overall fine when individual adjustments change
+  useEffect(() => {
+    // If individual adjustments are set (not auto), calculate total and sync overall
+    if (lateFineAdjustment !== "auto" || earlyFineAdjustment !== "auto") {
+      const lateFine = calculateLateFine;
+      const earlyFine = calculateEarlyFine;
+      
+      // Only sync if we have concrete values (not null)
+      if (lateFine !== null && earlyFine !== null) {
+        const total = (lateFine || 0) + (earlyFine || 0);
+        // Always update overall fine when individual adjustments change
+        if (Math.abs(total - customFineAmount) > 0.01) {
+          setFineAdjustment("custom");
+          setCustomFineAmount(total);
+        }
+        // If total is 0 and fines are removed, set overall to 0
+        if (total === 0 && (lateFineAdjustment === "0" || earlyFineAdjustment === "0")) {
+          setFineAdjustment("0");
+          setCustomFineAmount(0);
+        }
+      }
+    } else if (lateFineAdjustment === "auto" && earlyFineAdjustment === "auto") {
+      // If both are auto, reset overall to auto (unless admin manually set overall custom)
+      // Don't auto-reset if admin explicitly set overall custom
+      if (fineAdjustment === "custom" && !isManuallySetAttendance) {
+        // Reset to auto if not manually set
+        setFineAdjustment("auto");
+        setCustomFineAmount(0);
+      }
+    }
+  }, [lateFineAdjustment, customLateFineAmount, earlyFineAdjustment, customEarlyFineAmount, calculateLateFine, calculateEarlyFine, isManuallySetAttendance, customFineAmount, fineAdjustment]);
+  
+  // Display fine amount - calculated total or stored value
+  const displayFineAmount = useMemo(() => {
+    if (!selectedDayData?.attendance) return 0;
+    
+    // If we have a calculated total from individual adjustments, use it
+    if (calculatedTotalFine !== null && calculatedTotalFine > 0) {
+      return calculatedTotalFine;
+    }
+    
+    // Otherwise use stored fine amount
+    return selectedDayData.attendance.fineAmount || 0;
+  }, [selectedDayData, calculatedTotalFine]);
 
   if (!employeeId) {
     return (
@@ -1251,11 +1599,11 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
               </div>
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border">
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">With Attendance</div>
-                <div className="text-2xl sm:text-3xl font-bold text-green-600">{stats.workingDaysWithAttendance}</div>
+                <div className="text-2xl sm:text-3xl font-bold  ">{stats.workingDaysWithAttendance}</div>
               </div>
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border">
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">Without Attendance</div>
-                <div className="text-2xl sm:text-3xl font-bold text-orange-600">{stats.workingDaysWithoutAttendance}</div>
+                <div className="text-2xl sm:text-3xl font-bold ">{stats.workingDaysWithoutAttendance}</div>
               </div>
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border">
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">Total Hours</div>
@@ -1277,7 +1625,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border border-green-200 dark:border-green-800">
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">Approved</div>
-                <div className="text-2xl sm:text-3xl font-bold text-green-600">{stats.approvedCount}</div>
+                <div className="text-2xl sm:text-3xl font-bold  ">{stats.approvedCount}</div>
                 <div className="text-xs text-muted-foreground mt-1">
                   {stats.totalWorkingDays > 0 
                     ? `${Math.round((stats.approvedCount / stats.totalWorkingDays) * 100)}% of working days`
@@ -1295,7 +1643,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
               </div>
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border border-red-200 dark:border-red-800">
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">Rejected</div>
-                <div className="text-2xl sm:text-3xl font-bold text-red-600">{stats.rejectedCount}</div>
+                <div className="text-2xl sm:text-3xl font-bold   ">{stats.rejectedCount}</div>
                 <div className="text-xs text-muted-foreground mt-1">
                   {stats.totalWorkingDays > 0 
                     ? `${Math.round((stats.rejectedCount / stats.totalWorkingDays) * 100)}% of working days`
@@ -1330,7 +1678,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
             <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Absent</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl sm:text-2xl font-bold text-red-600">{stats.absent}</div>
+            <div className="text-xl sm:text-2xl font-bold   ">{stats.absent}</div>
           </CardContent>
         </Card>
         <Card>
@@ -1354,7 +1702,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
               <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Holidays</CardTitle>
           </CardHeader>
           <CardContent>
-              <div className="text-xl sm:text-2xl font-bold text-purple-600">{stats.holidays}</div>
+              <div className="text-xl sm:text-2xl font-bold ">{stats.holidays}</div>
             </CardContent>
           </Card>
           <Card>
@@ -1362,7 +1710,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
               <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Week Offs</CardTitle>
           </CardHeader>
           <CardContent>
-              <div className="text-xl sm:text-2xl font-bold text-indigo-600">{stats.weekOffs}</div>
+              <div className="text-xl sm:text-2xl font-bold ">{stats.weekOffs}</div>
           </CardContent>
         </Card>
       </div>
@@ -1371,7 +1719,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
         <Card className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/20 dark:to-orange-950/20 border-red-200 dark:border-red-800">
           <CardHeader>
             <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-600" />
+              <AlertCircle className="w-5 h-5   " />
               Fine Hours & Penalties Summary - {format(monthStart, "MMMM yyyy")}
             </CardTitle>
           </CardHeader>
@@ -1379,10 +1727,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border border-red-200">
                 <div className="flex items-center justify-center gap-2 mb-2">
-                  <Clock className="w-4 h-4 text-red-600" />
+                  <Clock className="w-4 h-4   " />
                   <div className="text-xs sm:text-sm text-muted-foreground">Total Fine Hours</div>
                 </div>
-                <div className="text-xl sm:text-2xl font-bold text-red-600">
+                <div className="text-xl sm:text-2xl font-bold   ">
                   {formatFineHours(stats.totalFineHours)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
@@ -1391,10 +1739,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
               </div>
               <div className="text-center p-3 bg-white dark:bg-gray-900 rounded-lg border border-orange-200">
                 <div className="flex items-center justify-center gap-2 mb-2">
-                  <AlertCircle className="w-4 h-4 text-orange-600" />
+                  <AlertCircle className="w-4 h-4 " />
                   <div className="text-xs sm:text-sm text-muted-foreground">Total Late Hours</div>
                 </div>
-                <div className="text-xl sm:text-2xl font-bold text-orange-600">
+                <div className="text-xl sm:text-2xl font-bold ">
                   {formatLateHours(stats.totalLateMinutes)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
@@ -1461,6 +1809,14 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   allowClear={false}
                   style={{ width: '180px' }}
                   size="large"
+                  disabledDate={(current) => {
+                    // Disable future months - only allow current month and past months
+                    if (!current) return false;
+                    const today = new Date();
+                    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                    const selectedMonth = new Date(current.year(), current.month(), 1);
+                    return selectedMonth > currentMonth;
+                  }}
                 />
               </div>
             </div>
@@ -1517,7 +1873,16 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          {daysAttendance.map((dayData) => {
+          {daysAttendance
+            .filter((dayData) => {
+              // Only show cards up to current date (hide future dates)
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const cardDate = new Date(dayData.date);
+              cardDate.setHours(0, 0, 0, 0);
+              return cardDate <= today;
+            })
+            .map((dayData) => {
             const { date, attendance, isHoliday, holidayName, isWeekOff, isWorkingDay, isToday, isPast, isApproved, isPending, isRejected } = dayData;
             const dateKey = format(date, "yyyy-MM-dd");
             const dayNumber = format(date, "d");
@@ -1626,8 +1991,19 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
 
                       {/* Note */}
                       {hasNote && (
-                        <div className="text-xs text-muted-foreground mb-1 line-clamp-1">
-                          Note: {attendance.notes || attendance.remarks}
+                        <div className="text-xs mb-1">
+                          {attendance.leaveType === "Paid Holiday" ? (
+                            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md p-2">
+                              <div className="font-medium text-blue-900 dark:text-blue-100 mb-1">Paid Holiday Reason:</div>
+                              <div className="text-blue-800 dark:text-blue-200 line-clamp-2">
+                                {attendance.notes || attendance.remarks}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-muted-foreground line-clamp-1">
+                              <span className="font-medium">Note:</span> {attendance.notes || attendance.remarks}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1641,7 +2017,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                             }}
                             className="text-xs text-blue-600 hover:underline"
                           >
-                            Edit Note
+                            {attendance?.leaveType === "Paid Holiday" ? "Edit Reason" : "Edit Note"}
                           </button>
                         ) : (
                           <button
@@ -1651,7 +2027,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                             }}
                             className="text-xs text-blue-600 hover:underline"
                           >
-                            Add Note
+                            {attendance?.leaveType === "Paid Holiday" ? "Add Reason" : "Add Note"}
                           </button>
                         )}
                         {(hasLogs || attendance) && (
@@ -1668,172 +2044,190 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                       </div>
                     </div>
 
-                    {/* Right Side: Status Buttons */}
+                    {/* Right Side: Status Buttons - 3-3-1 Layout */}
                     {isWorkingDay && (
-                      <div className="flex flex-row sm:flex-col gap-1.5 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:flex-shrink-0">
-                        {/* Present Button */}
-                        <Button
-                          variant={activeStatus === "Present" ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            activeStatus === "Present"
-                              ? "bg-green-500 hover:bg-green-600 text-white"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickStatusChange(dayData, "Present");
-                          }}
-                        >
-                          <span className="font-semibold">P</span> |{" "}
-                          <span className="hidden sm:inline">{timeRange || "Present"}</span>
-                          <span className="sm:hidden">Present</span>
-                        </Button>
+                      <div className="w-full sm:w-auto sm:flex-shrink-0">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {/* Row 1: P, HD, F */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-8 px-2 text-xs flex-shrink-0 border-0 ${
+                              activeStatus === "Present"
+                                ? isPending && !isApproved
+                                  ? "!bg-green-400 hover:!bg-green-500 !text-white font-semibold" // Lighter green for pending
+                                  : "!bg-[#efaa1f] hover:!bg-[#d97706] !text-white font-semibold" // Darker orange for approved
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickStatusChange(dayData, "Present");
+                            }}
+                          >
+                            <span className="font-semibold">P</span> |{" "}
+                            <span className="hidden sm:inline">{timeRange || "Present"}</span>
+                            <span className="sm:hidden">P</span>
+                          </Button>
 
-                        {/* Half Day Button */}
-                        <Button
-                          variant={activeStatus === "Half Day" ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            activeStatus === "Half Day"
-                              ? "bg-orange-500 hover:bg-orange-600 text-white"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickStatusChange(dayData, "Half Day");
-                          }}
-                        >
-                          <span className="font-semibold">HD</span> |{" "}
-                          <span className="hidden sm:inline">
-                            {attendance?.halfDaySession === "First Half Day"
-                              ? "Session 1"
-                              : attendance?.halfDaySession === "Second Half Day"
-                              ? "Session 2"
-                              : "Half Day"}
-                          </span>
-                          <span className="sm:hidden">
-                            {attendance?.halfDaySession === "First Half Day"
-                              ? "S1"
-                              : attendance?.halfDaySession === "Second Half Day"
-                              ? "S2"
-                              : "HD"}
-                          </span>
-                        </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-8 px-2 text-xs flex-shrink-0 border-0 ${
+                              activeStatus === "Half Day"
+                                ? "!bg-orange-500 hover:!bg-orange-600 !text-white font-semibold"
+                                : attendance?.halfDaySession === "First Half Day" || attendance?.halfDaySession === "Second Half Day"
+                                ? "bg-orange-100 hover:bg-orange-200 text-orange-700"
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickStatusChange(dayData, "Half Day");
+                            }}
+                          >
+                            <span className="font-semibold">HD</span> |{" "}
+                            <span className="hidden sm:inline">
+                              {attendance?.halfDaySession === "First Half Day"
+                                ? "Session 1"
+                                : attendance?.halfDaySession === "Second Half Day"
+                                ? "Session 2"
+                                : "Half Day"}
+                            </span>
+                            <span className="sm:hidden">
+                              {attendance?.halfDaySession === "First Half Day"
+                                ? "S1"
+                                : attendance?.halfDaySession === "Second Half Day"
+                                ? "S2"
+                                : "HD"}
+                            </span>
+                          </Button>
 
-                        {/* Fine Button - Always show, display fine or 0 */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            attendance?.fineAmount && attendance.fineAmount > 0 && fineHours > 0
-                              ? "bg-red-100 hover:bg-red-200 text-red-700 border-red-300"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDateClick(dayData);
-                          }}
-                        >
-                          <span className="font-semibold">F</span> |{" "}
-                          {(() => {
-                            // Get fineHours from attendance record (stored in minutes)
-                            const totalFineMinutes = attendance?.fineHours || 0;
-                            
-                            if (totalFineMinutes > 0) {
-                              // Convert minutes to hours:minutes format
-                              const hours = Math.floor(totalFineMinutes / 60);
-                              const minutes = totalFineMinutes % 60;
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-7 sm:h-8 px-1 sm:px-2 text-[10px] sm:text-xs flex-shrink-0 ${
+                              attendance?.fineAmount && attendance.fineAmount > 0 && fineHours > 0
+                                ? "bg-red-100 hover:bg-red-200 text-red-700 border-red-300"
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDateClick(dayData);
+                            }}
+                          >
+                            <span className="font-semibold text-[10px] sm:text-xs">F</span>
+                            {(() => {
+                              const lateMinutes = attendance?.lateMinutes || 0;
+                              const earlyMinutes = attendance?.earlyMinutes || 0;
+                              const fineAmount = attendance?.fineAmount || 0;
                               
-                              // Format: H:MM (always show hours and minutes, even if hours is 0)
-                              const formattedHours = String(hours).padStart(1, '0');
-                              const formattedMinutes = String(minutes).padStart(2, '0');
-                              const hoursDisplay = `${formattedHours}:${formattedMinutes}`;
+                              // Priority 1: Show fine amount if it exists (covers both auto-calculated and custom fines)
+                              if (fineAmount > 0) {
+                                return (
+                                  <span className="hidden md:inline text-[10px] sm:text-xs"> | {formatINR(fineAmount)}</span>
+                                );
+                              }
                               
-                              return (
-                                <>
-                                  <span className="hidden sm:inline">-{hoursDisplay} Hrs</span>
-                                  <span className="sm:hidden">-{hoursDisplay}</span>
-                            </>
-                              );
-                            } else {
-                              return <span>0</span>;
-                            }
-                          })()}
-                        </Button>
+                              // Priority 2: Show late/early time if there are late or early minutes (but no fine amount yet)
+                              if (lateMinutes > 0 || earlyMinutes > 0) {
+                                const parts: string[] = [];
+                                if (lateMinutes > 0) {
+                                  const lateHours = Math.floor(lateMinutes / 60);
+                                  const lateMins = lateMinutes % 60;
+                                  if (lateHours > 0) {
+                                    parts.push(`${lateHours}h ${lateMins}m`);
+                                  } else {
+                                    parts.push(`${lateMins}m`);
+                                  }
+                                }
+                                if (earlyMinutes > 0) {
+                                  const earlyHours = Math.floor(earlyMinutes / 60);
+                                  const earlyMins = earlyMinutes % 60;
+                                  if (earlyHours > 0) {
+                                    parts.push(`-${earlyHours}h ${earlyMins}m`);
+                                  } else {
+                                    parts.push(`-${earlyMins}m`);
+                                  }
+                                }
+                                return (
+                                  <span className="hidden md:inline text-[10px] sm:text-xs"> | {parts.join(' ')}</span>
+                                );
+                              }
+                              
+                              // No fine or late/early time
+                              return null;
+                            })()}
+                          </Button>
+                          
+                          {/* Row 2: OT, A, L */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-xs flex-shrink-0 bg-gray-100 hover:bg-gray-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              message.info("Overtime feature coming soon");
+                            }}
+                          >
+                            <span className="font-semibold">OT</span> |{" "}
+                            <span className="hidden sm:inline">OT</span>
+                            <span className="sm:hidden">OT</span>
+                          </Button>
 
-                        {/* Overtime Button */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 bg-gray-100 hover:bg-gray-200"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // TODO: Implement overtime functionality
-                            message.info("Overtime feature coming soon");
-                          }}
-                        >
-                          <span className="font-semibold">OT</span> |{" "}
-                          <span className="hidden sm:inline">Overtime</span>
-                          <span className="sm:hidden">OT</span>
-                        </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-8 px-2 text-xs flex-shrink-0 border-0 ${
+                              activeStatus === "Absent"
+                                ? "!bg-red-600 hover:!bg-red-700 !text-white font-semibold"
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickStatusChange(dayData, "Absent");
+                            }}
+                          >
+                            <span className="font-semibold">A</span> |{" "}
+                            <span className="hidden sm:inline">A</span>
+                            <span className="sm:hidden">A</span>
+                          </Button>
 
-                        {/* Absent Button */}
-                        <Button
-                          variant={activeStatus === "Absent" ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            activeStatus === "Absent"
-                              ? "bg-red-500 hover:bg-red-600 text-white"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickStatusChange(dayData, "Absent");
-                          }}
-                        >
-                          <span className="font-semibold">A</span> |{" "}
-                          <span className="hidden sm:inline">Absent</span>
-                          <span className="sm:hidden">A</span>
-                        </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-8 px-2 text-xs flex-shrink-0 border-0 ${
+                              activeStatus === "On Leave" && attendance?.compensationType !== 'weekOff'
+                                ? "!bg-purple-600 hover:!bg-purple-700 !text-white font-semibold"
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickStatusChange(dayData, "On Leave");
+                            }}
+                          >
+                            <span className="font-semibold">L</span> |{" "}
+                            <span className="hidden sm:inline">L</span>
+                            <span className="sm:hidden">L</span>
+                          </Button>
 
-                        {/* Leave Button */}
-                        <Button
-                          variant={activeStatus === "On Leave" && attendance?.compensationType !== 'weekOff' ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            activeStatus === "On Leave" && attendance?.compensationType !== 'weekOff'
-                              ? "bg-blue-500 hover:bg-blue-600 text-white"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickStatusChange(dayData, "On Leave");
-                          }}
-                        >
-                          <span className="font-semibold">L</span> |{" "}
-                          <span className="hidden sm:inline">Leave</span>
-                          <span className="sm:hidden">L</span>
-                        </Button>
-
-                        {/* Week Off Button */}
-                        <Button
-                          variant={activeStatus === "On Leave" && attendance?.compensationType === 'weekOff' ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 sm:h-8 px-2 sm:px-2 text-xs flex-shrink-0 ${
-                            activeStatus === "On Leave" && attendance?.compensationType === 'weekOff'
-                              ? "bg-purple-500 hover:bg-purple-600 text-white"
-                              : "bg-gray-100 hover:bg-gray-200"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickStatusChange(dayData, "Week Off");
-                          }}
-                        >
-                          <span className="font-semibold">WO</span> |{" "}
-                          <span className="hidden sm:inline">Week Off</span>
-                          <span className="sm:hidden">WO</span>
-                        </Button>
+                          {/* Row 3: WO (spans full width) */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-8 px-2 text-xs flex-shrink-0 border-0 col-span-3 ${
+                              activeStatus === "On Leave" && attendance?.compensationType === 'weekOff'
+                                ? "!bg-indigo-600 hover:!bg-indigo-700 !text-white font-semibold"
+                                : "bg-gray-100 hover:bg-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickStatusChange(dayData, "Week Off");
+                            }}
+                          >
+                            <span className="font-semibold">WO</span> |{" "}
+                            <span className="hidden sm:inline">WO</span>
+                            <span className="sm:hidden">WO</span>
+                          </Button>
+                        </div>
                       </div>
                     )}
 
@@ -2105,80 +2499,101 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                     <div>
                       <Label>Leave Type</Label>
                       {isEditing && isAdmin ? (
-                        <Select
-                          value={editData.leaveType || ""}
-                          onValueChange={(value) => {
-                            // Normalize leave type value to match enum (always use "Casual Leave" not "casual")
-                            let normalizedValue = value;
-                            if (value && (value.toLowerCase().trim() === 'casual' || value.toLowerCase().trim() === 'casual leave')) {
-                              normalizedValue = "Casual Leave";
-                            }
-                            
-                            const newData = { ...editData, leaveType: normalizedValue };
-                            // Set default paid/unpaid based on leave type
-                            if (normalizedValue === "Unpaid Leave") {
-                              setCompensationType('unpaid');
-                              newData.isPaidLeave = false;
-                              newData.compensationType = 'unpaid';
-                            } else if (normalizedValue === "Casual Leave") {
-                              setCompensationType('paid');
-                              newData.isPaidLeave = true;
-                              newData.compensationType = 'paid';
-                            } else {
-                              setCompensationType('paid');
-                              newData.isPaidLeave = true;
-                              newData.compensationType = 'paid';
-                            }
-                            setEditData(newData);
-                          }}
-                        >
-                          <SelectTrigger className="mt-1">
-                            <SelectValue placeholder="Select leave type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {/* Use leave types from template (same as leave modal) */}
-                            {(leaveTemplate as any)?.leaveTypes?.map((lt: any) => {
-                              // Normalize leave type value to match enum (always use "Casual Leave" not "casual")
-                              const isCasualLeave = (lt.type || '').toLowerCase().trim() === 'casual leave' || (lt.type || '').toLowerCase().trim() === 'casual';
-                              const normalizedValue = isCasualLeave ? "Casual Leave" : lt.type;
-                              
-                              // Check if Casual Leave should be disabled
-                              const isDisabled = isCasualLeave && (casualLeaveInfo.available <= 0 || editData.compensationType === 'weekOff' || compensationType === 'weekOff');
-                              
-                              return (
-                                <SelectItem
-                                  key={lt.type}
-                                  value={normalizedValue}
-                                  disabled={isDisabled}
-                                  className={isDisabled ? "opacity-50 cursor-not-allowed" : ""}
-                                >
-                                  {lt.type} ({lt.days} days/month)
-                                  {isCasualLeave && casualLeaveInfo.available <= 0 && " - Exhausted"}
-                                  {isCasualLeave && (editData.compensationType === 'weekOff' || compensationType === 'weekOff') && " - Not available for Week Off"}
-                                </SelectItem>
-                              );
-                            }) || (
-                              <>
-                                {/* Fallback if no template - use default types */}
-                                <SelectItem 
-                                  value="Casual Leave"
-                                  disabled={casualLeaveInfo.available <= 0 || editData.compensationType === 'weekOff' || compensationType === 'weekOff'}
-                                  className={(casualLeaveInfo.available <= 0 || editData.compensationType === 'weekOff' || compensationType === 'weekOff') ? "opacity-50 cursor-not-allowed" : ""}
-                                >
-                                  Casual Leave
-                                  {casualLeaveInfo.available <= 0 && " - Exhausted"}
-                                  {(editData.compensationType === 'weekOff' || compensationType === 'weekOff') && " - Not available for Week Off"}
-                                </SelectItem>
-                                <SelectItem value="Unpaid Leave">Unpaid Leave</SelectItem>
-                                <SelectItem value="Sick Leave">Sick Leave</SelectItem>
-                              </>
-                            )}
-                          </SelectContent>
-                        </Select>
+                        <>
+                          <Select
+                            value={editData.leaveType || ""}
+                            onValueChange={(value) => {
+                              const newData = { ...editData, leaveType: value };
+                              // Auto-set compensation type based on leave type
+                              if (value === "Paid Holiday") {
+                                setCompensationType('paid');
+                                newData.compensationType = 'paid';
+                              } else if (value === "Comp Off") {
+                                setCompensationType('compOff');
+                                newData.compensationType = 'compOff';
+                              } else if (value === "Week Off") {
+                                setCompensationType('weekOff');
+                                newData.compensationType = 'weekOff';
+                              } else if (value === "Casual Leave") {
+                                setCompensationType('paid');
+                                newData.compensationType = 'paid';
+                              }
+                              setEditData(newData);
+                            }}
+                          >
+                            <SelectTrigger className="mt-1">
+                              <SelectValue placeholder="Select leave type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* Only show the 4 allowed leave types */}
+                              <SelectItem 
+                                value="Casual Leave"
+                                disabled={casualLeaveInfo.available <= 0 || editData.compensationType === 'weekOff' || compensationType === 'weekOff'}
+                                className={(casualLeaveInfo.available <= 0 || editData.compensationType === 'weekOff' || compensationType === 'weekOff') ? "opacity-50 cursor-not-allowed" : ""}
+                              >
+                                Casual Leave
+                                {casualLeaveInfo.available <= 0 && " - Exhausted"}
+                                {(editData.compensationType === 'weekOff' || compensationType === 'weekOff') && " - Not available for Week Off"}
+                              </SelectItem>
+                              <SelectItem value="Paid Holiday">Paid Holiday</SelectItem>
+                              <SelectItem value="Comp Off">Comp Off (Compensation Off)</SelectItem>
+                              <SelectItem value="Week Off">Week Off</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          
+                          {/* Show leave balance for Casual Leave */}
+                          {(editData.leaveType === "Casual Leave" || selectedDayData.attendance.leaveType === "Casual Leave") && employeeId && (
+                            <div className={`mt-2 p-2 border rounded-md ${
+                              casualLeaveInfo.available <= 0 
+                                ? "bg-red-50 border-red-200" 
+                                : casualLeaveInfo.available < 1 
+                                  ? "bg-yellow-50 border-yellow-200" 
+                                  : "bg-green-50 border-green-200"
+                            }`}>
+                              <div className="text-xs space-y-1">
+                                <div className="font-medium">
+                                  Casual Leave Balance: <span className={casualLeaveInfo.available <= 0 ? "text-red-700 font-bold" : " font-bold"}>{casualLeaveInfo.available.toFixed(1)}</span> / {casualLeaveInfo.total} days
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Used: {casualLeaveInfo.used.toFixed(1)} days (from attendance records)
+                                </div>
+                                {casualLeaveInfo.available <= 0 && (
+                                  <div className="text-red-700 font-medium">
+                                    ⚠️ Leave balance exhausted. Cannot mark as Casual Leave.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="mt-1 flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
                           <span>{selectedDayData.attendance.leaveType || "Not specified"}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Paid Holiday Note */}
+                  {((isEditing && (editData.leaveType === "Paid Holiday" || selectedDayData.attendance.leaveType === "Paid Holiday")) || 
+                     (!isEditing && selectedDayData.attendance.leaveType === "Paid Holiday")) && (
+                    <div>
+                      <Label>Reason/Note for Paid Holiday *</Label>
+                      {isEditing && isAdmin ? (
+                        <Textarea
+                          value={paidHolidayNote || selectedDayData.attendance.remarks || ""}
+                          onChange={(e) => {
+                            setPaidHolidayNote(e.target.value);
+                            setEditData({ ...editData, remarks: e.target.value, notes: e.target.value });
+                          }}
+                          placeholder="Enter reason for paid holiday..."
+                          className="mt-1"
+                          rows={3}
+                        />
+                      ) : (
+                        <div className="mt-1 p-2 bg-muted rounded-md">
+                          <span>{selectedDayData.attendance.remarks || selectedDayData.attendance.notes || "No reason provided"}</span>
                         </div>
                       )}
                     </div>
@@ -2192,10 +2607,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                         <>
                           <Select
                             value={compensationType || editData.compensationType || (editData.isPaidLeave === false ? 'unpaid' : 'paid')}
-                            onValueChange={(value: 'paid' | 'unpaid' | 'weekOff') => {
+                            onValueChange={(value: 'paid' | 'unpaid' | 'weekOff' | 'compOff') => {
                               setCompensationType(value);
                               const newData = { ...editData, compensationType: value };
-                              if (value !== 'weekOff') {
+                              if (value !== 'weekOff' && value !== 'compOff') {
                                 setAlternateWorkDate(null);
                                 newData.alternateWorkDate = null;
                               }
@@ -2209,9 +2624,11 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                               <SelectItem value="paid">Paid (Full Salary)</SelectItem>
                               <SelectItem value="unpaid">Unpaid (No Salary)</SelectItem>
                               <SelectItem value="weekOff">Week Off (Alternate Date)</SelectItem>
+                              <SelectItem value="compOff">Comp Off (Compensation Off - Alternate Date)</SelectItem>
                             </SelectContent>
                           </Select>
-                          {(compensationType === 'weekOff' || editData.compensationType === 'weekOff') && (
+                          {((compensationType === 'weekOff' || editData.compensationType === 'weekOff') || 
+                            (compensationType === 'compOff' || editData.compensationType === 'compOff')) && (
                             <div className="mt-2">
                               <Label className="text-sm">Alternate Work Date</Label>
                               <Input
@@ -2254,7 +2671,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                     <Card className={selectedDayData.attendance.fineAmount === 0 ? "bg-green-50 border-green-200" : (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0 ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200")}>
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 mb-3">
-                          <DollarSign className={`w-5 h-5 ${selectedDayData.attendance.fineAmount === 0 ? "text-green-600" : (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0 ? "text-red-600" : "text-gray-600")}`} />
+                          <DollarSign className={`w-5 h-5 ${selectedDayData.attendance.fineAmount === 0 ? " " : (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0 ? "  " : "text-gray-600")}`} />
                           <Label className="text-base font-semibold">Fine Information</Label>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-sm">
@@ -2263,96 +2680,337 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                               <span className="text-muted-foreground">Fine Hours:</span>
                               <span className="ml-2 font-medium">
                                 {selectedDayData.attendance.fineHours > 0 
-                                  ? formatFineHours(selectedDayData.attendance.fineHours)
+                                  ? formatWorkHours(selectedDayData.attendance.fineHours)
                                   : "0h"}
                               </span>
                             </div>
                           )}
-                          {selectedDayData.attendance.lateMinutes !== undefined && selectedDayData.attendance.lateMinutes !== null && (
-                            <div>
-                              <span className="text-muted-foreground">Late:</span>
-                              <span className="ml-2 font-medium">
-                                {selectedDayData.attendance.lateMinutes > 0 
-                                  ? formatLateHours(selectedDayData.attendance.lateMinutes)
-                                  : "0h 0m"}
-                              </span>
+                          {/* Show Late Login section if punch in exists or late minutes exist */}
+                          {(selectedDayData.attendance.punchIn || (selectedDayData.attendance.lateMinutes !== undefined && selectedDayData.attendance.lateMinutes !== null)) && (
+                            <div className="col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground">Late Login:</span>
+                                  <span className="font-medium">
+                                    {/* Show fine amount if custom is set, otherwise show time */}
+                                    {lateFineAdjustment === "custom" && customLateFineAmount > 0 ? (
+                                      <span className="text-red-600 dark:text-red-400">
+                                        {formatINR(customLateFineAmount)}
+                                      </span>
+                                    ) : lateFineAdjustment === "1x" || lateFineAdjustment === "2x" || lateFineAdjustment === "3x" ? (
+                                      <span className="text-orange-600 dark:text-orange-400">
+                                        {selectedDayData.attendance.lateMinutes > 0 
+                                          ? formatLateHours(selectedDayData.attendance.lateMinutes)
+                                          : "0h 0m"} ({lateFineAdjustment})
+                                      </span>
+                                    ) : (
+                                      selectedDayData.attendance.lateMinutes > 0 
+                                        ? formatLateHours(selectedDayData.attendance.lateMinutes)
+                                        : "0h 0m (On time)"
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={lateFineAdjustment}
+                                    onValueChange={(value) => {
+                                      setLateFineAdjustment(value);
+                                      if (value === "custom") {
+                                        setCustomLateFineAmount(selectedDayData.attendance.fineAmount || 0);
+                                      }
+                                      if (!isEditing && isAdmin) {
+                                        setIsEditing(true);
+                                      }
+                                    }}
+                                    disabled={!isAdmin}
+                                  >
+                                    <SelectTrigger className="h-8 w-[150px] text-xs">
+                                      <SelectValue placeholder="Fine Option" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="auto">Auto Calculate</SelectItem>
+                                      <SelectItem value="0">Remove Fine</SelectItem>
+                                      <SelectItem value="1x">1x Rate</SelectItem>
+                                      <SelectItem value="2x">2x Rate</SelectItem>
+                                      <SelectItem value="3x">3x Rate</SelectItem>
+                                      <SelectItem value="custom">Custom Amount</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {lateFineAdjustment === "custom" && (
+                                    <Input
+                                      type="number"
+                                      placeholder="Amount"
+                                      value={customLateFineAmount}
+                                      onChange={(e) => setCustomLateFineAmount(Number(e.target.value))}
+                                      className="h-8 w-[100px] text-xs"
+                                      min="0"
+                                      step="0.01"
+                                      disabled={!isAdmin}
+                                    />
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
-                          {selectedDayData.attendance.earlyMinutes !== undefined && selectedDayData.attendance.earlyMinutes !== null && (
-                            <div>
-                              <span className="text-muted-foreground">Early Exit:</span>
-                              <span className="ml-2 font-medium">
-                                {selectedDayData.attendance.earlyMinutes > 0 
-                                  ? formatLateHours(selectedDayData.attendance.earlyMinutes)
-                                  : "0h 0m"}
-                              </span>
+                          {/* Show Early Exit section if punch out exists or early minutes exist */}
+                          {(selectedDayData.attendance.punchOut || (selectedDayData.attendance.earlyMinutes !== undefined && selectedDayData.attendance.earlyMinutes !== null)) && (
+                            <div className="col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground">Early Exit:</span>
+                                  <span className="font-medium">
+                                    {/* Show fine amount if custom is set, otherwise show time */}
+                                    {earlyFineAdjustment === "custom" && customEarlyFineAmount > 0 ? (
+                                      <span className="text-red-600 dark:text-red-400">
+                                        {formatINR(customEarlyFineAmount)}
+                                      </span>
+                                    ) : earlyFineAdjustment === "1x" || earlyFineAdjustment === "2x" || earlyFineAdjustment === "3x" ? (
+                                      <span className="text-orange-600 dark:text-orange-400">
+                                        {selectedDayData.attendance.earlyMinutes > 0 
+                                          ? formatLateHours(selectedDayData.attendance.earlyMinutes)
+                                          : "0h 0m"} ({earlyFineAdjustment})
+                                      </span>
+                                    ) : (
+                                      selectedDayData.attendance.earlyMinutes > 0 
+                                        ? formatLateHours(selectedDayData.attendance.earlyMinutes)
+                                        : "0h 0m (On time)"
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={earlyFineAdjustment}
+                                    onValueChange={(value) => {
+                                      setEarlyFineAdjustment(value);
+                                      if (value === "custom") {
+                                        setCustomEarlyFineAmount(selectedDayData.attendance.fineAmount || 0);
+                                      }
+                                      if (!isEditing && isAdmin) {
+                                        setIsEditing(true);
+                                      }
+                                    }}
+                                    disabled={!isAdmin}
+                                  >
+                                    <SelectTrigger className="h-8 w-[150px] text-xs">
+                                      <SelectValue placeholder="Fine Option" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="auto">Auto Calculate</SelectItem>
+                                      <SelectItem value="0">Remove Fine</SelectItem>
+                                      <SelectItem value="1x">1x Rate</SelectItem>
+                                      <SelectItem value="2x">2x Rate</SelectItem>
+                                      <SelectItem value="3x">3x Rate</SelectItem>
+                                      <SelectItem value="custom">Custom Amount</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {earlyFineAdjustment === "custom" && (
+                                    <Input
+                                      type="number"
+                                      placeholder="Amount"
+                                      value={customEarlyFineAmount}
+                                      onChange={(e) => setCustomEarlyFineAmount(Number(e.target.value))}
+                                      className="h-8 w-[100px] text-xs"
+                                      min="0"
+                                      step="0.01"
+                                      disabled={!isAdmin}
+                                    />
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
                             <div className="col-span-2">
                               <span className="text-muted-foreground">Fine Amount:</span>
-                            <span className={`ml-2 font-semibold text-lg ${
-                              selectedDayData.attendance.fineAmount === 0 
-                                ? "text-green-600" 
-                                : (selectedDayData.attendance.fineAmount && selectedDayData.attendance.fineAmount > 0 
-                                  ? "text-red-600" 
-                                  : "text-gray-600")
-                            }`}>
-                              {selectedDayData.attendance.fineAmount !== undefined && selectedDayData.attendance.fineAmount !== null
-                                ? `₹${selectedDayData.attendance.fineAmount.toFixed(2)}`
-                                : "₹0.00"}
-                              {selectedDayData.attendance.fineAmount === 0 && (
-                                <span className="ml-2 text-xs font-normal text-green-700">(No fine applied)</span>
-                              )}
+                              <span className={`ml-2 font-semibold text-lg ${
+                                displayFineAmount > 0
+                                  ? "  " 
+                                  : " "
+                              }`}>
+                                {/* Show calculated or stored fine amount */}
+                                {formatINR(displayFineAmount)}
+                                {displayFineAmount === 0 && (
+                                  <span className="ml-2 text-xs font-normal ">(No fine applied)</span>
+                                )}
+                                {/* Show indicator if multipliers are set (backend will calculate) */}
+                                {((lateFineAdjustment === "1x" || lateFineAdjustment === "2x" || lateFineAdjustment === "3x") ||
+                                  (earlyFineAdjustment === "1x" || earlyFineAdjustment === "2x" || earlyFineAdjustment === "3x")) && (
+                                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                    (Multiplier applied - backend will calculate)
+                                  </span>
+                                )}
                               </span>
                             </div>
                         </div>
 
                         {/* Fine Adjustment (Admin Only) */}
                         {isEditing && isAdmin && (
-                          <div className="mt-4 pt-4 border-t border-red-200">
-                            <Label className="text-sm font-medium mb-2 block">Fine Adjustment</Label>
-                            <Select
-                              value={fineAdjustment}
-                              onValueChange={(value) => {
-                                setFineAdjustment(value);
-                                if (value === "custom") {
-                                  setCustomFineAmount(selectedDayData.attendance.fineAmount || 0);
-                                }
-                              }}
-                            >
-                              <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                                <SelectItem value="auto">Auto Calculate (Based on Time)</SelectItem>
-                                <SelectItem value="0">Remove Fine (₹0)</SelectItem>
-                                <SelectItem value="1x">1x Daily Salary</SelectItem>
-                                <SelectItem value="2x">2x Daily Salary</SelectItem>
-                                <SelectItem value="3x">3x Daily Salary</SelectItem>
-                                <SelectItem value="custom">Custom Amount</SelectItem>
-                </SelectContent>
-              </Select>
-                            {fineAdjustment === "custom" && (
-                              <div className="mt-2">
-                  <Input
-                                  type="number"
-                                  placeholder="Enter custom fine amount"
-                                  value={customFineAmount}
-                                  onChange={(e) => setCustomFineAmount(parseFloat(e.target.value) || 0)}
-                                  min="0"
-                                  step="0.01"
-                  />
-                </div>
+                          <div className="mt-4 pt-4 border-t border-red-200 space-y-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-sm font-medium">Fine Adjustment</Label>
+                              {(editData.punchIn || editData.punchOut) && 
+                               lateFineAdjustment === "auto" && earlyFineAdjustment === "auto" && (
+                                <span className="text-xs text-blue-600 dark:text-blue-400">
+                                  Fines will be recalculated from punch times
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Late Login Fine Adjustment - Show if punch in exists or late minutes exist */}
+                            {(selectedDayData.attendance.punchIn || (selectedDayData.attendance.lateMinutes !== undefined && selectedDayData.attendance.lateMinutes !== null)) && (
+                              <div>
+                                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                                  Late Login Fine
+                                  {selectedDayData.attendance.lateMinutes > 0 && (
+                                    <span> ({Math.floor(selectedDayData.attendance.lateMinutes / 60)}h {selectedDayData.attendance.lateMinutes % 60}m)</span>
+                                  )}
+                                  {selectedDayData.attendance.lateMinutes === 0 && selectedDayData.attendance.punchIn && (
+                                    <span className="text-muted-foreground"> (On time - can add fine manually)</span>
+                                  )}
+                                </Label>
+                                <Select
+                                  value={lateFineAdjustment}
+                                  onValueChange={(value) => {
+                                    setLateFineAdjustment(value);
+                                    if (value === "custom") {
+                                      setCustomLateFineAmount(selectedDayData.attendance.fineAmount || 0);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="auto">Auto Calculate (Based on Late Time)</SelectItem>
+                                    <SelectItem value="0">Remove Late Fine (Waive Permission)</SelectItem>
+                                    <SelectItem value="1x">1x Fine (Standard Rate)</SelectItem>
+                                    <SelectItem value="2x">2x Fine (Double Rate)</SelectItem>
+                                    <SelectItem value="3x">3x Fine (Triple Rate)</SelectItem>
+                                    <SelectItem value="custom">Custom Amount</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {lateFineAdjustment === "custom" && (
+                                  <Input
+                                    type="number"
+                                    placeholder="Enter custom fine amount"
+                                    value={customLateFineAmount}
+                                    onChange={(e) => {
+                                      const value = Number(e.target.value);
+                                      setCustomLateFineAmount(value);
+                                    }}
+                                    className="mt-2"
+                                  />
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {lateFineAdjustment === "auto" && "Late fine will be calculated automatically"}
+                                  {lateFineAdjustment === "0" && "Late fine will be removed (employee has permission for late login)"}
+                                  {lateFineAdjustment === "1x" && "Standard fine rate will be applied"}
+                                  {lateFineAdjustment === "2x" && "Double fine rate will be applied"}
+                                  {lateFineAdjustment === "3x" && "Triple fine rate will be applied"}
+                                  {lateFineAdjustment === "custom" && "Enter a custom fine amount"}
+                                </p>
+                              </div>
                             )}
-                            <p className="text-xs text-muted-foreground mt-2">
-                              {fineAdjustment === "auto" && "Fine will be calculated automatically based on late/early minutes"}
-                              {fineAdjustment === "0" && "Fine will be set to ₹0"}
-                              {fineAdjustment === "1x" && "Fine will be set to 1x daily salary"}
-                              {fineAdjustment === "2x" && "Fine will be set to 2x daily salary"}
-                              {fineAdjustment === "3x" && "Fine will be set to 3x daily salary"}
-                              {fineAdjustment === "custom" && "Enter a custom fine amount"}
-                            </p>
-          </div>
+                            
+                            {/* Early Exit Fine Adjustment - Show if punch out exists or early minutes exist */}
+                            {(selectedDayData.attendance.punchOut || (selectedDayData.attendance.earlyMinutes !== undefined && selectedDayData.attendance.earlyMinutes !== null)) && (
+                              <div>
+                                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                                  Early Exit Fine
+                                  {selectedDayData.attendance.earlyMinutes > 0 && (
+                                    <span> ({Math.floor(selectedDayData.attendance.earlyMinutes / 60)}h {selectedDayData.attendance.earlyMinutes % 60}m)</span>
+                                  )}
+                                  {selectedDayData.attendance.earlyMinutes === 0 && selectedDayData.attendance.punchOut && (
+                                    <span className="text-muted-foreground"> (On time - can add fine manually)</span>
+                                  )}
+                                </Label>
+                                <Select
+                                  value={earlyFineAdjustment}
+                                  onValueChange={(value) => {
+                                    setEarlyFineAdjustment(value);
+                                    if (value === "custom") {
+                                      setCustomEarlyFineAmount(selectedDayData.attendance.fineAmount || 0);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="auto">Auto Calculate (Based on Early Exit Time)</SelectItem>
+                                    <SelectItem value="0">Remove Early Exit Fine (Waive Permission)</SelectItem>
+                                    <SelectItem value="1x">1x Fine (Standard Rate)</SelectItem>
+                                    <SelectItem value="2x">2x Fine (Double Rate)</SelectItem>
+                                    <SelectItem value="3x">3x Fine (Triple Rate)</SelectItem>
+                                    <SelectItem value="custom">Custom Amount</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {earlyFineAdjustment === "custom" && (
+                                  <Input
+                                    type="number"
+                                    placeholder="Enter custom fine amount"
+                                    value={customEarlyFineAmount}
+                                    onChange={(e) => {
+                                      const value = Number(e.target.value);
+                                      setCustomEarlyFineAmount(value);
+                                    }}
+                                    className="mt-2"
+                                  />
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {earlyFineAdjustment === "auto" && "Early exit fine will be calculated automatically"}
+                                  {earlyFineAdjustment === "0" && "Early exit fine will be removed (employee has permission for early exit)"}
+                                  {earlyFineAdjustment === "1x" && "Standard fine rate will be applied"}
+                                  {earlyFineAdjustment === "2x" && "Double fine rate will be applied"}
+                                  {earlyFineAdjustment === "3x" && "Triple fine rate will be applied"}
+                                  {earlyFineAdjustment === "custom" && "Enter a custom fine amount"}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Overall Fine Adjustment - Only show when individual adjustments are auto and admin manually set times */}
+                            {isManuallySetAttendance && lateFineAdjustment === "auto" && earlyFineAdjustment === "auto" && (
+                              <div>
+                                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                                  Overall Fine Adjustment
+                                  <span className="text-muted-foreground text-xs ml-1">(Available since you set times manually)</span>
+                                </Label>
+                                <Select
+                                  value={fineAdjustment}
+                                  onValueChange={(value) => {
+                                    setFineAdjustment(value);
+                                    if (value === "custom") {
+                                      setCustomFineAmount(selectedDayData.attendance.fineAmount || 0);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="auto">Auto Calculate (Based on Time)</SelectItem>
+                                    <SelectItem value="0">Remove Fine (₹0)</SelectItem>
+                                    <SelectItem value="custom">Custom Amount</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {fineAdjustment === "custom" && (
+                                  <Input
+                                    type="number"
+                                    placeholder="Enter custom fine amount"
+                                    value={customFineAmount}
+                                    onChange={(e) => setCustomFineAmount(parseFloat(e.target.value) || 0)}
+                                    className="mt-2"
+                                    min="0"
+                                    step="0.01"
+                                  />
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {fineAdjustment === "auto" && "Fine will be calculated automatically based on late/early minutes"}
+                                  {fineAdjustment === "0" && "Fine will be set to ₹0"}
+                                  {fineAdjustment === "custom" && "Enter a custom fine amount"}
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         )}
         </CardContent>
       </Card>
@@ -2470,16 +3128,6 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                     </div>
                   )}
 
-                  {/* IP Address */}
-                  {selectedDayData.attendance.ipAddress && (
-                    <div>
-                      <Label>IP Address</Label>
-                      <div className="mt-1 flex items-center gap-2">
-                        <Wifi className="w-4 h-4" />
-                        <span className="text-sm">{selectedDayData.attendance.ipAddress}</span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Notes */}
                   <div>
@@ -2626,8 +3274,15 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                 setSelectedLeaveType(editData.leaveType);
                                 if (editData.leaveType === "Casual Leave") {
                                   setSelectedPaidLeave(editData.isPaidLeave !== false);
-                                } else if (editData.leaveType === "Unpaid Leave") {
-                                  setSelectedPaidLeave(false);
+                                } else if (editData.leaveType === "Paid Holiday") {
+                                  setSelectedPaidLeave(true);
+                                  setPaidHolidayNote(editData.remarks || editData.notes || "");
+                                } else if (editData.leaveType === "Comp Off") {
+                                  setSelectedPaidLeave(true);
+                                  setCompensationType('compOff');
+                                } else if (editData.leaveType === "Week Off") {
+                                  setSelectedPaidLeave(true);
+                                  setCompensationType('weekOff');
                                 } else {
                                   setSelectedPaidLeave(true);
                                 }
@@ -2635,18 +3290,19 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                 setCompensationType(editData.compensationType || 'paid');
                                 setAlternateWorkDate(editData.alternateWorkDate ? new Date(editData.alternateWorkDate) : null);
                               } else {
-                                // Default to Casual Leave if available, otherwise Unpaid Leave
+                                // Default to Casual Leave if available, otherwise Paid Holiday
                                 if (casualLeaveInfo.available > 0) {
                                   setSelectedLeaveType("Casual Leave");
                                   setSelectedPaidLeave(true);
                                 } else {
-                                  // No casual leaves available - default to Unpaid Leave
-                                  setSelectedLeaveType("Unpaid Leave");
-                                  setSelectedPaidLeave(false);
+                                  // No casual leaves available - default to Paid Holiday
+                                  setSelectedLeaveType("Paid Holiday");
+                                  setSelectedPaidLeave(true);
                                 }
                                 // Initialize compensationType to default
                                 setCompensationType('paid');
                                 setAlternateWorkDate(null);
+                                setPaidHolidayNote("");
                               }
                               setIsLeaveModalOpen(true);
                               // Don't change the status in editData, keep it as is
@@ -3010,12 +3666,12 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                                     {formatTime(log.newValue.punchIn || log.newValue.punchInTime)}
                                                   </span>
                                                 </div>
-                                                {log.newValue.punchInIpAddress && (
+                                                {/* {log.newValue.punchInIpAddress && (
                                                   <div>
                                                     <span className="text-muted-foreground">IP Address:</span>
                                                     <span className="ml-2 font-medium">{log.newValue.punchInIpAddress}</span>
                                                   </div>
-                                                )}
+                                                )} */}
                                                 {log.newValue.location && (
                                                   <div className="sm:col-span-2">
                                                     <span className="text-muted-foreground">Location:</span>
@@ -3041,8 +3697,8 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                                   <div>
                                                     <span className="text-muted-foreground">Face Match:</span>
                                                     <span className={`ml-2 font-medium ${
-                                                      log.newValue.punchInFaceMatch >= 80 ? 'text-green-600' : 
-                                                      log.newValue.punchInFaceMatch >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                                      log.newValue.punchInFaceMatch >= 80 ? ' ' : 
+                                                      log.newValue.punchInFaceMatch >= 60 ? 'text-yellow-600' : '  '
                                                     }`}>
                                                       {log.newValue.punchInFaceMatch.toFixed(1)}%
                                                     </span>
@@ -3074,12 +3730,12 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                                     </span>
                                                   </div>
                                                 )}
-                                                {log.newValue.punchOutIpAddress && (
+                                                {/* {log.newValue.punchOutIpAddress && (
                                                   <div>
                                                     <span className="text-muted-foreground">IP Address:</span>
                                                     <span className="ml-2 font-medium">{log.newValue.punchOutIpAddress}</span>
                                                   </div>
-                                                )}
+                                                )} */}
                                                 {log.newValue.location && (
                                                   <div className="sm:col-span-2">
                                                     <span className="text-muted-foreground">Location:</span>
@@ -3105,8 +3761,8 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                                   <div>
                                                     <span className="text-muted-foreground">Face Match:</span>
                                                     <span className={`ml-2 font-medium ${
-                                                      log.newValue.punchOutFaceMatch >= 80 ? 'text-green-600' : 
-                                                      log.newValue.punchOutFaceMatch >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                                      log.newValue.punchOutFaceMatch >= 80 ? ' ' : 
+                                                      log.newValue.punchOutFaceMatch >= 60 ? 'text-yellow-600' : '  '
                                                     }`}>
                                                       {log.newValue.punchOutFaceMatch.toFixed(1)}%
                                                     </span>
@@ -3176,7 +3832,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                           {log.newValue.fineAmount && (
                                             <div>
                                               <span className="text-muted-foreground">Fine Amount:</span>
-                                              <span className="ml-2 font-medium text-red-600">₹{log.newValue.fineAmount.toFixed(2)}</span>
+                                              <span className="ml-2 font-medium   ">₹{log.newValue.fineAmount.toFixed(2)}</span>
                                             </div>
                                           )}
                                               {log.newValue.location && (
@@ -3193,11 +3849,11 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                                         </div>
                                       </div>
                                     )}
-                                    {log.ipAddress && (
+                                    {/* {log.ipAddress && (
                                       <div className="mt-2 text-xs text-muted-foreground">
                                         IP: {log.ipAddress}
                                       </div>
-                                    )}
+                                    )} */}
                                   </div>
                                 </div>
                               );
@@ -3352,7 +4008,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   <div className="space-y-2 pt-2 border-t border-blue-200">
                     <div className="flex items-center justify-between">
                       <div className="text-sm text-gray-600">Used This Month</div>
-                      <div className="text-lg font-semibold text-orange-600">
+                      <div className="text-lg font-semibold ">
                         {casualLeaveInfo.used.toFixed(1)} days
                       </div>
                     </div>
@@ -3365,12 +4021,6 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                             <span className="font-medium">{casualLeaveInfo.usedFromAttendance.toFixed(1)} days</span>
                           </div>
                         )}
-                        {casualLeaveInfo.usedFromRequests > 0 && (
-                          <div className="flex justify-between">
-                            <span>• From Approved Requests:</span>
-                            <span className="font-medium">{casualLeaveInfo.usedFromRequests.toFixed(1)} days</span>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -3381,10 +4031,10 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                       <div className="text-sm font-semibold text-gray-700">This Month Available</div>
                       <div className={`text-2xl font-bold ${
                         casualLeaveInfo.available > 0 
-                          ? "text-green-600" 
+                          ? " " 
                           : casualLeaveInfo.available === 0
                           ? "text-yellow-600"
-                          : "text-red-600"
+                          : "  "
                       }`}>
                         {casualLeaveInfo.available.toFixed(1)} days
                       </div>
@@ -3524,33 +4174,27 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   // Prevent selecting Casual Leave if exhausted
                   if (value === "Casual Leave" && casualLeaveInfo.available <= 0) {
                     const usedBreakdown = 
-                      casualLeaveInfo.usedFromAttendance > 0 || casualLeaveInfo.usedFromRequests > 0
-                        ? ` (${casualLeaveInfo.usedFromAttendance} from attendance, ${casualLeaveInfo.usedFromRequests} from approved requests)`
+                      casualLeaveInfo.usedFromAttendance > 0
+                        ? ` (${casualLeaveInfo.usedFromAttendance} from attendance)`
                         : "";
-                    message.error(`Casual leaves are exhausted for this month${usedBreakdown}. Please select 'Unpaid Leave' instead.`);
-                    // Auto-switch to Unpaid Leave
-                    setSelectedLeaveType("Unpaid Leave");
-                    setSelectedPaidLeave(false);
+                    message.error(`Casual leaves are exhausted for this month${usedBreakdown}.`);
                     return;
                   }
                   
-                  // Normalize leave type value to match enum (always use "Casual Leave" not "casual")
-                  const normalizedValue = (value || '').toLowerCase().trim() === 'casual' ? "Casual Leave" : value;
+                  setSelectedLeaveType(value);
                   
-                  // If week off compensation is selected, prevent selecting Casual Leave
-                  if (compensationType === 'weekOff' && (normalizedValue === "Casual Leave" || (normalizedValue || '').toLowerCase().trim() === 'casual leave')) {
-                    message.warning("Casual Leave is not available when Week Off compensation is selected. Please select another leave type.");
-                    return;
-                  }
-                  
-                  setSelectedLeaveType(normalizedValue);
-                  // Reset paid/unpaid based on leave type
-                  if (normalizedValue === "Casual Leave") {
-                    setSelectedPaidLeave(true); // Default to paid
-                  } else if (normalizedValue === "Unpaid Leave") {
-                    setSelectedPaidLeave(false);
-                  } else {
-                    setSelectedPaidLeave(true); // Other leave types default to paid
+                  // Auto-set compensation type based on leave type
+                  if (value === "Paid Holiday") {
+                    setCompensationType('paid');
+                    setPaidHolidayNote(""); // Reset note
+                  } else if (value === "Comp Off") {
+                    setCompensationType('compOff');
+                    setAlternateWorkDate(null); // Reset alternate date
+                  } else if (value === "Week Off") {
+                    setCompensationType('weekOff');
+                    setAlternateWorkDate(null); // Reset alternate date
+                  } else if (value === "Casual Leave") {
+                    setCompensationType('paid');
                   }
                 }}
               >
@@ -3558,57 +4202,25 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   <SelectValue placeholder="Select leave type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(leaveTemplate as any)?.leaveTypes?.map((lt: any) => {
-                    // Disable Casual Leave if no leaves are available OR if week off compensation is selected
-                    // Check for both "Casual Leave" and "casual" (case-insensitive)
-                    const isCasualLeave = (lt.type || '').toLowerCase().trim() === 'casual leave' || (lt.type || '').toLowerCase().trim() === 'casual';
-                    const isDisabled = isCasualLeave && (casualLeaveInfo.available <= 0 || compensationType === 'weekOff');
-                    // Normalize leave type value to match enum (always use "Casual Leave" not "casual")
-                    const normalizedValue = isCasualLeave ? "Casual Leave" : lt.type;
-                    return (
-                      <SelectItem 
-                        key={lt.type} 
-                        value={normalizedValue}
-                        disabled={isDisabled}
-                        className={isDisabled ? "opacity-50 cursor-not-allowed" : ""}
-                      >
-                        {lt.type} ({lt.days} days/month)
-                        {isCasualLeave && casualLeaveInfo.available <= 0 && " - Exhausted"}
-                        {isCasualLeave && compensationType === 'weekOff' && " - Not available for Week Off"}
-                      </SelectItem>
-                    );
-                  }) || (
-                    <>
-                      <SelectItem 
-                        value="Casual Leave"
-                        disabled={casualLeaveInfo.available <= 0 || compensationType === 'weekOff'}
-                        className={(casualLeaveInfo.available <= 0 || compensationType === 'weekOff') ? "opacity-50 cursor-not-allowed" : ""}
-                      >
-                        Casual Leave 
-                        {casualLeaveInfo.available <= 0 && " - Exhausted"}
-                        {compensationType === 'weekOff' && " - Not available for Week Off"}
-                      </SelectItem>
-                      <SelectItem value="Sick Leave">Sick Leave</SelectItem>
-                      <SelectItem value="Earned Leave">Earned Leave</SelectItem>
-                      <SelectItem value="Unpaid Leave">Unpaid Leave</SelectItem>
-                      <SelectItem value="Maternity Leave">Maternity Leave</SelectItem>
-                      <SelectItem value="Paternity Leave">Paternity Leave</SelectItem>
-                      <SelectItem value="Other Leave">Other Leave</SelectItem>
-                    </>
-                  )}
+                  <SelectItem 
+                    value="Casual Leave"
+                    disabled={casualLeaveInfo.available <= 0}
+                    className={casualLeaveInfo.available <= 0 ? "opacity-50 cursor-not-allowed" : ""}
+                  >
+                    Casual Leave 
+                    {casualLeaveInfo.available <= 0 && " - Exhausted"}
+                  </SelectItem>
+                  <SelectItem value="Paid Holiday">Paid Holiday</SelectItem>
+                  <SelectItem value="Comp Off">Comp Off (Compensation Off)</SelectItem>
+                  <SelectItem value="Week Off">Week Off</SelectItem>
                 </SelectContent>
               </Select>
-              {casualLeaveInfo.available <= 0 && (
+              {selectedLeaveType === "Casual Leave" && casualLeaveInfo.available <= 0 && (
                 <p className="text-xs text-amber-600 mt-1 font-medium">
                   ⚠️ Casual leaves are exhausted for this month
-                  {casualLeaveInfo.usedFromAttendance > 0 || casualLeaveInfo.usedFromRequests > 0
-                    ? ` (${casualLeaveInfo.usedFromAttendance} from attendance, ${casualLeaveInfo.usedFromRequests} from approved requests)`
-                    : ""}. Please select "Unpaid Leave" or another leave type.
-                </p>
-              )}
-              {compensationType === 'weekOff' && (
-                <p className="text-xs text-amber-600 mt-1 font-medium">
-                  ⚠️ Casual Leave is not available when Week Off compensation is selected. Please select another leave type (e.g., Unpaid Leave, Sick Leave, etc.).
+                  {casualLeaveInfo.usedFromAttendance > 0
+                    ? ` (${casualLeaveInfo.usedFromAttendance} from attendance)`
+                    : ""}. Please select another leave type.
                 </p>
               )}
             </div>
@@ -3626,12 +4238,11 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                           <span className="text-sm text-blue-600">days available</span>
                         </div>
                         <div className="text-xs text-blue-600">
-                          Total: <span className="font-medium">{casualLeaveInfo.total}</span> days | 
-                          Used: <span className="font-medium">{casualLeaveInfo.used.toFixed(1)}</span> days
+                          Total: <span className="font-medium">{casualLeaveInfo.total}</span> days ({casualLeaveInfo.total * 2} half-days) | 
+                          Used: <span className="font-medium">{casualLeaveInfo.used.toFixed(1)}</span> days ({(casualLeaveInfo.used * 2).toFixed(1)} half-days)
                           {casualLeaveInfo.used > 0 && (
                             <span className="block mt-0.5 text-blue-500">
-                              ({casualLeaveInfo.usedFromAttendance.toFixed(1)} from attendance
-                              {casualLeaveInfo.usedFromRequests > 0 && `, ${casualLeaveInfo.usedFromRequests.toFixed(1)} from approved requests`})
+                              (from attendance records)
                             </span>
                           )}
                         </div>
@@ -3656,8 +4267,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                         <p className="text-xs text-red-700">
                           All {casualLeaveInfo.total} casual leaves for this month have been used
                           {casualLeaveInfo.usedFromAttendance > 0 && ` (${casualLeaveInfo.usedFromAttendance} from attendance records`}
-                          {casualLeaveInfo.usedFromRequests > 0 && `, ${casualLeaveInfo.usedFromRequests} from approved leave requests`}
-                          {casualLeaveInfo.usedFromAttendance > 0 || casualLeaveInfo.usedFromRequests > 0 ? ")" : ""}. 
+                          {casualLeaveInfo.usedFromAttendance > 0 ? ")" : ""}. 
                           Please select "Unpaid Leave" instead, which will deduct salary from payroll.
                         </p>
                       </div>
@@ -3692,7 +4302,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                           <SelectContent>
                             <SelectItem value="paid">Paid (Full Salary)</SelectItem>
                             <SelectItem value="unpaid">Unpaid (No Salary)</SelectItem>
-                            <SelectItem value="weekOff">Week Off (Alternate Date)</SelectItem>
+                            {/* <SelectItem value="weekOff">Week Off (Alternate Date)</SelectItem> */}
                           </SelectContent>
                         </Select>
                         {compensationType === 'weekOff' && (
@@ -3720,121 +4330,152 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                           {compensationType === 'weekOff' && "✓ Employee will work on alternate date - salary will be included in payroll"}
                         </p>
                       </div>
+                      
+                      {/* Half Day Selection */}
+                      <div className="border-t border-blue-200 pt-3">
+                        <Label>Leave Duration *</Label>
+                        <Select
+                          value={editData.status === "Half Day" || editData.halfDaySession ? "half" : "full"}
+                          onValueChange={(value) => {
+                            if (value === "half") {
+                              setEditData({ ...editData, status: "Half Day", halfDaySession: editData.halfDaySession || "First Half Day" });
+                            } else {
+                              setEditData({ ...editData, status: "On Leave", halfDaySession: undefined });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">Full Day (1 day)</SelectItem>
+                            <SelectItem value="half">Half Day (0.5 days)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        
+                        {/* Half Day Session Selection */}
+                        {(editData.status === "Half Day" || editData.halfDaySession) && (
+                          <div className="mt-2">
+                            <Label className="text-sm">Half Day Session *</Label>
+                            <Select
+                              value={editData.halfDaySession || "First Half Day"}
+                              onValueChange={(value) => setEditData({ ...editData, halfDaySession: value })}
+                            >
+                              <SelectTrigger className="mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="First Half Day">First Half Day</SelectItem>
+                                <SelectItem value="Second Half Day">Second Half Day</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        
+                        {/* Show projected balance */}
+                        <div className="mt-3 p-2 bg-blue-100 rounded-md">
+                          <div className="text-xs text-blue-800">
+                            <div className="font-semibold mb-1">
+                              {(editData.status === "Half Day" || editData.halfDaySession) ? "Half Day Leave (0.5 days)" : "Full Day Leave (1 day)"}
+                            </div>
+                            <div>
+                              Current Balance: <span className="font-bold">{casualLeaveInfo.available.toFixed(1)}</span> days ({casualLeaveInfo.available * 2} half-days)
+                            </div>
+                            {(editData.status === "Half Day" || editData.halfDaySession) ? (
+                              <div className="mt-1">
+                                After this leave: <span className="font-bold">{(casualLeaveInfo.available - 0.5).toFixed(1)}</span> days ({(casualLeaveInfo.available - 0.5) * 2} half-days) remaining
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                After this leave: <span className="font-bold">{(casualLeaveInfo.available - 1).toFixed(1)}</span> days ({(casualLeaveInfo.available - 1) * 2} half-days) remaining
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
             </>
           )}
         </CardContent>
       </Card>
             )}
 
-            {/* Other Leave Types - Compensation Type */}
-            {selectedLeaveType && selectedLeaveType !== "Casual Leave" && selectedLeaveType !== "Unpaid Leave" && (
+
+            {/* Paid Holiday Note */}
+            {selectedLeaveType === "Paid Holiday" && (
               <div>
-                <Label>Compensation Type *</Label>
-                <Select
-                  value={compensationType || 'paid'}
-                  onValueChange={(value: 'paid' | 'unpaid' | 'weekOff') => {
-                    setCompensationType(value);
-                    if (value !== 'weekOff') {
-                      setAlternateWorkDate(null);
-                    }
+                <Label>Reason/Note for Paid Holiday *</Label>
+                <Textarea
+                  value={paidHolidayNote}
+                  onChange={(e) => {
+                    setPaidHolidayNote(e.target.value);
+                    setEditData({ ...editData, notes: e.target.value, remarks: e.target.value });
                   }}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="paid">Paid (Full Salary)</SelectItem>
-                    <SelectItem value="unpaid">Unpaid (No Salary)</SelectItem>
-                    <SelectItem value="weekOff">Week Off (Alternate Date)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {(compensationType === 'weekOff' || alternateWorkDate) && (
-                  <div className="mt-2">
-                    <Label className="text-sm">Alternate Work Date *</Label>
-                    <Input
-                      type="date"
-                      value={alternateWorkDate ? format(alternateWorkDate, "yyyy-MM-dd") : ""}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setAlternateWorkDate(new Date(e.target.value));
-                        } else {
-                          setAlternateWorkDate(null);
-                        }
-                      }}
-                      min={format(new Date(), "yyyy-MM-dd")}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Employee will work on this date instead
-                    </p>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  {compensationType === 'paid' && "✓ This leave will be paid - salary will be included in payroll"}
-                  {compensationType === 'unpaid' && "⚠ This leave will be unpaid - salary will be deducted from payroll"}
-                  {compensationType === 'weekOff' && "✓ Employee will work on alternate date - salary will be included in payroll"}
-                  </p>
+                  placeholder="Enter reason for paid holiday..."
+                  className="mt-1"
+                  rows={3}
+                />
               </div>
             )}
 
-            {/* Unpaid Leave Info */}
-            {selectedLeaveType === "Unpaid Leave" && (
+            {/* Comp Off Alternate Date */}
+            {selectedLeaveType === "Comp Off" && (
               <div>
-                <Label>Compensation Type *</Label>
-                <Select
-                  value={compensationType}
-                  onValueChange={(value: 'paid' | 'unpaid' | 'weekOff') => {
-                    setCompensationType(value);
-                    if (value !== 'weekOff') {
+                <Label>Alternate Work Date *</Label>
+                <Input
+                  type="date"
+                  value={alternateWorkDate ? format(alternateWorkDate, "yyyy-MM-dd") : ""}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setAlternateWorkDate(new Date(e.target.value));
+                    } else {
                       setAlternateWorkDate(null);
                     }
                   }}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unpaid">Unpaid (No Salary)</SelectItem>
-                    <SelectItem value="weekOff">Week Off (Alternate Date)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {compensationType === 'weekOff' && (
-                  <div className="mt-2">
-                    <Label className="text-sm">Alternate Work Date *</Label>
-                    <Input
-                      type="date"
-                      value={alternateWorkDate ? format(alternateWorkDate, "yyyy-MM-dd") : ""}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setAlternateWorkDate(new Date(e.target.value));
-                        }
-                      }}
-                      min={format(new Date(), "yyyy-MM-dd")}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Employee will work on this date instead
-                    </p>
-                  </div>
-                )}
-                <p className="text-xs text-red-700 mt-2">
-                  {compensationType === 'unpaid' && "⚠️ This leave will be unpaid - salary will be deducted from payroll"}
-                  {compensationType === 'weekOff' && "✓ Employee will work on alternate date - salary will be included in payroll"}
+                  min={format(new Date(), "yyyy-MM-dd")}
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Employee will work on this date as compensation
                 </p>
               </div>
             )}
 
-            {/* Notes */}
-            <div>
-              <Label>Notes (Optional)</Label>
-              <Textarea
-                value={editData.notes || editData.remarks || ""}
-                onChange={(e) => setEditData({ ...editData, notes: e.target.value, remarks: e.target.value })}
-                className="mt-1"
-                rows={3}
-                placeholder="Add any notes about this leave..."
-              />
-    </div>
+            {/* Week Off Alternate Date */}
+            {selectedLeaveType === "Week Off" && (
+              <div>
+                <Label>Alternate Work Date *</Label>
+                <Input
+                  type="date"
+                  value={alternateWorkDate ? format(alternateWorkDate, "yyyy-MM-dd") : ""}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setAlternateWorkDate(new Date(e.target.value));
+                    } else {
+                      setAlternateWorkDate(null);
+                    }
+                  }}
+                  min={format(new Date(), "yyyy-MM-dd")}
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Employee will work on this date instead
+                </p>
+              </div>
+            )}
+
+            {/* Notes (for other leave types) */}
+            {selectedLeaveType && selectedLeaveType !== "Paid Holiday" && (
+              <div>
+                <Label>Notes (Optional)</Label>
+                <Textarea
+                  value={editData.notes || editData.remarks || ""}
+                  onChange={(e) => setEditData({ ...editData, notes: e.target.value, remarks: e.target.value })}
+                  className="mt-1"
+                  rows={3}
+                  placeholder="Add any notes about this leave..."
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 pt-4 border-t">
@@ -3854,8 +4495,8 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   // Check if there's enough balance
                   if (casualLeaveInfo.available < leaveDays) {
                     const usedBreakdown = 
-                      casualLeaveInfo.usedFromAttendance > 0 || casualLeaveInfo.usedFromRequests > 0
-                        ? ` (${casualLeaveInfo.usedFromAttendance} from attendance, ${casualLeaveInfo.usedFromRequests} from approved requests)`
+                      casualLeaveInfo.usedFromAttendance > 0
+                        ? ` (${casualLeaveInfo.usedFromAttendance} from attendance)`
                         : "";
                     const availableDisplay = casualLeaveInfo.available > 0 ? casualLeaveInfo.available : 0;
                     message.warning(
@@ -3911,15 +4552,21 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                     return;
                   }
 
-                  // Validate week off alternate date
-                  if (compensationType === 'weekOff' && !alternateWorkDate) {
-                    message.error("Please select an alternate work date for week off compensation");
+                  // Validate Paid Holiday note requirement
+                  if (selectedLeaveType === "Paid Holiday" && !paidHolidayNote && !editData.notes && !editData.remarks) {
+                    message.error("Please provide a reason/note for Paid Holiday");
                     return;
                   }
 
-                  // Validate: Week off compensation cannot be used with Casual Leave
-                  if (compensationType === 'weekOff' && (selectedLeaveType === "Casual Leave" || (selectedLeaveType || '').toLowerCase().trim() === 'casual leave' || (selectedLeaveType || '').toLowerCase().trim() === 'casual')) {
-                    message.error("Casual Leave is not available when Week Off compensation is selected. Please select another leave type.");
+                  // Validate Comp Off alternate date requirement
+                  if (selectedLeaveType === "Comp Off" && !alternateWorkDate) {
+                    message.error("Please select an alternate work date for Comp Off");
+                    return;
+                  }
+
+                  // Validate Week Off alternate date requirement
+                  if (selectedLeaveType === "Week Off" && !alternateWorkDate) {
+                    message.error("Please select an alternate work date for Week Off");
                     return;
                   }
 
@@ -3933,23 +4580,44 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                     status: "On Leave",
                     leaveType: normalizedLeaveType,
                     compensationType: compensationType || 'paid', // Always include, default to 'paid' if not set
-                    notes: editData.notes || editData.remarks || undefined,
-                    remarks: editData.notes || editData.remarks || undefined,
+                    notes: selectedLeaveType === "Paid Holiday" 
+                      ? (paidHolidayNote || editData.notes || editData.remarks || "")
+                      : (editData.notes || editData.remarks || undefined),
+                    remarks: selectedLeaveType === "Paid Holiday"
+                      ? (paidHolidayNote || editData.notes || editData.remarks || "")
+                      : (editData.notes || editData.remarks || undefined),
                   };
 
-                  // Always send alternateWorkDate - null if not weekOff or no date selected
-                  attendanceData.alternateWorkDate = (compensationType === 'weekOff' && alternateWorkDate) 
-                    ? alternateWorkDate.toISOString() 
-                    : null; // Explicitly set to null to clear
-
-                  // Set isPaidLeave based on compensation type
-                  if (compensationType === 'paid') {
-                    attendanceData.isPaidLeave = true;
-                  } else if (compensationType === 'unpaid') {
-                    attendanceData.isPaidLeave = false;
-                  } else if (compensationType === 'weekOff') {
-                    // Week off with alternate date - treated as paid for the alternate date
-                    attendanceData.isPaidLeave = true;
+                  // Handle compensation type and alternate work date based on leave type
+                  if (selectedLeaveType === "Comp Off") {
+                    attendanceData.compensationType = 'compOff';
+                    if (alternateWorkDate) {
+                      attendanceData.alternateWorkDate = alternateWorkDate.toISOString();
+                    } else {
+                      attendanceData.alternateWorkDate = null;
+                    }
+                    attendanceData.isPaidLeave = true; // Comp Off with alternate date - treated as paid
+                  } else if (selectedLeaveType === "Week Off") {
+                    attendanceData.compensationType = 'weekOff';
+                    if (alternateWorkDate) {
+                      attendanceData.alternateWorkDate = alternateWorkDate.toISOString();
+                    } else {
+                      attendanceData.alternateWorkDate = null;
+                    }
+                    attendanceData.isPaidLeave = true; // Week Off with alternate date - treated as paid
+                  } else {
+                    // For Casual Leave and Paid Holiday, use the selected compensation type
+                    attendanceData.compensationType = compensationType || 'paid';
+                    attendanceData.alternateWorkDate = null;
+                    
+                    // Set isPaidLeave based on leave type and compensation type
+                    if (selectedLeaveType === "Paid Holiday" || selectedLeaveType === "Casual Leave") {
+                      attendanceData.isPaidLeave = true;
+                    } else if (compensationType === 'paid') {
+                      attendanceData.isPaidLeave = true;
+                    } else if (compensationType === 'unpaid') {
+                      attendanceData.isPaidLeave = false;
+                    }
                   }
 
                   // Check if attendance already exists
@@ -3978,6 +4646,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   setSelectedPaidLeave(true);
                   setCompensationType('paid');
                   setAlternateWorkDate(null);
+                  setPaidHolidayNote("");
                   setEditData({});
                   
                   // Refetch attendance data
@@ -3986,7 +4655,14 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                   message.error(error?.data?.error?.message || "Failed to mark leave");
                 }
               }}
-              disabled={!selectedLeaveType || isUpdating || isMarking || (compensationType === 'weekOff' && !alternateWorkDate)}
+              disabled={
+                !selectedLeaveType || 
+                isUpdating || 
+                isMarking || 
+                (selectedLeaveType === "Paid Holiday" && !paidHolidayNote && !editData.notes && !editData.remarks) ||
+                (selectedLeaveType === "Comp Off" && !alternateWorkDate) ||
+                (selectedLeaveType === "Week Off" && !alternateWorkDate)
+              }
               className="flex-1"
             >
               {isUpdating || isMarking ? "Saving..." : "Mark Leave"}
@@ -3999,6 +4675,7 @@ const EmployeeAttendance = ({ employeeId }: EmployeeAttendanceProps) => {
                 setSelectedPaidLeave(true);
                 setCompensationType('paid');
                 setAlternateWorkDate(null);
+                setPaidHolidayNote("");
                 setEditData({});
               }}
             >

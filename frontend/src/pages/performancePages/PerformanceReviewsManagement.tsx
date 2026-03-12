@@ -791,11 +791,11 @@ const PerformanceReviewsManagement = () => {
                   <div>
                     <p className="text-sm text-orange-700 font-medium">Pending Reviews</p>
                     <p className="text-2xl font-bold text-orange-700">{pendingStats.pending}</p>
-                    <p className="text-xs text-orange-600 mt-1">
+                    <p className="text-xs  mt-1">
                       {pendingStats.currentMonthPending} current + {pendingStats.activeFromLastMonth} from last month
                     </p>
                   </div>
-                  <Clock className="w-8 h-8 text-orange-600" />
+                  <Clock className="w-8 h-8 " />
                 </div>
               </CardContent>
             </Card>
@@ -805,9 +805,9 @@ const PerformanceReviewsManagement = () => {
                   <div>
                     <p className="text-sm text-red-700 font-medium">From Last Month</p>
                     <p className="text-2xl font-bold text-red-700">{pendingStats.activeFromLastMonth}</p>
-                    <p className="text-xs text-red-600 mt-1">Needs attention</p>
+                    <p className="text-xs    mt-1">Needs attention</p>
                   </div>
-                  <AlertCircle className="w-8 h-8 text-red-600" />
+                  <AlertCircle className="w-8 h-8   " />
                 </div>
               </CardContent>
             </Card>

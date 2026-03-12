@@ -354,7 +354,7 @@ const HRInterviewScreen = () => {
                         />
                         <Label
                           htmlFor="reject"
-                          className="font-medium cursor-pointer text-red-600"
+                          className="font-medium cursor-pointer   "
                         >
                           Reject Candidate
                         </Label>
@@ -376,7 +376,7 @@ const HRInterviewScreen = () => {
               <Card>
                 <CardContent className="pt-6">
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-green-600">
+                    <div className="flex items-center gap-2  ">
                       <CheckCircle2 className="h-5 w-5" />
                       <span className="font-semibold">HR Round Completed</span>
                     </div>

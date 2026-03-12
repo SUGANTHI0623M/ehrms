@@ -124,9 +124,9 @@ Password: ${userAccount.password || "Use your existing password"}`;
       <Card className="max-w-2xl w-full">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <CheckCircle2 className="w-16 h-16 text-green-600" />
+            <CheckCircle2 className="w-16 h-16  " />
           </div>
-          <CardTitle className="text-2xl text-green-600">
+          <CardTitle className="text-2xl  ">
             Application Submitted Successfully!
           </CardTitle>
         </CardHeader>
@@ -198,7 +198,7 @@ Password: ${userAccount.password || "Use your existing password"}`;
                         {userAccount.email}
                       </p>
                       {candidateEmail && candidateEmail.toLowerCase() === userAccount.email.toLowerCase() && (
-                        <p className="text-xs text-green-600 mt-1">✓ Matches candidate email</p>
+                        <p className="text-xs   mt-1">✓ Matches candidate email</p>
                       )}
                     </div>
                     {userAccount.password ? (

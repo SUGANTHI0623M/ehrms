@@ -1,9 +1,10 @@
 /**
  * Attendance check cron: runs separately for best server performance.
- * Uses Attendance collection punchIn / punchOut (today's record) to decide tracking:
- * - If no check-in for today (no punchIn) → do not track.
- * - If checked in (punchIn set, punchOut null) → track; show alert "You have checked in. Start tracking."
- * - If checked out (punchOut set) → insert productivity for that date if not there, then stop tracking; show alert "You have checked out. Stop tracking."
+ * Uses Attendance collection punchIn / punchOut for TODAY's record only (by date).
+ * - No check-in for today (no attendance record or no punchIn for today) → do not track.
+ *   After 12:00 AM, staff who did not check out the previous day are not tracked until they check in for the new date.
+ * - Checked in for today (punchIn set, punchOut null) → track; show alert "You have checked in. Start tracking."
+ * - Checked out for today (punchOut set) → insert productivity for that date if not there, then stop tracking; show alert "You have checked out. Stop tracking."
  * Updates MonitoringAttendanceCache. The agent polls /api/device/attendance-status which reads from cache.
  */
 require('dotenv').config();

@@ -98,13 +98,13 @@ const JobOpeningDashboard = () => {
                 <CardTitle className="text-sm font-medium">
                   Active Openings
                 </CardTitle>
-                <TrendingUp className="h-4 w-4 text-green-600" />
+                <TrendingUp className="h-4 w-4  " />
               </CardHeader>
               <CardContent>
                 {isLoading ? (
                   <Skeleton className="h-8 w-20" />
                 ) : (
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold  ">
                     {stats.activeOpenings}
                   </div>
                 )}
@@ -196,13 +196,13 @@ const JobOpeningDashboard = () => {
                         <TableHead className="text-center">Total Applicants</TableHead>
                         <TableHead className="text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <CheckCircle2 className="w-4 h-4 text-green-600" />
+                            <CheckCircle2 className="w-4 h-4  " />
                             Selected
                           </div>
                         </TableHead>
                         <TableHead className="text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <XCircle className="w-4 h-4 text-red-600" />
+                            <XCircle className="w-4 h-4   " />
                             Rejected
                           </div>
                         </TableHead>
@@ -235,7 +235,7 @@ const JobOpeningDashboard = () => {
                             <Badge variant="outline">{job.totalApplicants}</Badge>
                           </TableCell>
                           <TableCell className="text-center">
-                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                            <Badge variant="outline" className="bg-green-50  border-green-200">
                               {job.selectedCandidates}
                             </Badge>
                           </TableCell>

@@ -49,6 +49,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { message } from "antd";
 import { formatINR } from "@/utils/currencyUtils";
 import { useAppSelector } from "@/store/hooks";
+import { storeUserAvatar } from "@/utils/userAvatar";
 
 const EmployeeProfile = () => {
   const { data, isLoading, error, refetch } = useGetEmployeeProfileQuery();
@@ -213,7 +214,7 @@ const EmployeeProfile = () => {
     switch (status) {
       case DOCUMENT_STATUS.COMPLETED:
         return (
-          <Badge className="bg-green-500">
+          <Badge className="bg-primary">
             <CheckCircle2 className="w-3 h-3 mr-1" />
             Approved
           </Badge>
@@ -331,11 +332,15 @@ const EmployeeProfile = () => {
                     const file = e.target.files?.[0];
                     if (file && staffData._id) {
                       try {
-                        await uploadAvatar({
+                        const result = await uploadAvatar({
                           staffId: staffData._id,
                           file,
                         }).unwrap();
                         message.success("Avatar uploaded successfully");
+                        // Store avatar in localStorage
+                        if (result.data?.avatar) {
+                          storeUserAvatar(result.data.avatar);
+                        }
                         refetch();
                       } catch (error: any) {
                         message.error(

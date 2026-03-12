@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Select, DatePicker, TimePicker, Form, message, Modal, Spin, Button as AntButton } from "antd";
-import { Download, Calendar, MapPin, User, Briefcase, GraduationCap, FileText, Clock, Video, Building2, AlertCircle } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input, Select, Form, message, Modal, Spin, Button as AntButton, DatePicker, TimePicker } from "antd";
+import { Download, Calendar, MapPin, User, Briefcase, GraduationCap, FileText, Clock, Video, Building2, AlertCircle, XCircle, CheckCircle2, ArrowLeft } from "lucide-react";
 import MainLayout from "@/components/MainLayout";
-import { useGetCandidateByIdQuery, useUpdateCandidateMutation, useUpdateCandidateStatusMutation, type Candidate } from "@/store/api/candidateApi";
+import { useGetCandidateByIdQuery, useUpdateCandidateMutation, useUpdateCandidateStatusMutation, useGetCandidatesQuery, useRejectCandidateMutation, type Candidate } from "@/store/api/candidateApi";
 import {
   useGetCandidateInterviewsQuery,
   useScheduleInterviewMutation,
@@ -19,6 +20,9 @@ import { useGetInterviewProgressQuery } from "@/store/api/interviewResponseApi";
 import { getCandidateAction } from "@/utils/candidateActionUtils";
 import { useAppSelector } from "@/store/hooks";
 import { getCountryOptions } from "@/utils/countryCodeUtils";
+import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
+import { formatCandidateStatus, getCandidateStatusColor } from "@/utils/constants";
+import ScheduleInterviewModal from "@/components/candidate/ScheduleInterviewModal";
 
 dayjs.extend(customParseFormat);
 
@@ -41,13 +45,118 @@ const CandidateProfile = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [selectedRoundForSchedule, setSelectedRoundForSchedule] = useState<number | undefined>(undefined);
   const [editInterviewModalOpen, setEditInterviewModalOpen] = useState(false);
   const [editContactModalOpen, setEditContactModalOpen] = useState(false);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionNotes, setRejectionNotes] = useState("");
   const [selectedInterview, setSelectedInterview] = useState<any>(null);
-  const [form] = Form.useForm();
   const [interviewForm] = Form.useForm();
   const [editContactForm] = Form.useForm();
   const currentUser = useAppSelector((state) => state.auth.user);
+  
+  // Get user permissions
+  const userPermissions = useMemo(() => {
+    if (!currentUser) return [];
+    const roleId =
+      typeof currentUser.roleId === "object" ? currentUser.roleId : null;
+    return getUserPermissions(
+      currentUser?.role,
+      roleId as any,
+      currentUser?.permissions || [],
+    );
+  }, [currentUser]);
+  
+  // Fetch candidates list for sidebar with pagination and infinite scroll
+  const [sidebarPage, setSidebarPage] = useState(1);
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [allCandidates, setAllCandidates] = useState<any[]>([]);
+  const sidebarPageSize = 20;
+  const observerTarget = useRef<HTMLDivElement>(null);
+  const isInitialLoad = useRef(true);
+  
+  const { 
+    data: candidatesListData, 
+    isLoading: isLoadingCandidatesList,
+    isFetching: isFetchingCandidatesList,
+    refetch: refetchCandidatesList
+  } = useGetCandidatesQuery({ 
+    page: sidebarPage, 
+    limit: sidebarPageSize,
+    search: sidebarSearch || undefined
+  }, {
+    refetchOnMountOrArgChange: true, // Ensure it refetches when navigating to this page
+  });
+  
+  const hasMoreCandidates = candidatesListData?.data?.pagination 
+    ? sidebarPage < candidatesListData.data.pagination.pages 
+    : false;
+  
+  // Initialize candidates list on mount and when data changes
+  useEffect(() => {
+    if (candidatesListData?.data?.candidates) {
+      if (sidebarPage === 1 || isInitialLoad.current) {
+        // Reset on first page, search change, or initial load
+        setAllCandidates(candidatesListData.data.candidates);
+        isInitialLoad.current = false;
+      } else {
+        // Append new candidates for pagination
+        setAllCandidates((prev) => {
+          const existingIds = new Set(prev.map(c => c._id));
+          const newCandidates = candidatesListData.data.candidates.filter(
+            (c: any) => !existingIds.has(c._id)
+          );
+          return [...prev, ...newCandidates];
+        });
+      }
+    }
+  }, [candidatesListData, sidebarPage]);
+  
+  // Reset and refetch when component mounts or candidate ID changes
+  useEffect(() => {
+    // Reset state when navigating to a new candidate
+    setSidebarPage(1);
+    setAllCandidates([]);
+    setSidebarSearch("");
+    isInitialLoad.current = true;
+    // Refetch candidates list
+    refetchCandidatesList();
+  }, [id, refetchCandidatesList]);
+  
+  // Infinite scroll for candidate cards
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreCandidates && !isFetchingCandidatesList) {
+          setSidebarPage((prev) => prev + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const currentTarget = observerTarget.current;
+    if (currentTarget) {
+      observer.observe(currentTarget);
+    }
+
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget);
+      }
+    };
+  }, [hasMoreCandidates, isFetchingCandidatesList]);
+  
+  // Reset page and clear candidates when search changes
+  useEffect(() => {
+    if (sidebarSearch !== "") {
+      setSidebarPage(1);
+      setAllCandidates([]);
+      isInitialLoad.current = true;
+    }
+  }, [sidebarSearch]);
+  
+  const candidatesList = allCandidates;
 
   // Function to disable past dates in DatePicker
   const disablePastDate = (current: any) => {
@@ -62,39 +171,43 @@ const CandidateProfile = () => {
   const { data: interviewsData, isLoading: isLoadingInterviews, refetch: refetchInterviews } = useGetCandidateInterviewsQuery(id!);
   const [updateCandidateStatus] = useUpdateCandidateStatusMutation();
   const [updateCandidate, { isLoading: isUpdatingCandidate }] = useUpdateCandidateMutation();
-  const [scheduleInterview, { isLoading: isScheduling }] = useScheduleInterviewMutation();
   const [updateInterview, { isLoading: isUpdating }] = useUpdateInterviewMutation();
+  const [rejectCandidate, { isLoading: isRejecting }] = useRejectCandidateMutation();
 
   const candidate = candidateData?.data?.candidate;
   const interviews = interviewsData?.data?.interviews || [];
 
-  const handleScheduleInterview = async (values: any) => {
-    // Check if candidate is hired for another job
+  // Handle schedule interview button click
+  const handleScheduleClick = () => {
     if (candidate?.hiredForOtherJob) {
-      message.error(`This candidate has already been hired for ${candidate.hiredForOtherJob.jobTitle}. Cannot schedule interviews.`);
+      message.warning(`This candidate has already been hired for ${candidate.hiredForOtherJob.jobTitle}. Cannot schedule interviews.`);
       return;
     }
+    
+    // Determine which round to schedule
+    const currentRoundNum = candidate?.currentJobStage || candidate?.currentRound || 1;
+    const isRoundCompletedStatus = [
+      'HR_INTERVIEW_COMPLETED',
+      'MANAGER_INTERVIEW_COMPLETED',
+      'ROUND3_INTERVIEW_COMPLETED',
+      'ROUND4_INTERVIEW_COMPLETED',
+      'INTERVIEW_COMPLETED'
+    ].includes(candidate?.status || '');
+    
+    const roundToSchedule = isRoundCompletedStatus && !candidate?.scheduledInterview
+      ? currentRoundNum + 1
+      : (action.round || currentRoundNum);
+    
+    setSelectedRoundForSchedule(roundToSchedule);
+    setScheduleModalOpen(true);
+  };
 
-    try {
-      await scheduleInterview({
-        candidateId: id!,
-        data: {
-          interviewType: 'Virtual', // Default value - not shown in UI (backend requires this field)
-          interviewDate: values.interviewDate.format('YYYY-MM-DD'),
-          interviewTime: values.interviewTime.format('HH:mm'),
-          interviewMode: values.interviewMode,
-          notes: values.notes,
-        }
-      }).unwrap();
-
-      message.success("Interview scheduled successfully!");
-      setScheduleModalOpen(false);
-      form.resetFields();
-      refetchCandidate();
-      refetchInterviews();
-    } catch (error: any) {
-      message.error(error?.data?.error?.message || "Failed to schedule interview");
-    }
+  // Handle modal close
+  const handleScheduleModalClose = () => {
+    setScheduleModalOpen(false);
+    setSelectedRoundForSchedule(undefined);
+    refetchCandidate();
+    refetchInterviews();
   };
 
   const handleUpdateInterview = async (values: any) => {
@@ -176,6 +289,29 @@ const CandidateProfile = () => {
     }
   };
 
+  const handleRejectCandidate = async () => {
+    if (!candidate || !rejectionReason.trim()) {
+      message.error("Please provide a rejection reason");
+      return;
+    }
+
+    try {
+      await rejectCandidate({
+        candidateId: candidate._id,
+        rejectionReason: rejectionReason.trim(),
+        notes: rejectionNotes.trim() || undefined,
+      }).unwrap();
+
+      message.success("Candidate rejected successfully");
+      setRejectModalOpen(false);
+      setRejectionReason("");
+      setRejectionNotes("");
+      refetchCandidate();
+    } catch (error: any) {
+      message.error(error?.data?.error?.message || "Failed to reject candidate");
+    }
+  };
+
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case 'Hired':
@@ -216,116 +352,444 @@ const CandidateProfile = () => {
     );
   }
 
+  const action = getCandidateAction(candidate, currentUser);
+  // Reject button should be available at all stages except when already rejected or hired
+  const canReject = candidate.status !== 'REJECTED' && candidate.status !== 'HIRED' && !candidate?.hiredForOtherJob;
+  
+  // Determine if we should show "Move to Next Round" instead of "Schedule Interview"
+  const currentRound = candidate?.currentJobStage || candidate?.currentRound || 1;
+  const isRoundCompleted = [
+    'HR_INTERVIEW_COMPLETED',
+    'MANAGER_INTERVIEW_COMPLETED',
+    'ROUND3_INTERVIEW_COMPLETED',
+    'ROUND4_INTERVIEW_COMPLETED',
+    'INTERVIEW_COMPLETED'
+  ].includes(candidate?.status || '');
+  
+  const isApplied = candidate?.status === 'APPLIED' || 
+                   candidate?.status === 'RE_APPLIED' || 
+                   candidate?.status === 'APPLIED_FOR_MULTIPLE_JOBS';
+  
+  const nextRoundNumber = currentRound + 1;
+  
+  // Get display label for action button
+  const getActionLabel = () => {
+    if (action.type === 'SCHEDULE') {
+      if (isRoundCompleted && !candidate?.scheduledInterview) {
+        return `Schedule Round ${nextRoundNumber} Interview`;
+      }
+      if (isApplied) {
+        return 'Schedule Interview';
+      }
+      return 'Schedule Interview';
+    }
+    return action.label;
+  };
+
   return (
     <MainLayout>
       <main className="p-3 sm:p-4 lg:p-6">
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <Button onClick={() => navigate(-1)} variant="outline" className="w-fit">← Back</Button>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold">
-                  {candidate.firstName} {candidate.lastName}
-                </h1>
-                <p className="text-muted-foreground text-sm sm:text-base">{candidate.position}</p>
-              </div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold">Candidate Profile</h1>
+          <Button variant="outline" onClick={() => navigate('/candidates')}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Candidates
+          </Button>
+        </div>
+        <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[calc(100vh-120px)] min-h-[600px]">
+          {/* Left Sidebar - Candidate Cards */}
+          <div className="w-full lg:w-80 flex-shrink-0 border-r-0 lg:border-r pr-0 lg:pr-4 flex flex-col h-auto lg:h-full max-h-[400px] lg:max-h-[calc(100vh-120px)]">
+            <div className="flex-shrink-0 sticky top-0 bg-background z-10 pb-2 border-b mb-4">
+              <h2 className="text-lg font-semibold mb-2">Candidates</h2>
+              <Input
+                placeholder="Search candidates..."
+                className="w-full"
+                value={sidebarSearch}
+                onChange={(e) => setSidebarSearch(e.target.value)}
+                allowClear
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={getStatusBadgeVariant(candidate.status)} className="text-sm px-3 py-1">
-                {candidate.status}
-              </Badge>
-              {(() => {
-                const action = getCandidateAction(candidate);
-
-                // If view is 'NONE' or 'VIEW_PROFILE' (which effectively means we are already here and no action is needed), default to showing nothing or a status text
-                if (action.type === 'VIEW_PROFILE' || action.type === 'NONE') return null;
-
+            <div className="flex-1 overflow-y-auto">
+              <div className="space-y-3">
+              {isLoadingCandidatesList && sidebarPage === 1 ? (
+                <div className="text-center py-8">
+                  <Spin size="small" />
+                  <p className="text-sm text-muted-foreground mt-2">Loading candidates...</p>
+                </div>
+              ) : candidatesList.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm text-muted-foreground">No candidates found</p>
+                </div>
+              ) : (
+                <>
+                  {candidatesList.map((c: any) => {
+                const isActive = c._id === candidate._id;
                 return (
-                  <Button
-                    className={action.color}
-                    variant={action.variant}
-                    disabled={action.disabled || !!candidate?.hiredForOtherJob}
-                    onClick={() => {
-                      if (candidate?.hiredForOtherJob && action.type === 'SCHEDULE') {
-                        message.warning(`This candidate has already been hired for ${candidate.hiredForOtherJob.jobTitle}. Cannot schedule interviews.`);
-                        return;
-                      }
-                      switch (action.type) {
-                        case 'SCHEDULE':
-                          setScheduleModalOpen(true);
-                          break;
-                        case 'START':
-                          // Navigate to progress page to start the interview
-                          navigate(`/interview/candidate/${candidate._id}/progress`);
-                          break;
-                        case 'VIEW_PROGRESS':
-                          navigate(`/interview/candidate/${candidate._id}/progress`);
-                          break;
-                        case 'GENERATE_OFFER':
-                          navigate(`/offer-letter/create?candidateId=${candidate._id}`);
-                          break;
-                        case 'VIEW_OFFER':
-                          navigate("/offer-letter");
-                          break;
-                        case 'BACKGROUND_VERIFICATION':
-                          const hasDocs = candidate.documents && candidate.documents.length > 0;
-                          if (hasDocs) {
-                            navigate(`/interview/background-verification/${candidate._id}`);
-                          } else {
-                            navigate(`/interview/candidate/${candidate._id}/progress`);
-                          }
-                          break;
-                        case 'CONVERT_TO_STAFF':
-                          // Existing logic for convert
-                          if (candidate.status !== 'OFFER_ACCEPTED' && candidate.status !== 'HIRED') {
-                            updateCandidateStatus({
-                              id: candidate._id,
-                              status: 'OFFER_ACCEPTED'
-                            }).then(() => {
-                              message.success("Candidate marked as ready for hiring");
-                              navigate('/hiring');
-                            }).catch((err) => {
-                              message.error(err?.data?.error?.message || "Failed to update candidate status");
-                            });
-                          } else {
-                            navigate('/hiring');
-                          }
-                          break;
-                      }
-                    }}
+                  <Card
+                    key={c._id}
+                    className={`cursor-pointer transition-all hover:shadow-md ${
+                      isActive ? 'border-primary bg-primary/5' : ''
+                    }`}
+                    onClick={() => navigate(`/candidate/${c._id}`)}
                   >
-                    {action.label}
-                  </Button>
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        {c.avatar ? (
+                          <img
+                            src={c.avatar}
+                            alt={`${c.firstName} ${c.lastName}`}
+                            className="w-12 h-12 rounded-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+                            {c.firstName?.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-sm truncate">
+                            {c.firstName} {c.lastName}
+                          </h3>
+                          <p className="text-xs text-muted-foreground truncate mt-1">
+                            {c.position || 'No position'}
+                          </p>
+                          <div className="mt-2">
+                            <Badge
+                              className={getCandidateStatusColor(c.displayStatus || c.status)}
+                              variant="outline"
+                            >
+                              {formatCandidateStatus(c.displayStatus || c.status)}
+                            </Badge>
+                          </div>
+                          {c.appliedJobs && c.appliedJobs.length > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {c.appliedJobs.length} job{c.appliedJobs.length > 1 ? 's' : ''} applied
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 );
-              })()}
+                  })}
+                  {/* Infinite scroll trigger */}
+                  {hasMoreCandidates && (
+                    <div ref={observerTarget} className="py-4 text-center">
+                      {isFetchingCandidatesList ? (
+                        <Spin size="small" />
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Scroll for more</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              </div>
             </div>
           </div>
 
-          {/* HIRED for Other Job Warning */}
-          {candidate?.hiredForOtherJob && candidate.status !== 'HIRED' && (
-            <Card className="border-2 border-orange-200 bg-orange-50 dark:bg-orange-950">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-4">
-                  <AlertCircle className="w-6 h-6 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-1" />
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-2">
-                      Candidate Already Hired for Another Job
-                    </h3>
-                    <p className="text-sm text-orange-800 dark:text-orange-200">
-                      This candidate has already been hired and converted to an employee for <strong>{candidate.hiredForOtherJob.jobTitle}</strong>. 
-                      They cannot proceed with the interview process for this job. Please contact HR if this is an error.
-                    </p>
+          {/* Right Side - Resume and Personal Details */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 gap-4 overflow-visible lg:overflow-hidden w-full">
+            {/* Header with Action Buttons - Above Resume */}
+            <div className="flex-shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-bold">
+                    {candidate.firstName} {candidate.lastName}
+                  </h1>
+                  <p className="text-muted-foreground text-sm sm:text-base">{candidate.position}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={getStatusBadgeVariant(candidate.status)} className="text-sm px-3 py-1">
+                    {candidate.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Status Banner - Like Indeed */}
+              {(isApplied || isRoundCompleted) && (
+                <div className={`mb-3 p-4 rounded-lg border ${
+                  isApplied 
+                    ? 'bg-blue-50 dark:bg-blue-950 border-blue-200' 
+                    : 'bg-green-50 dark:bg-green-950 border-green-200'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {isApplied ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          <div>
+                            <p className="font-semibold text-blue-900 dark:text-blue-100">
+                              Application Received
+                            </p>
+                            <p className="text-sm text-blue-700 dark:text-blue-300">
+                              Ready to schedule the first interview
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
+                          <div>
+                            <p className="font-semibold text-green-900 dark:text-green-100">
+                              Round {currentRound} Completed
+                            </p>
+                            <p className="text-sm text-green-700 dark:text-green-300">
+                              Ready to move to Round {nextRoundNumber}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
 
-          {/* Candidate Details */}
-          <div className="space-y-6">
-            {/* Personal Details */}
-                  <Card>
+              {/* Action Buttons Bar - Same as Table View */}
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                {(() => {
+                  // Permission Check Logic - Same as table view
+                  let hasPermission = false;
+                  switch (action.type) {
+                    case "SCHEDULE":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "interview_appointments",
+                        "schedule",
+                      );
+                      break;
+                    case "START":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "candidates",
+                        "start_interview",
+                      );
+                      break;
+                    case "CONVERT_TO_STAFF":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "candidates",
+                        "convert_to_staff",
+                      );
+                      break;
+                    case "VIEW_PROFILE":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "candidates",
+                        "view_profile",
+                      );
+                      break;
+                    case "VIEW_OFFER":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "candidates",
+                        "view_offer",
+                      );
+                      break;
+                    case "GENERATE_OFFER":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "offer_letter",
+                        "generate",
+                      );
+                      break;
+                    case "ONBOARD":
+                    case "DOCUMENT_COLLECTION":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "document_collection",
+                        "view",
+                      );
+                      break;
+                    case "BACKGROUND_VERIFICATION":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "background_verification",
+                        "view",
+                      );
+                      break;
+                    case "VIEW_LOGS":
+                    case "VIEW_PROGRESS":
+                      hasPermission = hasAction(
+                        userPermissions,
+                        "candidates",
+                        "view",
+                      );
+                      break;
+                    default:
+                      hasPermission = true; // Allow other actions by default
+                  }
+
+                  if (!hasPermission) {
+                    return (
+                      <span className="text-sm text-muted-foreground px-3 py-2">
+                        Restricted
+                      </span>
+                    );
+                  }
+
+                  // Show main action button - Show for all action types except VIEW_PROFILE and NONE
+                  if (action.type === 'VIEW_PROFILE' || action.type === 'NONE') {
+                    return null;
+                  }
+
+                  return (
+                    <Button
+                      className={action.color || (action.type === 'SCHEDULE' ? '' : '')}
+                      variant={action.type === 'SCHEDULE' ? 'default' : action.variant}
+                      disabled={action.disabled || !!candidate?.hiredForOtherJob}
+                      size="lg"
+                      onClick={() => {
+                        if (candidate?.hiredForOtherJob && action.type === 'SCHEDULE') {
+                          message.warning(`This candidate has already been hired for ${candidate.hiredForOtherJob.jobTitle}. Cannot schedule interviews.`);
+                          return;
+                        }
+                        switch (action.type) {
+                          case 'SCHEDULE':
+                            handleScheduleClick();
+                            break;
+                          case 'START':
+                            navigate(`/interview/candidate/${candidate._id}/progress`);
+                            break;
+                          case 'VIEW_PROGRESS':
+                            navigate(`/interview/candidate/${candidate._id}/progress`);
+                            break;
+                          case 'GENERATE_OFFER':
+                            navigate(`/offer-letter/create?candidateId=${candidate._id}`);
+                            break;
+                          case 'VIEW_OFFER':
+                            navigate("/offer-letter");
+                            break;
+                          case 'ONBOARD':
+                            navigate(`/interview/candidate/${candidate._id}/progress`);
+                            break;
+                          case 'DOCUMENT_COLLECTION':
+                            navigate(`/onboarding`);
+                            break;
+                          case 'BACKGROUND_VERIFICATION':
+                            const hasDocs = candidate.documents && candidate.documents.length > 0;
+                            if (hasDocs) {
+                              navigate(`/interview/background-verification/${candidate._id}`);
+                            } else {
+                              navigate(`/interview/candidate/${candidate._id}/progress`);
+                            }
+                            break;
+                          case 'CONVERT_TO_STAFF':
+                            navigate(`/hiring`);
+                            break;
+                          case 'VIEW_LOGS':
+                            navigate(`/candidate/${candidate._id}`);
+                            break;
+                        }
+                      }}
+                    >
+                      {getActionLabel()}
+                    </Button>
+                  );
+                })()}
+                
+                {/* Always show Reject button if candidate can be rejected */}
+                
+                {/* Reject Button - Always available (except when already rejected/hired) */}
+                {canReject && (
+                  <Button
+                    variant="outline"
+                    className="border-red-500 hover:bg-red-50 text-red-600"
+                    size="lg"
+                    onClick={() => setRejectModalOpen(true)}
+                  >
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Reject
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* HIRED for Other Job Warning */}
+            {candidate?.hiredForOtherJob && candidate.status !== 'HIRED' && (
+              <div className="mb-4 flex-shrink-0">
+                <Card className="border-2 border-orange-200 bg-orange-50 dark:bg-orange-950">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-4">
+                      <AlertCircle className="w-6 h-6  dark:text-orange-400 flex-shrink-0 mt-1" />
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-2">
+                          Candidate Already Hired for Another Job
+                        </h3>
+                        <p className="text-sm text-orange-800 dark:text-orange-200">
+                          This candidate has already been hired and converted to an employee for <strong>{candidate.hiredForOtherJob.jobTitle}</strong>. 
+                          They cannot proceed with the interview process for this job. Please contact HR if this is an error.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Resume and Personal Details Container - Tab View */}
+            <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-y-auto min-h-0 w-full">
+              <Tabs defaultValue="resume" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 h-auto mb-4">
+                  <TabsTrigger value="resume" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4">
+                    <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span>Resume</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="details" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4">
+                    <User className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Personal Details</span>
+                    <span className="sm:hidden">Details</span>
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="resume" className="mt-0 w-full">
+                  <div className="flex flex-col border rounded-lg bg-muted/20 w-full">
+                    {candidate.resume ? (
+                      <>
+                        <div className="flex-shrink-0 p-2 sm:p-3 bg-background border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
+                            <span className="font-medium text-sm sm:text-base truncate">{candidate.resume.name || 'Resume'}</span>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full sm:w-auto flex-shrink-0"
+                            onClick={() => window.open(candidate.resume?.url, '_blank')}
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download
+                          </Button>
+                        </div>
+                        <div className="flex justify-center bg-gray-100 p-2 sm:p-4 w-full overflow-x-auto">
+                          <div className="w-full max-w-full sm:max-w-4xl" style={{ minHeight: '500px', height: '800px' }}>
+                            <iframe
+                              src={`${candidate.resume.url}#toolbar=1&view=FitH`}
+                              className="w-full h-full min-h-[500px] border border-gray-300 rounded bg-white shadow-lg"
+                              title="Resume Preview"
+                              style={{ display: 'block' }}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center py-20">
+                        <div className="text-center">
+                          <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-muted-foreground">No resume available</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="details" className="mt-0 w-full">
+                  <div className="flex flex-col border rounded-lg bg-background w-full">
+                    <div className="p-3 sm:p-4 space-y-4 sm:space-y-6">
+                {/* Personal Details */}
+                <Card>
                     <CardHeader>
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <CardTitle className="flex items-center gap-2">
@@ -692,15 +1156,15 @@ const CandidateProfile = () => {
                 </CardContent>
               </Card>
             )}
-            {/* Application Details */}
-            {candidate && (
-              <InterviewStatusTimelineContainer
-                candidate={candidate}
-                interviews={interviews}
-              />
-            )}
+                {/* Application Details */}
+                {candidate && (
+                  <InterviewStatusTimelineContainer
+                    candidate={candidate}
+                    interviews={interviews}
+                  />
+                )}
 
-            {/* Interviews Section */}
+                {/* Interviews Section */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -809,8 +1273,8 @@ const CandidateProfile = () => {
               </CardContent>
             </Card>
 
-            {/* Application Details */}
-            <Card>
+                {/* Application Details */}
+                <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="w-5 h-5" />
@@ -856,8 +1320,78 @@ const CandidateProfile = () => {
                 )}
               </CardContent>
             </Card>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
         </div>
+
+        {/* Reject Candidate Modal */}
+        <Modal
+          title="Reject Candidate"
+          open={rejectModalOpen}
+          onCancel={() => {
+            setRejectModalOpen(false);
+            setRejectionReason("");
+            setRejectionNotes("");
+          }}
+          footer={null}
+          width={600}
+        >
+          <div className="space-y-4">
+            <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                <strong>Warning:</strong> This action cannot be undone. Please provide a reason for rejecting this candidate.
+              </p>
+            </div>
+            <Form layout="vertical" onFinish={handleRejectCandidate}>
+              <Form.Item
+                label="Rejection Reason"
+                required
+                rules={[{ required: true, message: 'Please provide a rejection reason' }]}
+              >
+                <TextArea
+                  rows={4}
+                  placeholder="Enter the reason for rejecting this candidate..."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                />
+              </Form.Item>
+              <Form.Item label="Additional Notes (Optional)">
+                <TextArea
+                  rows={3}
+                  placeholder="Enter any additional notes..."
+                  value={rejectionNotes}
+                  onChange={(e) => setRejectionNotes(e.target.value)}
+                />
+              </Form.Item>
+              <Form.Item>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    onClick={() => {
+                      setRejectModalOpen(false);
+                      setRejectionReason("");
+                      setRejectionNotes("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <AntButton
+                    type="primary"
+                    danger
+                    htmlType="submit"
+                    loading={isRejecting}
+                    disabled={!rejectionReason.trim()}
+                  >
+                    Reject Candidate
+                  </AntButton>
+                </div>
+              </Form.Item>
+            </Form>
+          </div>
+        </Modal>
 
         {/* Edit Contact Modal */}
         <Modal
@@ -965,90 +1499,16 @@ const CandidateProfile = () => {
           </Form>
         </Modal>
 
-        {/* Schedule Interview Modal */}
-        <Modal
-          title="Schedule Interview"
-          open={scheduleModalOpen}
-          onCancel={() => {
-            setScheduleModalOpen(false);
-            form.resetFields();
-          }}
-          footer={null}
-          width={600}
-        >
-          {candidate?.hiredForOtherJob && (
-            <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 rounded">
-              <p className="text-sm text-orange-800 dark:text-orange-200">
-                <strong>Warning:</strong> This candidate has already been hired for {candidate.hiredForOtherJob.jobTitle}. 
-                Interview scheduling is disabled.
-              </p>
-            </div>
-          )}
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleScheduleInterview}
-            initialValues={{
-              interviewMode: 'Virtual',
-            }}
-          >
-            <Form.Item
-              name="interviewDate"
-              label="Interview Date"
-              rules={[{ required: true, message: 'Please select interview date' }]}
-            >
-              <DatePicker 
-                className="w-full" 
-                disabledDate={disablePastDate}
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="interviewTime"
-              label="Interview Time"
-              rules={[{ required: true, message: 'Please select interview time' }]}
-            >
-              <TimePicker className="w-full" format="HH:mm" />
-            </Form.Item>
-
-            <Form.Item
-              name="interviewMode"
-              label="Interview Mode"
-              rules={[{ required: true, message: 'Please select interview mode' }]}
-            >
-              <Select>
-                <Select.Option value="Virtual">Virtual</Select.Option>
-                <Select.Option value="Direct">In-Person</Select.Option>
-              </Select>
-            </Form.Item>
-
-            <Form.Item
-              name="notes"
-              label="Notes"
-            >
-              <TextArea rows={4} placeholder="Enter any additional notes" />
-            </Form.Item>
-
-            <Form.Item>
-              <div className="flex justify-end gap-2">
-                <Button onClick={() => {
-                  setScheduleModalOpen(false);
-                  form.resetFields();
-                }}>
-                  Cancel
-                </Button>
-                <AntButton 
-                  type="primary" 
-                  htmlType="submit" 
-                  loading={isScheduling}
-                  disabled={!!candidate?.hiredForOtherJob}
-                >
-                  Schedule Interview
-                </AntButton>
-              </div>
-            </Form.Item>
-          </Form>
-        </Modal>
+        {/* Schedule Interview Modal - Using the proper component */}
+        {candidate && (
+          <ScheduleInterviewModal
+            isOpen={scheduleModalOpen}
+            onClose={handleScheduleModalClose}
+            candidateId={candidate._id}
+            candidateName={`${candidate.firstName} ${candidate.lastName}`}
+            roundNumber={selectedRoundForSchedule}
+          />
+        )}
 
         {/* Edit Interview Modal */}
         <Modal

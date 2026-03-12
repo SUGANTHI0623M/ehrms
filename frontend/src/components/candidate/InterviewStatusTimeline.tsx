@@ -147,9 +147,9 @@ const InterviewStatusTimeline: React.FC<any> = ({ timeline }) => {
                       isActive
                         ? "text-blue-600 font-bold"
                         : isCompleted
-                          ? "text-green-600"
+                          ? " "
                           : isRejected
-                            ? "text-red-600"
+                            ? "  "
                             : "text-slate-400",
                       isClickable && "hover:text-blue-700",
                     )}

@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, ArrowLeft, Users, Search, DollarSign, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, Users, Search, X } from "lucide-react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useGetPayrollsQuery, useLazyViewPayslipQuery } from "@/store/api/payrollApi";
 import { useGetStaffQuery, useGetStaffByIdQuery } from "@/store/api/staffApi";
@@ -340,7 +340,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
-              <DollarSign className="w-6 h-6 sm:w-8 sm:h-8" />
+              <span className="text-2xl sm:text-3xl font-semibold">₹</span>
               Salary Overview
             </h1>
             <Button variant="outline" onClick={() => navigate('/staff')}>
@@ -582,7 +582,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                          <DollarSign className="w-4 h-4" />
+                          <span className="text-base font-semibold">₹</span>
                           Monthly Gross
                         </CardTitle>
                       </CardHeader>
@@ -605,7 +605,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="text-2xl font-bold text-green-600">
+                        <div className="text-2xl font-bold text-primary">
                           {proratedSalary ? formatSalaryCurrency(proratedSalary.proratedGrossSalary) : "-"}
                         </div>
                         {proratedSalary && (
@@ -619,7 +619,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                          <DollarSign className="w-4 h-4" />
+                          <span className="text-base font-semibold">₹</span>
                           Monthly Net
                         </CardTitle>
                       </CardHeader>
@@ -671,7 +671,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                           className="rounded-md border"
                           modifiers={calendarModifiers}
                           modifiersClassNames={{
-                            present: "bg-green-100 text-green-700 font-semibold",
+                            present: "bg-green-100  font-semibold",
                             absent: "bg-red-100 text-red-700 font-semibold",
                             holiday: "bg-yellow-100 text-yellow-700 font-semibold",
                             weekend: "bg-gray-100 text-gray-600",
@@ -714,19 +714,19 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                         <div className="space-y-4">
                           <div className="flex items-center justify-between p-3 border rounded-lg">
                             <div className="flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <CheckCircle2 className="w-5 h-5  " />
                               <span className="font-medium">Present Days</span>
                             </div>
-                            <span className="text-lg font-bold text-green-600">
+                            <span className="text-lg font-bold  ">
                               {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between p-3 border rounded-lg">
                             <div className="flex items-center gap-2">
-                              <XCircle className="w-5 h-5 text-red-600" />
+                              <XCircle className="w-5 h-5   " />
                               <span className="font-medium">Absent Days</span>
                             </div>
-                            <span className="text-lg font-bold text-red-600">
+                            <span className="text-lg font-bold   ">
                               {Math.max(0, workingDaysInfo.workingDays - presentDays)}
                             </span>
                           </div>
@@ -736,7 +736,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                             <div className="grid grid-cols-2 gap-2 text-xs">
                               <div className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950 rounded">
                                 <span className="text-muted-foreground">Full Day Present:</span>
-                                <span className="font-semibold text-green-600">
+                                <span className="font-semibold text-primary">
                                   {attendanceRecords.filter((r: any) => 
                                     (r.status === 'Present' || r.status === 'Approved') && !r.halfDaySession
                                   ).length}
@@ -752,13 +752,13 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                               </div>
                               <div className="flex items-center justify-between p-2 bg-purple-50 dark:bg-purple-950 rounded">
                                 <span className="text-muted-foreground">Full Day Leaves:</span>
-                                <span className="font-semibold text-purple-600">
+                                <span className="font-semibold ">
                                   {attendanceRecords.filter((r: any) => r.status === 'On Leave').length}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950 rounded">
                                 <span className="text-muted-foreground">Half Day Leaves:</span>
-                                <span className="font-semibold text-orange-600">
+                                <span className="font-semibold ">
                                   {attendanceRecords.filter((r: any) => 
                                     r.status === 'Half Day' || (r.status === 'Pending' && r.halfDaySession && r.leaveType === 'Half Day')
                                   ).length}
@@ -797,10 +797,10 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                           {fineInfo.totalFineAmount > 0 && (
                             <div className="flex items-center justify-between p-3 border rounded-lg bg-red-50 dark:bg-red-950/20">
                               <div className="flex items-center gap-2">
-                                <XCircle className="w-5 h-5 text-red-600" />
-                                <span className="font-medium text-red-600">Total Fines</span>
+                                <XCircle className="w-5 h-5   " />
+                                <span className="font-medium   ">Total Fines</span>
                               </div>
-                              <span className="text-lg font-bold text-red-600">
+                              <span className="text-lg font-bold   ">
                                 {formatSalaryCurrency(fineInfo.totalFineAmount)}
                               </span>
                             </div>
@@ -901,7 +901,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                   {/* Fines Breakdown */}
                   {fines.length > 0 && (
                     <div>
-                      <h3 className="font-semibold text-lg mb-3 text-red-600">Fines & Penalties</h3>
+                      <h3 className="font-semibold text-lg mb-3   ">Fines & Penalties</h3>
                       <div className="overflow-x-auto">
                         <Table>
                           <TableHeader>
@@ -913,13 +913,13 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                           <TableBody>
                             {fines.map((fine: any, i: number) => (
                               <TableRow key={i}>
-                                <TableCell className="text-red-600 font-medium">{fine.name}</TableCell>
-                                <TableCell className="text-right text-red-600 font-medium">{formatSalaryCurrency(fine.amount)}</TableCell>
+                                <TableCell className="   font-medium">{fine.name}</TableCell>
+                                <TableCell className="text-right    font-medium">{formatSalaryCurrency(fine.amount)}</TableCell>
                               </TableRow>
                             ))}
                             <TableRow className="bg-red-50 dark:bg-red-950/20">
                               <TableCell className="font-semibold">Total Fines</TableCell>
-                              <TableCell className="text-right font-semibold text-red-600">
+                              <TableCell className="text-right font-semibold   ">
                                 {formatSalaryCurrency(fines.reduce((sum: number, f: any) => sum + (f.amount || 0), 0))}
                               </TableCell>
                             </TableRow>
@@ -1217,7 +1217,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
                   if (!selectedPayroll && !selectedMonth) {
                     return (
                       <div className="text-center py-12 text-muted-foreground">
-                        <DollarSign className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <span className="text-6xl mx-auto mb-4 opacity-50 block font-semibold">₹</span>
                         <p className="text-lg font-medium mb-2">
                           No payroll record found for {format(new Date(selectedViewYear, selectedViewMonth - 1, 1), "MMMM yyyy")}
                         </p>
@@ -1239,7 +1239,7 @@ const SalaryOverview = ({ employeeId: propEmployeeId }: SalaryOverviewProps = {}
 
                     {salaryData.length === 0 ? (
                       <div className="text-center py-12 text-muted-foreground">
-                        <DollarSign className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <span className="text-6xl mx-auto mb-4 opacity-50 block font-semibold">₹</span>
                         <p className="text-lg font-medium mb-2">No salary records found</p>
                         <p className="text-sm">No payroll records available for this employee.</p>
                       </div>

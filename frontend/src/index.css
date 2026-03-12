@@ -1089,6 +1089,188 @@ All colors MUST be HSL.
     gap: 8px;
   }
 
+  /* ========== Global Button Styles ========== */
+  /* Apply primary color to all Ant Design primary buttons */
+  .ant-btn-primary,
+  .ant-btn-primary.ant-btn-loading,
+  .ant-btn-primary[disabled],
+  .ant-btn-primary.ant-btn-loading[disabled] {
+    background: hsl(var(--primary)) !important;
+    border: none !important;
+    border-color: transparent !important;
+    border-radius: 5px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px hsl(var(--primary) / 0.3) !important;
+    transition: all 0.15s ease !important;
+    color: white !important;
+  }
+
+  .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-primary:focus:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+    box-shadow: 0 4px 8px hsl(var(--primary) / 0.4) !important;
+    transform: translateY(-1px);
+    color: white !important;
+  }
+
+  .ant-btn-primary:active:not([disabled]):not(.ant-btn-loading) {
+    transform: translateY(0) scale(0.98);
+    background: hsl(var(--primary) / 0.85) !important;
+    border-color: transparent !important;
+  }
+
+  .ant-btn-primary[disabled],
+  .ant-btn-primary.ant-btn-loading[disabled] {
+    background: hsl(var(--primary) / 0.5) !important;
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+  }
+
+  /* Success buttons use primary color */
+  .ant-btn-success,
+  .ant-btn-successous,
+  .ant-btn-success.ant-btn-loading,
+  .ant-btn-successous.ant-btn-loading {
+    background: hsl(var(--primary)) !important;
+    border: none !important;
+    border-color: transparent !important;
+    border-radius: 5px !important;
+    color: white !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px hsl(var(--primary) / 0.3) !important;
+    transition: all 0.15s ease !important;
+  }
+
+  .ant-btn-success:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-successous:hover:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+    box-shadow: 0 4px 8px hsl(var(--primary) / 0.4) !important;
+    transform: translateY(-1px);
+    color: white !important;
+  }
+
+  .ant-btn-success:active:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-successous:active:not([disabled]):not(.ant-btn-loading) {
+    transform: translateY(0) scale(0.98);
+    background: hsl(var(--primary) / 0.85) !important;
+    border-color: transparent !important;
+  }
+
+  /* Ensure all primary buttons in different sizes have primary color */
+  .ant-btn-primary.ant-btn-sm,
+  .ant-btn-primary.ant-btn-lg,
+  .ant-btn-primary.ant-btn-icon-only {
+    background: hsl(var(--primary)) !important;
+    border: none !important;
+    border-color: transparent !important;
+  }
+
+  .ant-btn-primary.ant-btn-sm:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-primary.ant-btn-lg:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-primary.ant-btn-icon-only:hover:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+  }
+
+  /* Override any inline styles that might interfere */
+  .ant-btn-primary[style*="background"],
+  .ant-btn-success[style*="background"],
+  .ant-btn-successous[style*="background"] {
+    background: hsl(var(--primary)) !important;
+  }
+
+  .ant-btn-primary:hover[style*="background"]:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-success:hover[style*="background"]:not([disabled]):not(.ant-btn-loading),
+  .ant-btn-successous:hover[style*="background"]:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+  }
+
+  /* Apply primary color to buttons with type="primary" attribute */
+  .ant-btn[class*="ant-btn-primary"],
+  button[class*="ant-btn-primary"],
+  a[class*="ant-btn-primary"] {
+    background: hsl(var(--primary)) !important;
+    border: none !important;
+    border-color: transparent !important;
+    color: white !important;
+  }
+
+  .ant-btn[class*="ant-btn-primary"]:hover:not([disabled]):not(.ant-btn-loading),
+  button[class*="ant-btn-primary"]:hover:not([disabled]):not(.ant-btn-loading),
+  a[class*="ant-btn-primary"]:hover:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+  }
+
+  /* Ensure primary color works in modals, drawers, and other overlays */
+  .ant-modal .ant-btn-primary,
+  .ant-drawer .ant-btn-primary,
+  .ant-popover .ant-btn-primary,
+  .ant-dropdown .ant-btn-primary {
+    background: hsl(var(--primary)) !important;
+    border: none !important;
+    border-color: transparent !important;
+    color: white !important;
+  }
+
+  .ant-modal .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-drawer .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-popover .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-dropdown .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+  }
+
+  /* Fix for Ant Design button groups */
+  .ant-btn-group .ant-btn-primary,
+  .ant-space .ant-btn-primary {
+    background: hsl(var(--primary)) !important;
+    border-color: transparent !important;
+  }
+
+  .ant-btn-group .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading),
+  .ant-space .ant-btn-primary:hover:not([disabled]):not(.ant-btn-loading) {
+    background: hsl(var(--primary) / 0.9) !important;
+    border-color: transparent !important;
+  }
+
+  /* Tags and badges with success color use primary */
+  .ant-tag-success,
+  .ant-badge-status-success .ant-badge-status-dot {
+    background: hsl(var(--primary)) !important;
+    border-color: hsl(var(--primary)) !important;
+    color: white !important;
+  }
+
+  /* Progress bars use primary color */
+  .ant-progress-success-bg,
+  .ant-progress-bg {
+    background: hsl(var(--primary)) !important;
+  }
+
+  /* Switch uses primary color */
+  .ant-switch-checked {
+    background: hsl(var(--primary)) !important;
+  }
+
+  /* Checkbox and Radio use primary color */
+  .ant-checkbox-checked .ant-checkbox-inner,
+  .ant-radio-checked .ant-radio-inner {
+    background-color: hsl(var(--primary)) !important;
+    border-color: hsl(var(--primary)) !important;
+  }
+
+  /* Tabs use primary color */
+  .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+    color: hsl(var(--primary)) !important;
+  }
+
+  .ant-tabs-ink-bar {
+    background: hsl(var(--primary)) !important;
+  }
+
   @media (max-width: 640px) {
     .lms-btn-primary {
       min-height: 44px;

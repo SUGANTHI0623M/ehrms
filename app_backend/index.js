@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const connectDB = require('./src/config/db');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -19,8 +20,11 @@ const taskRoutes = require('./src/routes/taskRoutes');
 const trackingRoutes = require('./src/routes/trackingRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 const monitoringRoutes = require('./src/routes/monitoringRoutes');
+const grievanceRoutes = require('./src/routes/grievanceRoutes');
 
 const app = express();
+
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.set('trust proxy', 1);
 
 app.use(helmet());
@@ -66,6 +70,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/monitoring', monitoringRoutes);
+app.use('/api/grievances', grievanceRoutes);
 
 // Debug: Log all incoming requests (only in development)
 if (process.env.NODE_ENV !== 'production') {

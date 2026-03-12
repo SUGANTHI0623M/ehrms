@@ -806,6 +806,33 @@ export const settingsApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['GeoSettings'],
     }),
+    getSetupStatus: builder.query<
+      {
+        success: boolean;
+        data: {
+          setupCompleted: {
+            attendance: boolean;
+            business: boolean;
+            isComplete: boolean;
+          };
+          requirements: {
+            attendance: {
+              hasShifts: boolean;
+              hasAttendanceTemplate: boolean;
+              message: string;
+            };
+            business: {
+              hasWeeklyHolidays: boolean;
+              message: string;
+            };
+          };
+        };
+      },
+      void
+    >({
+      query: () => '/settings/setup-status',
+      providesTags: ['Settings'],
+    }),
   }),
 });
 
@@ -863,5 +890,6 @@ export const {
   useUpdateTaskSettingsMutation,
   useGetGeoSettingsQuery,
   useUpdateGeoSettingsMutation,
+  useGetSetupStatusQuery,
 } = settingsApi;
 

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { useGetBusinessQuery } from "@/store/api/settingsApi";
 
 const CandidateSidebar = ({
   mobileOpen = false,
@@ -25,6 +26,10 @@ const CandidateSidebar = ({
   onCollapse?: (collapsed: boolean) => void;
 }) => {
   const location = useLocation();
+  
+  // Fetch business data for company logo
+  const { data: businessData } = useGetBusinessQuery();
+  const companyLogo = businessData?.data?.business?.logo;
 
   const menus = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/candidate/dashboard" },
@@ -41,28 +46,46 @@ const CandidateSidebar = ({
   const desktopContent = (
     <aside
       data-collapsed={collapsed ? "true" : undefined}
-      className={`flex flex-col h-full bg-sidebar transition-all duration-300 ${collapsed ? "w-20 overflow-x-hidden" : "w-64 overflow-y-auto"}`}
+      className={`flex flex-col h-full transition-all duration-300 ${collapsed ? "w-20 overflow-x-hidden" : "w-64 overflow-y-auto"}`}
+      style={{ backgroundColor: '#2C2C2C' }}
     >
       <div
-        className={`flex items-center border-b border-sidebar-border min-h-[4.5rem] transition-all duration-300 ${collapsed ? "justify-center p-2" : "justify-between p-4"}`}
+        className={`flex items-center border-b border-gray-700 min-h-[4.5rem] transition-all duration-300 ${collapsed ? "justify-center p-2" : "justify-between p-4"}`}
       >
         {!collapsed && (
-          <div className="flex-1 text-center min-w-0">
-            <h1 className="text-xl font-bold text-sidebar-foreground truncate">askeva HRMS</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Candidate Portal</p>
+          <div className="flex-1 flex items-center justify-center min-w-0">
+            {companyLogo ? (
+              <img 
+                src={companyLogo} 
+                alt="Company Logo" 
+                className="h-12 w-auto object-contain max-w-full"
+              />
+            ) : (
+              <div className="text-center">
+                <h1 className="text-xl font-bold text-white truncate">askeva HRMS</h1>
+                <p className="text-xs text-white/60 mt-0.5">Candidate Portal</p>
+              </div>
+            )}
           </div>
+        )}
+        {collapsed && companyLogo && (
+          <img 
+            src={companyLogo} 
+            alt="Company Logo" 
+            className="h-10 w-10 object-contain mx-auto"
+          />
         )}
         <Button
           type="button"
           variant="ghost"
           size="icon"
           onClick={() => onCollapse(!collapsed)}
-          className="p-2 rounded-lg hover:bg-sidebar-accent/10 flex-shrink-0 h-9 w-9"
+          className="p-2 rounded-[5px] hover:bg-yellow-500/20 flex-shrink-0 h-9 w-9"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ChevronLeft
-            className={`w-5 h-5 text-sidebar-foreground/80 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
+            className={`w-5 h-5 text-white/80 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
           />
         </Button>
       </div>
@@ -78,12 +101,12 @@ const CandidateSidebar = ({
             <NavLink
               key={item.path}
               to={item.path}
-              className={`flex items-center rounded-lg transition-colors ${
+              className={`flex items-center rounded-[5px] transition-all ${
                 collapsed ? "justify-center p-2.5" : "gap-3 p-2"
               } ${
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50"
+                  ? "bg-primary text-white font-semibold shadow-md"
+                  : "text-white/80 hover:bg-primary/30"
               }`}
             >
               <item.icon className="w-5 h-5 flex-shrink-0" />
@@ -97,10 +120,22 @@ const CandidateSidebar = ({
 
   // Mobile: full content (no collapse)
   const mobileContent = (
-    <aside className="w-64 flex flex-col overflow-y-auto">
-      <div className="p-6 border-b border-sidebar-border">
-        <h1 className="text-2xl font-bold text-sidebar-foreground text-center">askeva HRMS</h1>
-        <p className="text-sm text-muted-foreground text-center mt-1">Candidate Portal</p>
+    <aside className="w-64 flex flex-col overflow-y-auto" style={{ backgroundColor: '#2C2C2C' }}>
+      <div className="p-6 border-b border-gray-700">
+        {companyLogo ? (
+          <div className="flex justify-center">
+            <img 
+              src={companyLogo} 
+              alt="Company Logo" 
+              className="h-12 w-auto object-contain"
+            />
+          </div>
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold text-white text-center">askeva HRMS</h1>
+            <p className="text-sm text-white/60 text-center mt-1">Candidate Portal</p>
+          </>
+        )}
       </div>
       <nav className="flex-1 p-4 space-y-2">
         {menus.map((item) => {
@@ -114,10 +149,10 @@ const CandidateSidebar = ({
               key={item.path}
               to={item.path}
               onClick={onClose}
-              className={`flex items-center gap-3 p-2 rounded-lg ${
+              className={`flex items-center gap-3 p-2 rounded-[5px] transition-all ${
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-primary font-semibold"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50"
+                  ? "bg-primary text-white font-semibold shadow-md"
+                  : "text-white/80 hover:bg-primary/30"
               }`}
             >
               <item.icon className="w-5 h-5" />
@@ -134,14 +169,15 @@ const CandidateSidebar = ({
       {/* Desktop Sidebar - fixed with toggle, same pattern as EmployeeSidebar / Sidebar */}
       <div
         data-collapsed={collapsed ? "true" : undefined}
-        className={`hidden lg:block fixed left-0 top-0 h-screen bg-sidebar shadow-lg z-[105] transition-all duration-300 ${collapsed ? "w-20 overflow-hidden" : "w-64 overflow-y-auto"}`}
+        className={`hidden lg:block fixed left-0 top-0 h-screen shadow-lg z-[105] transition-all duration-300 ${collapsed ? "w-20 overflow-hidden" : "w-64 overflow-y-auto"}`}
+        style={{ backgroundColor: '#2C2C2C' }}
       >
         {desktopContent}
       </div>
 
       {/* Mobile Drawer - no collapse, full menu */}
       <Sheet open={mobileOpen} onOpenChange={(open) => !open && onClose()}>
-        <SheetContent side="left" className="p-0 w-64 bg-sidebar rounded-none overflow-y-auto">
+        <SheetContent side="left" className="p-0 w-64 rounded-none overflow-y-auto" style={{ backgroundColor: '#2C2C2C' }}>
           {mobileContent}
         </SheetContent>
       </Sheet>

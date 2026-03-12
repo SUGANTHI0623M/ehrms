@@ -6,7 +6,6 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import {
   Calendar,
   Clock,
-  DollarSign,
   FileText,
   Wallet,
   CheckCircle2,
@@ -53,6 +52,21 @@ const formatDate = (dateString: string | Date) => {
   if (!dateString) return "N/A";
   const date = new Date(dateString);
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+};
+
+// Rupee Icon Component
+const RupeeIcon = ({ className, size, ...props }: { className?: string; size?: number | string; [key: string]: any }) => {
+  // Convert size prop to inline style (lucide-react icons use size prop)
+  const sizeValue = typeof size === 'number' ? `${size}px` : size || '16px';
+  return (
+    <span 
+      className={`${className || ''} font-semibold inline-flex items-center justify-center`} 
+      style={{ width: sizeValue, height: sizeValue, fontSize: sizeValue }}
+      {...props}
+    >
+      ₹
+    </span>
+  );
 };
 
 const EmployeeDashboard = () => {
@@ -597,7 +611,7 @@ const EmployeeDashboard = () => {
     { label: "Apply Leave", icon: Calendar, path: "/employee/requests?tab=leave", color: "bg-blue-500" },
     { label: "Request Loan", icon: Wallet, path: "/employee/requests?tab=loan", color: "bg-green-500" },
     { label: "Expense Claim", icon: FileText, path: "/employee/requests?tab=expense", color: "bg-orange-500" },
-    { label: "Request Payslip", icon: DollarSign, path: "/employee/requests?tab=payslip", color: "bg-purple-500" },
+    { label: "Request Payslip", icon: RupeeIcon, path: "/employee/requests?tab=payslip", color: "bg-purple-500" },
   ];
 
   if (isLoading) {
@@ -696,7 +710,7 @@ const EmployeeDashboard = () => {
                       Based on {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)} present days out of {workingDaysInfo.workingDays} working days
                     </p>
                     {calculatedSalary && (
-                      <p className="text-xs text-green-600 mt-1">
+                      <p className="text-xs   mt-1">
                         Monthly Net: {formatCurrency(calculatedSalary.monthly.netMonthlySalary)}
                       </p>
                     )}
@@ -776,7 +790,7 @@ const EmployeeDashboard = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5" />
+                  <span className="text-xl font-semibold">₹</span>
                   Salary Overview ({format(currentDate, "MMMM yyyy")})
                   {currentPayroll && (currentPayroll.status === 'Processed' || currentPayroll.status === 'Paid') && (
                     <Badge variant="outline" className="ml-2">
@@ -791,7 +805,7 @@ const EmployeeDashboard = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="p-4 border rounded-lg bg-green-50 dark:bg-green-950">
                       <div className="text-sm text-muted-foreground mb-1">Monthly Gross</div>
-                      <div className="text-2xl font-bold text-green-600">
+                      <div className="text-2xl font-bold  ">
                         {formatCurrency(calculatedSalary.monthly.grossSalary)}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
@@ -814,7 +828,7 @@ const EmployeeDashboard = () => {
                     </div>
                     <div className="p-4 border rounded-lg bg-green-50 dark:bg-green-950">
                       <div className="text-sm text-muted-foreground mb-1">Monthly Net</div>
-                      <div className="text-2xl font-bold text-green-600">
+                      <div className="text-2xl font-bold  ">
                         {formatCurrency(calculatedSalary.monthly.netMonthlySalary)}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
@@ -852,13 +866,13 @@ const EmployeeDashboard = () => {
                       </div>
                       <div>
                         <div className="text-muted-foreground">Present Days</div>
-                        <div className="font-semibold text-green-600">
+                        <div className="font-semibold  ">
                           {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)}
                         </div>
                       </div>
                       <div>
                         <div className="text-muted-foreground">Absent Days</div>
-                        <div className="font-semibold text-red-600">
+                        <div className="font-semibold   ">
                           {workingDaysInfo.workingDays - presentDays}
                         </div>
                       </div>
@@ -885,7 +899,7 @@ const EmployeeDashboard = () => {
                               {fullDayPresent > 0 && (
                                 <div>
                                   <div className="text-muted-foreground">Full Day Present</div>
-                                  <div className="font-semibold text-green-600">{fullDayPresent}</div>
+                                  <div className="font-semibold  ">{fullDayPresent}</div>
                                 </div>
                               )}
                               {halfDayPresent > 0 && (
@@ -897,13 +911,13 @@ const EmployeeDashboard = () => {
                               {fullDayLeaves > 0 && (
                                 <div>
                                   <div className="text-muted-foreground">Full Day Leaves</div>
-                                  <div className="font-semibold text-purple-600">{fullDayLeaves}</div>
+                                  <div className="font-semibold ">{fullDayLeaves}</div>
                                 </div>
                               )}
                               {halfDayLeaves > 0 && (
                                 <div>
                                   <div className="text-muted-foreground">Half Day Leaves</div>
-                                  <div className="font-semibold text-orange-600">{halfDayLeaves}</div>
+                                  <div className="font-semibold ">{halfDayLeaves}</div>
                                 </div>
                               )}
                             </div>
@@ -916,8 +930,8 @@ const EmployeeDashboard = () => {
                     {fineInfo.totalFineAmount > 0 && (
                       <div className="mt-3 pt-3 border-t">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-red-600">Late Login Fine</span>
-                          <span className="text-sm font-bold text-red-600">
+                          <span className="text-sm font-medium   ">Late Login Fine</span>
+                          <span className="text-sm font-bold   ">
                             {formatCurrency(fineInfo.totalFineAmount)}
                           </span>
                         </div>
@@ -932,18 +946,18 @@ const EmployeeDashboard = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Earnings */}
                     <div>
-                      <h4 className="text-sm font-semibold text-green-600 mb-2">Monthly Earnings</h4>
+                      <h4 className="text-sm font-semibold   mb-2">Monthly Earnings</h4>
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                           <span>Basic Salary</span>
-                          <span className="font-medium text-green-600">
+                          <span className="font-medium  ">
                             {formatCurrency(calculatedSalary.monthly.basicSalary)}
                           </span>
                         </div>
                         {calculatedSalary.monthly.dearnessAllowance > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                             <span>DA</span>
-                            <span className="font-medium text-green-600">
+                            <span className="font-medium  ">
                               {formatCurrency(calculatedSalary.monthly.dearnessAllowance)}
                             </span>
                           </div>
@@ -951,7 +965,7 @@ const EmployeeDashboard = () => {
                         {calculatedSalary.monthly.houseRentAllowance > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                             <span>HRA.</span>
-                            <span className="font-medium text-green-600">
+                            <span className="font-medium  ">
                               {formatCurrency(calculatedSalary.monthly.houseRentAllowance)}
                             </span>
                           </div>
@@ -959,7 +973,7 @@ const EmployeeDashboard = () => {
                         {calculatedSalary.monthly.specialAllowance > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                             <span>Special Allowance</span>
-                            <span className="font-medium text-green-600">
+                            <span className="font-medium  ">
                               {formatCurrency(calculatedSalary.monthly.specialAllowance)}
                             </span>
                           </div>
@@ -967,7 +981,7 @@ const EmployeeDashboard = () => {
                         {calculatedSalary.monthly.employerPF > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                             <span>Employer PF</span>
-                            <span className="font-medium text-green-600">
+                            <span className="font-medium  ">
                               {formatCurrency(calculatedSalary.monthly.employerPF)}
                             </span>
                           </div>
@@ -975,7 +989,7 @@ const EmployeeDashboard = () => {
                         {calculatedSalary.monthly.employerESI > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950">
                             <span>Employer ESI</span>
-                            <span className="font-medium text-green-600">
+                            <span className="font-medium  ">
                               {formatCurrency(calculatedSalary.monthly.employerESI)}
                             </span>
                           </div>
@@ -985,12 +999,12 @@ const EmployeeDashboard = () => {
 
                     {/* Deductions */}
                     <div>
-                      <h4 className="text-sm font-semibold text-red-600 mb-2">Monthly Deductions</h4>
+                      <h4 className="text-sm font-semibold    mb-2">Monthly Deductions</h4>
                       <div className="space-y-2">
                         {calculatedSalary.monthly.employeePF > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-red-50 dark:bg-red-950">
                             <span>Employee PF</span>
-                            <span className="font-medium text-red-600">
+                            <span className="font-medium   ">
                               {formatCurrency(calculatedSalary.monthly.employeePF)}
                             </span>
                           </div>
@@ -998,7 +1012,7 @@ const EmployeeDashboard = () => {
                         {calculatedSalary.monthly.employeeESI > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-red-50 dark:bg-red-950">
                             <span>Employee ESI</span>
-                            <span className="font-medium text-red-600">
+                            <span className="font-medium   ">
                               {formatCurrency(calculatedSalary.monthly.employeeESI)}
                             </span>
                           </div>
@@ -1006,7 +1020,7 @@ const EmployeeDashboard = () => {
                         {fineInfo.totalFineAmount > 0 && (
                           <div className="flex justify-between text-sm p-2 border rounded bg-red-50 dark:bg-red-950">
                             <span>Late Login Fine</span>
-                            <span className="font-medium text-red-600">
+                            <span className="font-medium   ">
                               {formatCurrency(fineInfo.totalFineAmount)}
                             </span>
                           </div>

@@ -369,13 +369,13 @@ const OfferLetterPreview = () => {
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
                   {offer.emailSent && (
-                    <div className="flex items-center gap-2 text-green-600">
+                    <div className="flex items-center gap-2  ">
                       <CheckCircle2 className="h-5 w-5" />
                       <span className="text-sm font-medium">Email Sent</span>
                     </div>
                   )}
                   {offer.whatsappSent && (
-                    <div className="flex items-center gap-2 text-green-600">
+                    <div className="flex items-center gap-2  ">
                       <CheckCircle2 className="h-5 w-5" />
                       <span className="text-sm font-medium">WhatsApp Sent</span>
                     </div>

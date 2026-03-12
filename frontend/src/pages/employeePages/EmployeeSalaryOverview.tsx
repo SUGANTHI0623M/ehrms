@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { 
-  Wallet as DollarSign, 
   Calendar as CalendarIcon, 
   TrendingUp,
   CheckCircle2,
@@ -626,7 +625,7 @@ const EmployeeSalaryOverview = () => {
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" />
+                      <span className="text-base font-semibold">₹</span>
                       Monthly Gross
                     </CardTitle>
                   </CardHeader>
@@ -645,7 +644,7 @@ const EmployeeSalaryOverview = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-green-600">
+                    <div className="text-2xl font-bold text-primary">
                       {proratedSalary ? formatSalaryCurrency(proratedSalary.proratedGrossSalary) : "-"}
                     </div>
                     {proratedSalary && (
@@ -659,7 +658,7 @@ const EmployeeSalaryOverview = () => {
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" />
+                      <span className="text-base font-semibold">₹</span>
                       Monthly Net
                     </CardTitle>
                   </CardHeader>
@@ -717,7 +716,7 @@ const EmployeeSalaryOverview = () => {
                       modifiers={calendarModifiers}
                       modifiersClassNames={{
                         weekend: "bg-gray-100 text-gray-600",
-                        present: "bg-green-100 text-green-700 font-semibold",
+                        present: "bg-green-100  font-semibold",
                         absent: "bg-red-100 text-red-700 font-semibold",
                         holiday: "bg-yellow-100 text-yellow-700 font-semibold",
                       }}
@@ -755,19 +754,19 @@ const EmployeeSalaryOverview = () => {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between p-3 border rounded-lg">
                         <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                          <CheckCircle2 className="w-5 h-5  " />
                           <span className="font-medium">Present Days</span>
                         </div>
-                        <span className="text-lg font-bold text-green-600">
+                        <span className="text-lg font-bold  ">
                           {presentDays % 1 === 0 ? presentDays : presentDays.toFixed(1)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between p-3 border rounded-lg">
                         <div className="flex items-center gap-2">
-                          <XCircle className="w-5 h-5 text-red-600" />
+                          <XCircle className="w-5 h-5   " />
                           <span className="font-medium">Absent Days</span>
                         </div>
-                        <span className="text-lg font-bold text-red-600">
+                        <span className="text-lg font-bold   ">
                           {workingDaysInfo.workingDays - presentDays}
                         </span>
                       </div>
@@ -777,7 +776,7 @@ const EmployeeSalaryOverview = () => {
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950 rounded">
                             <span className="text-muted-foreground">Full Day Present:</span>
-                            <span className="font-semibold text-green-600">
+                            <span className="font-semibold  ">
                               {attendanceRecords.filter((r: any) => 
                                 (r.status === 'Present' || r.status === 'Approved') && !r.halfDaySession
                               ).length}
@@ -793,16 +792,16 @@ const EmployeeSalaryOverview = () => {
                           </div>
                           <div className="flex items-center justify-between p-2 bg-purple-50 dark:bg-purple-950 rounded">
                             <span className="text-muted-foreground">Paid Leaves:</span>
-                            <span className="font-semibold text-purple-600">
+                            <span className="font-semibold ">
                               {leaveBreakdown.paidLeaves % 1 === 0 ? leaveBreakdown.paidLeaves : leaveBreakdown.paidLeaves.toFixed(1)} days
                             </span>
                           </div>
                           <div className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950 rounded">
                             <span className="text-muted-foreground">Unpaid Leaves:</span>
-                            <span className="font-semibold text-orange-600">
+                            <span className="font-semibold ">
                               {leaveBreakdown.unpaidLeaves % 1 === 0 ? leaveBreakdown.unpaidLeaves : leaveBreakdown.unpaidLeaves.toFixed(1)} days
                               {unpaidLeaveDeduction > 0 && (
-                                <span className="text-xs block text-red-600 mt-1">
+                                <span className="text-xs block    mt-1">
                                   (Deduction: {formatSalaryCurrency(unpaidLeaveDeduction)})
                                 </span>
                               )}
@@ -815,9 +814,9 @@ const EmployeeSalaryOverview = () => {
                                 <div key={type} className="flex items-center justify-between text-xs py-1">
                                   <span className="text-muted-foreground">{type}:</span>
                                   <span>
-                                    <span className="text-purple-600">{counts.paid % 1 === 0 ? counts.paid : counts.paid.toFixed(1)} paid</span>
+                                    <span className="">{counts.paid % 1 === 0 ? counts.paid : counts.paid.toFixed(1)} paid</span>
                                     {counts.unpaid > 0 && (
-                                      <span className="text-orange-600 ml-2">{counts.unpaid % 1 === 0 ? counts.unpaid : counts.unpaid.toFixed(1)} unpaid</span>
+                                      <span className=" ml-2">{counts.unpaid % 1 === 0 ? counts.unpaid : counts.unpaid.toFixed(1)} unpaid</span>
                                     )}
                                   </span>
                                 </div>
@@ -884,8 +883,8 @@ const EmployeeSalaryOverview = () => {
                               <TableRow key={payroll._id}>
                                 <TableCell>{monthName} {payroll.year}</TableCell>
                                 <TableCell className="text-right">{formatSalaryCurrency(payroll.grossSalary || 0)}</TableCell>
-                                <TableCell className="text-right text-red-600">{formatSalaryCurrency(payroll.deductions || 0)}</TableCell>
-                                <TableCell className="text-right text-green-600 font-semibold">{formatSalaryCurrency(payroll.netPay || 0)}</TableCell>
+                                <TableCell className="text-right   ">{formatSalaryCurrency(payroll.deductions || 0)}</TableCell>
+                                <TableCell className="text-right text-primary font-semibold">{formatSalaryCurrency(payroll.netPay || 0)}</TableCell>
                                 <TableCell>
                                   <Badge variant={payroll.status === "Paid" ? "default" : payroll.status === "Processed" ? "secondary" : "outline"}>
                                     {payroll.status}
@@ -1047,7 +1046,7 @@ const EmployeeSalaryOverview = () => {
                                 <CardTitle className="text-sm font-medium text-muted-foreground">Net Pay</CardTitle>
                               </CardHeader>
                               <CardContent>
-                                <div className="text-2xl font-bold text-green-600">
+                                <div className="text-2xl font-bold text-primary">
                                   {formatSalaryCurrency(currentPayroll?.netPay || 0)}
                                 </div>
                               </CardContent>
@@ -1059,7 +1058,7 @@ const EmployeeSalaryOverview = () => {
                             <div className="space-y-6">
                               {/* Earnings */}
                               <div>
-                                <h3 className="font-semibold text-lg mb-3 text-green-600">Earnings</h3>
+                                <h3 className="font-semibold text-lg mb-3 text-primary">Earnings</h3>
                                 <div className="overflow-x-auto">
                                   <Table>
                                     <TableHeader>
@@ -1086,7 +1085,7 @@ const EmployeeSalaryOverview = () => {
 
                               {/* Deductions */}
                               <div>
-                                <h3 className="font-semibold text-lg mb-3 text-red-600">Deductions</h3>
+                                <h3 className="font-semibold text-lg mb-3   ">Deductions</h3>
                                 <div className="overflow-x-auto">
                                   <Table>
                                     <TableHeader>
@@ -1133,12 +1132,12 @@ const EmployeeSalaryOverview = () => {
                           {/* Calculated Salary Breakdown (when payroll not available) */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                              <h4 className="text-sm font-semibold text-green-600 mb-3">Earnings</h4>
+                              <h4 className="text-sm font-semibold text-primary mb-3">Earnings</h4>
                               <div className="space-y-2">
                                 {calculatedSalary.monthly.basicSalary > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Basic Salary</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.basicSalary)}
                                     </span>
                                   </div>
@@ -1146,7 +1145,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.dearnessAllowance > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>DA</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.dearnessAllowance)}
                                     </span>
                                   </div>
@@ -1154,7 +1153,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.houseRentAllowance > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>HRA</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.houseRentAllowance)}
                                     </span>
                                   </div>
@@ -1162,7 +1161,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.specialAllowance > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Special Allowance</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.specialAllowance)}
                                     </span>
                                   </div>
@@ -1170,7 +1169,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.employerPF > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Employer PF</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.employerPF)}
                                     </span>
                                   </div>
@@ -1178,26 +1177,26 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.employerESI > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Employer ESI</span>
-                                    <span className="font-medium text-green-600">
+                                    <span className="font-medium text-primary">
                                       {formatSalaryCurrency(calculatedSalary.monthly.employerESI)}
                                     </span>
                                   </div>
                                 )}
-                                <div className="flex justify-between text-sm p-2 border rounded bg-green-50 dark:bg-green-950 font-bold">
+                                <div className="flex justify-between text-sm p-2 border rounded bg-primary/10 font-bold">
                                   <span>Gross Salary</span>
-                                  <span className="font-medium text-green-600">
+                                  <span className="font-medium text-primary">
                                     {formatSalaryCurrency(calculatedSalary.monthly.grossSalary)}
                                   </span>
                                 </div>
                               </div>
                             </div>
                             <div>
-                              <h4 className="text-sm font-semibold text-red-600 mb-3">Deductions</h4>
+                              <h4 className="text-sm font-semibold    mb-3">Deductions</h4>
                               <div className="space-y-2">
                                 {calculatedSalary.monthly.employeePF > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Employee PF</span>
-                                    <span className="font-medium text-red-600">
+                                    <span className="font-medium   ">
                                       {formatSalaryCurrency(calculatedSalary.monthly.employeePF)}
                                     </span>
                                   </div>
@@ -1205,7 +1204,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.employeeESI > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded">
                                     <span>Employee ESI</span>
-                                    <span className="font-medium text-red-600">
+                                    <span className="font-medium   ">
                                       {formatSalaryCurrency(calculatedSalary.monthly.employeeESI)}
                                     </span>
                                   </div>
@@ -1216,7 +1215,7 @@ const EmployeeSalaryOverview = () => {
                                 {calculatedSalary.monthly.totalMonthlyDeductions > 0 && (
                                   <div className="flex justify-between text-sm p-2 border rounded bg-red-50 dark:bg-red-950 font-bold">
                                     <span>Total Deductions</span>
-                                    <span className="font-medium text-red-600">
+                                    <span className="font-medium   ">
                                       {formatSalaryCurrency(calculatedSalary.monthly.totalMonthlyDeductions)}
                                     </span>
                                   </div>
@@ -1306,7 +1305,7 @@ const EmployeeSalaryOverview = () => {
                                   <TableCell className="text-right text-destructive">
                                     {formatSalaryCurrency(payroll.deductions || 0)}
                                   </TableCell>
-                                  <TableCell className="text-right font-semibold text-green-600">
+                                  <TableCell className="text-right font-semibold text-primary">
                                     {formatSalaryCurrency(payroll.netPay || 0)}
                                   </TableCell>
                                   <TableCell className="text-right">

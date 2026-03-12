@@ -14,7 +14,7 @@ export interface Attendance {
   punchIn?: string | null;
   punchOut?: string | null;
   status: 'Present' | 'Absent' | 'Half Day' | 'On Leave' | 'Not Marked' | 'Pending' | 'Approved' | 'Rejected';
-  leaveType?: 'Sick Leave' | 'Casual Leave' | 'Earned Leave' | 'Unpaid Leave' | 'Maternity Leave' | 'Paternity Leave' | 'Other Leave';
+  leaveType?: 'Casual Leave' | 'Paid Holiday' | 'Comp Off' | 'Week Off';
   halfDaySession?: 'First Half Day' | 'Second Half Day';
   approvedBy?: {
     _id: string;
@@ -60,7 +60,7 @@ export interface AttendanceLog {
     _id: string;
     name: string;
     email: string;
-  };
+  } | string;
   performedByName?: string;
   performedByEmail?: string;
   oldValue?: any;
@@ -70,6 +70,7 @@ export interface AttendanceLog {
     oldValue: any;
     newValue: any;
   }>;
+  ipAddress?: string;
   userAgent?: string;
   notes?: string;
   selfieUrl?: string;
@@ -157,7 +158,10 @@ export const attendanceApi = apiSlice.injectEndpoints({
         url: `/attendance/employee/${employeeId}`,
         params,
       }),
-      providesTags: (result, error, { employeeId }) => [{ type: 'Attendance', id: employeeId }],
+      providesTags: (result, error, { employeeId }) => [
+        { type: 'Attendance', id: employeeId },
+        'Attendance' // Also provide general tag so it refetches when any attendance is updated
+      ],
     }),
     getAttendanceById: builder.query<
       { success: boolean; data: { attendance: Attendance } },

@@ -511,7 +511,7 @@ const LMSCoursePlayer: React.FC<LMSCoursePlayerProps> = ({
                                 },
                             });
                         }}
-                        className="!border-amber-400 !text-amber-700 hover:!border-red-500 hover:!text-red-600"
+                        className="!border-amber-400 !text-amber-700 hover:!border-red-500 hover:!  "
                     >
                         Cancel assessment
                     </Button>

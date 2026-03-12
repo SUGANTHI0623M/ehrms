@@ -199,7 +199,7 @@ const HRMSGeoDashboard = () => {
                   <p className="text-2xl font-bold mt-1">{totalEmployees}</p>
                 </div>
                 <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                  <Users className="w-6 h-6 text-green-600" />
+                  <Users className="w-6 h-6  " />
                 </div>
               </div>
             </CardContent>
@@ -213,7 +213,7 @@ const HRMSGeoDashboard = () => {
                   <p className="text-2xl font-bold mt-1">{notStarted}</p>
                 </div>
                 <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-purple-600" />
+                  <Clock className="w-6 h-6 " />
                 </div>
               </div>
             </CardContent>
@@ -227,7 +227,7 @@ const HRMSGeoDashboard = () => {
                   <p className="text-2xl font-bold mt-1">{punchedIn}</p>
                 </div>
                 <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <LogIn className="w-6 h-6 text-purple-600" />
+                  <LogIn className="w-6 h-6 " />
                 </div>
               </div>
             </CardContent>
@@ -361,7 +361,7 @@ const HRMSGeoDashboard = () => {
                   </p>
                 </div>
                 <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                  <Users className="w-6 h-6 text-green-600" />
+                  <Users className="w-6 h-6  " />
                 </div>
               </div>
               <Badge
@@ -385,7 +385,7 @@ const HRMSGeoDashboard = () => {
                   </p>
                 </div>
                 <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <Users className="w-6 h-6 text-purple-600" />
+                  <Users className="w-6 h-6 " />
                 </div>
               </div>
               <Badge

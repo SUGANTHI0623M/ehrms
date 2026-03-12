@@ -402,7 +402,7 @@ const SendPulseConfig = () => {
                 <Input
                   id="clientId"
                   type={showCredentials ? "text" : "password"}
-                  placeholder={config ? "Enter new Client ID to update" : "2bade7687922134640c77ba414e228ff"}
+                  placeholder={config ? "Enter new Client ID to update" : "2ba**********************ff"}
                   value={formData.clientId}
                   onChange={(e) => {
                     setFormData({ ...formData, clientId: e.target.value });
@@ -449,7 +449,7 @@ const SendPulseConfig = () => {
                 <Input
                   id="clientSecret"
                   type={showCredentials ? "text" : "password"}
-                  placeholder={config ? "Enter new Client Secret to update" : "195fe5c38f13289bd0e840879e9f4a22"}
+                  placeholder={config ? "Enter new Client Secret to update" : "195**********************22"}
                   value={formData.clientSecret}
                   onChange={(e) => {
                     setFormData({ ...formData, clientSecret: e.target.value });

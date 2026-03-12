@@ -17,9 +17,11 @@ import { Label } from "@/components/ui/label";
 import { Search, Plus, Edit, Eye, EyeOff, Users as UsersIcon, X, Mail, Phone, Calendar, Building2, Filter, Upload, Download, FileSpreadsheet, Check } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import MainLayout from "@/components/MainLayout";
-import { useGetStaffQuery, useGetStaffStatsQuery, useCreateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useImportStaffFromExcelMutation, useExportStaffToExcelMutation, useDownloadSampleStaffFileMutation } from "@/store/api/staffApi";
+import { useGetStaffQuery, useGetStaffStatsQuery, useCreateStaffMutation, useGetAvailableShiftsQuery, useGetAvailableTemplatesQuery, useImportStaffFromExcelMutation, useExportStaffToExcelMutation, useDownloadSampleStaffFileMutation, useGenerateEmployeeCodeQuery } from "@/store/api/staffApi";
 import { useGetActiveBranchesQuery } from "@/store/api/branchApi";
 import { useGetDepartmentsQuery, useCreateDepartmentMutation } from "@/store/api/jobOpeningApi";
+import { useGetUsersQuery } from "@/store/api/userApi";
+import { Switch } from "@/components/ui/switch";
 import { useGetAttendanceQuery } from "@/store/api/attendanceApi";
 import { format } from "date-fns";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -62,8 +64,10 @@ const Staff = () => {
     leaveTemplateId: "",
     holidayTemplateId: "",
     managerId: "",
-    role: ""
+    role: "",
+    employeeId: ""
   });
+  const [autoGenerateEmployeeCode, setAutoGenerateEmployeeCode] = useState(true);
   const [openDepartment, setOpenDepartment] = useState(false);
   const [countryCodeOpen, setCountryCodeOpen] = useState(false);
   const [departmentSearch, setDepartmentSearch] = useState("");
@@ -85,9 +89,45 @@ const Staff = () => {
   const [createDepartment] = useCreateDepartmentMutation();
   const departments = departmentsData?.data?.departments || [];
   
-  // Get all staff for reporting manager selection
-  const { data: allStaffData } = useGetStaffQuery({ limit: 50, status: "Active", page: 1 });
-  const allStaffForManager = allStaffData?.data?.staff || [];
+  // Get users with role Employee and subRole Manager for reporting manager selection
+  const { data: usersData } = useGetUsersQuery({ 
+    limit: 100, 
+    page: 1,
+    isActive: 'true'
+  });
+  const allUsers = usersData?.data?.users || [];
+  const managerUserIds = allUsers
+    .filter((user: any) => user.role === 'Employee' && user.subRole === 'Manager')
+    .map((user: any) => user._id);
+  
+  // Get all staff for reporting manager selection - filter to only those with manager users
+  const { data: allStaffData } = useGetStaffQuery({ limit: 100, status: "Active", page: 1 });
+  const allStaffForManager = (allStaffData?.data?.staff || []).filter((staffMember: any) => {
+    const staffUserId = typeof staffMember.userId === 'object' ? staffMember.userId?._id : staffMember.userId;
+    return staffUserId && managerUserIds.includes(staffUserId);
+  });
+  
+  // Generate employee code when branch changes and auto-generate is enabled
+  const { data: employeeCodeData, refetch: refetchEmployeeCode } = useGenerateEmployeeCodeQuery(
+    { branchId: formData.branchId || undefined },
+    { skip: !formData.branchId || autoGenerateEmployeeCode }
+  );
+  
+  // Update employee code when generated or when toggle changes
+  useEffect(() => {
+    if (!autoGenerateEmployeeCode && formData.branchId && employeeCodeData?.data?.employeeId) {
+      setFormData(prev => ({ ...prev, employeeId: employeeCodeData.data.employeeId }));
+    } else if (autoGenerateEmployeeCode) {
+      setFormData(prev => ({ ...prev, employeeId: "" }));
+    }
+  }, [employeeCodeData, formData.branchId, autoGenerateEmployeeCode]);
+  
+  // Refetch employee code when branch changes and toggle is off
+  useEffect(() => {
+    if (!autoGenerateEmployeeCode && formData.branchId) {
+      refetchEmployeeCode();
+    }
+  }, [formData.branchId, autoGenerateEmployeeCode, refetchEmployeeCode]);
 
   // Get staff to extract unique departments (limited to 100 for performance)
   const { data: allStaffForDepartments } = useGetStaffQuery({ limit: 100, page: 1 });
@@ -411,8 +451,15 @@ const Staff = () => {
                       }
                     }
 
+                    // Validate employee code if auto-generate is disabled
+                    if (!autoGenerateEmployeeCode && !formData.employeeId?.trim()) {
+                      message.error("Employee code is required when auto-generate is disabled");
+                      return;
+                    }
+
                     try {
                       await createStaff({
+                        employeeId: !autoGenerateEmployeeCode && formData.employeeId ? formData.employeeId : undefined,
                         name: formData.name,
                         email: formData.email,
                         phone: formData.phone,
@@ -452,8 +499,10 @@ const Staff = () => {
                         leaveTemplateId: "",
                         holidayTemplateId: "",
                         managerId: "",
-                        role: ""
+                        role: "",
+                        employeeId: ""
                       });
+                      setAutoGenerateEmployeeCode(true);
                       setDepartmentSearch("");
                       setNewDepartmentName("");
                       setOpenDepartment(false);
@@ -475,6 +524,44 @@ const Staff = () => {
                           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                           required
                         />
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-sm font-medium">Auto Generate Employee Code</Label>
+                          <Switch
+                            checked={autoGenerateEmployeeCode}
+                            onCheckedChange={(checked) => {
+                              setAutoGenerateEmployeeCode(checked);
+                              if (!checked && formData.branchId) {
+                                refetchEmployeeCode();
+                              } else {
+                                setFormData(prev => ({ ...prev, employeeId: "" }));
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Employee Code {!autoGenerateEmployeeCode && <span className="text-red-500">*</span>}</Label>
+                          <Input
+                            name="employeeId"
+                            value={formData.employeeId}
+                            onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+                            readOnly={autoGenerateEmployeeCode}
+                            placeholder={autoGenerateEmployeeCode ? "Will be auto-generated" : "Enter or edit employee code"}
+                            className={autoGenerateEmployeeCode ? "bg-muted" : ""}
+                            required={!autoGenerateEmployeeCode}
+                          />
+                          {!autoGenerateEmployeeCode && formData.branchId && (
+                            <p className="text-xs text-muted-foreground">
+                              Auto-generated code shown. You can edit it if needed.
+                            </p>
+                          )}
+                          {!autoGenerateEmployeeCode && !formData.branchId && (
+                            <p className="text-xs text-yellow-600">
+                              Please select a branch first to generate employee code.
+                            </p>
+                          )}
+                        </div>
                       </div>
                       <div className="space-y-1">
                         <Label>Email <span className="text-red-500">*</span></Label>
@@ -897,7 +984,7 @@ const Staff = () => {
                           <SelectTrigger><SelectValue placeholder="Select reporting manager (optional)" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">None</SelectItem>
-                            {allStaffForManager.map((staffMember) => (
+                            {allStaffForManager.map((staffMember: any) => (
                               <SelectItem key={staffMember._id} value={staffMember._id}>
                                 {staffMember.name} ({staffMember.employeeId})
                               </SelectItem>
@@ -942,8 +1029,10 @@ const Staff = () => {
                           leaveTemplateId: "",
                           holidayTemplateId: "",
                           managerId: "",
-                          role: ""
+                          role: "",
+                          employeeId: ""
                         });
+                        setAutoGenerateEmployeeCode(true);
                         setDepartmentSearch("");
                         setNewDepartmentName("");
                         setOpenDepartment(false);

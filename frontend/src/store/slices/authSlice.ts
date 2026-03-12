@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { User } from '@/store/api/authApi';
+import { storeUserAvatar, clearUserAvatar } from '@/utils/userAvatar';
 
 interface AuthState {
   user: User | null;
@@ -83,6 +84,12 @@ const authSlice = createSlice({
         console.error('[Auth] Failed to store user data in localStorage:', error);
       }
 
+      // Store user avatar if available (from user object or will be fetched later)
+      // Avatar might be in user.avatar (for candidates) or will be fetched from staff profile
+      if ((user as any).avatar) {
+        storeUserAvatar((user as any).avatar);
+      }
+
       // Clean up old role-based token keys (migration)
       ['admin_token', 'hr_token', 'manager_token', 'employee_token', 'user_token'].forEach(key => {
         try {
@@ -102,6 +109,7 @@ const authSlice = createSlice({
         localStorage.removeItem(key);
       });
       localStorage.removeItem('user');
+      clearUserAvatar();
 
       // Clear sessionStorage
       sessionStorage.clear();

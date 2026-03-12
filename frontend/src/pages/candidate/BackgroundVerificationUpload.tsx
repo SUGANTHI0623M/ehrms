@@ -58,9 +58,9 @@ const DOCUMENT_CATEGORY_LABELS: Record<DocumentCategory, { label: string; icon: 
 const getStatusIcon = (status: string) => {
   switch (status) {
     case 'VERIFIED':
-      return <CheckCircle2 className="w-5 h-5 text-green-600" />;
+      return <CheckCircle2 className="w-5 h-5  " />;
     case 'REJECTED':
-      return <XCircle className="w-5 h-5 text-red-600" />;
+      return <XCircle className="w-5 h-5   " />;
     case 'PENDING':
     default:
       return <Clock className="w-5 h-5 text-gray-400" />;
@@ -408,7 +408,7 @@ const BackgroundVerificationUpload = () => {
                     <CheckCircle2 className="w-5 h-5" />
                     <span className="font-semibold">Background Verification Cleared</span>
                   </div>
-                  <p className="text-sm text-green-700 mt-1">
+                  <p className="text-sm  mt-1">
                     You can now proceed with onboarding. HR will contact you with next steps.
                   </p>
                 </div>

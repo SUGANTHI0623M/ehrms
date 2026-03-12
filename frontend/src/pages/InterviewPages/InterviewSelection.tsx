@@ -347,7 +347,7 @@ const InterviewSelection = ({ type, roundNumber }: InterviewSelectionProps) => {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="border-red-500 text-red-600 hover:bg-red-50"
+                        className="border-red-500    hover:bg-red-50"
                         onClick={() => handleRejectClick(candidate._id)}
                         disabled={isUpdatingStatus}
                       >
@@ -500,14 +500,14 @@ const InterviewSelection = ({ type, roundNumber }: InterviewSelectionProps) => {
                     value="selected"
                     className="flex items-center gap-2"
                   >
-                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    <CheckCircle2 className="w-4 h-4  " />
                     Selected Candidates
                   </TabsTrigger>
                   <TabsTrigger
                     value="rejected"
                     className="flex items-center gap-2"
                   >
-                    <XCircle className="w-4 h-4 text-red-600" />
+                    <XCircle className="w-4 h-4   " />
                     Rejected Candidates
                   </TabsTrigger>
                 </TabsList>

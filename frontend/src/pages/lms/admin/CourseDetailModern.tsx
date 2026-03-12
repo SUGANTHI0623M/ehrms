@@ -68,7 +68,7 @@ const CourseDetailModern = () => {
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'Completed': return 'text-green-600 bg-green-50 hover:bg-green-100 border-green-200';
+            case 'Completed': return '  bg-green-50 hover:bg-green-100 border-green-200';
             case 'In Progress': return 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-200';
             case 'Not Started': return 'text-gray-600 bg-gray-50 hover:bg-gray-100 border-gray-200';
             default: return 'text-gray-600 bg-gray-50';
@@ -102,7 +102,7 @@ const CourseDetailModern = () => {
                                         {courseData.status}
                                     </Badge>
                                     {courseData.isMandatory && (
-                                        <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">
+                                        <Badge variant="outline" className="   border-red-200 bg-red-50">
                                             Mandatory
                                         </Badge>
                                     )}
@@ -131,7 +131,7 @@ const CourseDetailModern = () => {
                                     <DropdownMenuItem><Download className="mr-2 h-4 w-4" /> Export Report</DropdownMenuItem>
                                     <DropdownMenuItem><Target className="mr-2 h-4 w-4" /> Assign Users</DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem className="text-red-600"><Trash2 className="mr-2 h-4 w-4" /> Delete Course</DropdownMenuItem>
+                                    <DropdownMenuItem className="  "><Trash2 className="mr-2 h-4 w-4" /> Delete Course</DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </div>
@@ -151,7 +151,7 @@ const CourseDetailModern = () => {
                             <div className="text-2xl font-bold">{courseData.enrollmentCount}</div>
                             <p className="text-xs text-muted-foreground mt-1 flex items-center">
                                 <TrendingUp className="h-3 w-3 text-green-500 mr-1" />
-                                <span className="text-green-600 font-medium">+12%</span> from last month
+                                <span className="  font-medium">+12%</span> from last month
                             </p>
                         </CardContent>
                     </Card>
@@ -159,7 +159,7 @@ const CourseDetailModern = () => {
                     <Card className="bg-white shadow-sm hover:shadow-md transition-shadow">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-gray-500">Completion Rate</CardTitle>
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            <CheckCircle2 className="h-4 w-4  " />
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">{courseData.completionRate}%</div>
@@ -170,7 +170,7 @@ const CourseDetailModern = () => {
                     <Card className="bg-white shadow-sm hover:shadow-md transition-shadow">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-gray-500">Avg Assessment Score</CardTitle>
-                            <Award className="h-4 w-4 text-purple-600" />
+                            <Award className="h-4 w-4 " />
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">{courseData.avgScore}</div>
@@ -181,7 +181,7 @@ const CourseDetailModern = () => {
                     <Card className="bg-white shadow-sm hover:shadow-md transition-shadow">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-gray-500">Avg. Time</CardTitle>
-                            <Clock className="h-4 w-4 text-orange-600" />
+                            <Clock className="h-4 w-4 " />
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">4h 15m</div>
@@ -257,7 +257,7 @@ const CourseDetailModern = () => {
                                             <div>
                                                 <div className="flex justify-between text-sm mb-1">
                                                     <span>Completed</span>
-                                                    <span className="font-medium text-green-600">68%</span>
+                                                    <span className="font-medium  ">68%</span>
                                                 </div>
                                                 <Progress value={68} className="h-2 bg-green-100 [&>div]:bg-green-600" />
                                             </div>
@@ -333,7 +333,7 @@ const CourseDetailModern = () => {
                                                 </TableCell>
                                                 <TableCell className="font-medium">
                                                     {material.title}
-                                                    {index === 0 && <Badge variant="outline" className="ml-2 bg-green-50 text-green-600 border-green-200 text-xs">Free Preview</Badge>}
+                                                    {index === 0 && <Badge variant="outline" className="ml-2 bg-green-50   border-green-200 text-xs">Free Preview</Badge>}
                                                 </TableCell>
                                                 <TableCell className="text-muted-foreground">{material.duration}</TableCell>
                                                 <TableCell className="text-right">
@@ -347,7 +347,7 @@ const CourseDetailModern = () => {
                                                             <DropdownMenuItem><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
                                                             <DropdownMenuItem><Eye className="h-4 w-4 mr-2" /> Preview</DropdownMenuItem>
                                                             <DropdownMenuSeparator />
-                                                            <DropdownMenuItem className="text-red-600"><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
+                                                            <DropdownMenuItem className="  "><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>
                                                 </TableCell>

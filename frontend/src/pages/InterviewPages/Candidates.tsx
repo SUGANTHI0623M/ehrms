@@ -488,37 +488,37 @@ const Candidates = () => {
         {
           title: "Interview Appointments",
           value: statsData.data.stats.interviewAppointments,
-          color: "text-blue-600",
+          color: "text-primary",
         },
         {
           title: "Round 1",
           value: statsData.data.stats.round1,
-          color: "text-purple-600",
+          color: "",
         },
         {
           title: "Round 2",
           value: statsData.data.stats.round2,
-          color: "text-purple-600",
+          color: "",
         },
         {
           title: "Round 3",
           value: statsData.data.stats.round3,
-          color: "text-purple-600",
+          color: "",
         },
         {
           title: "Final Round",
           value: statsData.data.stats.round4,
-          color: "text-purple-600",
+          color: "",
         },
         {
           title: "Selected",
           value: statsData.data.stats.selected,
-          color: "text-green-600",
+          color: " ",
         },
         {
           title: "Offer Letter",
           value: statsData.data.stats.offerLetter,
-          color: "text-orange-600",
+          color: "",
         },
         {
           title: "Document Verification",
@@ -528,36 +528,36 @@ const Candidates = () => {
         {
           title: "Background Verification",
           value: statsData.data.stats.backgroundVerification,
-          color: "text-indigo-600",
+          color: "",
         },
         {
           title: "Hired Candidates",
           value: statsData.data.stats.hired,
-          color: "text-green-700",
+          color: "",
         },
         {
           title: "Rejected",
           value: statsData.data.stats.rejected,
-          color: "text-red-600",
+          color: "  ",
         },
       ]
     : [
         { title: "Total Candidates", value: 0, color: "text-gray-900" },
         { title: "Interview Appointments", value: 0, color: "text-blue-600" },
-        { title: "Round 1", value: 0, color: "text-purple-600" },
-        { title: "Round 2", value: 0, color: "text-purple-600" },
-        { title: "Round 3", value: 0, color: "text-purple-600" },
-        { title: "Final Round", value: 0, color: "text-purple-600" },
-        { title: "Selected", value: 0, color: "text-green-600" },
-        { title: "Offer Letter", value: 0, color: "text-orange-600" },
+        { title: "Round 1", value: 0, color: "" },
+        { title: "Round 2", value: 0, color: "" },
+        { title: "Round 3", value: 0, color: "" },
+        { title: "Final Round", value: 0, color: "" },
+        { title: "Selected", value: 0, color: " " },
+        { title: "Offer Letter", value: 0, color: "" },
         { title: "Document Verification", value: 0, color: "text-teal-600" },
         {
           title: "Background Verification",
           value: 0,
-          color: "text-indigo-600",
+          color: "",
         },
-        { title: "Hired Candidates", value: 0, color: "text-green-700" },
-        { title: "Rejected", value: 0, color: "text-red-600" },
+        { title: "Hired Candidates", value: 0, color: "" },
+        { title: "Rejected", value: 0, color: "  " },
       ];
 
   // Get all candidates from API response (already filtered by backend)
@@ -632,7 +632,7 @@ const Candidates = () => {
               {hasAction(userPermissions, "candidates", "add") && (
                 <Button
                   onClick={() => setAddCandidateOpen(true)}
-                  className="bg-green-600 text-white w-full sm:w-auto hover:bg-green-700"
+                  className="text-white w-full sm:w-auto hover:bg-green-700"
                 >
                   + Add Candidate
                 </Button>
@@ -872,14 +872,62 @@ const Candidates = () => {
                                 <Badge
                                   className={cn(
                                     getCandidateStatusColor(
-                                      c.displayStatus || c.status,
+                                      (() => {
+                                        // Check if background verification is in progress
+                                        const bgStatus = (c as any).backgroundVerification?.status;
+                                        if (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED") {
+                                          return "BACKGROUND_VERIFICATION";
+                                        }
+                                        return c.displayStatus || c.status;
+                                      })(),
                                     ),
                                     "whitespace-nowrap shrink-0",
                                   )}
                                 >
-                                  {formatCandidateStatus(
-                                    c.displayStatus || c.status,
-                                  )}
+                                  {(() => {
+                                    const status = c.displayStatus || c.status;
+                                    const currentRound = (c as any).currentJobStage || c.currentRound || 1;
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    const bgStatus = (c as any).backgroundVerification?.status;
+                                    
+                                    // Check if background verification is in progress - show this first
+                                    if (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED" && status !== "HIRED") {
+                                      return "Background Verification";
+                                    }
+                                    
+                                    // Handle RE_APPLIED and APPLIED_FOR_MULTIPLE_JOBS
+                                    if (status === "RE_APPLIED")
+                                      return "Re-Applied";
+                                    if (status === "APPLIED_FOR_MULTIPLE_JOBS")
+                                      return "Applied for Multiple Jobs";
+                                    
+                                    // Check for round-specific statuses
+                                    if (status === "HR_INTERVIEW_IN_PROGRESS" || 
+                                        (status === "INTERVIEW_SCHEDULED" && currentRound === 1))
+                                      return "Round 1 In Progress";
+                                    if (status === "HR_INTERVIEW_COMPLETED" && currentRound === 1)
+                                      return "Round 1 Completed";
+                                    if (status === "MANAGER_INTERVIEW_IN_PROGRESS" || 
+                                        (status === "INTERVIEW_SCHEDULED" && currentRound === 2))
+                                      return "Round 2 In Progress";
+                                    if (status === "MANAGER_INTERVIEW_COMPLETED" && currentRound === 2)
+                                      return "Round 2 Completed";
+                                    if (status === "ROUND3_INTERVIEW_IN_PROGRESS" || 
+                                        (status === "INTERVIEW_SCHEDULED" && currentRound === 3))
+                                      return "Round 3 In Progress";
+                                    if (status === "ROUND3_INTERVIEW_COMPLETED" && currentRound === 3)
+                                      return "Round 3 Completed";
+                                    if (status === "ROUND4_INTERVIEW_IN_PROGRESS" || 
+                                        (status === "INTERVIEW_SCHEDULED" && currentRound === 4))
+                                      return "Round 4 In Progress";
+                                    if (status === "ROUND4_INTERVIEW_COMPLETED" && currentRound === 4)
+                                      return "Round 4 Completed";
+                                    if (status === "INTERVIEW_SCHEDULED")
+                                      return `Round ${currentRound} In Progress`;
+                                    if (status === "INTERVIEW_COMPLETED" && currentRound > 0)
+                                      return `Round ${currentRound} Completed`;
+                                    return formatCandidateStatus(status);
+                                  })()}
                                 </Badge>
                               </TooltipTrigger>
                               {c.appliedJobs && c.appliedJobs.length > 0 && (
@@ -924,7 +972,7 @@ const Candidates = () => {
                           <div className="flex items-center gap-2 mt-2">
                             <Badge
                               variant="outline"
-                              className="bg-blue-50 text-blue-700 border-blue-200"
+                              className="bg-primary/10 text-primary border-primary/20"
                             >
                               <User className="w-3 h-3 mr-1" />
                               Referred
@@ -1062,7 +1110,7 @@ const Candidates = () => {
                                 <div className="flex items-center gap-2">
                                   <Badge
                                     variant="outline"
-                                    className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                    className="bg-primary/10 text-primary border-primary/20 text-xs"
                                   >
                                     <User className="w-3 h-3 mr-1" />
                                     Referred
@@ -1104,17 +1152,59 @@ const Candidates = () => {
                                   <TooltipTrigger asChild>
                                     <Badge
                                       className={getCandidateStatusColor(
-                                        c.displayStatus || c.status,
+                                        (() => {
+                                          // Check if background verification is in progress
+                                          const bgStatus = (c as any).backgroundVerification?.status;
+                                          if (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED") {
+                                            return "BACKGROUND_VERIFICATION";
+                                          }
+                                          return c.displayStatus || c.status;
+                                        })(),
                                       )}
                                     >
                                       {(() => {
                                         const status =
                                           c.displayStatus || c.status;
-                                        const round = c.currentRound || 1;
+                                        const currentRound = (c as any).currentJobStage || c.currentRound || 1;
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        const bgStatus = (c as any).backgroundVerification?.status;
+                                        
+                                        // Check if background verification is in progress - show this first
+                                        if (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED" && status !== "HIRED") {
+                                          return "Background Verification";
+                                        }
+                                        
+                                        // Handle RE_APPLIED and APPLIED_FOR_MULTIPLE_JOBS
+                                        if (status === "RE_APPLIED")
+                                          return "Re-Applied";
+                                        if (status === "APPLIED_FOR_MULTIPLE_JOBS")
+                                          return "Applied for Multiple Jobs";
+                                        
+                                        // Check for round-specific statuses
+                                        if (status === "HR_INTERVIEW_IN_PROGRESS" || 
+                                            (status === "INTERVIEW_SCHEDULED" && currentRound === 1))
+                                          return "Round 1 In Progress";
+                                        if (status === "HR_INTERVIEW_COMPLETED" && currentRound === 1)
+                                          return "Round 1 Completed";
+                                        if (status === "MANAGER_INTERVIEW_IN_PROGRESS" || 
+                                            (status === "INTERVIEW_SCHEDULED" && currentRound === 2))
+                                          return "Round 2 In Progress";
+                                        if (status === "MANAGER_INTERVIEW_COMPLETED" && currentRound === 2)
+                                          return "Round 2 Completed";
+                                        if (status === "ROUND3_INTERVIEW_IN_PROGRESS" || 
+                                            (status === "INTERVIEW_SCHEDULED" && currentRound === 3))
+                                          return "Round 3 In Progress";
+                                        if (status === "ROUND3_INTERVIEW_COMPLETED" && currentRound === 3)
+                                          return "Round 3 Completed";
+                                        if (status === "ROUND4_INTERVIEW_IN_PROGRESS" || 
+                                            (status === "INTERVIEW_SCHEDULED" && currentRound === 4))
+                                          return "Round 4 In Progress";
+                                        if (status === "ROUND4_INTERVIEW_COMPLETED" && currentRound === 4)
+                                          return "Round 4 Completed";
                                         if (status === "INTERVIEW_SCHEDULED")
-                                          return `Round ${round} In Progress`;
-                                        if (status === "INTERVIEW_COMPLETED")
-                                          return `Round ${round} Completed`;
+                                          return `Round ${currentRound} In Progress`;
+                                        if (status === "INTERVIEW_COMPLETED" && currentRound > 0)
+                                          return `Round ${currentRound} Completed`;
                                         return formatCandidateStatus(status);
                                       })()}
                                     </Badge>
@@ -1237,7 +1327,7 @@ const Candidates = () => {
                                   <Button
                                     size="sm"
                                     variant={action.variant}
-                                    className={action.color}
+                                    className={action.color || (action.variant === 'default' ? '' : undefined)}
                                     disabled={action.disabled}
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1381,7 +1471,7 @@ const Candidates = () => {
                       {[
                         {
                           title: "Applied",
-                          color: "bg-blue-500",
+                          color: "bg-primary",
                           id: "applied",
                           status: "APPLIED",
                           round: 0,
@@ -1395,28 +1485,28 @@ const Candidates = () => {
                         },
                         {
                           title: "Round 1",
-                          color: "bg-purple-500",
+                          color: "bg-blue-500",
                           id: "round1",
                           status: "INTERVIEW_SCHEDULED",
                           round: 1,
                         },
                         {
                           title: "Round 2",
-                          color: "bg-purple-600",
+                          color: "bg-violet-500",
                           id: "round2",
                           status: "INTERVIEW_COMPLETED",
                           round: 2,
                         },
                         {
                           title: "Round 3",
-                          color: "bg-purple-700",
+                          color: "bg-purple-500",
                           id: "round3",
                           status: "INTERVIEW_COMPLETED",
                           round: 3,
                         },
                         {
                           title: "Final Round",
-                          color: "bg-purple-800",
+                          color: "bg-pink-500",
                           id: "round4",
                           status: "INTERVIEW_COMPLETED",
                           round: 4,
@@ -1455,7 +1545,11 @@ const Candidates = () => {
                         const columnCandidates = (
                           candidatesData?.data?.candidates || []
                         ).filter((c) => {
+                          // Get both status and displayStatus
                           const status = c.status;
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          const displayStatus = (c as any).displayStatus || status;
+                          
                           // Use currentJobStage (from backend) or fallback to currentRound (legacy)
                           // eslint-disable-next-line @typescript-eslint/no-explicit-any
                           const currentRound =
@@ -1467,57 +1561,105 @@ const Candidates = () => {
                           // Column Specific Filter
                           switch (column.id) {
                             case "applied":
-                              return status === "APPLIED";
+                              // Include APPLIED, RE_APPLIED, and APPLIED_FOR_MULTIPLE_JOBS
+                              // Check both status and displayStatus
+                              return displayStatus === "APPLIED" || 
+                                     displayStatus === "RE_APPLIED" || 
+                                     displayStatus === "APPLIED_FOR_MULTIPLE_JOBS" ||
+                                     (status === "APPLIED" && 
+                                      !["RE_APPLIED", "APPLIED_FOR_MULTIPLE_JOBS", "INTERVIEW_SCHEDULED", 
+                                        "HR_INTERVIEW_IN_PROGRESS", "MANAGER_INTERVIEW_IN_PROGRESS",
+                                        "ROUND3_INTERVIEW_IN_PROGRESS", "ROUND4_INTERVIEW_IN_PROGRESS"].includes(displayStatus) &&
+                                      currentRound === 0);
                             case "scheduled":
                               // Candidates who are scheduled but round info might be plain or 0
+                              // Or scheduled but not yet assigned to a specific round
                               return (
-                                status === "INTERVIEW_SCHEDULED" &&
-                                currentRound === 0
+                                (status === "INTERVIEW_SCHEDULED" || displayStatus === "INTERVIEW_SCHEDULED") &&
+                                currentRound === 0 &&
+                                !["HR_INTERVIEW_IN_PROGRESS", "MANAGER_INTERVIEW_IN_PROGRESS",
+                                  "ROUND3_INTERVIEW_IN_PROGRESS", "ROUND4_INTERVIEW_IN_PROGRESS"].includes(status)
                               );
-                            case "round1":
-                              return (
-                                currentRound === 1 &&
-                                ![
-                                  "SELECTED",
-                                  "OFFER_SENT",
-                                  "OFFER_ACCEPTED",
-                                  "HIRED",
-                                  "REJECTED",
-                                ].includes(status)
-                              );
-                            case "round2":
-                              return (
-                                currentRound === 2 &&
-                                ![
-                                  "SELECTED",
-                                  "OFFER_SENT",
-                                  "OFFER_ACCEPTED",
-                                  "HIRED",
-                                  "REJECTED",
-                                ].includes(status)
-                              );
-                            case "round3":
-                              return (
-                                currentRound === 3 &&
-                                ![
-                                  "SELECTED",
-                                  "OFFER_SENT",
-                                  "OFFER_ACCEPTED",
-                                  "HIRED",
-                                  "REJECTED",
-                                ].includes(status)
-                              );
-                            case "round4":
-                              return (
-                                currentRound === 4 &&
-                                ![
-                                  "SELECTED",
-                                  "OFFER_SENT",
-                                  "OFFER_ACCEPTED",
-                                  "HIRED",
-                                  "REJECTED",
-                                ].includes(status)
-                              );
+                            case "round1": {
+                              // Round 1: Match by status OR by currentRound
+                              const statusStr = status as string;
+                              // Exclude final statuses and background verification
+                              if (["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "HIRED", "REJECTED", "BACKGROUND_VERIFICATION"].includes(statusStr) ||
+                                  displayStatus === "BACKGROUND_VERIFICATION") {
+                                return false;
+                              }
+                              // Match Round 1 specific statuses
+                              if (statusStr === "HR_INTERVIEW_IN_PROGRESS" || statusStr === "HR_INTERVIEW_COMPLETED") {
+                                return true;
+                              }
+                              // Match by currentRound = 1 with interview statuses
+                              if (currentRound === 1 && 
+                                  (statusStr === "INTERVIEW_SCHEDULED" || 
+                                   statusStr === "INTERVIEW_COMPLETED")) {
+                                return true;
+                              }
+                              return false;
+                            }
+                            case "round2": {
+                              // Round 2: Match by status OR by currentRound
+                              const statusStr = status as string;
+                              // Exclude final statuses and background verification
+                              if (["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "HIRED", "REJECTED", "BACKGROUND_VERIFICATION"].includes(statusStr) ||
+                                  displayStatus === "BACKGROUND_VERIFICATION") {
+                                return false;
+                              }
+                              // Match Round 2 specific statuses
+                              if (statusStr === "MANAGER_INTERVIEW_IN_PROGRESS" || statusStr === "MANAGER_INTERVIEW_COMPLETED") {
+                                return true;
+                              }
+                              // Match by currentRound = 2 with interview statuses
+                              if (currentRound === 2 && 
+                                  (statusStr === "INTERVIEW_SCHEDULED" || 
+                                   statusStr === "INTERVIEW_COMPLETED")) {
+                                return true;
+                              }
+                              return false;
+                            }
+                            case "round3": {
+                              // Round 3: Match by status OR by currentRound
+                              const statusStr = status as string;
+                              // Exclude final statuses and background verification
+                              if (["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "HIRED", "REJECTED", "BACKGROUND_VERIFICATION"].includes(statusStr) ||
+                                  displayStatus === "BACKGROUND_VERIFICATION") {
+                                return false;
+                              }
+                              // Match Round 3 specific statuses
+                              if (statusStr === "ROUND3_INTERVIEW_IN_PROGRESS" || statusStr === "ROUND3_INTERVIEW_COMPLETED") {
+                                return true;
+                              }
+                              // Match by currentRound = 3 with interview statuses
+                              if (currentRound === 3 && 
+                                  (statusStr === "INTERVIEW_SCHEDULED" || 
+                                   statusStr === "INTERVIEW_COMPLETED")) {
+                                return true;
+                              }
+                              return false;
+                            }
+                            case "round4": {
+                              // Round 4: Match by status OR by currentRound
+                              const statusStr = status as string;
+                              // Exclude final statuses and background verification
+                              if (["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "HIRED", "REJECTED", "BACKGROUND_VERIFICATION"].includes(statusStr) ||
+                                  displayStatus === "BACKGROUND_VERIFICATION") {
+                                return false;
+                              }
+                              // Match Round 4 specific statuses
+                              if (statusStr === "ROUND4_INTERVIEW_IN_PROGRESS" || statusStr === "ROUND4_INTERVIEW_COMPLETED") {
+                                return true;
+                              }
+                              // Match by currentRound = 4 with interview statuses
+                              if (currentRound === 4 && 
+                                  (statusStr === "INTERVIEW_SCHEDULED" || 
+                                   statusStr === "INTERVIEW_COMPLETED")) {
+                                return true;
+                              }
+                              return false;
+                            }
                             case "offer":
                               // Selected candidates (ready for offer) or Offer Sent
                               return (
@@ -1532,11 +1674,12 @@ const Candidates = () => {
                               );
                             case "bgv":
                               // BG Verification started
-                              return (
-                                bgStatus &&
-                                bgStatus !== "NOT_STARTED" &&
-                                status !== "HIRED"
-                              );
+                              // Check both status/displayStatus and nested bgStatus
+                              const isBgVerification = 
+                                status === "BACKGROUND_VERIFICATION" ||
+                                displayStatus === "BACKGROUND_VERIFICATION" ||
+                                (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED");
+                              return isBgVerification && status !== "HIRED";
                             case "onboarded":
                               return status === "HIRED";
                             default:
@@ -1664,9 +1807,77 @@ const Candidates = () => {
                                       }
                                       className="cursor-move border p-4 rounded-xl bg-white shadow hover:shadow-md transition"
                                     >
-                                      <h3 className="font-semibold">
-                                        {c.firstName} {c.lastName}
-                                      </h3>
+                                      <div className="flex items-start justify-between gap-2 mb-2">
+                                        <h3 className="font-semibold flex-1">
+                                          {c.firstName} {c.lastName}
+                                        </h3>
+                                        <Badge
+                                          className={cn(
+                                            getCandidateStatusColor(
+                                              (() => {
+                                                // Check if background verification is in progress
+                                                const status = (c as any).displayStatus || c.status;
+                                                const bgStatus = (c as any).backgroundVerification?.status;
+                                                // Check both direct status and nested bgStatus
+                                                if (status === "BACKGROUND_VERIFICATION" || 
+                                                    (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED")) {
+                                                  return "BACKGROUND_VERIFICATION";
+                                                }
+                                                return status;
+                                              })(),
+                                            ),
+                                            "whitespace-nowrap shrink-0 text-xs"
+                                          )}
+                                        >
+                                          {(() => {
+                                            const status = (c as any).displayStatus || c.status;
+                                            const currentRound = (c as any).currentJobStage || c.currentRound || 1;
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            const bgStatus = (c as any).backgroundVerification?.status;
+                                            
+                                            // Check if background verification is in progress - show this first
+                                            // Check both direct status and nested bgStatus
+                                            if ((status === "BACKGROUND_VERIFICATION" || 
+                                                 (bgStatus && bgStatus !== "NOT_STARTED" && bgStatus !== "COMPLETED")) && 
+                                                status !== "HIRED") {
+                                              return "Background Verification";
+                                            }
+                                            
+                                            // Handle RE_APPLIED and APPLIED_FOR_MULTIPLE_JOBS
+                                            if (status === "RE_APPLIED")
+                                              return "Re-Applied";
+                                            if (status === "APPLIED_FOR_MULTIPLE_JOBS")
+                                              return "Multiple Jobs";
+                                            
+                                            // Check for round-specific statuses
+                                            if (status === "HR_INTERVIEW_IN_PROGRESS" || 
+                                                (status === "INTERVIEW_SCHEDULED" && currentRound === 1))
+                                              return "R1 In Progress";
+                                            if (status === "HR_INTERVIEW_COMPLETED" && currentRound === 1)
+                                              return "R1 Completed";
+                                            if (status === "MANAGER_INTERVIEW_IN_PROGRESS" || 
+                                                (status === "INTERVIEW_SCHEDULED" && currentRound === 2))
+                                              return "R2 In Progress";
+                                            if (status === "MANAGER_INTERVIEW_COMPLETED" && currentRound === 2)
+                                              return "R2 Completed";
+                                            if (status === "ROUND3_INTERVIEW_IN_PROGRESS" || 
+                                                (status === "INTERVIEW_SCHEDULED" && currentRound === 3))
+                                              return "R3 In Progress";
+                                            if (status === "ROUND3_INTERVIEW_COMPLETED" && currentRound === 3)
+                                              return "R3 Completed";
+                                            if (status === "ROUND4_INTERVIEW_IN_PROGRESS" || 
+                                                (status === "INTERVIEW_SCHEDULED" && currentRound === 4))
+                                              return "R4 In Progress";
+                                            if (status === "ROUND4_INTERVIEW_COMPLETED" && currentRound === 4)
+                                              return "R4 Completed";
+                                            if (status === "INTERVIEW_SCHEDULED")
+                                              return `R${currentRound} In Progress`;
+                                            if (status === "INTERVIEW_COMPLETED" && currentRound > 0)
+                                              return `R${currentRound} Completed`;
+                                            return formatCandidateStatus(status);
+                                          })()}
+                                        </Badge>
+                                      </div>
                                       <p className="text-sm text-gray-500">
                                         {c.position}
                                       </p>

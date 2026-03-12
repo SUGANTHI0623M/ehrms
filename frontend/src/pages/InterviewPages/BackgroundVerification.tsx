@@ -107,7 +107,7 @@ const BackgroundVerification = () => {
                 <CheckCircle2 className="w-4 h-4 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.cleared}</div>
+                <div className="text-2xl font-bold  ">{stats.cleared}</div>
                 <p className="text-xs text-muted-foreground mt-1">Ready for onboarding</p>
               </CardContent>
             </Card>
@@ -118,7 +118,7 @@ const BackgroundVerification = () => {
                 <XCircle className="w-4 h-4 text-red-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
+                <div className="text-2xl font-bold   ">{stats.failed}</div>
                 <p className="text-xs text-muted-foreground mt-1">Verification failed</p>
               </CardContent>
             </Card>

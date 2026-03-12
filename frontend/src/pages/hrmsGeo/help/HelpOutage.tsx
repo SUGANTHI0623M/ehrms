@@ -90,7 +90,7 @@ const HelpOutage = () => {
                           <div className="flex items-start gap-4">
                             <AlertCircle className="w-6 h-6 text-red-500 mt-1" />
                             <div className="flex-1">
-                              <p className="text-red-600 font-semibold mb-2">Outage Reason: {outage.reason}</p>
+                              <p className="   font-semibold mb-2">Outage Reason: {outage.reason}</p>
                               <p className="text-sm text-muted-foreground">{outage.description}</p>
                             </div>
                           </div>

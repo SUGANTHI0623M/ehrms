@@ -463,7 +463,7 @@ export const LmsCourseCard = ({
             <span
               className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md shrink-0 ${
                 timeLeft === "Overdue"
-                  ? "bg-red-50 text-red-600"
+                  ? "bg-red-50   "
                   : "bg-amber-50 text-amber-700"
               }`}
             >
@@ -501,7 +501,7 @@ export const LmsCourseCard = ({
               <Avatar
                 size={22}
                 icon={<UserOutlined />}
-                className="bg-indigo-100 text-indigo-600 shrink-0"
+                className="bg-indigo-100  shrink-0"
               />
               <Text
                 type="secondary"

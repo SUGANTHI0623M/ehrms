@@ -80,7 +80,10 @@ class RequestService {
       if (body != null && body['success'] == true) {
         return {'success': true, 'data': body['data'] ?? []};
       }
-      return {'success': false, 'message': body?['message'] ?? 'Error fetching announcements'};
+      return {
+        'success': false,
+        'message': body?['message'] ?? 'Error fetching announcements',
+      };
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
@@ -119,8 +122,8 @@ class RequestService {
     }
   }
 
-  /// Fetches leave types for Apply Leave dropdown: from staff's leave template + Unpaid Leave.
-  /// Returns list of { type, days } where days is the limit (null for Unpaid Leave).
+  /// Fetches leave types for Apply Leave dropdown: from staff's leave template + Half Day (static) + Unpaid Leave.
+  /// Returns list of { type, days } where days is the limit (null for Unpaid Leave, 0.5 for Half Day).
   Future<Map<String, dynamic>> getLeaveTypesForApply() async {
     try {
       await _setToken();
@@ -129,6 +132,34 @@ class RequestService {
       );
       final body = response.data;
       return {'success': true, 'data': body?['data'] ?? body};
+    } on DioException catch (e) {
+      return {'success': false, 'message': _dioMessage(e)};
+    } catch (e) {
+      return {'success': false, 'message': _handleException(e)};
+    }
+  }
+
+  /// Fetches leave balance: availableCasualLeaves from attendances, totalAllowed from leave template.
+  Future<Map<String, dynamic>> getLeaveBalance() async {
+    try {
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/requests/leave-balance',
+      );
+      final body = response.data;
+      if (body == null || body['success'] != true) {
+        return {'success': false, 'message': body?['error']?['message'] ?? 'Failed to load balance'};
+      }
+      final data = body['data'] as Map<String, dynamic>?;
+      return {
+        'success': true,
+        'availableCasualLeaves': (data?['availableCasualLeaves'] is num)
+            ? (data!['availableCasualLeaves'] as num).toDouble()
+            : 0.0,
+        'totalAllowed': (data?['totalAllowed'] is num)
+            ? (data!['totalAllowed'] as num).toDouble()
+            : 0.0,
+      };
     } on DioException catch (e) {
       return {'success': false, 'message': _dioMessage(e)};
     } catch (e) {
@@ -375,7 +406,9 @@ class RequestService {
         '/requests/payslip/$requestId/view',
       );
       final body = response.data;
-      if (body != null && body['success'] == true && body['payslipUrl'] != null) {
+      if (body != null &&
+          body['success'] == true &&
+          body['payslipUrl'] != null) {
         return {'success': true, 'payslipUrl': body['payslipUrl']};
       }
       return {
@@ -387,8 +420,9 @@ class RequestService {
     } on DioException catch (e) {
       final msg = e.response?.data is Map
           ? (e.response?.data as Map)['error'] is Map
-              ? ((e.response?.data as Map)['error'] as Map)['message']?.toString()
-              : null
+                ? ((e.response?.data as Map)['error'] as Map)['message']
+                      ?.toString()
+                : null
           : null;
       return {'success': false, 'message': msg ?? _dioMessage(e)};
     } catch (e) {
@@ -403,7 +437,9 @@ class RequestService {
         '/requests/payslip/$requestId/download',
       );
       final body = response.data;
-      if (body != null && body['success'] == true && body['payslipUrl'] != null) {
+      if (body != null &&
+          body['success'] == true &&
+          body['payslipUrl'] != null) {
         return {'success': true, 'payslipUrl': body['payslipUrl']};
       }
       return {
@@ -415,8 +451,9 @@ class RequestService {
     } on DioException catch (e) {
       final msg = e.response?.data is Map
           ? (e.response?.data as Map)['error'] is Map
-              ? ((e.response?.data as Map)['error'] as Map)['message']?.toString()
-              : null
+                ? ((e.response?.data as Map)['error'] as Map)['message']
+                      ?.toString()
+                : null
           : null;
       return {'success': false, 'message': msg ?? _dioMessage(e)};
     } catch (e) {

@@ -202,7 +202,7 @@ const DocumentVerificationTab: React.FC<DocumentVerificationTabProps> = ({
                                                     <strong>Rejection Reason:</strong> {item.rejectionReason || "No reason provided"}
                                                 </p>
                                                 {item.rejectedAt && (
-                                                    <p className="text-xs text-red-600 dark:text-red-300 mt-1">
+                                                    <p className="text-xs    dark:text-red-300 mt-1">
                                                         Rejected on: {new Date(item.rejectedAt).toLocaleDateString()}
                                                     </p>
                                                 )}
@@ -234,13 +234,13 @@ const DocumentVerificationTab: React.FC<DocumentVerificationTabProps> = ({
                                     {item.status === 'VERIFIED' && item.verifiedAt && (
                                         <div className="p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
                                             <div className="flex items-center gap-2">
-                                                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                                <CheckCircle2 className="w-4 h-4   dark:text-green-400" />
                                                 <p className="text-sm font-medium text-green-800 dark:text-green-200">
                                                     Verified on: {new Date(item.verifiedAt).toLocaleDateString()}
                                                 </p>
                                             </div>
                                             {item.remarks && (
-                                                <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                                                <p className="text-xs  dark:text-green-300 mt-1">
                                                     {item.remarks}
                                                 </p>
                                             )}

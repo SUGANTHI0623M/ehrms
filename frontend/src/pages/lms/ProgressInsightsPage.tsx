@@ -326,7 +326,7 @@ export const ProgressInsightsContent: React.FC<any> = ({
                             </div>
                             <div className="flex items-center gap-2 bg-orange-50 px-3 py-1.5 rounded-full border border-orange-100">
                                 <FireOutlined className="text-orange-500" />
-                                <Text strong className="text-orange-600">{stats.streak} Day Streak</Text>
+                                <Text strong className="">{stats.streak} Day Streak</Text>
                             </div>
                         </div>
 

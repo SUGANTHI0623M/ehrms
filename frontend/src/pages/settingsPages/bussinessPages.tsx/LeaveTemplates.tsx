@@ -10,11 +10,23 @@ import {
   useDeleteLeaveTemplateMutation 
 } from "@/store/api/settingsApi";
 import { message } from "antd";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function LeaveTemplates() {
   const navigate = useNavigate();
   const { data, isLoading, refetch } = useGetLeaveTemplatesQuery();
   const [deleteTemplate, { isLoading: isDeleting }] = useDeleteLeaveTemplateMutation();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<string | null>(null);
 
   const templates = data?.data?.templates || [];
 
@@ -26,23 +38,23 @@ export default function LeaveTemplates() {
     navigate(`/business/leave-templates/${templateId}/edit`);
   };
 
-  const handleDelete = async (templateId: string) => {
-    message.confirm({
-      title: 'Delete Leave Template',
-      content: 'Are you sure you want to delete this leave template?',
-      okText: 'Yes, Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          await deleteTemplate(templateId).unwrap();
-          message.success('Leave template deleted successfully');
-          refetch();
-        } catch (error: any) {
-          message.error(error?.data?.error?.message || 'Failed to delete leave template');
-        }
-      }
-    });
+  const handleDeleteClick = (templateId: string) => {
+    setTemplateToDelete(templateId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!templateToDelete) return;
+    
+    try {
+      await deleteTemplate(templateToDelete).unwrap();
+      message.success('Leave template deleted successfully');
+      refetch();
+      setDeleteDialogOpen(false);
+      setTemplateToDelete(null);
+    } catch (error: any) {
+      message.error(error?.data?.error?.message || 'Failed to delete leave template');
+    }
   };
 
   const handleViewStaff = (templateId: string) => {
@@ -128,7 +140,7 @@ export default function LeaveTemplates() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleDelete(template._id)}
+                      onClick={() => handleDeleteClick(template._id)}
                       disabled={isDeleting}
                     >
                       <Trash2 className="w-4 h-4 mr-1" />
@@ -140,6 +152,27 @@ export default function LeaveTemplates() {
             )}
           </CardContent>
         </Card>
+
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Leave Template</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this leave template? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </MainLayout>
   );

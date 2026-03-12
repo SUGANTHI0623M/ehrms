@@ -381,7 +381,7 @@ export default function ManagerReview() {
           <Card>
             <CardContent className="p-4 flex items-center gap-4">
               <div className="p-3 bg-green-100 rounded-full">
-                <TrendingUp className="w-6 h-6 text-green-600" />
+                <TrendingUp className="w-6 h-6  " />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Manager Rating</p>

@@ -11,11 +11,21 @@ export interface RegisterRequest {
   password: string;
   name: string;
   phone?: string;
+  countryCode?: string;
   role?: string;
   // Company registration fields
   companyName?: string;
   companyEmail?: string;
   companyPhone?: string;
+  companyCountryCode?: string;
+  companyLogo?: string | File;
+  companyAddress?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    pincode?: string;
+  };
 }
 
 export interface Company {
@@ -82,11 +92,45 @@ export const authApi = apiSlice.injectEndpoints({
       }),
     }),
     register: builder.mutation<{ success: boolean; data: AuthResponse }, RegisterRequest>({
-      query: (userData) => ({
-        url: '/auth/register',
-        method: 'POST',
-        body: userData,
-      }),
+      query: (userData) => {
+        // Check if logo is a File (needs FormData)
+        const hasLogoFile = userData.companyLogo instanceof File;
+        
+        if (hasLogoFile) {
+          // Use FormData for file upload
+          const formData = new FormData();
+          formData.append('name', userData.name);
+          formData.append('email', userData.email);
+          formData.append('password', userData.password);
+          if (userData.phone) formData.append('phone', userData.phone);
+          if (userData.countryCode) formData.append('countryCode', userData.countryCode);
+          if (userData.role) formData.append('role', userData.role);
+          if (userData.companyName) formData.append('companyName', userData.companyName);
+          if (userData.companyEmail) formData.append('companyEmail', userData.companyEmail);
+          if (userData.companyPhone) formData.append('companyPhone', userData.companyPhone);
+          if (userData.companyCountryCode) formData.append('companyCountryCode', userData.companyCountryCode);
+          if (userData.companyLogo instanceof File) {
+            formData.append('companyLogo', userData.companyLogo);
+          }
+          if (userData.companyAddress) {
+            // Send address as JSON string for easier parsing
+            formData.append('companyAddress', JSON.stringify(userData.companyAddress));
+          }
+          
+          return {
+            url: '/auth/register',
+            method: 'POST',
+            body: formData,
+          };
+        } else {
+          // Use JSON for regular registration
+          return {
+            url: '/auth/register',
+            method: 'POST',
+            body: userData,
+          };
+        }
+      },
     }),
     logout: builder.mutation<{ success: boolean; message: string }, void>({
       query: () => ({

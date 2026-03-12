@@ -395,7 +395,7 @@ const TrackingDashboard = () => {
                               </p>
                             </div>
                             <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                              <Calendar className="w-6 h-6 text-purple-600" />
+                              <Calendar className="w-6 h-6 " />
                             </div>
                           </div>
                         </CardContent>
@@ -413,7 +413,7 @@ const TrackingDashboard = () => {
                               </p>
                             </div>
                             <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                              <Navigation className="w-6 h-6 text-purple-600" />
+                              <Navigation className="w-6 h-6 " />
                             </div>
                           </div>
                         </CardContent>

@@ -141,7 +141,7 @@ export default function PMSReports() {
     if (rating >= 4.5) return "text-[#efaa1f]";
     if (rating >= 3.5) return "text-blue-600";
     if (rating >= 2.5) return "text-yellow-600";
-    return "text-red-600";
+    return "  ";
   };
 
   return (
@@ -352,7 +352,7 @@ export default function PMSReports() {
                           ) : (
                             <TrendingDown className="w-4 h-4 text-red-500" />
                           )}
-                          <span className={output.incrementPercent > 0 ? "text-[#efaa1f]" : "text-red-600"}>
+                          <span className={output.incrementPercent > 0 ? "text-[#efaa1f]" : "  "}>
                             {output.incrementPercent}%
                           </span>
                         </div>

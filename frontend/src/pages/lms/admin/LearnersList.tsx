@@ -190,7 +190,7 @@ const LearnersList = () => {
             key: 'completed',
             align: 'center' as const,
             render: (_: any, record: Learner) => (
-                <Text className="text-sm font-medium text-green-600">{record.stats?.completed ?? 0}</Text>
+                <Text className="text-sm font-medium  ">{record.stats?.completed ?? 0}</Text>
             )
         },
         {

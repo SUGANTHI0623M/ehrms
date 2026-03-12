@@ -201,7 +201,7 @@ export default function PMSSettings() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Completed</span>
-                        <span className="font-semibold text-green-600">{analytics.summary?.completedReviews || 0}</span>
+                        <span className="font-semibold  ">{analytics.summary?.completedReviews || 0}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Pending</span>

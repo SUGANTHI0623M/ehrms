@@ -780,7 +780,7 @@ const Timeline = () => {
                                               className={`w-8 h-8 rounded-full flex items-center justify-center ${
                                                 (event.type || "stop") ===
                                                 "outage"
-                                                  ? "bg-red-100 text-red-600"
+                                                  ? "bg-red-100   "
                                                   : (event.type || "stop") ===
                                                       "geotag"
                                                     ? "bg-blue-100 text-blue-600"
@@ -789,10 +789,10 @@ const Timeline = () => {
                                                       ? "bg-[#fef3c7] text-[#efaa1f]"
                                                       : (event.type ||
                                                             "stop") === "exited"
-                                                        ? "bg-orange-100 text-orange-600"
+                                                        ? "bg-orange-100 "
                                                         : (event.type ||
                                                               "stop") === "live"
-                                                          ? "bg-purple-100 text-purple-600"
+                                                          ? "bg-purple-100 "
                                                           : "bg-muted text-muted-foreground"
                                               }`}
                                             >
@@ -1443,7 +1443,7 @@ const Timeline = () => {
                                     <div
                                       className={`w-8 h-8 rounded-full flex items-center justify-center ${
                                         (event.type || "stop") === "outage"
-                                          ? "bg-red-100 text-red-600"
+                                          ? "bg-red-100   "
                                           : (event.type || "stop") === "geotag"
                                             ? "bg-blue-100 text-blue-600"
                                             : (event.type || "stop") ===
@@ -1451,10 +1451,10 @@ const Timeline = () => {
                                               ? "bg-[#fef3c7] text-[#efaa1f]"
                                               : (event.type || "stop") ===
                                                   "exited"
-                                                ? "bg-orange-100 text-orange-600"
+                                                ? "bg-orange-100 "
                                                 : (event.type || "stop") ===
                                                     "live"
-                                                  ? "bg-purple-100 text-purple-600"
+                                                  ? "bg-purple-100 "
                                                   : "bg-muted text-muted-foreground"
                                       }`}
                                     >

@@ -306,7 +306,7 @@ const PayrollPreview = () => {
                                 >
                                   <div className="flex justify-between items-center">
                                     <span>{claim.type} - {claim.description}</span>
-                                    <span className="font-semibold text-green-600">{formatINR(claim.amount)}</span>
+                                    <span className="font-semibold  ">{formatINR(claim.amount)}</span>
                                   </div>
                                   <span className="text-xs text-muted-foreground">
                                     {format(new Date(claim.date), "MMM dd, yyyy")}
@@ -367,7 +367,7 @@ const PayrollPreview = () => {
                       <p className="text-sm text-muted-foreground">
                         Deductions
                       </p>
-                      <p className="text-xl font-bold text-red-600">
+                      <p className="text-xl font-bold   ">
                         {formatINR(previewData.deductions)}
                       </p>
                     </div>
@@ -448,7 +448,7 @@ const PayrollPreview = () => {
                               <span className="text-muted-foreground">
                                 Full Day Leaves:
                               </span>
-                              <span className="font-medium text-purple-600">
+                              <span className="font-medium ">
                                 {previewData.attendance.fullDayLeaves || 0}
                               </span>
                             </div>
@@ -456,14 +456,14 @@ const PayrollPreview = () => {
                               <span className="text-muted-foreground">
                                 Half Day Leaves:
                               </span>
-                              <span className="font-medium text-orange-600">
+                              <span className="font-medium ">
                                 {previewData.attendance.halfDayLeaves || 0}
                               </span>
                             </div>
                           </>
                         )}
                         {previewData.attendance.fineAmount > 0 && (
-                          <div className="flex justify-between text-red-600 mt-2 pt-2 border-t">
+                          <div className="flex justify-between    mt-2 pt-2 border-t">
                             <span>Fine Deduction:</span>
                             <span className="font-medium">
                               -{formatINR(
@@ -549,7 +549,7 @@ const PayrollPreview = () => {
                               <div className="text-xs text-muted-foreground">
                                 Full Day Leaves
                               </div>
-                              <div className="font-semibold text-purple-600">
+                              <div className="font-semibold ">
                                 {previewData.attendance.fullDayLeaves}
                               </div>
                             </div>
@@ -559,7 +559,7 @@ const PayrollPreview = () => {
                               <div className="text-xs text-muted-foreground">
                                 Half Day Leaves
                               </div>
-                              <div className="font-semibold text-orange-600">
+                              <div className="font-semibold ">
                                 {previewData.attendance.halfDayLeaves}
                               </div>
                             </div>
@@ -599,7 +599,7 @@ const PayrollPreview = () => {
                             className={`font-semibold ${
                               comp.type === "earning"
                                 ? "text-[#efaa1f]"
-                                : "text-red-600"
+                                : "  "
                             }`}
                           >
                             {comp.type === "earning" ? "+" : "-"} {formatINR(comp.amount)}
@@ -643,7 +643,7 @@ const PayrollPreview = () => {
                       <p className="text-sm text-muted-foreground">
                         Total Deductions
                       </p>
-                      <p className="text-2xl font-bold text-red-600">
+                      <p className="text-2xl font-bold   ">
                         {formatINR(previewData.summary.totalDeductions)}
                       </p>
                     </div>
@@ -727,7 +727,7 @@ const PayrollPreview = () => {
                                 <p className="text-sm text-muted-foreground">
                                   Deductions
                                 </p>
-                                <p className="font-semibold text-red-600">
+                                <p className="font-semibold   ">
                                   {formatINR(preview.deductions)}
                                 </p>
                               </div>
@@ -774,7 +774,7 @@ const PayrollPreview = () => {
                                         className={`font-semibold ${
                                           comp.type === "earning"
                                             ? "text-[#efaa1f]"
-                                            : "text-red-600"
+                                            : "  "
                                         }`}
                                       >
                                         {comp.type === "earning" ? "+" : "-"} {formatINR(comp.amount)}

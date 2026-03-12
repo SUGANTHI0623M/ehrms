@@ -14,6 +14,7 @@ import '../screens/profile/profile_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
 import '../screens/lms/lms_shell_screen.dart';
 import '../screens/announcements/announcements_screen.dart';
+import '../screens/grievance/grievance_shell_screen.dart';
 
 
 class AppDrawer extends StatefulWidget {
@@ -186,6 +187,17 @@ class _AppDrawerState extends State<AppDrawer> {
                     Navigator.pop(context);
                     Future.microtask(
                       () => _navigateAndClearStack(const AnnouncementsScreen()),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  context: context,
+                  icon: Icons.report_problem_rounded,
+                  title: 'Grievance',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Future.microtask(
+                      () => _navigateAndClearStack(const GrievanceShellScreen()),
                     );
                   },
                 ),

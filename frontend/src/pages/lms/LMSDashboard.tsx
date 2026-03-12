@@ -174,7 +174,7 @@ const LMSDashboard = () => {
                                                         }
                                                         description={
                                                             <div className="text-xs text-gray-500 leading-tight mt-0.5">
-                                                                {item.action} <span className="text-indigo-600 font-medium">{item.target}</span>
+                                                                {item.action} <span className=" font-medium">{item.target}</span>
                                                             </div>
                                                         }
                                                     />
@@ -227,7 +227,7 @@ const LMSDashboard = () => {
                                 </div>
                                 <div className="py-6">
                                     <div className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-4">Avg Assessment Score</div>
-                                    <div className="text-6xl font-black text-indigo-600">
+                                    <div className="text-6xl font-black ">
                                         {data.kpi?.avgScore || 0}
                                         <span className="text-2xl font-normal text-gray-400">%</span>
                                     </div>

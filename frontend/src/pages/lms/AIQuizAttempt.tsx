@@ -161,12 +161,12 @@ const AIQuizAttempt: React.FC = () => {
                                         </div>
                                         <Title level={5} className="!m-0 mb-4">{q.question}</Title>
                                         <div className="space-y-2 mb-4">
-                                            <div className={`p-3 rounded-lg text-xs ${isCorrect ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700 font-medium'}`}>
+                                            <div className={`p-3 rounded-lg text-xs ${isCorrect ? 'bg-green-50 ' : 'bg-red-50 text-red-700 font-medium'}`}>
                                                 <Text type="secondary" className="block text-[8px] uppercase font-bold mb-0.5">Your Response</Text>
                                                 {userResponse?.answer}
                                             </div>
                                             {!isCorrect && (
-                                                <div className="p-3 rounded-lg text-xs bg-green-50 text-green-700">
+                                                <div className="p-3 rounded-lg text-xs bg-green-50 ">
                                                     <Text type="secondary" className="block text-[8px] uppercase font-bold mb-0.5">Correct Answer</Text>
                                                     {userResponse?.resolvedCorrectAnswer ?? q.correctAnswer}
                                                 </div>
@@ -215,15 +215,15 @@ const AIQuizAttempt: React.FC = () => {
                                         const isSelected = answers[currentQuestionIndex] === opt;
                                         return (
                                             <div key={idx} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-primary bg-green-50' : 'border-gray-50 bg-[#fafafa]'}`} onClick={() => handleAnswerChange(opt)}>
-                                                <Space size="middle"><Radio checked={isSelected} /><Text className={`text-sm ${isSelected ? 'text-green-700 font-medium' : 'text-gray-700'}`}>{opt}</Text></Space>
+                                                <Space size="middle"><Radio checked={isSelected} /><Text className={`text-sm ${isSelected ? ' font-medium' : 'text-gray-700'}`}>{opt}</Text></Space>
                                             </div>
                                         );
                                     })}
                                 </div>
                             ) : currentQuestion.type === 'True/False' ? (
                                 <Row gutter={16}>
-                                    <Col span={12}><Button block size="large" className={`h-20 rounded-xl text-lg font-bold border-2 ${answers[currentQuestionIndex] === 'True' ? 'border-primary bg-green-50 text-green-700' : 'border-gray-100'}`} onClick={() => handleAnswerChange('True')}>True</Button></Col>
-                                    <Col span={12}><Button block size="large" className={`h-20 rounded-xl text-lg font-bold border-2 ${answers[currentQuestionIndex] === 'False' ? 'border-primary bg-green-50 text-green-700' : 'border-gray-100'}`} onClick={() => handleAnswerChange('False')}>False</Button></Col>
+                                    <Col span={12}><Button block size="large" className={`h-20 rounded-xl text-lg font-bold border-2 ${answers[currentQuestionIndex] === 'True' ? 'border-primary bg-green-50 ' : 'border-gray-100'}`} onClick={() => handleAnswerChange('True')}>True</Button></Col>
+                                    <Col span={12}><Button block size="large" className={`h-20 rounded-xl text-lg font-bold border-2 ${answers[currentQuestionIndex] === 'False' ? 'border-primary bg-green-50 ' : 'border-gray-100'}`} onClick={() => handleAnswerChange('False')}>False</Button></Col>
                                 </Row>
                             ) : null}
                         </div>

@@ -30,6 +30,9 @@ class MyRequestsScreen extends StatefulWidget {
   final int? dashboardTabIndex;
   final void Function(int index)? onNavigateToIndex;
 
+  /// Called when user changes tab so dashboard can keep requested tab in sync for quick-action navigation.
+  final void Function(int index)? onTabIndexChanged;
+
   /// When true, this screen is the visible tab (e.g. user tapped Request in bottom nav).
   final bool? isActiveTab;
 
@@ -38,6 +41,7 @@ class MyRequestsScreen extends StatefulWidget {
     this.initialTabIndex = 0,
     this.dashboardTabIndex,
     this.onNavigateToIndex,
+    this.onTabIndexChanged,
     this.isActiveTab,
   });
 
@@ -63,6 +67,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     );
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
+        widget.onTabIndexChanged?.call(_tabController.index);
         setState(() {});
       }
     });
@@ -1235,21 +1240,41 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   bool _isSubmitting = false;
   bool _isLoadingTypes = true;
   bool _isOneDay = false; // Toggle for single day leave
+  double _availableCasualLeaves = 0.0;
+  double _totalAllowed = 0.0;
 
   @override
   void initState() {
     super.initState();
     _fetchLeaveTypes();
+    _fetchLeaveBalance();
+  }
+
+  Future<void> _fetchLeaveBalance() async {
+    final result = await _requestService.getLeaveBalance();
+    if (mounted && result['success'] == true) {
+      setState(() {
+        _availableCasualLeaves = (result['availableCasualLeaves'] as num?)?.toDouble() ?? 0.0;
+        _totalAllowed = (result['totalAllowed'] as num?)?.toDouble() ?? 0.0;
+      });
+    }
   }
 
   Future<void> _fetchLeaveTypes() async {
     final result = await _requestService.getLeaveTypesForApply();
     if (mounted) {
       if (result['success']) {
+        final raw = List<dynamic>.from(result['data'] as List? ?? []);
+        // Ensure Half Day is always present as static option (backend sends it; add if missing)
+        final hasHalfDay = raw.any((e) {
+          final t = (e is Map ? e['type'] as String? : null) ?? '';
+          return t.toLowerCase().replaceAll(RegExp(r'\s+'), '') == 'halfday';
+        });
+        if (!hasHalfDay) {
+          raw.insert(0, {'type': 'Half Day', 'days': 0.5});
+        }
         setState(() {
-          // Leave types from staff's leave template + Unpaid Leave (from backend)
-          _allowedTypes = List<dynamic>.from(result['data'] as List? ?? []);
-
+          _allowedTypes = raw;
           if (_allowedTypes.isNotEmpty) {
             _leaveType = _allowedTypes.first['type'] as String?;
           }
@@ -1342,7 +1367,8 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       );
       return;
     }
-    if (!_isOneDay && _endDate == null) {
+    // End date not required for half day or one day leave
+    if (!_isOneDay && !_isHalfDayLeave(_leaveType) && _endDate == null) {
       SnackBarUtils.showSnackBar(context, 'Please select an end date');
       return;
     }
@@ -1380,16 +1406,52 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     }
 
     final daysValue = _isHalfDayLeave(_leaveType) ? 1 : _days;
+    final requestedDays = _isHalfDayLeave(_leaveType) ? 0.5 : _days.toDouble();
 
-    // Control by template days: if this leave type has a day limit, enforce it
-    final maxDays = _maxDaysForCurrentType;
-    if (maxDays != null && daysValue > maxDays) {
-      SnackBarUtils.showSnackBar(
-        context,
-        '$_leaveType allows maximum $maxDays day${maxDays == 1 ? '' : 's'}. You selected $daysValue day${daysValue == 1 ? '' : 's'}.',
-        isError: true,
-      );
-      return;
+    // Unpaid Leave: no balance validation
+    final isUnpaidLeave = _leaveType != null &&
+        _leaveType!.toLowerCase().replaceAll(RegExp(r'\s+'), '') == 'unpaidleave';
+    if (!isUnpaidLeave) {
+      await _fetchLeaveBalance();
+      if (!mounted) return;
+      if (_availableCasualLeaves <= 0) {
+        SnackBarUtils.showSnackBar(
+          context,
+          "You don't have enough leave balance.",
+          isError: true,
+        );
+        return;
+      }
+      if (_availableCasualLeaves == 0.5) {
+        if (!_isHalfDayLeave(_leaveType)) {
+          SnackBarUtils.showSnackBar(
+            context,
+            "You don't have enough leave balance.",
+            isError: true,
+          );
+          return;
+        }
+      } else if (requestedDays > _availableCasualLeaves) {
+        SnackBarUtils.showSnackBar(
+          context,
+          "You don't have enough leave balance.",
+          isError: true,
+        );
+        return;
+      }
+    }
+
+    // Control by template days: if this leave type has a day limit, enforce it (skip for Half Day: always 0.5)
+    if (!_isHalfDayLeave(_leaveType)) {
+      final maxDays = _maxDaysForCurrentType;
+      if (maxDays != null && daysValue > maxDays) {
+        SnackBarUtils.showSnackBar(
+          context,
+          '$_leaveType allows maximum $maxDays day${maxDays == 1 ? '' : 's'}. You selected $daysValue day${daysValue == 1 ? '' : 's'}.',
+          isError: true,
+        );
+        return;
+      }
     }
     // Check if employee already has leave (Pending or Approved) on any of the requested dates
     final reqEnd = _endDate ?? _startDate!;
@@ -1563,7 +1625,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                             final type = e['type'] as String? ?? '';
                             final days = e['days'];
                             final label = days != null
-                                ? '$type (${days == 1 ? '1 day' : '$days days'})'
+                                ? '$type (${days == 1 ? '1 day' : days == 0.5 ? '0.5 day' : '$days days'})'
                                 : type;
                             return DropdownMenuItem<String>(
                               value: type,
@@ -1586,7 +1648,16 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           ),
                         ),
                       ),
-
+                    if (_allowedTypes.isNotEmpty && _leaveType != null &&
+                        _leaveType!.toLowerCase().replaceAll(RegExp(r'\s+'), '') != 'unpaidleave') ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'Leave balance: ${_availableCasualLeaves.toStringAsFixed(1)} days${_totalAllowed > 0 ? ' (of ${_totalAllowed.toStringAsFixed(0)} total)' : ''}',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        ),
+                      ),
+                    ],
                     if (_isHalfDayLeave(_leaveType)) ...[
                       Text(
                         'Select Session',
@@ -1683,8 +1754,8 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                       const SizedBox(height: 16),
                     ],
 
-if (!_isHalfDayLeave(_leaveType))
-                        Padding(
+                    if (!_isHalfDayLeave(_leaveType))
+                      Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,

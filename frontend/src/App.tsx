@@ -12,8 +12,10 @@ import { ConfigProvider } from "antd";
 import type { ThemeConfig } from "antd";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import SetupWizard from "./pages/SetupWizard";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
+import SetupGuard from "./components/SetupGuard";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRouteWithRole from "./components/ProtectedRouteWithRole";
@@ -36,6 +38,7 @@ import Loans from "./pages/staffPages/Loans";
 import ExpenseClaim from "./pages/staffPages/ExpenseClaim";
 import PayslipRequests from "./pages/staffPages/PayslipRequests";
 import AdminAttendance from "./pages/staffPages/AdminAttendance";
+import AttendanceMonitoring from "./pages/staffPages/AttendanceMonitoring";
 
 // Employee Imports
 import EmployeeDashboard from "./pages/employeePages/EmployeeDashboard";
@@ -132,6 +135,14 @@ import AnnouncementForm from "./pages/announcements/AnnouncementForm";
 import AnnouncementDetail from "./pages/announcements/AnnouncementDetail";
 import EmployeeAnnouncements from "./pages/announcements/EmployeeAnnouncements";
 import EmployeeAnnouncementDetail from "./pages/announcements/EmployeeAnnouncementDetail";
+
+// Grievance Imports
+import RaiseGrievance from "./pages/grievance/RaiseGrievance";
+import MyGrievances from "./pages/grievance/MyGrievances";
+import GrievanceDashboard from "./pages/grievance/GrievanceDashboard";
+import GrievanceDetail from "./pages/grievance/GrievanceDetail";
+import GrievanceSettings from "./pages/grievance/GrievanceSettings";
+import GrievanceAnalytics from "./pages/grievance/GrievanceAnalytics";
 
 // Celebration Module (Admin + Employee)
 import AdminCelebrationPage from "./pages/celebration/AdminCelebrationPage";
@@ -270,6 +281,55 @@ const InterviewSessionWrapper = () => {
 const antdTheme: ThemeConfig = {
   token: {
     colorPrimary: "#efaa1f", // Primary color matching --primary: 40 87% 53%
+    borderRadius: 5, // Match sidebar button border radius
+    colorSuccess: "#efaa1f", // Use primary color for success (instead of green)
+    colorInfo: "#efaa1f", // Use primary color for info
+  },
+  components: {
+    Button: {
+      primaryColor: "#efaa1f",
+      borderRadius: 5,
+      controlHeight: 40,
+      fontWeight: 600,
+      // Add gradient background for primary buttons
+      primaryShadow: "0 2px 4px rgba(239, 170, 31, 0.3)",
+    },
+    // Update all Ant Design components to use primary color
+    Tag: {
+      colorSuccess: "#efaa1f",
+      colorInfo: "#efaa1f",
+    },
+    Badge: {
+      colorSuccess: "#efaa1f",
+      colorInfo: "#efaa1f",
+    },
+    Progress: {
+      defaultColor: "#efaa1f",
+      colorSuccess: "#efaa1f",
+    },
+    Switch: {
+      colorPrimary: "#efaa1f",
+    },
+    Checkbox: {
+      colorPrimary: "#efaa1f",
+    },
+    Radio: {
+      colorPrimary: "#efaa1f",
+    },
+    Slider: {
+      colorPrimary: "#efaa1f",
+    },
+    Tabs: {
+      colorPrimary: "#efaa1f",
+      itemActiveColor: "#efaa1f",
+      itemSelectedColor: "#efaa1f",
+      inkBarColor: "#efaa1f",
+    },
+    Menu: {
+      itemActiveBg: "rgba(239, 170, 31, 0.1)",
+      itemSelectedBg: "rgba(239, 170, 31, 0.15)",
+      itemSelectedColor: "#efaa1f",
+    },
   },
 };
 
@@ -302,10 +362,20 @@ const App = () => {
                   />
                   <Route path="/Privacypolicy" element={<PrivacyPolicy />} />
                   <Route
+                    path="/setup"
+                    element={
+                      <ProtectedRoute>
+                        <SetupWizard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/dashboard"
                     element={
                       <ProtectedRoute>
-                        <Dashboard />
+                        <SetupGuard>
+                          <Dashboard />
+                        </SetupGuard>
                       </ProtectedRoute>
                     }
                   />
@@ -313,7 +383,9 @@ const App = () => {
                     path="/admin/dashboard"
                     element={
                       <ProtectedRouteWithRole requireRole="Admin">
-                        <AdminDashboard />
+                        <SetupGuard>
+                          <AdminDashboard />
+                        </SetupGuard>
                       </ProtectedRouteWithRole>
                     }
                   />
@@ -321,7 +393,9 @@ const App = () => {
                     path="/notifications"
                     element={
                       <ProtectedRoute>
-                        <Notifications />
+                        <SetupGuard>
+                          <Notifications />
+                        </SetupGuard>
                       </ProtectedRoute>
                     }
                   />
@@ -456,6 +530,14 @@ const App = () => {
                     element={
                       <ProtectedRouteWithRole path="/staff/attendance">
                         <AdminAttendance />
+                      </ProtectedRouteWithRole>
+                    }
+                  />
+                  <Route
+                    path="/staff/attendance-monitoring"
+                    element={
+                      <ProtectedRouteWithRole path="/staff/attendance-monitoring">
+                        <AttendanceMonitoring />
                       </ProtectedRouteWithRole>
                     }
                   />
@@ -871,6 +953,14 @@ const App = () => {
                   {/* Announcements (Employee) */}
                   <Route path="/employee/announcements" element={<ProtectedRouteWithRole allowedRoles={["Employee", "EmployeeAdmin"]}><EmployeeAnnouncements /></ProtectedRouteWithRole>} />
                   <Route path="/employee/announcements/:id" element={<ProtectedRouteWithRole allowedRoles={["Employee", "EmployeeAdmin"]}><EmployeeAnnouncementDetail /></ProtectedRouteWithRole>} />
+
+                  {/* Grievance Module */}
+                  <Route path="/grievances" element={<ProtectedRouteWithRole path="/grievances"><GrievanceDashboard /></ProtectedRouteWithRole>} />
+                  <Route path="/grievances/raise" element={<ProtectedRouteWithRole path="/grievances/raise"><RaiseGrievance /></ProtectedRouteWithRole>} />
+                  <Route path="/grievances/my" element={<ProtectedRouteWithRole path="/grievances/my"><MyGrievances /></ProtectedRouteWithRole>} />
+                  <Route path="/grievances/settings" element={<ProtectedRouteWithRole path="/grievances/settings"><GrievanceSettings /></ProtectedRouteWithRole>} />
+                  <Route path="/grievances/analytics" element={<ProtectedRouteWithRole path="/grievances/analytics"><GrievanceAnalytics /></ProtectedRouteWithRole>} />
+                  <Route path="/grievances/:id" element={<ProtectedRouteWithRole path="/grievances"><GrievanceDetail /></ProtectedRouteWithRole>} />
 
                   {/* LMS Module */}
                   <Route

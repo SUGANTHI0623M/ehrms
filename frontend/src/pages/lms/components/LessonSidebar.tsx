@@ -152,7 +152,7 @@ const LessonSidebar: React.FC<LessonSidebarProps> = ({
                 <div className="h-6 w-px bg-gray-200"></div>
                 <div className="flex flex-col text-right">
                     <Text type="secondary" className="text-[10px] uppercase tracking-wide">Time Left</Text>
-                    <Text strong className={assessmentPassed ? 'text-green-600' : daysLeft != null && daysLeft < 3 ? 'text-amber-500' : 'text-gray-700'}>
+                    <Text strong className={assessmentPassed ? ' ' : daysLeft != null && daysLeft < 3 ? 'text-amber-500' : 'text-gray-700'}>
                         {assessmentPassed ? 'No limit' : daysLeft !== null ? (daysLeft > 0 ? `${daysLeft} days` : 'Overdue') : 'No Limit'}
                     </Text>
                 </div>

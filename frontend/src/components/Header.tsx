@@ -9,17 +9,60 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
+import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logout } from "@/store/slices/authSlice";
 import { useLogoutMutation } from "@/store/api/authApi";
 import { message } from "antd";
 import { getProfileRoute } from "@/utils/roleUtils";
+import { useEffect, useState } from "react";
 
 const Header = ({ onMenuClick, collapsed = false }: { onMenuClick: () => void; collapsed?: boolean }) => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const [logoutApi] = useLogoutMutation();
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+
+  // Load user avatar from localStorage on mount and when user changes
+  useEffect(() => {
+    const loadUserAvatar = () => {
+      try {
+        const storedAvatar = localStorage.getItem('userAvatar');
+        if (storedAvatar) {
+          setUserAvatar(storedAvatar);
+        } else {
+          setUserAvatar(null);
+        }
+      } catch (error) {
+        console.error('Error loading user avatar from localStorage:', error);
+        setUserAvatar(null);
+      }
+    };
+
+    loadUserAvatar();
+
+    // Listen for storage changes (when avatar is updated in other tabs/components)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'userAvatar') {
+        setUserAvatar(e.newValue);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also listen for custom event for same-tab updates
+    const handleAvatarUpdate = () => {
+      loadUserAvatar();
+    };
+    
+    window.addEventListener('userAvatarUpdated', handleAvatarUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('userAvatarUpdated', handleAvatarUpdate);
+    };
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -73,9 +116,26 @@ const Header = ({ onMenuClick, collapsed = false }: { onMenuClick: () => void; c
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-primary/10"
+                className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-primary/10 p-0"
               >
-                <User className="w-4 h-4 sm:w-5 sm:h-5" />
+                {userAvatar ? (
+                  <Avatar className="h-9 w-9 sm:h-10 sm:w-10">
+                    <AvatarImage src={userAvatar} alt={user?.name || "User"} />
+                    <AvatarFallback className="bg-primary/20 text-primary">
+                      {user?.name?.charAt(0)?.toUpperCase() || <User className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-primary/20 flex items-center justify-center">
+                    {user?.name ? (
+                      <span className="text-primary font-semibold text-sm sm:text-base">
+                        {user.name.charAt(0).toUpperCase()}
+                      </span>
+                    ) : (
+                      <User className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+                    )}
+                  </div>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

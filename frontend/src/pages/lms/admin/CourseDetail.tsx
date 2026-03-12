@@ -439,7 +439,7 @@ const CourseDetail = () => {
       case "VIDEO":
         return <VideoCameraOutlined className="text-primary" />;
       case "YOUTUBE":
-        return <YoutubeOutlined className="text-red-600" />;
+        return <YoutubeOutlined className="  " />;
       case "URL":
         return <GlobalOutlined className="text-[#efaa1f]" />;
       case "DRIVE":
@@ -592,7 +592,7 @@ const CourseDetail = () => {
           if (!date) return <span className="text-gray-400">—</span>;
           const isExp = record.isExpired || record.status === "Expired";
           return (
-            <span className={isExp ? "text-red-600 font-medium" : ""}>
+            <span className={isExp ? "   font-medium" : ""}>
               {dayjs(date).format("MMM D, YYYY")}
             </span>
           );
@@ -1441,7 +1441,7 @@ const CourseDetail = () => {
                                   <span className="text-gray-500">Selected: </span>
                                   <span
                                     className={
-                                      r.isCorrect ? "text-green-700" : "text-red-700"
+                                      r.isCorrect ? "" : "text-red-700"
                                     }
                                   >
                                     {userAns || "—"}

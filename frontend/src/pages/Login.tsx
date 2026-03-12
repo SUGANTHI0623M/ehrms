@@ -67,21 +67,50 @@ const Login = () => {
         }
 
         const userRole = result.data.user.role;
-        const redirectPath = getRoleDashboard(userRole);
+        const companyId = result.data.user.companyId;
 
         console.log('[Login] Login successful, preparing navigation:', {
           hasToken: !!storedToken,
           userId: result.data.user.id,
           role: userRole,
-          redirectPath: redirectPath,
-          companyId: result.data.user.companyId
+          companyId: companyId
         });
 
         message.success("Login Successful!");
 
+        // Check setup status for company users (not Super Admin)
+        if (companyId && userRole !== "Super Admin") {
+          // Import and check setup status
+          try {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:7001/api'}/settings/setup-status`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              const setupData = await response.json();
+              const isSetupComplete = setupData?.data?.setupCompleted?.isComplete ?? false;
+              
+              if (!isSetupComplete) {
+                // Redirect to setup wizard
+                setTimeout(() => {
+                  navigate("/setup", { replace: true });
+                }, 300);
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('[Login] Error checking setup status:', error);
+            // Continue to dashboard if check fails
+          }
+        }
+
         // Use a longer delay to ensure Redux state and localStorage are fully updated
         // Also ensure navigation happens after React has processed the state update
         setTimeout(() => {
+          const redirectPath = getRoleDashboard(userRole);
           console.log('[Login] Navigating to:', redirectPath);
           navigate(redirectPath, { replace: true });
         }, 300);
@@ -99,14 +128,32 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-3 sm:p-4 md:p-6">
-      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: 'white' }}>
+
+      {/* ── Full-screen background with textures ── */}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        xmlns="http://www.w3.org/2000/svg"
+        preserveAspectRatio="none"
+        viewBox="0 0 1440 900"
+        style={{ zIndex: 0 }}
+      >
+        {/* 1. Primary color base */}
+        <rect x="0" y="0" width="1440" height="900" fill="#efaa1f" />
+
+        {/* 2. Dark massive circle - plain, no lines */}
+        <circle cx="720" cy="1350" r="1050" fill="#2C2C2C" />
+      </svg>
+
+      {/* Login Form - Centered */}
+      <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-4 md:p-6" style={{ zIndex: 10 }}>
+        <div className="w-full max-w-md bg-white shadow-2xl rounded-xl p-4 sm:p-6 md:p-8">
         {platformLogo && (
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center mb-6">
             <img
               src={platformLogo}
               alt="Platform logo"
-              className="h-16 w-auto object-contain max-w-[200px]"
+              className="h-24 w-auto object-contain max-w-[280px]"
             />
           </div>
         )}
@@ -164,7 +211,10 @@ const Login = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-primary hover:bg-primary-700 text-white font-semibold py-2.5 sm:py-3 text-sm sm:text-base rounded-lg transition disabled:opacity-50 touch-manipulation min-h-[44px]"
+            className="w-full text-white font-semibold py-2.5 sm:py-3 text-sm sm:text-base rounded-lg transition disabled:opacity-50 touch-manipulation min-h-[44px]"
+            style={{ backgroundColor: '#efaa1f' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d97706'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#efaa1f'}
           >
             {isLoading ? "Logging in..." : "Login"}
           </button>
@@ -176,6 +226,7 @@ const Login = () => {
             Sign up
           </Link>
         </p>
+        </div>
       </div>
 
       <ForgotPasswordModal

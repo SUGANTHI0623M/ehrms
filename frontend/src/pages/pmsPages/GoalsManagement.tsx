@@ -1442,16 +1442,16 @@ const GoalsManagement = () => {
             </Card>
             <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-green-700">
+                <CardTitle className="text-sm font-medium ">
                   Completed Goals with KRA
                 </CardTitle>
-                <CheckCircle className="w-4 h-4 text-green-600" />
+                <CheckCircle className="w-4 h-4  " />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-700">
+                <div className="text-2xl font-bold ">
                   {completedGoalsWithKRA}
                 </div>
-                <p className="text-xs text-green-600 mt-1">
+                <p className="text-xs   mt-1">
                   {goalsWithKRA > 0 
                     ? `${Math.round((completedGoalsWithKRA / goalsWithKRA) * 100)}% completion rate`
                     : "No KRA-linked goals"}
@@ -1463,13 +1463,13 @@ const GoalsManagement = () => {
                 <CardTitle className="text-sm font-medium text-purple-700">
                   Average KRA Progress
                 </CardTitle>
-                <TrendingUp className="w-4 h-4 text-purple-600" />
+                <TrendingUp className="w-4 h-4 " />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-purple-700">
                   {avgKRAProgress}%
                 </div>
-                <p className="text-xs text-purple-600 mt-1">
+                <p className="text-xs  mt-1">
                   Across {kras.length} KRA{kras.length !== 1 ? 's' : ''}
                 </p>
               </CardContent>

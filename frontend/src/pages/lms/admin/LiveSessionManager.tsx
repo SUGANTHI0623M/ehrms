@@ -320,7 +320,7 @@ const LiveSessionManager = () => {
                 <Button
                   size="large"
                   icon={<PoweroffOutlined />}
-                  className="text-orange-600 hover:text-orange-700 border-orange-300"
+                  className=" hover:text-orange-700 border-orange-300"
                   onClick={() => handleEndSession(session)}
                 >
                   End Session

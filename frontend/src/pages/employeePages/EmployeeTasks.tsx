@@ -615,7 +615,7 @@ const EmployeeTasks = () => {
                                           <FileText className="w-3 h-3" />
                                           {template.templateName}
                                           {hasResponse && (
-                                            <CheckCircle className="w-3 h-3 text-green-600" />
+                                            <CheckCircle className="w-3 h-3  " />
                                           )}
                                         </Button>
                                       );
@@ -656,7 +656,7 @@ const EmployeeTasks = () => {
                                         size="sm"
                                         variant="outline"
                                         onClick={() => handleRejectTask(task)}
-                                        className="gap-1 border-red-300 text-red-600 hover:bg-red-50 h-7"
+                                        className="gap-1 border-red-300    hover:bg-red-50 h-7"
                                       >
                                         <X className="w-3 h-3" />
                                         Reject
@@ -1065,7 +1065,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Task Assigned',
         description: `Assigned to ${assignedToName} by ${assignedByName}`,
         icon: FileText,
-        iconColor: 'text-purple-600',
+        iconColor: '',
         bgColor: 'bg-purple-50',
         borderColor: 'border-purple-300',
         timestamp: new Date(taskData.assignedDate),
@@ -1085,7 +1085,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Task Approved',
         description: `Task approved by ${approvedByName}`,
         icon: CheckCircle2,
-        iconColor: 'text-green-600',
+        iconColor: ' ',
         bgColor: 'bg-green-50',
         borderColor: 'border-green-300',
         timestamp: new Date(taskDetails.approvedAt),
@@ -1105,7 +1105,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Task Rejected',
         description: `Task rejected by ${rejectedByName}`,
         icon: X,
-        iconColor: 'text-red-600',
+        iconColor: '  ',
         bgColor: 'bg-red-50',
         borderColor: 'border-red-300',
         timestamp: new Date(taskDetails.rejectedAt),
@@ -1194,7 +1194,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
           title: `Travel Segment ${idx + 1}`,
           description: `${segment.distanceKm?.toFixed(3) || 0} km in ${durationSegment ? Math.round(durationSegment.durationSeconds / 60) : 0} min`,
           icon: Navigation,
-          iconColor: 'text-indigo-600',
+          iconColor: '',
           bgColor: 'bg-indigo-50',
           borderColor: 'border-indigo-300',
           timestamp: segment.endTime ? new Date(segment.endTime) : undefined,
@@ -1230,7 +1230,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Arrived at Location',
         description: taskDetails.arrivedFullAddress || taskDetails.arrivalLocation?.address || 'Location reached',
         icon: CheckCircle2,
-        iconColor: 'text-green-600',
+        iconColor: ' ',
         bgColor: 'bg-green-50',
         borderColor: 'border-green-300',
         timestamp: arrivalTimestamp ? new Date(arrivalTimestamp) : undefined,
@@ -1254,7 +1254,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Photo Proof Uploaded',
         description: taskDetails.photoProofDescription || 'Photo uploaded',
         icon: Camera,
-        iconColor: 'text-purple-600',
+        iconColor: '',
         bgColor: 'bg-purple-50',
         borderColor: 'border-purple-300',
         timestamp: taskDetails.photoProofUploadedAt ? new Date(taskDetails.photoProofUploadedAt) : undefined,
@@ -1328,7 +1328,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: approvedByName ? 'Task Completed & Approved' : 'Task Completed',
         description: description,
         icon: CheckCircle2,
-        iconColor: 'text-green-600',
+        iconColor: ' ',
         bgColor: 'bg-green-50',
         borderColor: 'border-green-300',
         timestamp: new Date(taskDetails.completedDate || taskDetails.completedAt),
@@ -1353,7 +1353,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
           title: 'Task Reopened by Admin',
           description: reopen.reason || 'Task has been reopened by admin',
           icon: RotateCcw,
-          iconColor: 'text-orange-600',
+          iconColor: '',
           bgColor: 'bg-orange-50',
           borderColor: 'border-orange-300',
           timestamp: reopen.reopenedAt ? new Date(reopen.reopenedAt) : undefined,
@@ -1375,7 +1375,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
         title: 'Task Exited',
         description: taskData.task_exit.exitReason || 'Task exited',
         icon: LogOut,
-        iconColor: 'text-orange-600',
+        iconColor: '',
         bgColor: 'bg-orange-50',
         borderColor: 'border-orange-300',
         timestamp: taskData.task_exit.exitedAt ? new Date(taskData.task_exit.exitedAt) : undefined,
@@ -1392,7 +1392,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
           title: 'Task Exited',
           description: exit.exitReason || 'Task exited',
           icon: LogOut,
-          iconColor: 'text-orange-600',
+          iconColor: '',
           bgColor: 'bg-orange-50',
           borderColor: 'border-orange-300',
           timestamp: exit.exitedAt ? new Date(exit.exitedAt) : undefined,
@@ -1556,7 +1556,7 @@ const TaskDetailsTimelineModal = ({ isOpen, onClose, task }: { isOpen: boolean; 
                                         </span>
                                       </div>
                                       {event.data.approvedBy && (
-                                        <div className="flex items-center gap-2 text-green-700 font-medium">
+                                        <div className="flex items-center gap-2  font-medium">
                                           <CheckCircle2 className="w-3 h-3" />
                                           <span>
                                             Approved by: {

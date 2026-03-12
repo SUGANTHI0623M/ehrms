@@ -144,6 +144,8 @@ export const getUserPermissions = (
       { module: 'integrations', actions: ['view', 'read', 'create', 'update', 'delete'] },
       { module: 'settings', actions: ['view', 'read', 'create', 'update', 'delete'] },
       { module: 'hrms-geo', actions: ['view', 'read', 'create', 'update', 'delete'] },
+      { module: 'grievance', actions: ['view', 'read', 'create', 'update', 'delete'] },
+      { module: 'announcements', actions: ['view', 'read', 'create', 'update', 'delete'] },
     ];
   }
 
@@ -182,6 +184,7 @@ export const getUserPermissions = (
       'salary_overview': 'staff',
       'salary_structure': 'staff',
       'attendance': 'staff',
+      'attendance_monitoring': 'staff',
       'leaves_approval': 'staff',
       'loans': 'staff',
       'expense_claims': 'staff',
@@ -233,6 +236,10 @@ export const getUserPermissions = (
       'company_policy': 'settings',
       'onboarding_documents': 'settings',
       'others': 'settings',
+      // Grievance sub-modules
+      'grievance_all': 'grievance',
+      'grievance_analytics': 'grievance',
+      'grievance_settings': 'grievance',
     };
     
     sidebarPermissions.forEach((sidebarModule) => {
@@ -340,6 +347,8 @@ export const getUserPermissions = (
         { module: 'integrations', actions: ['view', 'read', 'create', 'update', 'delete'] },
         { module: 'settings', actions: ['view', 'read', 'create', 'update', 'delete'] },
         { module: 'hrms-geo', actions: ['view', 'read', 'create', 'update', 'delete'] },
+        { module: 'grievance', actions: ['view', 'read', 'create', 'update', 'delete'] },
+        { module: 'announcements', actions: ['view', 'read', 'create', 'update', 'delete'] },
       ];
     }
 
@@ -373,6 +382,10 @@ export const getUserPermissions = (
       'settings': 'settings',
       'hrms-geo': 'hrms-geo',
       'hrms_geo': 'hrms-geo',
+      'grievance': 'grievance',
+      'announcements': 'announcements',
+      'grievance': 'grievance',
+      'announcements': 'announcements',
       'requisition': 'requisition',
       'jobs': 'jobs', // Keeping for backward compat if needed
       'jobs_timeline': 'jobs_timeline',
@@ -474,6 +487,8 @@ export const getUserPermissions = (
         else if (perm.includes('settings')) moduleName = 'settings';
         else if (perm.includes('interview')) moduleName = 'interview';
         else if (perm.includes('hrms-geo') || perm.includes('hrms_geo')) moduleName = 'hrms-geo';
+        else if (perm.includes('grievance')) moduleName = 'grievance';
+        else if (perm.includes('announcements')) moduleName = 'announcements';
       }
 
       if (moduleName) {

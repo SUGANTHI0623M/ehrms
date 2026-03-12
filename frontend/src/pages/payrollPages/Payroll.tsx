@@ -29,7 +29,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { 
-  DollarSign, 
   Download, 
   Send, 
   CheckCircle, 
@@ -397,7 +396,7 @@ const Payroll = () => {
                   { label: "Total Employees", value: stats?.totalEmployees || 0 },
                   { label: "Total Payroll", value: stats ? formatINR(stats.totalPayroll) : "—" },
                   { label: "Processed", value: stats?.processed || 0, class: "text-[#efaa1f]" },
-                  { label: "Pending", value: stats?.pending || 0, class: "text-red-600" },
+                  { label: "Pending", value: stats?.pending || 0, class: "  " },
                 ].map((item, i) => (
                   <div key={i}>
                     <p className="text-sm text-muted-foreground">{item.label}</p>
@@ -413,7 +412,7 @@ const Payroll = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm text-muted-foreground">Gross Salary</CardTitle>
-                <DollarSign className="w-4 h-4 text-muted-foreground" />
+                <span className="text-base font-semibold text-muted-foreground">₹</span>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">
@@ -426,7 +425,7 @@ const Payroll = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm text-muted-foreground">Deductions</CardTitle>
-                <DollarSign className="w-4 h-4 text-muted-foreground" />
+                <span className="text-base font-semibold text-muted-foreground">₹</span>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">
@@ -506,7 +505,7 @@ const Payroll = () => {
                               </TableCell>
                               <TableCell>{designation}</TableCell>
                               <TableCell className="text-right">{formatINR(payroll.grossSalary)}</TableCell>
-                              <TableCell className="text-right text-red-600">{formatINR(payroll.deductions)}</TableCell>
+                              <TableCell className="text-right   ">{formatINR(payroll.deductions)}</TableCell>
                               <TableCell className="text-right text-[#efaa1f] font-semibold">{formatINR(payroll.netPay)}</TableCell>
                               <TableCell>
                                 <Badge variant={payroll.status === "Paid" ? "default" : payroll.status === "Processed" ? "secondary" : "outline"}>

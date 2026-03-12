@@ -20,12 +20,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Eye, Edit, Search, MapPin, Settings, X, BarChart3, Briefcase, TrendingUp, TrendingDown, Users, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Eye, Edit, Search, MapPin, Settings, X, BarChart3, Briefcase, TrendingUp, TrendingDown, Users, CheckCircle2, XCircle, Filter } from "lucide-react";
 import {
   useGetJobOpeningsQuery,
   useDeleteJobOpeningMutation,
   useGetJobOpeningDashboardQuery,
+  useGetDepartmentsQuery,
 } from "@/store/api/jobOpeningApi";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useAppSelector } from "@/store/hooks";
 import { getUserPermissions, hasAction } from "@/utils/permissionUtils";
@@ -45,6 +56,7 @@ const JobOpeningsList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
   const [page, setPage] = useState(() => {
     const pageParam = searchParams.get("page");
     return pageParam ? parseInt(pageParam, 10) : 1;
@@ -52,6 +64,19 @@ const JobOpeningsList = () => {
   const [pageSize, setPageSize] = useState(() => {
     const sizeParam = searchParams.get("limit");
     return sizeParam ? parseInt(sizeParam, 10) : 10; // Default 10
+  });
+  
+  // Advanced filter states
+  const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+  const [experienceFilter, setExperienceFilter] = useState<string[]>([]); // ['Intern', 'Fresher', 'Experienced']
+  const [roleFilters, setRoleFilters] = useState<{
+    Intern: string[];
+    Fresher: string[];
+    Experienced: string[];
+  }>({
+    Intern: [],
+    Fresher: [],
+    Experienced: [],
   });
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -198,11 +223,138 @@ const JobOpeningsList = () => {
   });
 
   const { data: dashboardData, isLoading: isLoadingDashboard } = useGetJobOpeningDashboardQuery();
+  const { data: departmentsData } = useGetDepartmentsQuery();
+  
+  const departments = departmentsData?.data?.departments || [];
 
   const [deleteJobOpening] = useDeleteJobOpeningMutation();
 
-  const jobOpenings = data?.data?.jobOpenings || [];
+  const allJobOpenings = data?.data?.jobOpenings || [];
   const pagination = data?.data?.pagination;
+  
+  // Filter job openings based on department and advanced filters
+  const filteredJobOpenings = useMemo(() => {
+    let filtered = [...allJobOpenings];
+    
+    // Filter by department
+    if (departmentFilter !== "all") {
+      filtered = filtered.filter((job) => job.department === departmentFilter);
+    }
+    
+    // Filter by experience range
+    if (experienceFilter.length > 0) {
+      filtered = filtered.filter((job) => {
+        const minExp = job.minExperience || 0;
+        const maxExp = job.maxExperience || 0;
+        
+        return experienceFilter.some((exp) => {
+          if (exp === "Intern") {
+            return minExp === 0 && maxExp === 0;
+          } else if (exp === "Fresher") {
+            return minExp === 0 && maxExp <= 1;
+          } else if (exp === "Experienced") {
+            return minExp >= 1;
+          }
+          return false;
+        });
+      });
+    }
+    
+    // Filter by roles
+    const hasRoleFilters = Object.values(roleFilters).some((roles) => roles.length > 0);
+    if (hasRoleFilters) {
+      filtered = filtered.filter((job) => {
+        const minExp = job.minExperience || 0;
+        const maxExp = job.maxExperience || 0;
+        
+        // Determine experience category
+        let expCategory: "Intern" | "Fresher" | "Experienced" | null = null;
+        if (minExp === 0 && maxExp === 0) {
+          expCategory = "Intern";
+        } else if (minExp === 0 && maxExp <= 1) {
+          expCategory = "Fresher";
+        } else if (minExp >= 1) {
+          expCategory = "Experienced";
+        }
+        
+        if (!expCategory) return true; // Include if no category match
+        
+        const selectedRoles = roleFilters[expCategory];
+        if (selectedRoles.length === 0) return true; // No filter for this category
+        
+        return selectedRoles.includes(job.title);
+      });
+    }
+    
+    return filtered;
+  }, [allJobOpenings, departmentFilter, experienceFilter, roleFilters]);
+  
+  // Paginate filtered results
+  const jobOpenings = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredJobOpenings.slice(startIndex, endIndex);
+  }, [filteredJobOpenings, page, pageSize]);
+  
+  // Get unique job titles for role filters, grouped by experience (from filtered jobs by department)
+  const availableRoles = useMemo(() => {
+    const roles: {
+      Intern: string[];
+      Fresher: string[];
+      Experienced: string[];
+    } = {
+      Intern: [],
+      Fresher: [],
+      Experienced: [],
+    };
+    
+    // Use department-filtered jobs for role options
+    let jobsForRoles = [...allJobOpenings];
+    if (departmentFilter !== "all") {
+      jobsForRoles = jobsForRoles.filter((job) => job.department === departmentFilter);
+    }
+    
+    jobsForRoles.forEach((job) => {
+      const minExp = job.minExperience || 0;
+      const maxExp = job.maxExperience || 0;
+      const title = job.title;
+      
+      if (minExp === 0 && maxExp === 0 && !roles.Intern.includes(title)) {
+        roles.Intern.push(title);
+      } else if (minExp === 0 && maxExp <= 1 && !roles.Fresher.includes(title)) {
+        roles.Fresher.push(title);
+      } else if (minExp >= 1 && !roles.Experienced.includes(title)) {
+        roles.Experienced.push(title);
+      }
+    });
+    
+    return roles;
+  }, [allJobOpenings, departmentFilter]);
+  
+  // Calculate filtered stats (using all filtered jobs, not just paginated)
+  const filteredStats = useMemo(() => {
+    const stats = {
+      totalOpenings: filteredJobOpenings.length,
+      activeOpenings: filteredJobOpenings.filter((j) => j.status === "ACTIVE").length,
+      closedOpenings: filteredJobOpenings.filter((j) => j.status === "CLOSED").length,
+      totalApplicants: 0,
+      selectedCandidates: 0,
+      rejectedCandidates: 0,
+      jobRoles: new Set<string>(),
+    };
+    
+    filteredJobOpenings.forEach((job) => {
+      const jobStats = dashboardData?.data?.jobOpenings?.find((j: any) => j._id === job._id);
+      if (jobStats) {
+        stats.totalApplicants += jobStats.totalApplicants || 0;
+        stats.selectedCandidates += jobStats.selectedCandidates || 0;
+        stats.rejectedCandidates += jobStats.rejectedCandidates || 0;
+      }
+      stats.jobRoles.add(job.title);
+    });
+    
+    return stats;
+  }, [filteredJobOpenings, dashboardData]);
 
   const getStatusBadge = (status: string) => {
     const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -253,12 +405,35 @@ const JobOpeningsList = () => {
                 Manage and track all job openings with analytics
               </p>
             </div>
-            {canAdd && (
-              <Button onClick={() => navigate("/job-openings/create")}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Job
-              </Button>
-            )}
+              <div className="flex items-center gap-3">
+              <Select
+                value={departmentFilter}
+                onValueChange={(value) => {
+                  setDepartmentFilter(value);
+                  setPage(1);
+                  // Clear role filters when department changes
+                  setRoleFilters({ Intern: [], Fresher: [], Experienced: [] });
+                }}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept._id} value={dept.name}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {canAdd && (
+                <Button onClick={() => navigate("/job-openings/create")}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Job
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Dashboard Statistics Cards */}
@@ -276,7 +451,7 @@ const JobOpeningsList = () => {
                 ) : (
                   <>
                     <div className="text-2xl font-bold">
-                      {dashboardData?.data?.totalOpenings || 0}
+                      {filteredStats.totalOpenings}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       All job positions
@@ -291,15 +466,15 @@ const JobOpeningsList = () => {
                 <CardTitle className="text-sm font-medium">
                   Active Openings
                 </CardTitle>
-                <TrendingUp className="h-4 w-4 text-green-600" />
+                <TrendingUp className="h-4 w-4 " />
               </CardHeader>
               <CardContent>
                 {isLoadingDashboard ? (
                   <Skeleton className="h-8 w-20" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-green-600">
-                      {dashboardData?.data?.activeOpenings || 0}
+                    <div className="text-2xl font-bold ">
+                      {filteredStats.activeOpenings}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Currently hiring
@@ -314,15 +489,15 @@ const JobOpeningsList = () => {
                 <CardTitle className="text-sm font-medium">
                   Total Applicants
                 </CardTitle>
-                <Users className="h-4 w-4 text-blue-600" />
+                <Users className="h-4 w-4 " />
               </CardHeader>
               <CardContent>
                 {isLoadingDashboard ? (
                   <Skeleton className="h-8 w-20" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-blue-600">
-                      {dashboardData?.data?.jobOpenings?.reduce((sum: number, job: any) => sum + (job.totalApplicants || 0), 0) || 0}
+                    <div className="text-2xl font-bold">
+                      {filteredStats.totalApplicants}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Across all jobs
@@ -337,15 +512,15 @@ const JobOpeningsList = () => {
                 <CardTitle className="text-sm font-medium">
                   Selected Candidates
                 </CardTitle>
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <CheckCircle2 className="h-4 w-4 " />
               </CardHeader>
               <CardContent>
                 {isLoadingDashboard ? (
                   <Skeleton className="h-8 w-20" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-green-600">
-                      {dashboardData?.data?.jobOpenings?.reduce((sum: number, job: any) => sum + (job.selectedCandidates || 0), 0) || 0}
+                    <div className="text-2xl font-bold ">
+                      {filteredStats.selectedCandidates}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Successfully selected
@@ -371,7 +546,7 @@ const JobOpeningsList = () => {
                 ) : (
                   <>
                     <div className="text-2xl font-bold text-muted-foreground">
-                      {dashboardData?.data?.closedOpenings || 0}
+                      {filteredStats.closedOpenings}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       No longer hiring
@@ -386,15 +561,15 @@ const JobOpeningsList = () => {
                 <CardTitle className="text-sm font-medium">
                   Rejected Candidates
                 </CardTitle>
-                <XCircle className="h-4 w-4 text-red-600" />
+                <XCircle className="h-4 w-4 " />
               </CardHeader>
               <CardContent>
                 {isLoadingDashboard ? (
                   <Skeleton className="h-8 w-20" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-red-600">
-                      {dashboardData?.data?.jobOpenings?.reduce((sum: number, job: any) => sum + (job.rejectedCandidates || 0), 0) || 0}
+                    <div className="text-2xl font-bold ">
+                      {filteredStats.rejectedCandidates}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Not selected
@@ -417,7 +592,7 @@ const JobOpeningsList = () => {
                 ) : (
                   <>
                     <div className="text-2xl font-bold">
-                      {dashboardData?.data?.openingsByRole?.length || 0}
+                      {filteredStats.jobRoles.size}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Unique positions
@@ -467,25 +642,35 @@ const JobOpeningsList = () => {
                     </Button>
                   )}
                 </div>
-                <Select 
-                  value={statusFilter} 
-                  onValueChange={(value) => {
-                    setStatusFilter(value);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-40">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="DRAFT">Draft</SelectItem>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                    <SelectItem value="CLOSED">Closed</SelectItem>
-                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select 
+                    value={statusFilter} 
+                    onValueChange={(value) => {
+                      setStatusFilter(value);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-40">
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="DRAFT">Draft</SelectItem>
+                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="INACTIVE">Inactive</SelectItem>
+                      <SelectItem value="CLOSED">Closed</SelectItem>
+                      <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsAdvancedFilterOpen(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Filter className="w-4 h-4" />
+                    Advanced Filter
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -495,20 +680,7 @@ const JobOpeningsList = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>All Job Openings</CardTitle>
-                {dashboardData?.data?.openingsByRole && dashboardData.data.openingsByRole.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {dashboardData.data.openingsByRole.slice(0, 5).map((item: any, index: number) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {item.role}: {item.count}
-                      </Badge>
-                    ))}
-                    {dashboardData.data.openingsByRole.length > 5 && (
-                      <Badge variant="outline" className="text-xs">
-                        +{dashboardData.data.openingsByRole.length - 5} more
-                      </Badge>
-                    )}
-                  </div>
-                )}
+                
               </div>
             </CardHeader>
             <CardContent>
@@ -542,19 +714,19 @@ const JobOpeningsList = () => {
                         <TableHead>Job Type</TableHead>
                         <TableHead>Experience Level</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="text-center">Applicants</TableHead>
+                        {/* <TableHead className="text-center">Applicants</TableHead>
                         <TableHead className="text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-green-600" />
+                            <CheckCircle2 className="w-3 h-3  " />
                             Selected
                           </div>
                         </TableHead>
                         <TableHead className="text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <XCircle className="w-3 h-3 text-red-600" />
+                            <XCircle className="w-3 h-3   " />
                             Rejected
                           </div>
-                        </TableHead>
+                        </TableHead> */}
                         <TableHead>Date Opened</TableHead>
                         <TableHead>Positions</TableHead>
                         <TableHead className="text-center">Actions</TableHead>
@@ -601,7 +773,7 @@ const JobOpeningsList = () => {
                                 : (job as any).experienceLevel || "N/A"}
                             </TableCell>
                             <TableCell>{getStatusBadge(job.status)}</TableCell>
-                            <TableCell className="text-center">
+                            {/* <TableCell className="text-center">
                               <div className="flex flex-col items-center gap-1">
                                 <Badge variant="outline" className="w-fit">
                                   {jobStats?.totalApplicants || 0}
@@ -611,7 +783,7 @@ const JobOpeningsList = () => {
                             </TableCell>
                             <TableCell className="text-center">
                               <div className="flex flex-col items-center gap-1">
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 w-fit">
+                                <Badge variant="outline" className="bg-green-50  border-green-200 w-fit">
                                   {jobStats?.selectedCandidates || 0}
                                 </Badge>
                                 <span className="text-xs text-muted-foreground">Selected</span>
@@ -624,7 +796,7 @@ const JobOpeningsList = () => {
                                 </Badge>
                                 <span className="text-xs text-muted-foreground">Rejected</span>
                               </div>
-                            </TableCell>
+                            </TableCell> */}
                             <TableCell>
                               {new Date(job.createdAt).toLocaleDateString()}
                             </TableCell>
@@ -660,13 +832,13 @@ const JobOpeningsList = () => {
               )}
 
               {/* Pagination */}
-              {(pagination || data?.data) && (
+              {filteredJobOpenings.length > 0 && (
                 <div className="mt-6 pt-4 border-t">
                   <Pagination
-                    page={pagination?.page || page}
+                    page={page}
                     pageSize={pageSize}
-                    total={pagination?.total || (data?.data?.jobOpenings?.length || 0)}
-                    pages={pagination?.pages || Math.ceil((pagination?.total || data?.data?.jobOpenings?.length || 0) / pageSize) || 1}
+                    total={filteredJobOpenings.length}
+                    pages={Math.ceil(filteredJobOpenings.length / pageSize) || 1}
                     onPageChange={(newPage) => {
                       setPage(newPage);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -683,6 +855,193 @@ const JobOpeningsList = () => {
           </Card>
         </div>
       </main>
+
+      {/* Advanced Filter Modal */}
+      <Dialog open={isAdvancedFilterOpen} onOpenChange={setIsAdvancedFilterOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Advanced Filters</DialogTitle>
+            <DialogDescription>
+              Filter job openings by experience range and specific roles
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Experience Range Filter */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Experience Range</Label>
+              <div className="space-y-2">
+                {["Intern", "Fresher", "Experienced"].map((exp) => (
+                  <div key={exp} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`exp-${exp}`}
+                      checked={experienceFilter.includes(exp)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setExperienceFilter([...experienceFilter, exp]);
+                        } else {
+                          setExperienceFilter(experienceFilter.filter((e) => e !== exp));
+                        }
+                      }}
+                    />
+                    <Label
+                      htmlFor={`exp-${exp}`}
+                      className="text-sm font-normal cursor-pointer"
+                    >
+                      {exp}
+                      {exp === "Intern" && " (0 years)"}
+                      {exp === "Fresher" && " (0-1 years)"}
+                      {exp === "Experienced" && " (1+ years)"}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Role Filters by Experience */}
+            {(experienceFilter.length > 0 || Object.values(roleFilters).some(r => r.length > 0)) && (
+              <div className="space-y-4 border-t pt-4">
+                <Label className="text-base font-semibold">Filter by Roles</Label>
+                
+                {experienceFilter.includes("Intern") && availableRoles.Intern.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      Intern Roles
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                      {availableRoles.Intern.map((role) => (
+                        <div key={`intern-${role}`} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`role-intern-${role}`}
+                            checked={roleFilters.Intern.includes(role)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Intern: [...roleFilters.Intern, role],
+                                });
+                              } else {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Intern: roleFilters.Intern.filter((r) => r !== role),
+                                });
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor={`role-intern-${role}`}
+                            className="text-sm font-normal cursor-pointer truncate"
+                          >
+                            {role}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {experienceFilter.includes("Fresher") && availableRoles.Fresher.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      Fresher Roles
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                      {availableRoles.Fresher.map((role) => (
+                        <div key={`fresher-${role}`} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`role-fresher-${role}`}
+                            checked={roleFilters.Fresher.includes(role)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Fresher: [...roleFilters.Fresher, role],
+                                });
+                              } else {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Fresher: roleFilters.Fresher.filter((r) => r !== role),
+                                });
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor={`role-fresher-${role}`}
+                            className="text-sm font-normal cursor-pointer truncate"
+                          >
+                            {role}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {experienceFilter.includes("Experienced") && availableRoles.Experienced.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      Experienced Roles
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                      {availableRoles.Experienced.map((role) => (
+                        <div key={`experienced-${role}`} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`role-experienced-${role}`}
+                            checked={roleFilters.Experienced.includes(role)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Experienced: [...roleFilters.Experienced, role],
+                                });
+                              } else {
+                                setRoleFilters({
+                                  ...roleFilters,
+                                  Experienced: roleFilters.Experienced.filter((r) => r !== role),
+                                });
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor={`role-experienced-${role}`}
+                            className="text-sm font-normal cursor-pointer truncate"
+                          >
+                            {role}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {experienceFilter.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Select an experience range above to filter by roles
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setExperienceFilter([]);
+                setRoleFilters({ Intern: [], Fresher: [], Experienced: [] });
+              }}
+            >
+              Clear All
+            </Button>
+            <Button onClick={() => {
+              setIsAdvancedFilterOpen(false);
+              setPage(1);
+            }}>
+              Apply Filters
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };

@@ -224,7 +224,7 @@ const EmployeeSelfAssessment = () => {
                             </span>
                           </div>
                           {review.reviewCycleInfo?.selfReviewDeadline && (
-                            <div className="flex items-center gap-1 text-orange-600 font-medium">
+                            <div className="flex items-center gap-1  font-medium">
                               <Clock className="w-4 h-4" />
                               <span>
                                 Deadline: {new Date(review.reviewCycleInfo.selfReviewDeadline).toLocaleDateString()}
@@ -350,10 +350,10 @@ const EmployeeSelfAssessment = () => {
             <Card className="bg-orange-50 border-orange-200">
               <CardContent className="pt-6">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <AlertCircle className="w-5 h-5  mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <Clock className="w-4 h-4 text-orange-600" />
+                      <Clock className="w-4 h-4 " />
                       <p className="font-semibold text-orange-800">
                         Self Review Deadline: {new Date(review.reviewCycleInfo.selfReviewDeadline).toLocaleDateString()}
                       </p>
@@ -363,11 +363,11 @@ const EmployeeSelfAssessment = () => {
                       const now = new Date();
                       const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
                       if (daysLeft < 0) {
-                        return <p className="text-sm text-red-600 font-medium">⚠️ Deadline has passed. Please submit your review as soon as possible.</p>;
+                        return <p className="text-sm    font-medium">⚠️ Deadline has passed. Please submit your review as soon as possible.</p>;
                       } else if (daysLeft === 0) {
-                        return <p className="text-sm text-red-600 font-medium">⚠️ Deadline is today! Please complete and submit your review.</p>;
+                        return <p className="text-sm    font-medium">⚠️ Deadline is today! Please complete and submit your review.</p>;
                       } else if (daysLeft <= 3) {
-                        return <p className="text-sm text-orange-600 font-medium">⚠️ Only {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining. Please complete your review soon.</p>;
+                        return <p className="text-sm  font-medium">⚠️ Only {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining. Please complete your review soon.</p>;
                       } else {
                         return <p className="text-sm text-orange-700">You have {daysLeft} days remaining to submit your self-review.</p>;
                       }

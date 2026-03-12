@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Save, Calculator, DollarSign, TrendingUp, Gift, CreditCard, Edit, Eye, X } from "lucide-react";
+import { Save, Calculator, TrendingUp, Gift, CreditCard, Edit, Eye, X } from "lucide-react";
 import { useUpdateSalaryStructureMutation } from "@/store/api/staffApi";
 import { calculateSalaryStructure, formatCurrency, type SalaryStructureInputs, type CalculatedSalaryStructure } from "@/utils/salaryStructureCalculation.util";
 import { message } from "antd";
@@ -830,7 +830,7 @@ const SalaryStructureForm = ({ staffId, staff, onSave }: SalaryStructureFormProp
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5" />
+              <span className="text-xl font-semibold">₹</span>
               Salary Structure Configuration
             </CardTitle>
             <CardDescription>

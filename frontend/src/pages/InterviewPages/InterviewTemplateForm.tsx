@@ -21,6 +21,7 @@ import {
   useCreateInterviewTemplateMutation,
   useUpdateInterviewTemplateMutation,
   useGetInterviewTemplateByIdQuery,
+  useGetInterviewTemplatesQuery,
   type InterviewTemplate,
   type InterviewRound,
   type InterviewQuestion,
@@ -157,31 +158,62 @@ const InterviewTemplateForm = ({
     status: "ACTIVE",
     limit: 100,
   });
+
+  // Fetch all interview templates to get jobs that already have flows
+  const { data: templatesData } = useGetInterviewTemplatesQuery({
+    isActive: true,
+    limit: 1000, // Get all active templates
+  });
+
+  // Get list of job IDs that already have interview flows
+  const jobsWithFlows = React.useMemo(() => {
+    const templates = templatesData?.data?.templates || [];
+    return new Set(
+      templates
+        .map((template) => {
+          const jobId = typeof template.jobOpeningId === 'object' 
+            ? template.jobOpeningId._id 
+            : template.jobOpeningId;
+          return jobId;
+        })
+        .filter(Boolean)
+    );
+  }, [templatesData]);
   
   // Combine published jobs with current job (when editing) to ensure it's always in the list
+  // Filter out jobs that already have flows when creating a new flow
   const publishedJobs = React.useMemo(() => {
     const activeJobs = jobsData?.data?.jobOpenings || [];
     
-    // If editing, include the current job in the list
+    // If editing, include the current job in the list and don't filter it out
     if (templateId) {
+      let filteredJobs = activeJobs;
+      
       // First check if job is already populated in template data
       if (populatedJob && populatedJob._id) {
         const isAlreadyInList = activeJobs.some(job => job._id === populatedJob._id);
         if (!isAlreadyInList) {
-          return [populatedJob, ...activeJobs];
+          filteredJobs = [populatedJob, ...activeJobs];
         }
+        // When editing, always include the current job even if it has a flow
+        return filteredJobs;
       }
       // Otherwise check if we fetched it separately
       else if (currentJobData?.data?.jobOpening) {
         const currentJob = currentJobData.data.jobOpening;
         const isAlreadyInList = activeJobs.some(job => job._id === currentJob._id);
         if (!isAlreadyInList) {
-          return [currentJob, ...activeJobs];
+          filteredJobs = [currentJob, ...activeJobs];
         }
+        // When editing, always include the current job even if it has a flow
+        return filteredJobs;
       }
+      return filteredJobs;
     }
-    return activeJobs;
-  }, [jobsData, currentJobData, populatedJob, templateId]);
+    
+    // When creating a new flow, filter out jobs that already have flows
+    return activeJobs.filter((job) => !jobsWithFlows.has(job._id));
+  }, [jobsData, currentJobData, populatedJob, templateId, jobsWithFlows]);
 
   // Fetch users for interviewer assignment
   const { data: usersData } = useGetUsersQuery({

@@ -95,7 +95,6 @@ const LiveTracking = () => {
     {
       // Refetch when search changes
       refetchOnMountOrArgChange: false,
-      keepUnusedDataFor: 60,
     },
   );
 
@@ -175,7 +174,6 @@ const LiveTracking = () => {
     {
       pollingInterval: selectedStaffId === "all" ? 60000 : 0,
       refetchOnMountOrArgChange: true,
-      keepUnusedDataFor: 30,
     },
   );
 
@@ -218,10 +216,10 @@ const LiveTracking = () => {
   };
 
   // Get tracking points from API response
-  const trackingPoints =
-    liveData?.data?.trackingPoints || liveData?.trackingPoints || [];
-  const liveWorkers =
-    liveData?.data?.liveWorkers || liveData?.liveWorkers || [];
+  // API returns { success: true, data: { liveWorkers: [], trackingPoints: [] } }
+  // Handle both response formats for backward compatibility
+  const trackingPoints = (liveData as any)?.data?.trackingPoints || (liveData as any)?.trackingPoints || [];
+  const liveWorkers = (liveData as any)?.data?.liveWorkers || (liveData as any)?.liveWorkers || [];
 
   // Debug: Log data received
   useEffect(() => {
@@ -230,7 +228,17 @@ const LiveTracking = () => {
       liveWorkersCount: liveWorkers.length,
       selectedStaffId,
       hasData: !!liveData,
+      liveDataStructure: liveData ? Object.keys(liveData) : null,
+      rawLiveData: liveData,
     });
+    
+    // Log first few tracking points and workers for debugging
+    if (trackingPoints.length > 0) {
+      console.log("[LiveTracking] First tracking point:", trackingPoints[0]);
+    }
+    if (liveWorkers.length > 0) {
+      console.log("[LiveTracking] First live worker:", liveWorkers[0]);
+    }
   }, [trackingPoints.length, liveWorkers.length, selectedStaffId, liveData]);
 
   // Helper function to check if coordinates are valid (not [0, 0])
@@ -522,7 +530,7 @@ const LiveTracking = () => {
                                       {filteredStaffList.length <
                                         staffPagination.total &&
                                         staffPagination.pages === 1 && (
-                                          <span className="text-orange-600">
+                                          <span className="">
                                             {" "}
                                             ⚠️ Some staff may not be visible
                                           </span>

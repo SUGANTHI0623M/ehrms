@@ -92,7 +92,7 @@ const AddressVerificationTab: React.FC<AddressVerificationTabProps> = ({
                     {isRejected && addressVerification.rejectionReason && (
                         <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                             <div className="flex items-start gap-2">
-                                <XCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                                <XCircle className="w-4 h-4    mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
                                     <p className="text-sm font-medium text-red-800">
                                         <strong>Rejection Reason:</strong>
@@ -101,7 +101,7 @@ const AddressVerificationTab: React.FC<AddressVerificationTabProps> = ({
                                         {addressVerification.rejectionReason}
                                     </p>
                                     {addressVerification.rejectedAt && (
-                                        <p className="text-xs text-red-600 mt-1">
+                                        <p className="text-xs    mt-1">
                                             Rejected on: {new Date(addressVerification.rejectedAt).toLocaleDateString()}
                                         </p>
                                     )}
@@ -113,7 +113,7 @@ const AddressVerificationTab: React.FC<AddressVerificationTabProps> = ({
                     {isVerified && (
                         <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                             <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                <CheckCircle2 className="w-4 h-4  " />
                                 <p className="text-sm font-medium text-green-800">
                                     Address has been verified
                                 </p>

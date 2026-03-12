@@ -186,7 +186,7 @@ export default function GoalProgress() {
                   <p className="text-2xl font-bold">{avgProgress}%</p>
                 </div>
                 <div className="p-3 bg-green-100 rounded-full">
-                  <TrendingUp className="w-5 h-5 text-green-600" />
+                  <TrendingUp className="w-5 h-5  " />
                 </div>
               </div>
             </CardContent>
@@ -199,7 +199,7 @@ export default function GoalProgress() {
                   <p className="text-2xl font-bold">{completedGoals}</p>
                 </div>
                 <div className="p-3 bg-purple-100 rounded-full">
-                  <Award className="w-5 h-5 text-purple-600" />
+                  <Award className="w-5 h-5 " />
                 </div>
               </div>
             </CardContent>
@@ -212,7 +212,7 @@ export default function GoalProgress() {
                   <p className="text-2xl font-bold">{onTrackGoals}</p>
                 </div>
                 <div className="p-3 bg-orange-100 rounded-full">
-                  <BarChart3 className="w-5 h-5 text-orange-600" />
+                  <BarChart3 className="w-5 h-5 " />
                 </div>
               </div>
             </CardContent>
@@ -545,7 +545,7 @@ export default function GoalProgress() {
                     {selectedGoal.achievements && (
                       <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                         <p className="text-sm font-semibold mb-1 text-green-800">Achievements</p>
-                        <p className="text-sm text-green-700 whitespace-pre-wrap">{selectedGoal.achievements}</p>
+                        <p className="text-sm  whitespace-pre-wrap">{selectedGoal.achievements}</p>
                       </div>
                     )}
                     
@@ -589,7 +589,7 @@ export default function GoalProgress() {
                             <p className="text-sm text-purple-700 mt-1">{selectedGoal.managerReview.comments}</p>
                           )}
                           {selectedGoal.managerReview.submittedAt && (
-                            <p className="text-xs text-purple-600 mt-1">
+                            <p className="text-xs  mt-1">
                               Submitted: {format(new Date(selectedGoal.managerReview.submittedAt), "MMM dd, yyyy")}
                             </p>
                           )}
@@ -603,10 +603,10 @@ export default function GoalProgress() {
                             <Badge variant="outline" className="text-xs">Rating: {selectedGoal.hrReview.rating}/5</Badge>
                           </div>
                           {selectedGoal.hrReview.comments && (
-                            <p className="text-sm text-green-700 mt-1">{selectedGoal.hrReview.comments}</p>
+                            <p className="text-sm  mt-1">{selectedGoal.hrReview.comments}</p>
                           )}
                           {selectedGoal.hrReview.submittedAt && (
-                            <p className="text-xs text-green-600 mt-1">
+                            <p className="text-xs   mt-1">
                               Submitted: {format(new Date(selectedGoal.hrReview.submittedAt), "MMM dd, yyyy")}
                             </p>
                           )}

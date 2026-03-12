@@ -580,7 +580,7 @@ const OnboardingPage = () => {
                 <div className="text-3xl font-bold">
                   {statsLoading ? "..." : stats.completed}
                 </div>
-                <p className="text-xs text-green-600 mt-1">This month</p>
+                <p className="text-xs   mt-1">This month</p>
               </CardContent>
             </Card>
 
@@ -820,7 +820,7 @@ const OnboardingPage = () => {
                 <div className="space-y-6 py-4">
                   {/* Status Banner */}
                   {selectedOnboarding.status === ONBOARDING_STATUS.COMPLETED && (
-                    <div className="bg-green-50 border border-green-200 rounded-md p-4 flex items-center gap-3 text-green-700">
+                    <div className="bg-green-50 border border-green-200 rounded-md p-4 flex items-center gap-3 ">
                       <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
                       <div>
                         <h4 className="font-semibold">Documents Completed</h4>
@@ -896,7 +896,7 @@ const OnboardingPage = () => {
                         </div>
                         <div>
                           <p className="text-muted-foreground">Uploaded</p>
-                          <p className="text-lg font-semibold text-green-600">
+                          <p className="text-lg font-semibold  ">
                             {selectedOnboarding.documents.filter(d => d.url).length}
                           </p>
                         </div>
@@ -922,9 +922,9 @@ const OnboardingPage = () => {
                       >
                         <div className="flex items-start gap-3 flex-1">
                           {doc.status === DOCUMENT_STATUS.COMPLETED ? (
-                            <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                            <CheckCircle2 className="w-5 h-5   mt-0.5" />
                           ) : doc.status === DOCUMENT_STATUS.REJECTED ? (
-                            <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                            <XCircle className="w-5 h-5    mt-0.5" />
                           ) : doc.status === DOCUMENT_STATUS.PENDING ? (
                             <Clock className="w-5 h-5 text-yellow-600 mt-0.5" />
                           ) : (
@@ -940,8 +940,8 @@ const OnboardingPage = () => {
                             {doc.url ? (
                               <div className="mt-2 space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <CheckCircle2 className="w-3 h-3 text-green-600" />
-                                  <span className="text-xs text-green-600 font-medium">Document Uploaded</span>
+                                  <CheckCircle2 className="w-3 h-3  " />
+                                  <span className="text-xs   font-medium">Document Uploaded</span>
                                 </div>
                                 {doc.uploadedAt && (
                                   <span className="text-xs text-muted-foreground block">
@@ -1084,7 +1084,7 @@ const OnboardingPage = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600 gap-2"
+                              className="text-red-500 border-red-200 hover:bg-red-50 hover:   gap-2"
                               onClick={() => handleRemoveDocument(selectedOnboarding._id, doc._id)}
                               disabled={isRemoving}
                               title="Remove Document"

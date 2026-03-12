@@ -96,7 +96,7 @@ const TaskDetails = () => {
     const statusConfig: Record<string, { label: string; className: string }> = {
       completed: {
         label: "Completed",
-        className: "bg-green-100 text-green-700 border-green-300",
+        className: "bg-green-100  border-green-300",
       },
       in_progress: {
         label: "In Progress",
@@ -150,7 +150,7 @@ const TaskDetails = () => {
       title: "Task Assigned",
       description: `Assigned to ${assignedToName}`,
       icon: FileText,
-      iconColor: "text-purple-600",
+      iconColor: "",
       bgColor: "bg-purple-50",
       borderColor: "border-purple-300",
       timestamp: new Date(task.assignedDate),
@@ -207,7 +207,7 @@ const TaskDetails = () => {
         title: `Travel Segment ${idx + 1}`,
         description: `${segment.distanceKm?.toFixed(3) || 0} km in ${durationSegment ? Math.round(durationSegment.durationSeconds / 60) : 0} min`,
         icon: Navigation,
-        iconColor: "text-indigo-600",
+        iconColor: "",
         bgColor: "bg-indigo-50",
         borderColor: "border-indigo-300",
         timestamp: segment.endTime ? new Date(segment.endTime) : undefined,
@@ -255,7 +255,7 @@ const TaskDetails = () => {
         taskDetails.arrivalLocation?.address ||
         "Location reached",
       icon: CheckCircle2,
-      iconColor: "text-green-600",
+      iconColor: " ",
       bgColor: "bg-green-50",
       borderColor: "border-green-300",
       timestamp: arrivalTimestamp ? new Date(arrivalTimestamp) : undefined,
@@ -278,7 +278,7 @@ const TaskDetails = () => {
       title: "Photo Proof Uploaded",
       description: taskDetails.photoProofDescription || "Photo uploaded",
       icon: Camera,
-      iconColor: "text-purple-600",
+      iconColor: "",
       bgColor: "bg-purple-50",
       borderColor: "border-purple-300",
       timestamp: taskDetails.photoProofUploadedAt
@@ -354,7 +354,7 @@ const TaskDetails = () => {
       title: approvedByName ? "Task Completed & Approved" : "Task Completed",
       description: description,
       icon: CheckCircle2,
-      iconColor: "text-green-600",
+      iconColor: " ",
       bgColor: "bg-green-50",
       borderColor: "border-green-300",
       timestamp: new Date(taskDetails.completedDate || taskDetails.completedAt),
@@ -375,7 +375,7 @@ const TaskDetails = () => {
       title: "Task Exited",
       description: task.task_exit.exitReason || "Task exited",
       icon: LogOut,
-      iconColor: "text-orange-600",
+      iconColor: "",
       bgColor: "bg-orange-50",
       borderColor: "border-orange-300",
       timestamp: task.task_exit.exitedAt
@@ -393,7 +393,7 @@ const TaskDetails = () => {
         title: "Task Exited",
         description: exit.exitReason || "Task exited",
         icon: LogOut,
-        iconColor: "text-orange-600",
+        iconColor: "",
         bgColor: "bg-orange-50",
         borderColor: "border-orange-300",
         timestamp: exit.exitedAt ? new Date(exit.exitedAt) : undefined,
@@ -420,7 +420,7 @@ const TaskDetails = () => {
         title: "Task Reopened by Admin",
         description: reopen.reason || "Task has been reopened by admin",
         icon: RotateCcw,
-        iconColor: "text-orange-600",
+        iconColor: "",
         bgColor: "bg-orange-50",
         borderColor: "border-orange-300",
         timestamp: reopen.reopenedAt ? new Date(reopen.reopenedAt) : undefined,
@@ -502,7 +502,7 @@ const TaskDetails = () => {
               <Card className="border-2">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <Building2 className="w-4 h-4 text-indigo-600" />
+                    <Building2 className="w-4 h-4 " />
                     <span className="text-xs font-semibold text-muted-foreground uppercase">
                       Customer
                     </span>
@@ -559,7 +559,7 @@ const TaskDetails = () => {
               <Card className="border-2">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <Timer className="w-4 h-4 text-indigo-600" />
+                    <Timer className="w-4 h-4 " />
                     <span className="text-xs font-semibold text-muted-foreground uppercase">
                       Duration
                     </span>
@@ -714,7 +714,7 @@ const TaskDetails = () => {
                                 {event.data.durationSegment?.durationSeconds !==
                                   undefined && (
                                   <div className="flex items-center gap-2">
-                                    <Timer className="w-3 h-3 text-indigo-600" />
+                                    <Timer className="w-3 h-3 " />
                                     <span className="font-semibold">
                                       {Math.round(
                                         event.data.durationSegment
@@ -871,7 +871,7 @@ const TaskDetails = () => {
                                     </span>
                                   </div>
                                   {event.data.approvedBy && (
-                                    <div className="flex items-center gap-2 text-green-700 font-medium">
+                                    <div className="flex items-center gap-2  font-medium">
                                       <CheckCircle2 className="w-3 h-3" />
                                       <span>
                                         Approved by:{" "}

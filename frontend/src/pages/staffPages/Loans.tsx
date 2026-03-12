@@ -21,7 +21,7 @@ import { useGetLoansQuery, useApproveLoanMutation, useRejectLoanMutation } from 
 import { useGetPayrollsQuery } from "@/store/api/payrollApi";
 import { message } from "antd";
 import MainLayout from "@/components/MainLayout";
-import { Search, CheckCircle, XCircle, X, ChevronDown, ChevronRight, Calendar, DollarSign, Clock } from "lucide-react";
+import { Search, CheckCircle, XCircle, X, ChevronDown, ChevronRight, Calendar, Clock } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -289,7 +289,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                               ) : loan.status === "Rejected" && (loan.rejectionReason || loan.rejectedBy) ? (
                                 <div className="text-xs space-y-1">
                                   {loan.rejectionReason && (
-                                    <div className="font-medium text-red-600 mb-1">Reason: {loan.rejectionReason}</div>
+                                    <div className="font-medium    mb-1">Reason: {loan.rejectionReason}</div>
                                   )}
                                   {loan.rejectedBy && (
                                     <div className="text-muted-foreground">
@@ -441,7 +441,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                                         </div>
                                         <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
                                           <div className="text-xs text-muted-foreground">Paid EMIs</div>
-                                          <div className="text-lg font-semibold text-green-600">{paidInstallments.length}</div>
+                                          <div className="text-lg font-semibold  ">{paidInstallments.length}</div>
                                         </div>
                                         <div className="p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950">
                                           <div className="text-xs text-muted-foreground">Remaining EMIs</div>
@@ -456,7 +456,7 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                                       {paidInstallments.length > 0 && (
                                         <div>
                                           <h4 className="font-semibold mb-2 flex items-center gap-2">
-                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                            <CheckCircle className="w-4 h-4  " />
                                             Payment History
                                           </h4>
                                           <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -481,13 +481,13 @@ const Loans = ({ employeeId }: LoansProps = {}) => {
                                                     </div>
                                                     <div className="flex items-center gap-2 ml-6">
                                                       <span className="text-xs text-muted-foreground">
-                                                        Paid in: <span className="font-semibold text-green-700">{paymentMonthYear}</span> Payroll
+                                                        Paid in: <span className="font-semibold ">{paymentMonthYear}</span> Payroll
                                                       </span>
                                                     </div>
                                                   </div>
                                                   <div className="flex items-center gap-2">
-                                                    <DollarSign className="w-4 h-4 text-green-600" />
-                                                    <span className="font-semibold text-green-600">{formatINR(inst.amount || loan.emi)}</span>
+                                                    <span className="text-base font-semibold">₹</span>
+                                                    <span className="font-semibold  ">{formatINR(inst.amount || loan.emi)}</span>
                                                   </div>
                                                 </div>
                                               );

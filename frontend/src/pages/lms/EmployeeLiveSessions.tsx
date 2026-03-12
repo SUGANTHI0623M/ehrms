@@ -458,7 +458,7 @@ const EmployeeLiveSessions: React.FC = () => {
                                 <Button
                                     size="large"
                                     icon={<PoweroffOutlined />}
-                                    className="text-orange-600 hover:text-orange-700 border-orange-300"
+                                    className=" hover:text-orange-700 border-orange-300"
                                     onClick={() => handleEndSessionForHost(session)}
                                 >
                                     End Session
@@ -890,7 +890,7 @@ const EmployeeLiveSessions: React.FC = () => {
                 wrapClassName="lms-modal"
                 title={
                     <div className="flex items-center gap-3 py-2 border-b border-gray-100 mb-0">
-                        <div className="p-2 rounded-lg bg-red-50 text-red-600">
+                        <div className="p-2 rounded-lg bg-red-50   ">
                             <LogoutOutlined className="text-xl" />
                         </div>
                         <div>

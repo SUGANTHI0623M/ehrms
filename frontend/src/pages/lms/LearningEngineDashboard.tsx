@@ -154,7 +154,7 @@ const QuizPerformanceCard: React.FC<{
             <span className="text-sm font-semibold text-red-700">
               {hard.completed}/{hard.total}
             </span>
-            <span className="text-xs font-medium text-red-600 bg-red-200/60 px-2 py-0.5 rounded">
+            <span className="text-xs font-medium    bg-red-200/60 px-2 py-0.5 rounded">
               {hard.percent}%
             </span>
           </div>

@@ -443,13 +443,20 @@ const BusinessInfo: React.FC = () => {
                     <Label htmlFor="pincode">Pincode <span className="text-red-500">*</span></Label>
                     <Input
                       id="pincode"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={10}
                       value={companyData.registeredAddress.zipCode}
-                      onChange={(e) => setCompanyData({
-                        ...companyData,
-                        registeredAddress: { ...companyData.registeredAddress, zipCode: e.target.value }
-                      })}
+                      onChange={(e) => {
+                        const numericValue = e.target.value.replace(/\D/g, '');
+                        setCompanyData({
+                          ...companyData,
+                          registeredAddress: { ...companyData.registeredAddress, zipCode: numericValue }
+                        });
+                      }}
                       disabled={!isEditing}
-                      placeholder="Enter pincode"
+                      placeholder="Enter pincode (numbers only)"
                     />
                   </div>
                 </div>

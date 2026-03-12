@@ -297,6 +297,16 @@ export const staffApi = apiSlice.injectEndpoints({
       query: () => '/staff/available-templates',
       providesTags: ['Settings'],
     }),
+    generateEmployeeCode: builder.query<
+      { success: boolean; data: { employeeId: string } },
+      { branchId?: string }
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params.branchId) queryParams.append('branchId', params.branchId);
+        return `/staff/generate-employee-code?${queryParams.toString()}`;
+      },
+    }),
     uploadOfferLetter: builder.mutation<
       {
         success: boolean;
@@ -546,6 +556,7 @@ export const {
   useDeleteStaffMutation,
   useGetAvailableShiftsQuery,
   useGetAvailableTemplatesQuery,
+  useGenerateEmployeeCodeQuery,
   useUploadOfferLetterMutation,
   useUpdateSalaryStructureMutation,
   useImportStaffFromExcelMutation,

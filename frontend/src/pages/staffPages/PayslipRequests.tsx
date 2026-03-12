@@ -268,7 +268,7 @@ const PayslipRequests = ({ employeeId }: PayslipRequestsProps = {}) => {
                             ) : request.status === "Rejected" && (request.rejectionReason || request.rejectedBy) ? (
                               <div className="text-xs space-y-1">
                                 {request.rejectionReason && (
-                                  <div className="font-medium text-red-600 mb-1">Reason: {request.rejectionReason}</div>
+                                  <div className="font-medium    mb-1">Reason: {request.rejectionReason}</div>
                                 )}
                                 {request.rejectedBy && (
                                   <div className="text-muted-foreground">

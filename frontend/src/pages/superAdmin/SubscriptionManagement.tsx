@@ -40,7 +40,7 @@ import {
   useUpdateSubscriptionPlanMutation,
   SubscriptionPlan,
 } from "@/store/api/superAdminApi";
-import { Plus, Edit, Save, X, Check, AlertTriangle, DollarSign, Users, Zap } from "lucide-react";
+import { Plus, Edit, Save, X, Check, AlertTriangle, Users, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -254,7 +254,7 @@ const SubscriptionManagement = () => {
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                               <div>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <DollarSign className="w-4 h-4 text-muted-foreground" />
+                                  <span className="text-base font-semibold text-muted-foreground">₹</span>
                                   <span className="text-sm font-medium">Pricing</span>
                                 </div>
                                 <div className="space-y-1">
@@ -375,9 +375,9 @@ const SubscriptionManagement = () => {
                             {plans.map((plan) => (
                               <TableCell key={plan.id} className="text-center">
                                 {plan.features.recruitment ? (
-                                  <Check className="w-5 h-5 text-green-600 mx-auto" />
+                                  <Check className="w-5 h-5   mx-auto" />
                                 ) : (
-                                  <X className="w-5 h-5 text-red-600 mx-auto" />
+                                  <X className="w-5 h-5    mx-auto" />
                                 )}
                               </TableCell>
                             ))}
@@ -387,9 +387,9 @@ const SubscriptionManagement = () => {
                             {plans.map((plan) => (
                               <TableCell key={plan.id} className="text-center">
                                 {plan.features.payroll ? (
-                                  <Check className="w-5 h-5 text-green-600 mx-auto" />
+                                  <Check className="w-5 h-5   mx-auto" />
                                 ) : (
-                                  <X className="w-5 h-5 text-red-600 mx-auto" />
+                                  <X className="w-5 h-5    mx-auto" />
                                 )}
                               </TableCell>
                             ))}
@@ -399,9 +399,9 @@ const SubscriptionManagement = () => {
                             {plans.map((plan) => (
                               <TableCell key={plan.id} className="text-center">
                                 {plan.features.performance ? (
-                                  <Check className="w-5 h-5 text-green-600 mx-auto" />
+                                  <Check className="w-5 h-5   mx-auto" />
                                 ) : (
-                                  <X className="w-5 h-5 text-red-600 mx-auto" />
+                                  <X className="w-5 h-5    mx-auto" />
                                 )}
                               </TableCell>
                             ))}
@@ -411,9 +411,9 @@ const SubscriptionManagement = () => {
                             {plans.map((plan) => (
                               <TableCell key={plan.id} className="text-center">
                                 {plan.features.lms ? (
-                                  <Check className="w-5 h-5 text-green-600 mx-auto" />
+                                  <Check className="w-5 h-5   mx-auto" />
                                 ) : (
-                                  <X className="w-5 h-5 text-red-600 mx-auto" />
+                                  <X className="w-5 h-5    mx-auto" />
                                 )}
                               </TableCell>
                             ))}
@@ -423,9 +423,9 @@ const SubscriptionManagement = () => {
                             {plans.map((plan) => (
                               <TableCell key={plan.id} className="text-center">
                                 {plan.features.advancedAnalytics ? (
-                                  <Check className="w-5 h-5 text-green-600 mx-auto" />
+                                  <Check className="w-5 h-5   mx-auto" />
                                 ) : (
-                                  <X className="w-5 h-5 text-red-600 mx-auto" />
+                                  <X className="w-5 h-5    mx-auto" />
                                 )}
                               </TableCell>
                             ))}

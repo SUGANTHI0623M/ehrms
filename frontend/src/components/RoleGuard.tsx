@@ -1,4 +1,4 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAppSelector } from "@/store/hooks";
 import { hasRouteAccess, getRoleDashboard } from "@/utils/roleUtils";
 import { canViewModule, getUserPermissions } from "@/utils/permissionUtils";
@@ -56,8 +56,14 @@ interface RouteAccessGuardProps {
 /**
  * Component that checks if user's role has access to a specific route path
  */
-export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
+export const RouteAccessGuard = ({ children, path: pathProp }: RouteAccessGuardProps) => {
   const { user } = useAppSelector((state) => state.auth);
+  const location = useLocation();
+  
+  // Use actual location pathname instead of path prop for dynamic routes like /grievances/:id
+  const actualPath = location.pathname;
+  // For static paths, use the path prop; for dynamic routes, use actualPath
+  const path = actualPath.startsWith(pathProp) ? actualPath : pathProp;
 
   if (!user) {
     return <Navigate to="/" replace />;
@@ -73,6 +79,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
     { path: '/staff-profile', module: 'staff' },
     { path: '/staff-overview', module: 'staff' },
     { path: '/salary-structure', module: 'staff' },
+    { path: '/staff/attendance-monitoring', module: 'staff' },
     { path: '/staff/leaves-pending-approval', module: 'staff' },
     { path: '/staff/loans', module: 'staff' },
     { path: '/staff/expense-claims', module: 'staff' },
@@ -183,6 +190,13 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
     // Announcements module paths
     { path: '/announcements', module: 'announcements' },
     { path: '/announcements/', module: 'announcements' },
+    // Grievance module paths (more specific first)
+    { path: '/grievances/settings', module: 'grievance' },
+    { path: '/grievances/analytics', module: 'grievance' },
+    { path: '/grievances/raise', module: 'grievance' },
+    { path: '/grievances/my', module: 'grievance' },
+    { path: '/grievances/', module: 'grievance' },
+    { path: '/grievances', module: 'grievance' },
     // HRMS Geo module paths
     { path: '/hrms-geo/', module: 'hrms-geo' },
     { path: '/hrms-geo', module: 'hrms-geo' },
@@ -249,6 +263,39 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
       return <AccessDenied />;
     }
 
+    // Grievance: allow Admin, Manager, HR, Senior HR, and Employees (all employees can raise/view their own grievances)
+    if (module === 'grievance') {
+      // Admin, Manager, HR, Senior HR have full access
+      if (user.role === 'Admin' || user.role === 'Manager' || user.role === 'HR' || user.role === 'Senior HR' || user.role === 'Super Admin') {
+        return <>{children}</>;
+      }
+      // Employees can always access their own grievances (/grievances/my, /grievances/raise, /grievances/:id for their own)
+      if (user.role === 'Employee' || user.role === 'EmployeeAdmin') {
+        // Check if it's an employee-specific route (my grievances, raise grievance, or detail page)
+        if (path.startsWith('/grievances/my') || path.startsWith('/grievances/raise')) {
+          return <>{children}</>;
+        }
+        // For detail pages (/grievances/:id), allow access - backend will verify ownership
+        // Match pattern: /grievances/ followed by 24 hex characters (MongoDB ObjectId)
+        if (path.match(/^\/grievances\/[a-f0-9]{24}$/i)) {
+          return <>{children}</>;
+        }
+        // For admin routes (dashboard, settings, analytics), check sidebarPermissions
+        if (path.startsWith('/grievances/settings') || path.startsWith('/grievances/analytics') || path === '/grievances') {
+          if (sidebarPerms.length > 0) {
+            const hasGrievanceAccess = sidebarPerms.includes('grievance');
+            if (hasGrievanceAccess) {
+              return <>{children}</>;
+            }
+          }
+          return <AccessDenied />;
+        }
+        // Default: allow access (backend will handle authorization)
+        return <>{children}</>;
+      }
+      return <AccessDenied />;
+    }
+
     // For employees with sidebarPermissions, check those first
     if (user.role === 'Employee' && sidebarPerms.length > 0) {
       const sidebarModuleMap: Record<string, string> = {
@@ -260,6 +307,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'performance': 'performance',
         'lms': 'lms',
         'announcements': 'announcements',
+        'grievance': 'grievance',
         'assets': 'assets',
         'integrations': 'integrations',
         'settings': 'settings',
@@ -281,6 +329,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'salary_overview': 'staff',
         'salary_structure': 'staff',
         'attendance': 'staff',
+        'attendance_monitoring': 'staff',
         'leaves_approval': 'staff',
         'loans': 'staff',
         'expense_claims': 'staff',
@@ -305,6 +354,11 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'tasks': 'hrms-geo',
         'customers': 'hrms-geo',
         'geo_settings': 'hrms-geo',
+        // Grievance sub-modules
+        'grievance': 'grievance',
+        'grievance_all': 'grievance',
+        'grievance_analytics': 'grievance',
+        'grievance_settings': 'grievance',
         // LMS sub-modules
         'lms_dashboard': 'lms',
         'course_library': 'lms',
@@ -409,6 +463,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'tasks': 'hrms-geo',
         'customers': 'hrms-geo',
         'geo_settings': 'hrms-geo',
+        'grievance': 'grievance',
         'course_library': 'lms',
         'live_session': 'lms',
         'quiz_generator': 'lms',
@@ -442,6 +497,7 @@ export const RouteAccessGuard = ({ children, path }: RouteAccessGuardProps) => {
         'performance': ['/performance', '/pms', '/kra'],
         'lms': ['/admin/lms/dashboard', '/admin/lms/course-library', '/admin/lms/learners', '/admin/lms/live-sessions', '/admin/lms/assessment', '/admin/lms/scores-analytics', '/course-library', '/live-session', '/assessment', '/score', '/lms/learners', '/lms/scores-analytics'],
         'announcements': ['/announcements'],
+        'grievance': ['/grievances', '/grievances/settings', '/grievances/analytics'],
         'assets': ['/assets', '/assets-type'],
         'integrations': ['/integrations', '/integrations/sendpulse', '/integrations/sendgrid', '/integrations/askeva', '/integrations/email', '/integrations/exotel', '/integrations/google-calendar', '/integrations/rcs', '/integrations/sms', '/integrations/voice'],
         'settings': ['/settings', '/user-management', '/role-management', '/attendance-setting', '/attendance-templates', '/weekly-holiday-templates', '/attendance-geofence', '/attendance-shifts', '/attendance-automation-rules', '/business-setting', '/business/', '/payroll-setting', '/settings/payroll/', '/salary/', '/businessinfo-setting', '/business-info/', '/others-setting', '/others/', '/onboarding-document-requirements', '/alerts-notifications', '/channel-partner-id'],

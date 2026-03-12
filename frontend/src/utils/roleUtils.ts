@@ -146,6 +146,7 @@ export const hasRouteAccess = (role: string, path: string): boolean => {
     'Admin': [
       '/admin',
       '/announcements',
+      '/grievances',
       '/candidates',
       '/staff',
       '/staff-profile',
@@ -182,6 +183,7 @@ export const hasRouteAccess = (role: string, path: string): boolean => {
     'Senior HR': [
       '/candidates',
       '/interview',
+      '/grievances',
       '/staff',
       '/staff-profile',
       '/staff-overview',
@@ -190,11 +192,13 @@ export const hasRouteAccess = (role: string, path: string): boolean => {
     'HR': [
       '/candidates',
       '/interview',
+      '/grievances',
       '/staff',
       '/staff-profile',
     ],
     'Manager': [
       '/announcements',
+      '/grievances',
       '/candidates',
       '/staff',
       '/staff-profile',
@@ -213,6 +217,8 @@ export const hasRouteAccess = (role: string, path: string): boolean => {
       '/pms',
     ],
     'Employee': [
+      '/grievances/my',
+      '/grievances/raise',
       '/performance',
       '/payroll',
       '/course-library',
