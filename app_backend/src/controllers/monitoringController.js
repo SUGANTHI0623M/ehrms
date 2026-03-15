@@ -3,6 +3,7 @@
  */
 const ActivityLog = require('../models/ActivityLog');
 const Staff = require('../models/Staff');
+const MONITORING_STATUSES = require('../constants/monitoringStatus');
 
 /**
  * POST /api/monitoring/activity
@@ -76,8 +77,8 @@ const storeActivity = async (req, res) => {
 
 /**
  * POST /api/monitoring/status
- * Body: { status: 'active' | 'logout' | 'exited' }
- * Called by desktop agent on login / logout / exit.
+ * Body: { status: 'active' | 'inactive' | 'logout' | 'exited' | 'break' | 'meeting' | 'pause' | 'offline' }
+ * Called by desktop agent on login / logout / exit / break / meeting / pause.
  */
 const setMonitoringStatus = async (req, res) => {
   try {
@@ -87,11 +88,10 @@ const setMonitoringStatus = async (req, res) => {
     }
 
     const { status } = req.body;
-    const allowed = ['active', 'logout', 'exited'];
-    if (!status || !allowed.includes(status)) {
+    if (!status || !MONITORING_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'status must be one of: ' + allowed.join(', ')
+        message: 'status must be one of: ' + MONITORING_STATUSES.join(', ')
       });
     }
 

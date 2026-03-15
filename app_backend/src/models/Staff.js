@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const MONITORING_STATUSES = require('../constants/monitoringStatus');
 
 const staffSchema = new mongoose.Schema({
     employeeId: { type: String, required: true, unique: true },
@@ -82,10 +83,10 @@ const staffSchema = new mongoose.Schema({
     // FCM token for push notifications (set by app via POST /api/notifications/fcm-token)
     fcmToken: { type: String },
 
-    // Desktop monitoring agent status: active (login), logout, exited
+    // Desktop monitoring agent status - must match Device.status in monitoringdevices
     monitoringStatus: {
         type: String,
-        enum: ['active', 'inactive', 'logout', 'exited'],
+        enum: MONITORING_STATUSES,
         default: 'inactive'
     },
 

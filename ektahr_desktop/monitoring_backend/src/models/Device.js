@@ -1,4 +1,6 @@
 const mongoose = require('../config/mongoose');
+const path = require('path');
+const MONITORING_STATUSES = require(path.join(__dirname, '../../../../app_backend/src/constants/monitoringStatus'));
 
 const deviceSchema = new mongoose.Schema({
     deviceId: { type: String, required: true, unique: true },
@@ -11,7 +13,7 @@ const deviceSchema = new mongoose.Schema({
     systemModel: { type: String },
     lastSeenAt: { type: Date, default: Date.now },
     isActive: { type: Boolean, default: true },
-    status: { type: String, enum: ['active', 'inactive', 'logout', 'exited', 'break', 'meeting', 'pause', 'offline'], default: 'active' },
+    status: { type: String, enum: MONITORING_STATUSES, default: 'active' },
     consentAt: { type: Date },
     autoupdate: { type: Boolean, default: false }
 }, { timestamps: true, collection: 'monitoringdevices' });

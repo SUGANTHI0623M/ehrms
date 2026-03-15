@@ -6,14 +6,17 @@
  * Run: node src/cron/dailySummary.js [YYYY-MM-DD]
  */
 require('dotenv').config();
+const path = require('path');
 const mongoose = require('../config/mongoose');
 const connectDB = require('../config/db');
+const appBackendRoot = path.join(__dirname, '../../../../', 'app_backend');
 const ActivityLog = require('../models/ActivityLog');
 const ProductivityScore = require('../models/ProductivityScore');
 const Screenshot = require('../models/Screenshot');
 const MonitoringSettings = require('../models/MonitoringSettings');
 const MonitoringStaff = require('../models/MonitoringStaff');
 const MonitoringDailySummary = require('../models/MonitoringDailySummary');
+const dailySummaryUpdater = require('../services/dailySummaryUpdater');
 
 const DEFAULT_SETTINGS = {
     expectedActivityPerMinute: { keystrokes: 40, mouseClicks: 20, scrolls: 10 },
@@ -49,12 +52,6 @@ function computeProductivityScore(settings, perMinute) {
     let prod = (activityScore * weights.activityWeight + idleFactor * weights.idleWeight) * 100;
     prod = Math.max(range.min ?? 0, Math.min(range.max ?? 100, prod));
     return Math.round(prod * 10) / 10;
-}
-
-function categorizeMinutes(score) {
-    if (score >= 70) return { productive: 1, neutral: 0, unproductive: 0 };
-    if (score >= 40) return { productive: 0, neutral: 1, unproductive: 0 };
-    return { productive: 0, neutral: 0, unproductive: 1 };
 }
 
 async function runDailySummary(targetDate) {
@@ -148,33 +145,14 @@ async function runDailySummary(targetDate) {
         });
 
         const totalIdleSeconds = ag.totalIdleSeconds || 0;
+        const totalTrackedSeconds = Math.round(totalMinutes * 60);
+        const productiveSeconds = Math.max(0, totalTrackedSeconds - totalIdleSeconds);
+        const unproductiveSeconds = totalIdleSeconds;
         const idleMinutes = Math.round(totalIdleSeconds / 60);
-        const activeMinutes = Math.max(0, totalMinutes - idleMinutes);
-
-        let productiveMinutes = 0;
-        let neutralMinutes = 0;
-        let unproductiveMinutes = 0;
-
-        if (scoreGroup?.scores?.length && scoreGroup.keystrokes?.length) {
-            for (let i = 0; i < scoreGroup.scores.length; i++) {
-                const perMin = {
-                    keystrokes: scoreGroup.keystrokes[i] ?? 0,
-                    mouseClicks: scoreGroup.mouseClicks[i] ?? 0,
-                    scrollCount: scoreGroup.scrollCount[i] ?? 0,
-                    idleSeconds: scoreGroup.idleSeconds[i] ?? 0
-                };
-                const minScore = computeProductivityScore(settings, perMin);
-                const cat = categorizeMinutes(minScore);
-                productiveMinutes += cat.productive;
-                neutralMinutes += cat.neutral;
-                unproductiveMinutes += cat.unproductive;
-            }
-        } else {
-            const cat = categorizeMinutes(productivityScore);
-            productiveMinutes = totalMinutes * cat.productive;
-            neutralMinutes = totalMinutes * cat.neutral;
-            unproductiveMinutes = totalMinutes * cat.unproductive;
-        }
+        const activeMinutes = Math.round(productiveSeconds / 60);
+        const productiveTime = dailySummaryUpdater.formatMinutesSeconds(productiveSeconds);
+        const unproductiveTime = dailySummaryUpdater.formatMinutesSeconds(unproductiveSeconds);
+        const totalTrackedTime = dailySummaryUpdater.formatMinutesSeconds(totalTrackedSeconds);
 
         await MonitoringDailySummary.findOneAndUpdate(
             { businessId, employeeId, date },
@@ -183,7 +161,11 @@ async function runDailySummary(targetDate) {
                     businessId,
                     employeeId,
                     date,
+                    productiveTime,
+                    unproductiveTime,
+                    totalTrackedTime,
                     totalTrackedMinutes: Math.round(totalMinutes),
+                    totalTrackedSeconds,
                     activeMinutes: Math.round(activeMinutes),
                     idleMinutes,
                     activityTotals: {
@@ -192,11 +174,7 @@ async function runDailySummary(targetDate) {
                         scrollCount: ag.totalScrollCount
                     },
                     productivityScore,
-                    timeBreakdown: {
-                        productiveMinutes: Math.round(productiveMinutes),
-                        neutralMinutes: Math.round(neutralMinutes),
-                        unproductiveMinutes: Math.round(unproductiveMinutes)
-                    },
+                    screenshotCount: ssGroup?.count ?? 0,
                     screenshotsCaptured: ssGroup?.count ?? 0
                 }
             },
@@ -222,19 +200,29 @@ async function upsertDailySummaryForStaff(businessId, employeeId, targetDate) {
     const end = new Date(date);
     end.setUTCDate(end.getUTCDate() + 1);
 
-    const [ag] = await ActivityLog.aggregate([
-        { $match: { tenantId: businessId, employeeID: employeeId, timestamp: { $gte: start, $lt: end } } },
-        {
-            $group: {
-                _id: null,
-                totalKeystrokes: { $sum: '$keystrokes' },
-                totalMouseClicks: { $sum: '$mouseClicks' },
-                totalScrollCount: { $sum: '$scrollCount' },
-                totalIdleSeconds: { $sum: '$idleSeconds' },
-                count: { $sum: 1 }
+    const AttendanceModel = require(path.join(appBackendRoot, 'src', 'models', 'Attendance'));
+    const [aggResult, att] = await Promise.all([
+        ActivityLog.aggregate([
+            { $match: { tenantId: businessId, employeeID: employeeId, timestamp: { $gte: start, $lt: end } } },
+            {
+                $group: {
+                    _id: null,
+                    totalKeystrokes: { $sum: '$keystrokes' },
+                    totalMouseClicks: { $sum: '$mouseClicks' },
+                    totalScrollCount: { $sum: '$scrollCount' },
+                    totalIdleSeconds: { $sum: '$idleSeconds' },
+                    count: { $sum: 1 }
+                }
             }
-        }
+        ]),
+        AttendanceModel.findOne({
+            $or: [{ employeeId }, { user: employeeId }],
+            date: { $gte: start, $lt: end }
+        })
+            .select('punchIn punchOut')
+            .lean()
     ]);
+    const ag = aggResult?.[0];
     if (!ag) return false;
 
     const [scoreGroup] = await ProductivityScore.aggregate([
@@ -274,50 +262,38 @@ async function upsertDailySummaryForStaff(businessId, employeeId, targetDate) {
     });
 
     const totalIdleSeconds = ag.totalIdleSeconds || 0;
+    const totalTrackedSeconds = Math.round(totalMinutes * 60);
+    const productiveSeconds = Math.max(0, totalTrackedSeconds - totalIdleSeconds);
+    const unproductiveSeconds = totalIdleSeconds;
     const idleMinutes = Math.round(totalIdleSeconds / 60);
-    const activeMinutes = Math.max(0, totalMinutes - idleMinutes);
+    const activeMinutes = Math.round(productiveSeconds / 60);
 
-    let productiveMinutes = 0, neutralMinutes = 0, unproductiveMinutes = 0;
-    if (scoreGroup?.scores?.length && scoreGroup.keystrokes?.length) {
-        for (let i = 0; i < scoreGroup.scores.length; i++) {
-            const perMin = {
-                keystrokes: scoreGroup.keystrokes[i] ?? 0,
-                mouseClicks: scoreGroup.mouseClicks[i] ?? 0,
-                scrollCount: scoreGroup.scrollCount[i] ?? 0,
-                idleSeconds: scoreGroup.idleSeconds[i] ?? 0
-            };
-            const cat = categorizeMinutes(computeProductivityScore(settings, perMin));
-            productiveMinutes += cat.productive;
-            neutralMinutes += cat.neutral;
-            unproductiveMinutes += cat.unproductive;
-        }
-    } else {
-        const cat = categorizeMinutes(productivityScore);
-        productiveMinutes = totalMinutes * cat.productive;
-        neutralMinutes = totalMinutes * cat.neutral;
-        unproductiveMinutes = totalMinutes * cat.unproductive;
-    }
+    const productiveTime = dailySummaryUpdater.formatMinutesSeconds(productiveSeconds);
+    const unproductiveTime = dailySummaryUpdater.formatMinutesSeconds(unproductiveSeconds);
+    const totalTrackedTime = dailySummaryUpdater.formatMinutesSeconds(totalTrackedSeconds);
+
+    const setFields = {
+        businessId,
+        employeeId,
+        date,
+        productiveTime,
+        unproductiveTime,
+        totalTrackedTime,
+        totalTrackedMinutes: Math.round(totalMinutes),
+        totalTrackedSeconds,
+        activeMinutes,
+        idleMinutes,
+        activityTotals: { keystrokes: ag.totalKeystrokes, mouseClicks: ag.totalMouseClicks, scrollCount: ag.totalScrollCount },
+        productivityScore,
+        screenshotCount: ssGroup?.count ?? 0,
+        screenshotsCaptured: ssGroup?.count ?? 0
+    };
+    if (att?.punchIn) setFields.checkInTime = att.punchIn;
+    if (att?.punchOut) setFields.checkOutTime = att.punchOut;
 
     await MonitoringDailySummary.findOneAndUpdate(
         { businessId, employeeId, date },
-        {
-            $set: {
-                businessId,
-                employeeId,
-                date,
-                totalTrackedMinutes: Math.round(totalMinutes),
-                activeMinutes: Math.round(activeMinutes),
-                idleMinutes,
-                activityTotals: { keystrokes: ag.totalKeystrokes, mouseClicks: ag.totalMouseClicks, scrollCount: ag.totalScrollCount },
-                productivityScore,
-                timeBreakdown: {
-                    productiveMinutes: Math.round(productiveMinutes),
-                    neutralMinutes: Math.round(neutralMinutes),
-                    unproductiveMinutes: Math.round(unproductiveMinutes)
-                },
-                screenshotsCaptured: ssGroup?.count ?? 0
-            }
-        },
+        { $set: setFields },
         { upsert: true, new: true }
     );
     return true;

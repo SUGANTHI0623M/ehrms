@@ -1,6 +1,8 @@
+const path = require('path');
 const Break = require('../models/Break');
 const Device = require('../models/Device');
 const MonitoringSettings = require('../models/MonitoringSettings');
+const Staff = require(path.join(__dirname, '../../../../app_backend/src/models/Staff'));
 
 const SOURCE_SOFTWARE = 'software';
 const SOURCE_WEB = 'web';
@@ -70,6 +72,7 @@ exports.startBreak = async (req, res) => {
             source: normalizedSource
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'break', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'break' } });
         console.log('[Break] Started', { breakId: doc._id, employeeID: device.employeeID, source: normalizedSource });
         res.status(201).json({ success: true, breakId: doc._id.toString() });
     } catch (error) {
@@ -99,6 +102,7 @@ exports.endBreak = async (req, res) => {
             return res.status(404).json({ message: 'Break not found or not owned by this device' });
         }
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'active', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
         let alert = null;
         const monSettings = await MonitoringSettings.findOne({ businessId: device.tenantId }).lean();
         const breakExceededEnabled = monSettings?.alerts?.breakExceededAlert !== false;

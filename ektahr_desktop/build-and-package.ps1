@@ -24,7 +24,9 @@ if (-not (Test-Path -LiteralPath $iscc)) {
     exit 1
 }
 
-Write-Host "Building EktaHR Desktop Agent..." -ForegroundColor Cyan
+Write-Host "Cleaning and building EktaHR Desktop Agent..." -ForegroundColor Cyan
+# Clean first so App.config (ApiBaseUrl, Version) is picked up fresh - avoids stale track.ektahr.com in output
+dotnet clean $csproj -c Release -q
 # PublishSingleFile=false: required for SQLite native e_sqlite3.dll to load from runtimes\win-x64\native\
 dotnet publish $csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publishDir
 

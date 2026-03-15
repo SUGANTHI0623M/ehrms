@@ -11,6 +11,7 @@ const ProductivityScore = require('../models/ProductivityScore');
 const MonitoringSettings = require('../models/MonitoringSettings');
 const Device = require('../models/Device');
 const cloudinaryService = require('./cloudinaryService');
+const dailySummaryUpdater = require('./dailySummaryUpdater');
 
 const CLOUDINARY_RETRIES = 5;
 
@@ -171,11 +172,24 @@ async function processPayload(jobData) {
             ...(durationSec != null && { durationSinceLastInsertSeconds: durationSec })
         });
 
+        // Update monitoringdailysummaries: add productive/unproductive time and activity totals
+        const durationSecForSummary = durationSec != null ? durationSec : 60;
+        const activityTotals = {
+            keystrokes: log.keystrokes ?? 0,
+            mouseClicks: log.mouseClicks ?? 0,
+            scrollCount: log.scrollCount ?? 0
+        };
+        try {
+            await dailySummaryUpdater.updateFromActivityLog(tenantObjId, employeeIDObj, ts, log.idleSeconds ?? 0, durationSecForSummary, activityTotals);
+        } catch (summaryErr) {
+            console.warn('[ActivityProcessor] Daily summary update failed:', summaryErr?.message);
+        }
+
         const monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
-        const psEnabled = monSettings?.productivitySettings?.enabled === true;
+        const ps = monSettings?.productivitySettings ?? {};
+        const psEnabled = !!monSettings && (ps.enabled !== false);
 
         if (psEnabled) {
-            const ps = monSettings.productivitySettings;
             const exp = ps.expectedActivityPerMinute ?? { keystrokes: 40, mouseClicks: 20, scrolls: 10 };
             const idleMax = 60; // fixed for productivity score; idle alert uses root idleSettings.idleTimeMinutes
             const weights = ps.weights ?? { activityWeight: 0.7, idleWeight: 0.3 };
@@ -207,7 +221,7 @@ async function processPayload(jobData) {
                 ...(durationSec != null && { insertIntervalSeconds: durationSec })
             });
         } else {
-            console.log('[ActivityProcessor] Skipped monitoringscores (productivitySettings.enabled is false)', { employeeID: employeeIDObj, tenantId });
+            console.log('[ActivityProcessor] Skipped monitoringscores (no settings or productivity disabled)', { employeeID: employeeIDObj, tenantId });
         }
         const staffIdHex = employeeIDObj.toString();
         return { type: 'activity', activityLogId: log._id, employeeID: employeeIDObj, employeeId: staffIdHex, tenantId };
@@ -311,6 +325,11 @@ async function processPayload(jobData) {
             size: result.bytes
         });
         lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
+        try {
+            await dailySummaryUpdater.incrementScreenshotCount(tenantObjId, employeeIDObj, ts);
+        } catch (summaryErr) {
+            console.warn('[ActivityProcessor] Daily summary screenshotCount update failed:', summaryErr?.message);
+        }
         console.log('[ActivityProcessor] SCREENSHOT INSERTED monitoringscreenshots', {
             employeeID: employeeIDObj,
             tenantId,

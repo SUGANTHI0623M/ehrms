@@ -1,5 +1,7 @@
+const path = require('path');
 const MonitoringPause = require('../models/MonitoringPause');
 const Device = require('../models/Device');
+const Staff = require(path.join(__dirname, '../../../../app_backend/src/models/Staff'));
 
 const SOURCE_SOFTWARE = 'software';
 const SOURCE_WEB = 'web';
@@ -25,6 +27,7 @@ exports.startPause = async (req, res) => {
             source: normalizedSource
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'pause', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'pause' } });
         console.log('[Pause] Started', { pauseId: doc._id, employeeID: device.employeeID, source: normalizedSource });
         res.status(201).json({ success: true, pauseId: doc._id.toString() });
     } catch (error) {
@@ -54,6 +57,7 @@ exports.endPause = async (req, res) => {
             return res.status(404).json({ message: 'Pause not found or not owned by this device' });
         }
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'active', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
         console.log('[Pause] Ended', { pauseId: doc._id, employeeID: device.employeeID, totalSeconds });
         res.status(200).json({ success: true, pauseId: doc._id.toString() });
     } catch (error) {

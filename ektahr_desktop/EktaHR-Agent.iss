@@ -70,8 +70,19 @@ begin
   DeleteFile(DesktopPath + '\Ekta HR Attendance.lnk');
 end;
 
+procedure ClearAgentCacheAndData;
+var
+  CacheDir: String;
+begin
+  { Clear previous cache and data (SQLite DB, tokens, etc.) for fresh install }
+  CacheDir := ExpandConstant('{localappdata}') + '\EktaHR\Monitoring';
+  if DirExists(CacheDir) then
+    DelTree(CacheDir, True, True, True);
+end;
+
 function InitializeSetup: Boolean;
 begin
   Result := True;
   UninstallOldAgentAndCleanShortcuts;
+  ClearAgentCacheAndData;
 end;
