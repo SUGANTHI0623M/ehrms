@@ -1,5 +1,5 @@
 {
-  "name": "prod-ektahr-monitoring-backend",
+  "name": "ektahr-monitoring-backend",
   "version": "1.0.0",
   "description": "Employee activity monitoring API and worker - separate backend, same HRMS MongoDB",
   "main": "index.js",
