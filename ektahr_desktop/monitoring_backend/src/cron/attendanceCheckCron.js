@@ -17,6 +17,7 @@ const MonitoringAttendanceCache = require('../models/MonitoringAttendanceCache')
 const appBackendRoot = path.join(__dirname, '../../../../', 'app_backend');
 const Attendance = require(path.join(appBackendRoot, 'src', 'models', 'Attendance'));
 const { upsertDailySummaryForStaff } = require('./dailySummary');
+const dailySummaryUpdater = require('../services/dailySummaryUpdater');
 
 function startOfDayUTC(d) {
     const x = new Date(d);
@@ -61,10 +62,17 @@ async function runAttendanceCheck() {
             let alertToShow = null;
             if (previousShouldTrack === false && shouldTrack) {
                 alertToShow = 'start_tracking';
+                try {
+                    await dailySummaryUpdater.setCheckInTime(dev.tenantId, dev.employeeID, today, punchIn);
+                    await upsertDailySummaryForStaff(dev.tenantId, dev.employeeID, today);
+                    console.log('[AttendanceCheckCron] Daily summary upserted on check-in', { deviceId: dev.deviceId, employeeID: dev.employeeID });
+                } catch (summaryErr) {
+                    console.error('[AttendanceCheckCron] Daily summary error on check-in:', dev.deviceId, summaryErr.message);
+                }
             } else if (previousShouldTrack === true && !shouldTrack) {
                 alertToShow = 'stop_tracking';
-                // On checkout: insert productivity for that date if record not there, then stop tracking
                 try {
+                    await dailySummaryUpdater.setCheckOutTime(dev.tenantId, dev.employeeID, today, punchOut);
                     await upsertDailySummaryForStaff(dev.tenantId, dev.employeeID, today);
                     console.log('[AttendanceCheckCron] Daily summary upserted on checkout', { deviceId: dev.deviceId, employeeID: dev.employeeID });
                 } catch (summaryErr) {

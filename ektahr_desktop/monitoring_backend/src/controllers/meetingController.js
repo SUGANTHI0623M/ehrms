@@ -1,5 +1,7 @@
+const path = require('path');
 const Meeting = require('../models/Meeting');
 const Device = require('../models/Device');
+const Staff = require(path.join(__dirname, '../../../../app_backend/src/models/Staff'));
 
 const SOURCE_SOFTWARE = 'software';
 const SOURCE_WEB = 'web';
@@ -25,6 +27,7 @@ exports.startMeeting = async (req, res) => {
             source: normalizedSource
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'meeting', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'meeting' } });
         console.log('[Meeting] Started', { meetingId: doc._id, employeeID: device.employeeID, source: normalizedSource });
         res.status(201).json({ success: true, meetingId: doc._id.toString() });
     } catch (error) {
@@ -54,6 +57,7 @@ exports.endMeeting = async (req, res) => {
             return res.status(404).json({ message: 'Meeting not found or not owned by this device' });
         }
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'active', lastSeenAt: new Date() } });
+        await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
         console.log('[Meeting] Ended', { meetingId: doc._id, employeeID: device.employeeID, totalSeconds });
         res.status(200).json({ success: true, meetingId: doc._id.toString() });
     } catch (error) {

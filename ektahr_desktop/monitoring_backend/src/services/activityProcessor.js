@@ -1,5 +1,5 @@
 /**
- * Shared processor: decrypt payload and write to MongoDB (monitoringlogs, monitoringscores, monitoringscreenshots).
+ * Shared processor: decrypt payload and write to MongoDB (monitoringlogs, monitoringscreenshots).
  * Used by the Worker (Redis jobs) and by the API when Redis is skipped (inline processing).
  */
 const mongoose = require('../config/mongoose');
@@ -7,10 +7,10 @@ const NodeRSA = require('node-rsa');
 
 const ActivityLog = require('../models/ActivityLog');
 const Screenshot = require('../models/Screenshot');
-const ProductivityScore = require('../models/ProductivityScore');
 const MonitoringSettings = require('../models/MonitoringSettings');
 const Device = require('../models/Device');
 const cloudinaryService = require('./cloudinaryService');
+const dailySummaryUpdater = require('./dailySummaryUpdater');
 
 const CLOUDINARY_RETRIES = 5;
 
@@ -155,7 +155,44 @@ async function processPayload(jobData) {
         if (at.trackScroll !== false) logData.scrollCount = activity.scrollCount ?? activity.ScrollCount ?? 0;
         if (at.trackActiveWindow !== false && activeWindowRaw) logData.activeWindow = activeWindowRaw;
 
-        // Fetch last activity for this device to log insert interval (testing syncSettings.activityUploadIntervalSeconds)
+        // Compute productivity score and store in log (monitoringlogs) when enabled.
+        // Formula: key/mouse/scroll scores = min(1, value/expected); activityScore = max(key,mouse)*0.5 + avg(key,mouse,scroll)*0.5; idleFactor = (60-idle)/60; score = ((activityScore*0.8)+(idleFactor*0.2))*100 (from monitoringsettings.productivitySettings).
+        const monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
+        const ps = monSettings?.productivitySettings ?? {};
+        const psEnabled = !!monSettings && (ps.enabled !== false);
+        let logScore;
+        if (psEnabled) {
+            const exp = ps.expectedActivityPerMinute ?? { keystrokes: 40, mouseClicks: 20, scrolls: 10 };
+            const idleMax = 60;
+            const range = ps.scoreRange ?? { min: 0, max: 100 };
+            const expectedKeys = exp.keystrokes || 1;
+            const expectedClicks = exp.mouseClicks || 1;
+            const expectedScrolls = exp.scrolls || 1;
+            const keyScore = Math.min(1, (logData.keystrokes || 0) / expectedKeys);
+            const mouseScore = Math.min(1, (logData.mouseClicks || 0) / expectedClicks);
+            const scrollScore = Math.min(1, (logData.scrollCount || 0) / expectedScrolls);
+            const maxKeyMouse = Math.max(keyScore, mouseScore);
+            const avgKeyMouseScroll = (keyScore + mouseScore + scrollScore) / 3;
+            const activityScore = (maxKeyMouse * 0.5) + (avgKeyMouseScroll * 0.5);
+            const idleSecondsCapped = Math.min(idleMax, logData.idleSeconds || 0);
+            const idleFactor = (idleMax - idleSecondsCapped) / idleMax;
+            const rawScore = ((activityScore * 0.8) + (idleFactor * 0.2)) * 100;
+            logScore = Math.max(range.min ?? 0, Math.min(range.max ?? 100, rawScore));
+            logData.score = logScore;
+
+            console.log('[Score] activity log score formula: keyScore=min(1,keystrokes/expectedKeys), mouseScore=min(1,clicks/expectedClicks), scrollScore=min(1,scrolls/expectedScrolls); activityScore=max(key,mouse)*0.5+avg(key,mouse,scroll)*0.5; idleFactor=(60-idleSec)/60; score=((activityScore*0.8)+(idleFactor*0.2))*100, clamped to [min,max]');
+            console.log('[Score] activity log inputs', {
+                keystrokes: logData.keystrokes,
+                mouseClicks: logData.mouseClicks,
+                scrollCount: logData.scrollCount,
+                idleSeconds: logData.idleSeconds,
+                expected: { keystrokes: expectedKeys, mouseClicks: expectedClicks, scrolls: expectedScrolls },
+                range: { min: range.min, max: range.max }
+            });
+            console.log('[Score] activity log intermediates & result', { keyScore, mouseScore, scrollScore, maxKeyMouse, avgKeyMouseScroll, activityScore, idleSecondsCapped, idleFactor, rawScore, logScore });
+        }
+
+        // Fetch last activity for this device to log insert interval
         const lastLog = await ActivityLog.findOne(
             { deviceId: deviceIdVal, tenantId: tenantObjId }
         ).sort({ timestamp: -1 }).select('timestamp').lean();
@@ -168,46 +205,21 @@ async function processPayload(jobData) {
             employeeID: employeeIDObj,
             tenantId,
             timestamp: ts.toISOString(),
+            ...(log.score != null && { score: log.score }),
             ...(durationSec != null && { durationSinceLastInsertSeconds: durationSec })
         });
 
-        const monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
-        const psEnabled = monSettings?.productivitySettings?.enabled === true;
-
-        if (psEnabled) {
-            const ps = monSettings.productivitySettings;
-            const exp = ps.expectedActivityPerMinute ?? { keystrokes: 40, mouseClicks: 20, scrolls: 10 };
-            const idleMax = 60; // fixed for productivity score; idle alert uses root idleSettings.idleTimeMinutes
-            const weights = ps.weights ?? { activityWeight: 0.7, idleWeight: 0.3 };
-            const range = ps.scoreRange ?? { min: 0, max: 100 };
-
-            const keyScore = Math.min(1, (log.keystrokes || 0) / (exp.keystrokes || 1));
-            const mouseScore = Math.min(1, (log.mouseClicks || 0) / (exp.mouseClicks || 1));
-            const scrollScore = Math.min(1, (log.scrollCount || 0) / (exp.scrolls || 1));
-            const activityScore = (keyScore + mouseScore + scrollScore) / 3;
-            const idleSeconds = Math.min(idleMax, log.idleSeconds || 0);
-            const idleFactor = (idleMax - idleSeconds) / idleMax;
-            const score = Math.max(range.min ?? 0, Math.min(range.max ?? 100, (activityScore * weights.activityWeight + idleFactor * weights.idleWeight) * 100));
-
-            const scoreData = {
-                tenantId: tenantObjId,
-                employeeID: employeeIDObj,
-                activityLogId: log._id,
-                timestamp: ts,
-                score,
-                idleSeconds: log.idleSeconds
-            };
-            if (at.trackKeyboard !== false) scoreData.keystrokes = log.keystrokes ?? 0;
-            if (at.trackMouseClicks !== false) scoreData.mouseClicks = log.mouseClicks ?? 0;
-            if (at.trackScroll !== false) scoreData.scrollCount = log.scrollCount ?? 0;
-            await ProductivityScore.create(scoreData);
-            console.log('[ActivityProcessor] Wrote monitoringscores', {
-                employeeID: employeeIDObj,
-                tenantId,
-                ...(durationSec != null && { insertIntervalSeconds: durationSec })
-            });
-        } else {
-            console.log('[ActivityProcessor] Skipped monitoringscores (productivitySettings.enabled is false)', { employeeID: employeeIDObj, tenantId });
+        // Update monitoringdailysummaries: activity totals + running average of log scores
+        const durationSecForSummary = durationSec != null ? durationSec : 60;
+        const activityTotals = {
+            keystrokes: log.keystrokes ?? 0,
+            mouseClicks: log.mouseClicks ?? 0,
+            scrollCount: log.scrollCount ?? 0
+        };
+        try {
+            await dailySummaryUpdater.updateFromActivityLog(tenantObjId, employeeIDObj, ts, log.idleSeconds ?? 0, durationSecForSummary, activityTotals, log.score);
+        } catch (summaryErr) {
+            console.warn('[ActivityProcessor] Daily summary update failed:', summaryErr?.message);
         }
         const staffIdHex = employeeIDObj.toString();
         return { type: 'activity', activityLogId: log._id, employeeID: employeeIDObj, employeeId: staffIdHex, tenantId };
@@ -311,6 +323,11 @@ async function processPayload(jobData) {
             size: result.bytes
         });
         lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
+        try {
+            await dailySummaryUpdater.incrementScreenshotCount(tenantObjId, employeeIDObj, ts);
+        } catch (summaryErr) {
+            console.warn('[ActivityProcessor] Daily summary screenshotCount update failed:', summaryErr?.message);
+        }
         console.log('[ActivityProcessor] SCREENSHOT INSERTED monitoringscreenshots', {
             employeeID: employeeIDObj,
             tenantId,

@@ -16,6 +16,9 @@ const cacheSchema = new mongoose.Schema({
     /** Alert to show: 'start_tracking' | 'stop_tracking' | null. Cleared when agent acks. */
     alertToShow: { type: String, enum: ['start_tracking', 'stop_tracking', null], default: null },
     previousShouldTrack: { type: Boolean },
+    /** Total tracked seconds reported by agent on last exit. Used to resume timer across sessions. */
+    totalTrackedSecondsAtExit: { type: Number },
+    totalTrackedSecondsAtExitUpdatedAt: { type: Date },
     lastUpdated: { type: Date, default: Date.now }
 }, { timestamps: true, collection: 'monitoringattendancecache' });
 

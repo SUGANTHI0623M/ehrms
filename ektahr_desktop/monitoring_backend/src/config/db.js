@@ -4,7 +4,6 @@ const MONITORING_COLLECTIONS = [
     'monitoringversions',
     'monitoringdevices',
     'monitoringlogs',
-    'monitoringscores',
     'monitoringscreenshots',
     'monitoringsettings',
     'monitoringdailysummaries',
