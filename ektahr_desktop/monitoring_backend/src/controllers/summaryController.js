@@ -154,7 +154,6 @@ exports.getToday = async (req, res) => {
 
         res.status(200).json(payload);
     } catch (error) {
-        console.error('[Summary getToday] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -177,7 +176,6 @@ exports.getTodayUpdated = async (req, res) => {
             updatedAt: doc?.updatedAt ? doc.updatedAt.toISOString() : null
         });
     } catch (error) {
-        console.error('[Summary getTodayUpdated] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };

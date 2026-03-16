@@ -17,8 +17,9 @@ const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '24h';
 const JWT_REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 // Cache for getSettings: reduce DB hits when agent fetches at startup and after uploads
-const SETTINGS_CACHE_TTL_MS = 60 * 1000;
-const settingsCache = new Map(); // tenantIdStr -> { data, expiresAt }
+const _ttlSec = parseInt(process.env.SETTINGS_CACHE_TTL_SEC, 10);
+const SETTINGS_CACHE_TTL_MS = (Number.isNaN(_ttlSec) || _ttlSec < 0 ? 90 : _ttlSec) * 1000; // default 90s; set 0 to disable cache
+const settingsCache = new Map(); // deviceId -> { data (full payload including autoupdate), expiresAt }
 
 let serverPrivateKey = null;
 let serverPublicKey = null;
@@ -43,7 +44,6 @@ const buildEmailRegex = (email) => {
 exports.registerDevice = async (req, res) => {
     try {
         const { deviceId, employeeId, tenantId, email, password, machineName, osVersion, agentVersion, systemIp, systemModel } = req.body;
-        console.log('[Device register] Request:', { deviceId, employeeId: employeeId ? '***' : null, tenantId: tenantId ? '***' : null, email: email ? '***' : null, machineName, osVersion, agentVersion, systemIp, systemModel });
 
         let staff;
         let tenantObjId;
@@ -94,7 +94,6 @@ exports.registerDevice = async (req, res) => {
                 const staffByEmpId = await Staff.findOne({ employeeId: { $regex: new RegExp(`^${escapeRegex(employeeId)}$`, 'i') } }).select('_id employeeId businessId').lean();
                 const companyExists = await Company.findById(tenantObjId).select('_id').lean();
                 const staffBizId = staffByEmpId?.businessId?.toString() || null;
-                console.log('[Device register] Employee not found:', { employeeId, tenantId, staffExists: !!staffByEmpId, staffBusinessId: staffBizId, tenantExists: !!companyExists });
                 let msg = 'Employee not found or tenant mismatch.';
                 if (staffByEmpId && staffBizId !== tenantId) {
                     msg = 'Your employee account belongs to a different organization. Please use the correct login.';
@@ -115,26 +114,21 @@ exports.registerDevice = async (req, res) => {
         // Only staff with status "Active" can log in to the monitoring agent
         const staffStatus = (staff.status || '').trim();
         if (staffStatus.toLowerCase() !== 'active') {
-            console.log('[Device register] Login denied: staff status is not Active', { staffId: staff._id, status: staffStatus });
             return res.status(403).json({
                 success: false,
                 message: 'Your account is inactive. Please contact your administrator.'
             });
         }
-        console.log('[Device register] Staff found:', staff._id);
 
         let monSettings = null;
         try {
             monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
-        } catch (err) {
-            console.warn('[Device register] MonitoringSettings lookup failed:', err?.message);
-        }
+        } catch (err) { /* ignore */ }
 
         const disableIds = monSettings?.staffControl?.disableTrackingForStaffIds ?? [];
         const staffIdStr = staff._id?.toString?.() ?? staff._id;
         const isDisabled = disableIds.some(id => (id?.toString?.() ?? id) === staffIdStr);
         if (isDisabled) {
-            console.log('[Device register] Login denied: staff in disableTrackingForStaffIds', { staffId: staffIdStr });
             return res.status(403).json({
                 success: false,
                 message: 'Monitoring is disabled for your account. Please contact your administrator.'
@@ -148,7 +142,6 @@ exports.registerDevice = async (req, res) => {
             isActive: true
         }).select('deviceId').lean();
         if (otherActiveDevice) {
-            console.log('[Device register] Login denied: already logged in on another device', { staffId: staff._id });
             return res.status(403).json({
                 success: false,
                 message: 'Already logged in on another device. Please log out from the other device first.'
@@ -158,7 +151,6 @@ exports.registerDevice = async (req, res) => {
         const existingDevice = await Device.findOne({ deviceId }).select('employeeID').lean();
         if (existingDevice?.employeeID && !existingDevice.employeeID.equals(staff._id)) {
             await Staff.updateOne({ _id: existingDevice.employeeID }, { $set: { monitoringStatus: 'logout' } });
-            console.log('[Device register] Previous staff set to logout (device re-used)', { previousStaffId: existingDevice.employeeID });
         }
 
         await MonitoringAttendanceCache.deleteOne({ deviceId });
@@ -188,14 +180,6 @@ exports.registerDevice = async (req, res) => {
             { _id: staff._id },
             { $set: { monitoringStatus: 'active' } }
         );
-        if (staffUpdate.modifiedCount === 0 && staffUpdate.matchedCount === 1) {
-            console.log('[Device register] Staff monitoringStatus already active', { staffId: staff._id });
-        } else if (staffUpdate.matchedCount === 0) {
-            console.warn('[Device register] Staff not found for monitoringStatus update', { staffId: staff._id });
-        } else {
-            console.log('[Device register] Staff monitoringStatus set to active', { staffId: staff._id });
-        }
-
         const staffIdHex = staff._id.toString();
         const tenantIdStr = tenantObjId.toString();
         const accessToken = jwt.sign(
@@ -211,8 +195,6 @@ exports.registerDevice = async (req, res) => {
         );
 
         const { serverPublicKey } = getRsaKeys();
-
-        console.log('[Device register] Success:', { deviceId, staffId: staffIdHex, tenantId: tenantIdStr, deviceDocId: device._id });
 
         const sync = monSettings?.syncSettings ?? {};
         const screenshotInterval = sync.screenshotUploadIntervalMinutes ?? 5;
@@ -262,8 +244,6 @@ exports.registerDevice = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('[Device register] Error:', error.message);
-        console.error('[Device register] Stack:', error.stack);
         if (error.name === 'BSONError' && error.message.includes('ObjectId')) {
             return res.status(400).json({ success: false, message: 'Invalid organization ID. Please check your login details.' });
         }
@@ -294,12 +274,7 @@ async function maybeMarkOfflineDevices() {
                 await Staff.updateOne({ _id: d.employeeID }, { $set: { monitoringStatus: 'inactive' } });
             }
         }
-        if (result.modifiedCount > 0) {
-            console.log('[Heartbeat] Marked', result.modifiedCount, 'devices offline (no heartbeat)');
-        }
-    } catch (err) {
-        console.error('[Heartbeat] Offline sweep error:', err?.message);
-    }
+    } catch (err) { /* ignore */ }
 }
 
 exports.heartbeat = async (req, res) => {
@@ -311,12 +286,10 @@ exports.heartbeat = async (req, res) => {
             { $set: { lastSeenAt: new Date(), isActive: true, status: 'active' } }
         );
 
-        maybeMarkOfflineDevices().catch(() => {}); // fire-and-forget, don't block response
+        maybeMarkOfflineDevices().catch(() => {});
 
-        console.log('[Device heartbeat] OK', { deviceId, employeeID });
         res.status(200).json({ success: true });
     } catch (error) {
-        console.error('[Device heartbeat]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -344,10 +317,8 @@ exports.setInactive = async (req, res) => {
             );
         }
 
-        console.log('[Device set-inactive] OK', { deviceId, employeeID, modified: result.modifiedCount });
         res.status(200).json({ success: true, message: 'Device marked inactive' });
     } catch (error) {
-        console.error('[Device set-inactive]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -363,13 +334,9 @@ exports.setLogout = async (req, res) => {
         );
         if (device?.employeeID) {
             await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'logout' } });
-            console.log('[Device set-logout] OK', { deviceId, employeeID: device.employeeID, modified: result.modifiedCount });
-        } else {
-            console.log('[Device set-logout] OK', { deviceId, modified: result.modifiedCount });
         }
         res.status(200).json({ success: true, message: 'Device marked logout; staff monitoringStatus set false' });
     } catch (error) {
-        console.error('[Device set-logout]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -386,9 +353,6 @@ exports.setExit = async (req, res) => {
         );
         if (device?.employeeID) {
             await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'exited' } });
-            console.log('[Device set-exit] OK', { deviceId, employeeID: device.employeeID, modified: result.modifiedCount });
-        } else {
-            console.log('[Device set-exit] OK', { deviceId, modified: result.modifiedCount });
         }
         if (typeof totalTrackedSeconds === 'number' && totalTrackedSeconds >= 0) {
             const now = new Date();
@@ -403,37 +367,32 @@ exports.setExit = async (req, res) => {
         }
         res.status(200).json({ success: true, message: 'Device marked exited' });
     } catch (error) {
-        console.error('[Device set-exit]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
 
-/** GET /device/settings - Return monitoring settings for agent (alerts, idle, break) based on device's tenantId. Cached per tenant for 60s. */
+/** GET /device/settings - Return monitoring settings for agent (alerts, idle, break). Cached per device so cache hit = no DB. */
 exports.getSettings = async (req, res) => {
     try {
         const device = req.device;
         const tenantObjId = device?.tenantId;
-        if (!tenantObjId) {
+        const deviceId = device?.deviceId;
+        if (!tenantObjId || !deviceId) {
             return res.status(401).json({ message: 'Session expired. Please log in again.' });
         }
-        const tenantStr = tenantObjId.toString();
         const now = Date.now();
-        const cached = settingsCache.get(tenantStr);
+        const cached = settingsCache.get(deviceId);
         if (cached && cached.expiresAt > now) {
-            const deviceDoc = await Device.findOne({ deviceId: device.deviceId }).select('autoupdate').lean();
-            const response = { ...cached.data, autoupdate: deviceDoc?.autoupdate === true };
-            res.status(200).json(response);
+            res.status(200).json(cached.data);
             return;
         }
         let monSettings = null;
         try {
             monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
-        } catch (err) {
-            console.warn('[Device getSettings] MonitoringSettings lookup failed:', err?.message);
-        }
+        } catch (err) { /* ignore */ }
         const alerts = monSettings?.alerts ?? {};
         const at = monSettings?.activityTracking ?? {};
-        const deviceDoc = await Device.findOne({ deviceId: device.deviceId }).select('autoupdate').lean();
+        const deviceDoc = await Device.findOne({ deviceId }).select('autoupdate').lean();
         const autoupdate = deviceDoc?.autoupdate === true;
         const payload = {
             autoupdate,
@@ -484,18 +443,9 @@ exports.getSettings = async (req, res) => {
                 };
             })()
         };
-        settingsCache.set(tenantStr, { data: payload, expiresAt: now + SETTINGS_CACHE_TTL_MS });
+        settingsCache.set(deviceId, { data: payload, expiresAt: now + SETTINGS_CACHE_TTL_MS });
         res.status(200).json(payload);
-
-        const sync = monSettings?.syncSettings ?? {};
-        console.log('[Device getSettings] OK', {
-            deviceId: device?.deviceId,
-            tenantId: tenantObjId?.toString(),
-            activityUploadIntervalSeconds: sync.activityUploadIntervalSeconds ?? 10,
-            screenshotUploadIntervalMinutes: sync.screenshotUploadIntervalMinutes ?? 5
-        });
     } catch (error) {
-        console.error('[Device getSettings] Error:', error.message);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -531,7 +481,6 @@ exports.getProfile = async (req, res) => {
             branch
         });
     } catch (error) {
-        console.error('[Device getProfile] Error:', error.message);
         res.status(500).json({ message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -548,13 +497,9 @@ exports.startDevice = async (req, res) => {
         );
         if (device?.employeeID) {
             await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
-            console.log('[Device start] OK – device and staff set active', { deviceId, employeeID: device.employeeID, modified: result.modifiedCount });
-        } else {
-            console.log('[Device start] OK – device set active', { deviceId, modified: result.modifiedCount });
         }
         res.status(200).json({ success: true, message: 'Device and staff set active' });
     } catch (error) {
-        console.error('[Device start]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -574,13 +519,11 @@ exports.getAttendanceStatus = async (req, res) => {
     try {
         const deviceId = req.device?.deviceId;
         if (!deviceId) {
-            console.log('[attendance-status] 401: no device');
             return res.status(401).json({ message: 'Session expired. Please log in again.' });
         }
         const device = await Device.findOne({ deviceId }).select('isActive status employeeID tenantId').lean();
         const allowedToTrack = device && device.isActive && device.status === 'active';
         if (!allowedToTrack) {
-            console.log('[attendance-status] shouldTrack=false: device not allowed', { deviceId, hasDevice: !!device, isActive: device?.isActive, status: device?.status });
             return res.status(200).json({
                 shouldTrack: false,
                 alertToShow: null,
@@ -620,13 +563,9 @@ exports.getAttendanceStatus = async (req, res) => {
                     { upsert: true }
                 );
                 cache = await MonitoringAttendanceCache.findOne({ deviceId }).lean();
-                console.log('[attendance-status] Created cache from Attendance', { deviceId, shouldTrack });
-            } catch (err) {
-                console.warn('[attendance-status] Fallback cache create failed', { deviceId, err: err.message });
-            }
+            } catch (err) { /* ignore */ }
         }
         if (!cache) {
-            console.log('[attendance-status] shouldTrack=false (no cache, require check-in for today)', { deviceId });
             return res.status(200).json({
                 shouldTrack: false,
                 alertToShow: null,
@@ -639,17 +578,11 @@ exports.getAttendanceStatus = async (req, res) => {
         let shouldTrack = !!cache.shouldTrack;
         const lastCheckInDate = cache.lastCheckIn ? new Date(cache.lastCheckIn) : null;
         if (shouldTrack && lastCheckInDate && lastCheckInDate < todayStart) {
-            console.log('[attendance-status] shouldTrack=false: check-in was previous day, require check-in for today', { deviceId, lastCheckIn: cache.lastCheckIn });
             shouldTrack = false;
             await MonitoringAttendanceCache.findOneAndUpdate(
                 { deviceId },
                 { $set: { shouldTrack: false, lastUpdated: new Date() } }
             );
-        }
-        if (!shouldTrack) {
-            console.log('[attendance-status] shouldTrack=false: not checked in today or already checked out', { deviceId, lastCheckIn: cache.lastCheckIn, lastCheckOut: cache.lastCheckOut });
-        } else {
-            console.log('[attendance-status] shouldTrack=true: checked in today, not yet checked out', { deviceId });
         }
         const alertMessage = cache.alertToShow === 'start_tracking'
             ? 'You have checked in. Start tracking.'
@@ -664,7 +597,6 @@ exports.getAttendanceStatus = async (req, res) => {
             lastCheckOut: cache.lastCheckOut || null
         });
     } catch (error) {
-        console.error('[Device getAttendanceStatus]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -679,10 +611,8 @@ exports.updateAutoupdate = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Invalid request. Please try again.' });
         }
         await Device.updateOne({ deviceId }, { $set: { autoupdate } });
-        console.log('[Device updateAutoupdate] OK', { deviceId, autoupdate });
         res.status(200).json({ success: true, autoupdate });
     } catch (error) {
-        console.error('[Device updateAutoupdate]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -714,7 +644,6 @@ exports.versionCheck = async (req, res) => {
             releaseNotes: latest?.releaseNotes ?? []
         });
     } catch (error) {
-        console.error('[Device versionCheck]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };
@@ -730,7 +659,6 @@ exports.ackAttendanceAlert = async (req, res) => {
         );
         res.status(200).json({ success: true });
     } catch (error) {
-        console.error('[Device ackAttendanceAlert]', error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };

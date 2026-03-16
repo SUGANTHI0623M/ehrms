@@ -48,9 +48,7 @@ async function runRetention() {
         for (const s of screenshots) {
             try {
                 await cloudinary.uploader.destroy(s.cloudinaryPublicId);
-            } catch (e) {
-                console.warn(`[Retention] Failed to delete Cloudinary asset ${s.cloudinaryPublicId}:`, e.message);
-            }
+            } catch (e) { /* ignore */ }
         }
         const sr = await Screenshot.deleteMany({ tenantId, timestamp: { $lt: scut } });
         screenshotsDeleted += sr.deletedCount;
@@ -61,11 +59,7 @@ async function runRetention() {
     const orphanActivity = await ActivityLog.deleteMany({ timestamp: { $lt: defaultCutoff } });
     activityDeleted += orphanActivity.deletedCount;
 
-    console.log(`[Data Retention] ActivityLogs deleted: ${activityDeleted}, Screenshots deleted: ${screenshotsDeleted}`);
     process.exit(0);
 }
 
-runRetention().catch((err) => {
-    console.error('[Data Retention] Error:', err);
-    process.exit(1);
-});
+runRetention().catch(() => process.exit(1));

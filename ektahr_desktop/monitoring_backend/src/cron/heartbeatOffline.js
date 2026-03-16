@@ -14,14 +14,8 @@ async function markOfflineDevices() {
         { isActive: false, status: 'inactive' }
     );
 
-    if (result.modifiedCount > 0) {
-        console.log(`[Heartbeat] Marked ${result.modifiedCount} devices offline`);
-    }
 }
 
 markOfflineDevices()
     .then(() => process.exit(0))
-    .catch((err) => {
-        console.error('[Heartbeat] Error:', err);
-        process.exit(1);
-    });
+    .catch(() => process.exit(1));

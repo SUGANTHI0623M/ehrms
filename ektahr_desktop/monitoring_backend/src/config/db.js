@@ -18,7 +18,6 @@ const ensureMonitoringCollections = async () => {
     for (const name of MONITORING_COLLECTIONS) {
         if (!names.has(name)) {
             await conn.db.createCollection(name);
-            console.log(`[Monitoring DB] Created collection: ${name}`);
         }
     }
 };
@@ -39,14 +38,12 @@ const connectDB = async () => {
         });
         if (!listenersAttached) {
             listenersAttached = true;
-            mongoose.connection.on('error', (err) => console.error('[Monitoring DB] Connection error:', err.message));
-            mongoose.connection.on('disconnected', () => console.warn('[Monitoring DB] Disconnected'));
+            mongoose.connection.on('error', () => {});
+            mongoose.connection.on('disconnected', () => {});
         }
-        console.log(`[Monitoring DB] MongoDB Connected: ${conn.connection.host}`);
 
         await ensureMonitoringCollections();
     } catch (error) {
-        console.error(`[Monitoring DB] Connection Error: ${error.message}`);
         throw error;
     }
 };
