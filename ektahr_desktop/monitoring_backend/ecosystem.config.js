@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'prod-monitoring-api',
+      name: 'monitoring-api',
       script: 'index.js',
       cwd: './',
       instances: 1,
@@ -10,7 +10,7 @@ module.exports = {
       max_memory_restart: '500M'
     },
     {
-      name: 'prod-monitoring-worker',
+      name: 'monitoring-worker',
       script: 'worker.js',
       cwd: './',
       instances: 1,
@@ -19,7 +19,7 @@ module.exports = {
       max_memory_restart: '500M'
     },
     {
-      name: 'prod-monitoring-attendance-cron',
+      name: 'monitoring-attendance-cron',
       script: 'src/cron/attendanceCheckCron.js',
       cwd: './',
       instances: 1,
