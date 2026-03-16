@@ -14,7 +14,8 @@ const activityLogSchema = new mongoose.Schema({
         windowTitle: String,
         durationSeconds: Number
     },
-    idleSeconds: { type: Number, default: 0 }
+    idleSeconds: { type: Number, default: 0 },
+    score: { type: Number } // productivity score for this log (same formula as daily summary)
 }, { timestamps: true, collection: 'monitoringlogs' });
 
 activityLogSchema.index({ tenantId: 1, employeeID: 1, timestamp: -1 });

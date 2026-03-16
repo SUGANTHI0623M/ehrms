@@ -24,13 +24,20 @@ if (-not (Test-Path -LiteralPath $iscc)) {
     exit 1
 }
 
-Write-Host "Cleaning and building EktaHR Desktop Agent..." -ForegroundColor Cyan
-# Clean first so App.config (ApiBaseUrl, Version) is picked up fresh - avoids stale track.ektahr.com in output
+Write-Host "Cleaning and building EktaHR Desktop Agent (single .exe)..." -ForegroundColor Cyan
+# Clean first so App.config (ApiBaseUrl, Version) is picked up fresh
 dotnet clean $csproj -c Release -q
-# PublishSingleFile=false: required for SQLite native e_sqlite3.dll to load from runtimes\win-x64\native\
-dotnet publish $csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publishDir
+# Single-file publish: one exe, native SQLite + tessdata extracted at runtime (InvariantGlobalization in csproj)
+dotnet publish $csproj -c Release -r win-x64 --self-contained true -o $publishDir
 
 Remove-Item "$publishDir\*.pdb" -ErrorAction SilentlyContinue
+Remove-Item "$publishDir\*.targets" -ErrorAction SilentlyContinue
+Get-ChildItem -Path $publishDir -Recurse -Filter "*.targets" -File | Remove-Item -Force -ErrorAction SilentlyContinue
+$agentExe = Join-Path $publishDir "EktaHR.DesktopAgent.exe"
+if (-not (Test-Path -LiteralPath $agentExe)) {
+    Write-Host "Single-file exe not found: $agentExe" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "Creating installer with Inno Setup..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -38,10 +45,13 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 if ($LASTEXITCODE -eq 0) {
     $setupPath = Join-Path $outputDir "EktaHR-Agent-Setup.exe"
+    # Copy single exe for direct share (one file, no zip)
+    $singleExe = Join-Path $outputDir "EktaHR-Agent.exe"
+    Copy-Item -Force $agentExe $singleExe
     if (Test-Path $setupPath) {
-        Write-Host "Done! Share: $setupPath" -ForegroundColor Green
+        Write-Host "Done! Share with clients: $singleExe  (or installer: $setupPath)" -ForegroundColor Green
     } else {
-        Write-Host "Installer created in: $outputDir" -ForegroundColor Green
+        Write-Host "Single exe: $singleExe" -ForegroundColor Green
     }
 } else {
     Write-Host "Inno Setup failed." -ForegroundColor Red

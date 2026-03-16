@@ -1,6 +1,5 @@
 const mongoose = require('../config/mongoose');
-const path = require('path');
-const MONITORING_STATUSES = require(path.join(__dirname, '../../../../app_backend/src/constants/monitoringStatus'));
+const MONITORING_STATUSES = require('../constants/monitoringStatus');
 
 const deviceSchema = new mongoose.Schema({
     deviceId: { type: String, required: true, unique: true },

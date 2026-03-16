@@ -9,19 +9,25 @@ Set-Location $scriptRoot
 $projectDir = ".\EktaHR.DesktopAgent"
 $outputDir = ".\output"
 
-Write-Host "Building EktaHR Desktop Agent..." -ForegroundColor Cyan
+Write-Host "Building EktaHR Desktop Agent (single .exe)..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
-# PublishSingleFile=false: required for SQLite native e_sqlite3.dll to load from runtimes\win-x64\native\
-dotnet publish $projectDir -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $outputDir
+# Single-file publish: one exe for client share (native SQLite + tessdata extracted at runtime)
+dotnet publish $projectDir -c Release -r win-x64 --self-contained true -o $outputDir
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed." -ForegroundColor Red
     exit 1
 }
 
-# Optional: remove debug symbols to reduce size
 Remove-Item "$outputDir\*.pdb" -ErrorAction SilentlyContinue
-
-$resolved = Resolve-Path $outputDir
-Write-Host "Done! Output: $resolved" -ForegroundColor Green
+$agentExe = Join-Path $outputDir "EktaHR.DesktopAgent.exe"
+$shareExe = Join-Path $outputDir "EktaHR-Agent.exe"
+if (Test-Path -LiteralPath $agentExe) {
+    Copy-Item -Force $agentExe $shareExe
+    $resolved = Resolve-Path $shareExe
+    Write-Host "Done! Share this single file with clients: $resolved" -ForegroundColor Green
+} else {
+    $resolved = Resolve-Path $outputDir
+    Write-Host "Done! Output: $resolved" -ForegroundColor Green
+}
