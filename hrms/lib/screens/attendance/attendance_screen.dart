@@ -983,6 +983,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       leaveType,
       session,
     );
+    // Week-off by template should always show as Week Off, not Leave (even if record is On Leave for that date)
+    final normalizedDateStr = _dateKey(record);
+    if (normalizedDateStr.isNotEmpty &&
+        _weekOffDateSet.contains(normalizedDateStr) &&
+        !_alternateWorkDatesInMonth.contains(normalizedDateStr) &&
+        status.toString().toLowerCase() == 'on leave') {
+      displayStatus = 'Week Off';
+    }
     // Only show "Waiting for Approval" when user has punched in (not for leave-related Pending without punch)
     if (status == 'Pending' && punchIn != null) {
       displayStatus = 'Waiting for Approval';
@@ -5183,6 +5191,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       recordForDisplay,
     );
     Color statusColor = Colors.green;
+
+    // Week-off by template should always show as Week Off, not Leave (even if record is On Leave for that date)
+    final dateStr = _dateKey(record);
+    if (dateStr.isNotEmpty &&
+        _weekOffDateSet.contains(dateStr) &&
+        !_alternateWorkDatesInMonth.contains(dateStr) &&
+        (status.toString().toLowerCase() == 'on leave')) {
+      displayStatus = 'WF';
+      statusColor = Colors.deepPurple;
+    }
 
     if (status == 'Pending' && punchIn != null) {
       displayStatus = 'Waiting for Approval';

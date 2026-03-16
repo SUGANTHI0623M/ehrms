@@ -1833,25 +1833,11 @@ const getMonthAttendance = async (req, res) => {
             }
         });
 
-        // Filter weekOffDates: exclude dates that have attendance records
-        // If someone marked attendance on a week off day, it should be treated as a working day
-        // BUT: Always include Sundays (day 0) even if they have attendance, as they are always week off
-        const filteredWeekOffDates = weekOffDates.filter(dateStr => {
-            const hasAttendance = attendanceDateSet.has(dateStr);
-            if (hasAttendance) {
-                // Check if it's a Sunday - if so, still include it as week off
-                // Parse date string to get day of week
-                const [y, m, day] = dateStr.split('-').map(Number);
-                const date = new Date(y, m - 1, day);
-                const dayOfWeek = date.getDay();
-                if (dayOfWeek === 0) {
-                    return true; // Always include Sundays
-                }
-                return false; // Exclude other week offs that have attendance
-            }
-            return true; // Include week offs without attendance
-        });
-        
+        // Week-off dates for calendar: always use full template-based list so that week-off always
+        // displays as week-off (not as leave). Alternate work dates are sent separately and the
+        // frontend shows those as working days (not violet).
+        // (Previously we filtered out week-off dates that had attendance, which caused week-off
+        // days with "On Leave" to show as leave instead of week off.)
 
         // Calculate absent dates: working days without attendance records
         const absentDates = [];
@@ -1978,7 +1964,7 @@ const getMonthAttendance = async (req, res) => {
             data: {
                 attendance: attendanceForResponse,
                 holidays,
-                weekOffDates: filteredWeekOffDates,
+                weekOffDates: weekOffDates,
                 alternateWorkDatesInMonth,
                 absentDates,
                 presentDates,
