@@ -72,6 +72,9 @@ exports.startBreak = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'break', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'break' } });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} break`);
         res.status(201).json({ success: true, breakId: doc._id.toString() });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

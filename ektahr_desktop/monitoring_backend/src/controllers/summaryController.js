@@ -71,7 +71,7 @@ exports.getToday = async (req, res) => {
         if (dailySummary) {
             totalTrackedSeconds = dailySummary.totalTrackedSeconds ?? dailySummaryUpdater.toSeconds(dailySummary.totalTrackedTime);
             productiveSeconds = dailySummaryUpdater.toSeconds(dailySummary.productiveTime);
-            unproductiveSeconds = typeof dailySummary.idleSec === 'number' ? dailySummary.idleSec : 0;
+            unproductiveSeconds = Math.max(dailySummaryUpdater.toSeconds(dailySummary.unproductiveTime), typeof dailySummary.idleSec === 'number' ? dailySummary.idleSec : 0);
             activeMinutes = Math.round(productiveSeconds / 60);
             idleMinutes = Math.round(unproductiveSeconds / 60);
             productivityScore = dailySummary.productivityScore ?? 0;

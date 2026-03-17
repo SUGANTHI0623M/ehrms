@@ -28,6 +28,9 @@ exports.startPause = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'pause', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'pause' } });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} pause`);
         res.status(201).json({ success: true, pauseId: doc._id.toString() });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

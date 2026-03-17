@@ -54,7 +54,7 @@ exports.registerDevice = async (req, res) => {
                 return res.status(400).json({ success: false, message: 'Please try again. If the problem persists, contact your administrator.' });
             }
             const emailRegex = buildEmailRegex((email || '').trim().toLowerCase());
-            const staffDoc = await Staff.findOne({ email: emailRegex }).select('_id employeeId businessId status userId').lean();
+            const staffDoc = await Staff.findOne({ email: emailRegex }).select('_id employeeId businessId status userId name').lean();
             if (!staffDoc) {
                 return res.status(401).json({ success: false, message: 'Invalid email or password.' });
             }
@@ -73,7 +73,7 @@ exports.registerDevice = async (req, res) => {
             if (!passwordMatch) {
                 return res.status(401).json({ success: false, message: 'Invalid email or password.' });
             }
-            staff = { _id: staffDoc._id, employeeId: staffDoc.employeeId, businessId: staffDoc.businessId, status: staffDoc.status };
+            staff = { _id: staffDoc._id, employeeId: staffDoc.employeeId, businessId: staffDoc.businessId, status: staffDoc.status, name: staffDoc.name };
             tenantObjId = staff.businessId;
             if (!tenantObjId) {
                 return res.status(400).json({ success: false, message: 'Your account is not assigned to a company. Please contact your administrator.' });
@@ -88,7 +88,7 @@ exports.registerDevice = async (req, res) => {
             staff = await Staff.findOne({
                 employeeId: { $regex: new RegExp(`^${escapeRegex(employeeId)}$`, 'i') },
                 businessId: tenantObjId
-            }).select('_id employeeId businessId status').lean();
+            }).select('_id employeeId businessId status name').lean();
 
             if (!staff) {
                 const staffByEmpId = await Staff.findOne({ employeeId: { $regex: new RegExp(`^${escapeRegex(employeeId)}$`, 'i') } }).select('_id employeeId businessId').lean();
@@ -207,6 +207,8 @@ exports.registerDevice = async (req, res) => {
         const blurRulesRaw = blurInfo.rules ?? [];
         const blurRules = blurEnabled ? blurRulesRaw : [];
         const quality = ['low', 'medium', 'high'].includes(ss?.quality) ? ss.quality : 'medium';
+        const displayName = (staff.name || staff.employeeId || 'Unknown').trim();
+        console.log(`${displayName} logged in`);
         res.status(200).json({
             success: true,
             staffId: staffIdHex,
@@ -296,10 +298,13 @@ exports.heartbeat = async (req, res) => {
 
 exports.setInactive = async (req, res) => {
     try {
-        const { deviceId, employeeID } = req.device;
+        const { deviceId } = req.device;
         const totalTrackedSeconds = req.body?.totalTrackedSeconds;
 
         const device = await Device.findOne({ deviceId }).select('employeeID').lean();
+        const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
+        const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} inactive`);
         const result = await Device.updateOne(
             { deviceId },
             { $set: { isActive: false, status: 'inactive', lastSeenAt: new Date() } }
@@ -328,6 +333,9 @@ exports.setLogout = async (req, res) => {
         const deviceId = req.device?.deviceId;
         if (!deviceId) return res.status(401).json({ message: 'Session expired. Please log in again.' });
         const device = await Device.findOne({ deviceId }).select('employeeID').lean();
+        const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
+        const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} logout`);
         const result = await Device.updateOne(
             { deviceId },
             { isActive: false, status: 'logout', lastSeenAt: new Date() }
@@ -347,6 +355,9 @@ exports.setExit = async (req, res) => {
         if (!deviceId) return res.status(401).json({ message: 'Session expired. Please log in again.' });
         const totalTrackedSeconds = req.body?.totalTrackedSeconds;
         const device = await Device.findOne({ deviceId }).select('employeeID tenantId').lean();
+        const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
+        const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} exited`);
         const result = await Device.updateOne(
             { deviceId },
             { $set: { isActive: false, status: 'exited', lastSeenAt: new Date() } }
@@ -383,6 +394,9 @@ exports.getSettings = async (req, res) => {
         const now = Date.now();
         const cached = settingsCache.get(deviceId);
         if (cached && cached.expiresAt > now) {
+            const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
+            const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
+            console.log(`${displayName} settings fetched`);
             res.status(200).json(cached.data);
             return;
         }
@@ -444,6 +458,9 @@ exports.getSettings = async (req, res) => {
             })()
         };
         settingsCache.set(deviceId, { data: payload, expiresAt: now + SETTINGS_CACHE_TTL_MS });
+        const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
+        const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} settings fetched`);
         res.status(200).json(payload);
     } catch (error) {
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });

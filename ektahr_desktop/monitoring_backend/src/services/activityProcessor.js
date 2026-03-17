@@ -2,10 +2,13 @@
  * Shared processor: decrypt payload and write to MongoDB (monitoringlogs, monitoringscreenshots).
  * Used by the Worker (Redis jobs) and by the API when Redis is skipped (inline processing).
  */
+const path = require('path');
 const mongoose = require('../config/mongoose');
 const NodeRSA = require('node-rsa');
 
 const ActivityLog = require('../models/ActivityLog');
+const appBackendRoot = path.join(__dirname, '../../../../', 'app_backend');
+const Staff = require(path.join(appBackendRoot, 'src', 'models', 'Staff'));
 const Screenshot = require('../models/Screenshot');
 const MonitoringSettings = require('../models/MonitoringSettings');
 const Device = require('../models/Device');
@@ -175,6 +178,9 @@ async function processPayload(jobData) {
         const durationSec = prevTs ? Math.round((ts - prevTs) / 1000) : null;
 
         const log = await ActivityLog.create(logData);
+        const staffForLog = await Staff.findById(employeeIDObj).select('name employeeId').lean();
+        const displayName = (staffForLog?.name || staffForLog?.employeeId || 'Unknown').trim();
+        console.log(`inserted logs ${displayName}`);
 
         // Update monitoringdailysummaries: activity totals + running average of log scores
         const durationSecForSummary = durationSec != null ? durationSec : 60;
@@ -277,6 +283,9 @@ async function processPayload(jobData) {
             height: result.height,
             size: result.bytes
         });
+        const staffForScreenshot = await Staff.findById(employeeIDObj).select('name employeeId').lean();
+        const displayNameSs = (staffForScreenshot?.name || staffForScreenshot?.employeeId || 'Unknown').trim();
+        console.log(`inserted screenshots ${displayNameSs}`);
         lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
         try {
             await dailySummaryUpdater.incrementScreenshotCount(tenantObjId, employeeIDObj, ts);

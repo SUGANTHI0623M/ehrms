@@ -28,6 +28,9 @@ exports.startMeeting = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'meeting', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'meeting' } });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} meeting`);
         res.status(201).json({ success: true, meetingId: doc._id.toString() });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
