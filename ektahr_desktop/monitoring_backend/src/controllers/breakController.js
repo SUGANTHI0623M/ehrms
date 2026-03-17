@@ -30,7 +30,6 @@ exports.checkLimit = async (req, res) => {
         const message = canStart ? null : `You can take only ${allowedBreaksPerDay} break(s) per day.`;
         res.status(200).json({ canStart, todayCount, allowedBreaksPerDay, message });
     } catch (error) {
-        console.error('[Break] checkLimit error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -73,10 +72,11 @@ exports.startBreak = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'break', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'break' } });
-        console.log('[Break] Started', { breakId: doc._id, employeeID: device.employeeID, source: normalizedSource });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} break`);
         res.status(201).json({ success: true, breakId: doc._id.toString() });
     } catch (error) {
-        console.error('[Break] startBreak error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -119,10 +119,8 @@ exports.endBreak = async (req, res) => {
             };
         }
 
-        console.log('[Break] Ended', { breakId: doc._id, employeeID: device.employeeID, totalSeconds, alert: alert?.type });
         res.status(200).json({ success: true, breakId: doc._id.toString(), alert });
     } catch (error) {
-        console.error('[Break] endBreak error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -8,9 +8,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../../config/app_colors.dart';
+import '../../widgets/walking_turtle_emoji.dart';
 import '../../config/constants.dart';
 import '../../utils/error_message_utils.dart';
 import '../../utils/snackbar_utils.dart';
+import '../../widgets/attendance_success_overlay.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/attendance_service.dart';
 import '../../services/attendance_template_store.dart';
@@ -336,6 +338,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// Same UI as attendance screen "You are Late" / "You are Early" alert.
+  /// Late login: turtle emoji 🐢 shown standing on top of the card.
   Future<void> _showWarningAlertDialog(
     String message, {
     bool isLate = false,
@@ -346,7 +349,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         final String title = isLate
-            ? 'You are Late'
+            ? 'Late Login'
             : isEarly
                 ? 'You are Early'
                 : 'Notice';
@@ -359,80 +362,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final colorScheme = Theme.of(context).colorScheme;
         return Dialog(
           backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
           child: Material(
             color: Colors.transparent,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 340),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A2A2A).withOpacity(0.85),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                // Card
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A).withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.shadow.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: iconColor.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(iconData, size: 48, color: iconColor),
+                  padding: EdgeInsets.only(
+                    left: 24,
+                    right: 24,
+                    top: (isLate || isEarly) ? 48 : 28,
+                    bottom: 28,
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.4,
-                      color: Colors.white.withOpacity(0.8),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Material(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () => Navigator.of(context).pop(),
-                        borderRadius: BorderRadius.circular(12),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 14),
-                          child: Text(
-                            'OK',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isLate && !isEarly)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: iconColor.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(iconData, size: 48, color: iconColor),
+                        ),
+                      if (!isLate && !isEarly) const SizedBox(height: 20),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Material(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).pop(),
+                            borderRadius: BorderRadius.circular(12),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              child: Text(
+                                'OK',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+                // Single turtle walking left→right above the card only (not inside)
+                if (isLate || isEarly)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: -82,
+                    child: RepaintBoundary(
+                      child: const Center(
+                        child: WalkingTurtleEmoji(fontSize: 64),
+                      ),
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
           ),
         );
@@ -1010,18 +1039,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
             if (mounted) Navigator.of(context).pop();
+          }
+          await PresenceTrackingService().setTrackingAllowed();
+          PresenceTrackingService().startTracking();
+          if (mounted) {
+            final userName = await _authService.getCurrentUserName();
             if (mounted) {
-              SnackBarUtils.showSnackBar(
+              await AttendanceSuccessOverlay.show(
                 context,
-                'Checked In Successfully!',
-                backgroundColor: AppColors.primary,
+                isCheckIn: true,
+                userName: userName,
               );
             }
-            await PresenceTrackingService().setTrackingAllowed();
-            PresenceTrackingService().startTracking();
-          } else {
-            await PresenceTrackingService().setTrackingAllowed();
-            PresenceTrackingService().startTracking();
           }
           _attendanceService.clearCachesForRefresh();
           await _fetchPunchStatusForNavBar();
@@ -1030,16 +1059,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
             if (mounted) Navigator.of(context).pop();
+          }
+          await PresenceTrackingService().stopTracking();
+          if (mounted) {
+            final userName = await _authService.getCurrentUserName();
             if (mounted) {
-              SnackBarUtils.showSnackBar(
+              await AttendanceSuccessOverlay.show(
                 context,
-                'Checked Out Successfully!',
-                backgroundColor: AppColors.primary,
+                isCheckIn: false,
+                userName: userName,
               );
             }
-            await PresenceTrackingService().stopTracking();
-          } else {
-            await PresenceTrackingService().stopTracking();
           }
           _attendanceService.clearCachesForRefresh();
           await _fetchPunchStatusForNavBar();

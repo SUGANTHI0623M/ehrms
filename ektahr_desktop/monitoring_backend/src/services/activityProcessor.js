@@ -2,10 +2,13 @@
  * Shared processor: decrypt payload and write to MongoDB (monitoringlogs, monitoringscreenshots).
  * Used by the Worker (Redis jobs) and by the API when Redis is skipped (inline processing).
  */
+const path = require('path');
 const mongoose = require('../config/mongoose');
 const NodeRSA = require('node-rsa');
 
 const ActivityLog = require('../models/ActivityLog');
+const appBackendRoot = path.join(__dirname, '../../../../', 'app_backend');
+const Staff = require(path.join(appBackendRoot, 'src', 'models', 'Staff'));
 const Screenshot = require('../models/Screenshot');
 const MonitoringSettings = require('../models/MonitoringSettings');
 const Device = require('../models/Device');
@@ -46,11 +49,9 @@ async function processPayload(jobData) {
 
     const device = await Device.findOne({ deviceId }).select('isActive status').lean();
     if (!device || !device.isActive) {
-        console.warn('[ActivityProcessor] Reject: device missing or inactive', { deviceId, hasDevice: !!device, isActive: device?.isActive });
         throw new Error('Tracking disabled: device inactive.');
     }
     if (device.status === 'logout' || device.status === 'exited' || device.status === 'break' || device.status === 'meeting' || device.status === 'pause') {
-        console.warn('[ActivityProcessor] Reject: device status does not allow storage', { deviceId, status: device.status });
         throw new Error('Tracking disabled: status is ' + (device.status || 'unknown') + '. No activity or screenshots are stored.');
     }
 
@@ -99,7 +100,6 @@ async function processPayload(jobData) {
         try {
             activity = JSON.parse(payload);
         } catch (e) {
-            console.error('[ActivityProcessor] Invalid JSON after decrypt', { payloadPreview: payload.substring(0, 200), error: e.message });
             throw e;
         }
 
@@ -122,7 +122,6 @@ async function processPayload(jobData) {
         if (!employeeIDObj) {
             const deviceDoc = await Device.findOne({ deviceId: deviceIdVal }).select('employeeID').lean();
             employeeIDObj = deviceDoc?.employeeID;
-            if (employeeIDObj) console.log('[ActivityProcessor] Resolved employeeID from Device', { deviceId: deviceIdVal, employeeID: employeeIDObj });
         }
         if (!employeeIDObj) throw new Error('Missing staffId (24-char hex) in activity payload and device not found for deviceId: ' + deviceIdVal);
 
@@ -131,7 +130,6 @@ async function processPayload(jobData) {
         if (Number.isNaN(ts.getTime())) {
             ts = new Date(timestamp);
             if (Number.isNaN(ts.getTime())) ts = new Date();
-            console.warn('[ActivityProcessor] Invalid timestamp in payload, using fallback', { tsRaw: typeof tsRaw === 'object' ? JSON.stringify(tsRaw) : tsRaw, used: ts.toISOString() });
         }
 
         const aw = activity.activeWindow ?? activity.ActiveWindow;
@@ -155,41 +153,21 @@ async function processPayload(jobData) {
         if (at.trackScroll !== false) logData.scrollCount = activity.scrollCount ?? activity.ScrollCount ?? 0;
         if (at.trackActiveWindow !== false && activeWindowRaw) logData.activeWindow = activeWindowRaw;
 
-        // Compute productivity score and store in log (monitoringlogs) when enabled.
-        // Formula: key/mouse/scroll scores = min(1, value/expected); activityScore = max(key,mouse)*0.5 + avg(key,mouse,scroll)*0.5; idleFactor = (60-idle)/60; score = ((activityScore*0.8)+(idleFactor*0.2))*100 (from monitoringsettings.productivitySettings).
+        // Compute productivity score using measurement window from syncSettings.activityUploadIntervalSeconds (e.g. 60 = 1 min, 120 = 2 min).
         const monSettings = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
         const ps = monSettings?.productivitySettings ?? {};
         const psEnabled = !!monSettings && (ps.enabled !== false);
         let logScore;
         if (psEnabled) {
-            const exp = ps.expectedActivityPerMinute ?? { keystrokes: 40, mouseClicks: 20, scrolls: 10 };
-            const idleMax = 60;
-            const range = ps.scoreRange ?? { min: 0, max: 100 };
-            const expectedKeys = exp.keystrokes || 1;
-            const expectedClicks = exp.mouseClicks || 1;
-            const expectedScrolls = exp.scrolls || 1;
-            const keyScore = Math.min(1, (logData.keystrokes || 0) / expectedKeys);
-            const mouseScore = Math.min(1, (logData.mouseClicks || 0) / expectedClicks);
-            const scrollScore = Math.min(1, (logData.scrollCount || 0) / expectedScrolls);
-            const maxKeyMouse = Math.max(keyScore, mouseScore);
-            const avgKeyMouseScroll = (keyScore + mouseScore + scrollScore) / 3;
-            const activityScore = (maxKeyMouse * 0.5) + (avgKeyMouseScroll * 0.5);
-            const idleSecondsCapped = Math.min(idleMax, logData.idleSeconds || 0);
-            const idleFactor = (idleMax - idleSecondsCapped) / idleMax;
-            const rawScore = ((activityScore * 0.8) + (idleFactor * 0.2)) * 100;
-            logScore = Math.max(range.min ?? 0, Math.min(range.max ?? 100, rawScore));
+            const windowSeconds = monSettings?.syncSettings?.activityUploadIntervalSeconds ?? 60;
+            const perWindow = {
+                keystrokes: logData.keystrokes ?? 0,
+                mouseClicks: logData.mouseClicks ?? 0,
+                scrollCount: logData.scrollCount ?? 0,
+                idleSeconds: logData.idleSeconds ?? 0
+            };
+            logScore = dailySummaryUpdater.computeProductivityScore(monSettings, perWindow, windowSeconds);
             logData.score = logScore;
-
-            console.log('[Score] activity log score formula: keyScore=min(1,keystrokes/expectedKeys), mouseScore=min(1,clicks/expectedClicks), scrollScore=min(1,scrolls/expectedScrolls); activityScore=max(key,mouse)*0.5+avg(key,mouse,scroll)*0.5; idleFactor=(60-idleSec)/60; score=((activityScore*0.8)+(idleFactor*0.2))*100, clamped to [min,max]');
-            console.log('[Score] activity log inputs', {
-                keystrokes: logData.keystrokes,
-                mouseClicks: logData.mouseClicks,
-                scrollCount: logData.scrollCount,
-                idleSeconds: logData.idleSeconds,
-                expected: { keystrokes: expectedKeys, mouseClicks: expectedClicks, scrolls: expectedScrolls },
-                range: { min: range.min, max: range.max }
-            });
-            console.log('[Score] activity log intermediates & result', { keyScore, mouseScore, scrollScore, maxKeyMouse, avgKeyMouseScroll, activityScore, idleSecondsCapped, idleFactor, rawScore, logScore });
         }
 
         // Fetch last activity for this device to log insert interval
@@ -200,14 +178,9 @@ async function processPayload(jobData) {
         const durationSec = prevTs ? Math.round((ts - prevTs) / 1000) : null;
 
         const log = await ActivityLog.create(logData);
-        console.log('[ActivityProcessor] Wrote monitoringlogs', {
-            logId: log._id,
-            employeeID: employeeIDObj,
-            tenantId,
-            timestamp: ts.toISOString(),
-            ...(log.score != null && { score: log.score }),
-            ...(durationSec != null && { durationSinceLastInsertSeconds: durationSec })
-        });
+        const staffForLog = await Staff.findById(employeeIDObj).select('name employeeId').lean();
+        const displayName = (staffForLog?.name || staffForLog?.employeeId || 'Unknown').trim();
+        console.log(`activity inserted ${displayName}`);
 
         // Update monitoringdailysummaries: activity totals + running average of log scores
         const durationSecForSummary = durationSec != null ? durationSec : 60;
@@ -217,38 +190,31 @@ async function processPayload(jobData) {
             scrollCount: log.scrollCount ?? 0
         };
         try {
-            await dailySummaryUpdater.updateFromActivityLog(tenantObjId, employeeIDObj, ts, log.idleSeconds ?? 0, durationSecForSummary, activityTotals, log.score);
-        } catch (summaryErr) {
-            console.warn('[ActivityProcessor] Daily summary update failed:', summaryErr?.message);
-        }
+            await dailySummaryUpdater.updateFromActivityLog(tenantObjId, employeeIDObj, ts, log.idleSeconds ?? 0, durationSecForSummary, activityTotals, log.score, monSettings);
+        } catch (summaryErr) { /* ignore */ }
         const staffIdHex = employeeIDObj.toString();
         return { type: 'activity', activityLogId: log._id, employeeID: employeeIDObj, employeeId: staffIdHex, tenantId };
     }
 
     if (type === 'screenshot') {
-        console.log('[ActivityProcessor] SCREENSHOT - starting process', { deviceId, tenantId });
         const monSettingsForScreenshot = await MonitoringSettings.findOne({ businessId: tenantObjId }).lean();
         const syncInterval = monSettingsForScreenshot?.syncSettings?.screenshotUploadIntervalMinutes ?? 5;
-        console.log('[ActivityProcessor] Screenshot settings OK', { screenshotUploadIntervalMinutes: syncInterval });
         if (monSettingsForScreenshot?.monitoringEnabled === false) {
             throw new Error('Tracking disabled: monitoringEnabled is false.');
         }
         const ssEnabled = monSettingsForScreenshot?.screenshotSettings?.enabled;
         if (ssEnabled === false) {
-            console.log('[ActivityProcessor] Screenshot skipped: screenshotSettings.enabled is false', { tenantId });
             throw new Error('Screenshot capture disabled in settings.');
         }
         let data;
         try {
             data = JSON.parse(payload);
         } catch (parseErr) {
-            console.error('[ActivityProcessor] Screenshot payload JSON parse failed', { error: parseErr.message, payloadPreview: (payload || '').substring(0, 200) });
             throw parseErr;
         }
         // Support both camelCase and PascalCase (agent may send either)
         const imageB64 = data.imageBase64 ?? data.ImageBase64;
         if (!imageB64 || typeof imageB64 !== 'string') {
-            console.error('[ActivityProcessor] Screenshot payload missing imageBase64', { dataKeys: Object.keys(data || {}) });
             throw new Error('Screenshot payload must include imageBase64 (or ImageBase64).');
         }
         const buffer = Buffer.from(imageB64, 'base64');
@@ -278,7 +244,6 @@ async function processPayload(jobData) {
                 });
                 break;
             } catch (err) {
-                console.warn('[ActivityProcessor] Cloudinary upload attempt', attempt, 'failed', { error: err.message, hasCloudinaryConfig: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) });
                 if (attempt === CLOUDINARY_RETRIES) throw err;
             }
         }
@@ -303,10 +268,6 @@ async function processPayload(jobData) {
             ? (nowMs - cached.lastInsertedMs) / 60000
             : null;
         if (cached?.lastInsertedMs != null && minutesSinceLastInsert != null && minutesSinceLastInsert < syncInterval) {
-            console.log('[ActivityProcessor] Screenshot skipped: too soon', {
-                minutesSinceLastInsert: Math.round(minutesSinceLastInsert * 10) / 10,
-                screenshotUploadIntervalMinutes: syncInterval
-            });
             throw new Error(`Screenshot too soon: ${Math.round(minutesSinceLastInsert * 10) / 10}min since last insert (interval=${syncInterval}min). Wait for ${syncInterval}min.`);
         }
 
@@ -322,20 +283,13 @@ async function processPayload(jobData) {
             height: result.height,
             size: result.bytes
         });
+        const staffForScreenshot = await Staff.findById(employeeIDObj).select('name employeeId').lean();
+        const displayNameSs = (staffForScreenshot?.name || staffForScreenshot?.employeeId || 'Unknown').trim();
+        console.log(`screenshot inserted ${displayNameSs}`);
         lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
         try {
             await dailySummaryUpdater.incrementScreenshotCount(tenantObjId, employeeIDObj, ts);
-        } catch (summaryErr) {
-            console.warn('[ActivityProcessor] Daily summary screenshotCount update failed:', summaryErr?.message);
-        }
-        console.log('[ActivityProcessor] SCREENSHOT INSERTED monitoringscreenshots', {
-            employeeID: employeeIDObj,
-            tenantId,
-            deviceId: data.deviceId ?? deviceIdVal,
-            timestamp: ts.toISOString(),
-            cloudinaryPublicId: result.public_id,
-            ...(durationMin != null && { minutesSincePreviousScreenshot: durationMin })
-        });
+        } catch (summaryErr) { /* ignore */ }
         return { type: 'screenshot', employeeID: employeeIDObj, employeeId: staffIdHex, tenantId, publicId: result.public_id };
     }
 

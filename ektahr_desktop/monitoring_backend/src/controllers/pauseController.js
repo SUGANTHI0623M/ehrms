@@ -28,10 +28,11 @@ exports.startPause = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'pause', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'pause' } });
-        console.log('[Pause] Started', { pauseId: doc._id, employeeID: device.employeeID, source: normalizedSource });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} pause`);
         res.status(201).json({ success: true, pauseId: doc._id.toString() });
     } catch (error) {
-        console.error('[Pause] startPause error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -58,10 +59,8 @@ exports.endPause = async (req, res) => {
         }
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'active', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
-        console.log('[Pause] Ended', { pauseId: doc._id, employeeID: device.employeeID, totalSeconds });
         res.status(200).json({ success: true, pauseId: doc._id.toString() });
     } catch (error) {
-        console.error('[Pause] endPause error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };

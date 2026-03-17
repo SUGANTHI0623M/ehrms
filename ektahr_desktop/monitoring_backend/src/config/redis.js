@@ -12,8 +12,8 @@ const getRedisClient = () => {
                 return delay;
             }
         });
-        redisClient.on('error', (err) => console.error('[Redis] Error:', err.message));
-        redisClient.on('connect', () => console.log('[Redis] Connected'));
+        redisClient.on('error', () => {});
+        redisClient.on('connect', () => {});
     }
     return redisClient;
 };

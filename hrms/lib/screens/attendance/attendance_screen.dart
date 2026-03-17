@@ -20,6 +20,9 @@ import '../../bloc/attendance/attendance_bloc.dart';
 import 'selfie_camera_screen.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../utils/error_message_utils.dart';
+import '../../utils/absent_alert_helper.dart';
+import '../../widgets/attendance_success_overlay.dart';
+import '../../widgets/walking_turtle_emoji.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -252,6 +255,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             setState(() {
               _attendanceData = data is Map<String, dynamic> ? data : null;
               _attendanceDataFetchedFor = DateTime.now();
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              final punchIn = _attendanceData?['punchIn']?.toString().trim();
+              final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
+              showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
             });
           }
 
@@ -655,18 +664,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
         }
 
-        if (mounted)
-          setState(() {
-            _attendanceData = data;
-            _attendanceDataFetchedFor = dateToFetch;
-          });
-
-        // Save template details for today (for check-in alert and selfie check-in)
         final now = DateTime.now();
         final isToday =
             dateToFetch.year == now.year &&
             dateToFetch.month == now.month &&
             dateToFetch.day == now.day;
+        if (mounted) {
+          setState(() {
+            _attendanceData = data;
+            _attendanceDataFetchedFor = dateToFetch;
+          });
+          if (isToday) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              final punchIn = _attendanceData?['punchIn']?.toString().trim();
+              final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
+              showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
+            });
+          }
+        }
+
+        // Save template details for today (for check-in alert and selfie check-in)
         if (isToday && responseBody != null && responseBody is Map) {
           final template = responseBody['template'];
           final branch = responseBody['branch'];
@@ -762,6 +780,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } catch (e) {
       return value.toString();
     }
+  }
+
+  /// Returns true if the value should be shown (not empty, not '-', not 'no').
+  bool _hasMeaningfulValue(String? value) {
+    if (value == null) return false;
+    final s = value.trim();
+    if (s.isEmpty) return false;
+    if (s == '-') return false;
+    if (s.toLowerCase() == 'no') return false;
+    return true;
   }
 
   void _showSelfieDialog(String imageUrl, [String title = "Selfie View"]) {
@@ -1062,7 +1090,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: colorScheme.surface,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1146,23 +1175,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                         Icons.access_time,
                         [
                           _buildDayDetailRow('Status', displayStatus),
-                          _buildDayDetailRow(
-                            'Compensation Type',
-                            compensationType.isNotEmpty
-                                ? compensationType
-                                : '-',
-                          ),
-                          _buildDayDetailRow(
-                            'Leave Type',
-                            leaveType != null &&
-                                    leaveType.toString().trim().isNotEmpty
-                                ? leaveType.toString().trim()
-                                : '-',
-                          ),
-                          _buildDayDetailRow(
-                            'Paid Leave',
-                            isPaidLeave ? 'Yes' : 'No',
-                          ),
+                          if (_hasMeaningfulValue(compensationType))
+                            _buildDayDetailRow(
+                              'Compensation Type',
+                              compensationType.trim(),
+                            ),
+                          if (_hasMeaningfulValue(leaveType?.toString()))
+                            _buildDayDetailRow(
+                              'Leave Type',
+                              leaveType.toString().trim(),
+                            ),
+                          if (isPaidLeave)
+                            _buildDayDetailRow('Paid Leave', 'Yes'),
                           if (session != null && session.isNotEmpty)
                             _buildDayDetailRow(
                               'Session',
@@ -1602,7 +1626,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       barrierDismissible: false,
       builder: (BuildContext context) {
         final String title = isLate
-            ? 'You are Late'
+            ? 'Late Login'
             : isEarly
             ? 'You are Early'
             : 'Notice';
@@ -1616,81 +1640,106 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final colorScheme = Theme.of(context).colorScheme;
         return Dialog(
           backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
           child: Material(
             color: Colors.transparent,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 340),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A2A2A).withOpacity(0.85),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                // Card
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A).withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF0D0D0D), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.shadow.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Icon in light bubble
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: iconColor.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(iconData, size: 48, color: iconColor),
+                  padding: EdgeInsets.only(
+                    left: 24,
+                    right: 24,
+                    top: (isLate || isEarly) ? 48 : 28,
+                    bottom: 28,
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.4,
-                      color: Colors.white.withOpacity(0.8),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Material(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () => Navigator.of(context).pop(),
-                        borderRadius: BorderRadius.circular(12),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 14),
-                          child: Text(
-                            'OK',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isLate && !isEarly)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: iconColor.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(iconData, size: 48, color: iconColor),
+                        ),
+                      if (!isLate && !isEarly) const SizedBox(height: 20),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Material(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).pop(),
+                            borderRadius: BorderRadius.circular(12),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              child: Text(
+                                'OK',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+                // Single turtle walking left→right above the card only (not inside)
+                if (isLate || isEarly)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: -82,
+                    child: RepaintBoundary(
+                      child: const Center(
+                        child: WalkingTurtleEmoji(fontSize: 64),
+                      ),
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
           ),
         );
@@ -3706,26 +3755,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return BlocListener<AttendanceBloc, AttendanceState>(
-      listener: (context, state) {
-        if (!_isSubmittingFromAttendanceCamera) return;
+      listener: (context, state) async {
         if (state is AttendanceCheckInSuccess ||
             state is AttendanceCheckOutSuccess) {
-          _isSubmittingFromAttendanceCamera = false;
-          if (mounted) Navigator.of(context).pop();
+          if (_isSubmittingFromAttendanceCamera) {
+            _isSubmittingFromAttendanceCamera = false;
+            if (mounted) Navigator.of(context).pop();
+          }
           if (mounted) {
-            SnackBarUtils.showSnackBar(
-              context,
-              state is AttendanceCheckInSuccess
-                  ? 'Checked In Successfully!'
-                  : 'Checked Out Successfully!',
-              backgroundColor: AppColors.primary,
-            );
-            _attendanceService.clearCachesForRefresh();
-            _refreshData(forceRefresh: true);
+            final userName = await _authService.getCurrentUserName();
+            if (mounted) {
+              await AttendanceSuccessOverlay.show(
+                context,
+                isCheckIn: state is AttendanceCheckInSuccess,
+                userName: userName,
+              );
+            }
+            if (mounted) {
+              _attendanceService.clearCachesForRefresh();
+              _refreshData(forceRefresh: true);
+            }
           }
         } else if (state is AttendanceFailure) {
-          _isSubmittingFromAttendanceCamera = false;
-          if (mounted) Navigator.of(context).pop();
+          if (_isSubmittingFromAttendanceCamera) {
+            _isSubmittingFromAttendanceCamera = false;
+            if (mounted) Navigator.of(context).pop();
+          }
           if (mounted) {
             SnackBarUtils.showSnackBar(
               context,

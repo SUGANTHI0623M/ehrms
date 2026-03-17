@@ -10,15 +10,22 @@ const registerLimiter = rateLimit({
     message: { success: false, message: 'Too many registration attempts' }
 });
 
-// Per-IP: 30/min allows frequent heartbeats for 100+ devices (each ~1/min)
+// Per-IP: allow 200 devices × 0.5/min (heartbeat every 2 min). Set HEARTBEAT_RATE_LIMIT_PER_MIN if needed.
 const heartbeatLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: parseInt(process.env.HEARTBEAT_RATE_LIMIT_PER_MIN, 10) || 30,
+    max: parseInt(process.env.HEARTBEAT_RATE_LIMIT_PER_MIN, 10) || 120,
     message: { success: false, message: 'Too many heartbeat requests' }
 });
 
+// Per-IP: allow 200 devices × 0.5/min (settings at most every 2 min). Set SETTINGS_RATE_LIMIT_PER_MIN if needed.
+const settingsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: parseInt(process.env.SETTINGS_RATE_LIMIT_PER_MIN, 10) || 120,
+    message: { success: false, message: 'Too many settings requests' }
+});
+
 router.post('/register', registerLimiter, deviceController.registerDevice);
-router.get('/settings', protectDevice, deviceController.getSettings);
+router.get('/settings', settingsLimiter, protectDevice, deviceController.getSettings);
 router.get('/profile', protectDevice, deviceController.getProfile);
 router.patch('/autoupdate', protectDevice, deviceController.updateAutoupdate);
 router.get('/version-check', protectDevice, deviceController.versionCheck);

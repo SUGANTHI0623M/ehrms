@@ -16,23 +16,11 @@ const queue = new Bull(QUEUE_NAME, REDIS_URL, {
 
 const WORKER_CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY, 10) || 8;
 queue.process(WORKER_CONCURRENCY, async (job) => {
-    const { deviceId, tenantId, type } = job.data.metadata;
-    console.log('[Worker] Processing job', { jobId: job.id, type, deviceId, tenantId });
-    const result = await activityProcessor.processPayload(job.data);
-    if (result.type === 'activity') {
-        console.log('[Worker] monitoringlogs INSERT OK', { activityLogId: result.activityLogId?.toString(), employeeId: result.employeeId, tenantId: result.tenantId });
-    } else {
-        console.log('[Worker] Screenshot saved', { employeeId: result.employeeId, tenantId: result.tenantId, publicId: result.publicId });
-    }
-});
-
-queue.on('completed', (job) => {
-    console.log(`[Worker] Job ${job.id} completed`);
+    await activityProcessor.processPayload(job.data);
 });
 
 queue.on('failed', (job, err) => {
-    console.error('[Worker] Job failed (no data stored)', { jobId: job?.id, type: job?.data?.metadata?.type, error: err.message });
-    if (err.stack) console.error('[Worker] Stack:', err.stack);
+    console.error('Error (worker job failed):', err?.message || err);
 });
 
 const start = async () => {
@@ -43,15 +31,8 @@ const start = async () => {
                 queue.client.ping(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
             ]);
-            console.log('[Worker] Redis: OK');
-        } catch (e) {
-            console.error('[Worker] Redis not reachable - jobs will not be processed until Redis is running.');
-        }
-        const hasRsa = !!process.env.RSA_PRIVATE_KEY;
-        console.log('[Worker] Processing queue:', QUEUE_NAME, 'concurrency:', WORKER_CONCURRENCY);
-        if (!hasRsa) console.warn('[Worker] RSA_PRIVATE_KEY not set - using raw-key fallback (works when server did not send public key; for production set RSA_PRIVATE_KEY in .env).');
+        } catch (e) { /* ignore */ }
     } catch (err) {
-        console.error('[Worker] Failed to start:', err.message);
         process.exit(1);
     }
 };

@@ -8,43 +8,46 @@ const MonitoringSettings = require('../models/MonitoringSettings');
 
 const DEFAULT_SETTINGS = {
     expectedActivityPerMinute: { keystrokes: 40, mouseClicks: 20, scrolls: 10 },
-    scoreRange: { min: 0, max: 100 }
+    scoreRange: { min: 0, max: 100 },
+    weights: { activityWeight: 0.7, idleWeight: 0.3 }
 };
 
-// Best formula: key/mouse/scroll = min(1, value/expected); activityScore = max(key,mouse)*0.5 + avg(key,mouse,scroll)*0.5; idleFactor = (60-idle)/60; ProductivityScore = ((activityScore*0.8)+(idleFactor*0.2))*100. Uses monitoringsettings.productivitySettings.
-function computeProductivityScore(settings, perMinute) {
+// Formula: expectedActivityPerMinute + interval (windowSeconds) + weights from settings.
+// key/mouse/scroll = min(1, value/expected); activityScore = max(key,mouse)*0.5 + avg(key,mouse,scroll)*0.5; idleFactor = (windowSec-idle)/windowSec; score = (activityScore*activityWeight + idleFactor*idleWeight)*100.
+function computeProductivityScore(settings, perWindow, windowSeconds = 60) {
     const ps = settings?.productivitySettings ?? {};
     const exp = ps.expectedActivityPerMinute ?? DEFAULT_SETTINGS.expectedActivityPerMinute;
-    const idleMax = 60;
     const range = ps.scoreRange ?? DEFAULT_SETTINGS.scoreRange;
+    const weights = ps.weights ?? DEFAULT_SETTINGS.weights;
+    const activityWeight = Number(weights.activityWeight);
+    const idleWeight = Number(weights.idleWeight);
+    const sumW = activityWeight + idleWeight;
+    const actW = sumW > 0 ? activityWeight / sumW : 0.7;
+    const idlW = sumW > 0 ? idleWeight / sumW : 0.3;
 
-    const expectedKeys = exp.keystrokes || 1;
-    const expectedClicks = exp.mouseClicks || 1;
-    const expectedScrolls = exp.scrolls || 1;
+    const windowSec = Math.max(1, Number(windowSeconds) || 60);
+    const idleMax = windowSec;
 
-    const keyScore = Math.min(1, (perMinute.keystrokes || 0) / expectedKeys);
-    const mouseScore = Math.min(1, (perMinute.mouseClicks || 0) / expectedClicks);
-    const scrollScore = Math.min(1, (perMinute.scrollCount || 0) / expectedScrolls);
+    // Expected activity in settings is per minute; scale to this window
+    const scale = windowSec / 60;
+    const expectedKeys = (exp.keystrokes || 1) * scale;
+    const expectedClicks = (exp.mouseClicks || 1) * scale;
+    const expectedScrolls = (exp.scrolls || 1) * scale;
+
+    const keyScore = Math.min(1, (perWindow.keystrokes || 0) / expectedKeys);
+    const mouseScore = Math.min(1, (perWindow.mouseClicks || 0) / expectedClicks);
+    const scrollScore = Math.min(1, (perWindow.scrollCount || 0) / expectedScrolls);
 
     const maxKeyMouse = Math.max(keyScore, mouseScore);
     const avgKeyMouseScroll = (keyScore + mouseScore + scrollScore) / 3;
     const activityScore = (maxKeyMouse * 0.5) + (avgKeyMouseScroll * 0.5);
 
-    const idleSeconds = Math.min(idleMax, perMinute.idleSeconds || 0);
+    const idleSeconds = Math.min(idleMax, perWindow.idleSeconds || 0);
     const idleFactor = (idleMax - idleSeconds) / idleMax;
 
-    let prod = ((activityScore * 0.8) + (idleFactor * 0.2)) * 100;
+    let prod = (activityScore * actW + idleFactor * idlW) * 100;
     prod = Math.max(range.min ?? 0, Math.min(range.max ?? 100, prod));
     const result = Math.round(prod * 10) / 10;
-
-    console.log('[Score] computeProductivityScore formula: keyScore=min(1,keystrokes/expectedKeys), mouseScore=min(1,clicks/expectedClicks), scrollScore=min(1,scrolls/expectedScrolls); activityScore=max(key,mouse)*0.5+avg(key,mouse,scroll)*0.5; idleFactor=(60-idleSec)/60; score=((activityScore*0.8)+(idleFactor*0.2))*100, clamped to [min,max]');
-    console.log('[Score] computeProductivityScore inputs', {
-        perMinute: { keystrokes: perMinute.keystrokes, mouseClicks: perMinute.mouseClicks, scrollCount: perMinute.scrollCount, idleSeconds: perMinute.idleSeconds },
-        expected: { keystrokes: expectedKeys, mouseClicks: expectedClicks, scrolls: expectedScrolls },
-        range: { min: range.min, max: range.max }
-    });
-    console.log('[Score] computeProductivityScore intermediates', { keyScore, mouseScore, scrollScore, maxKeyMouse, avgKeyMouseScroll, activityScore, idleSeconds, idleFactor, rawProd: ((activityScore * 0.8) + (idleFactor * 0.2)) * 100, clamped: prod, result });
-
     return result;
 }
 
@@ -97,8 +100,9 @@ function addSecondsToTimeString(timeStr, secondsToAdd) {
  * @param {number} durationSeconds - typically 60 (1 log = 1 min); may vary for first/last
  * @param {{ keystrokes?: number, mouseClicks?: number, scrollCount?: number }} [activityTotals] - activity counts from the log
  * @param {number} [logScore] - productivity score from this log (when provided, daily productivityScore = sum of all log scores / number of scores for that date)
+ * @param {Object} [existingSettings] - if already fetched (e.g. from activityProcessor), pass to avoid re-fetch; used when computing productivity from formula (no logScore)
  */
-async function updateFromActivityLog(tenantId, employeeId, timestamp, idleSeconds, durationSeconds = 60, activityTotals = {}, logScore = undefined) {
+async function updateFromActivityLog(tenantId, employeeId, timestamp, idleSeconds, durationSeconds = 60, activityTotals = {}, logScore = undefined, existingSettings = null) {
     const date = new Date(timestamp);
     date.setUTCHours(0, 0, 0, 0);
 
@@ -131,26 +135,16 @@ async function updateFromActivityLog(tenantId, employeeId, timestamp, idleSecond
         const newSum = previousSum + logScore;
         const newCount = currentCount + 1;
         productivityScore = Math.round((newSum / newCount) * 10) / 10;
-        console.log('[Score] daily summary from logScore (running average)', {
-            formula: 'productivityScore = (previousSum + logScore) / newCount',
-            currentCount,
-            currentAvg,
-            previousSum,
-            logScore,
-            newSum,
-            newCount,
-            productivityScore
-        });
     } else {
+        // Daily aggregate: normalize to per-minute (window = 60s) for formula
         const perMinute = {
             keystrokes: totalKeystrokes / totalMinutes,
             mouseClicks: totalMouseClicks / totalMinutes,
             scrollCount: totalScrollCount / totalMinutes,
             idleSeconds: totalIdleSeconds / totalMinutes
         };
-        console.log('[Score] daily summary from formula (no logScore); perMinute totals/min', { totalMinutes, totalKeystrokes, totalMouseClicks, totalScrollCount, totalIdleSeconds, perMinute });
-        const settings = await MonitoringSettings.findOne({ businessId: tenantId }).lean();
-        productivityScore = computeProductivityScore(settings, perMinute);
+        const settings = existingSettings ?? (await MonitoringSettings.findOne({ businessId: tenantId }).lean());
+        productivityScore = computeProductivityScore(settings, perMinute, 60);
     }
 
     const activeMinutes = Math.round(newProdSec / 60);
@@ -235,6 +229,7 @@ async function setCheckOutTime(tenantId, employeeId, date, checkOutTime) {
 }
 
 module.exports = {
+    computeProductivityScore,
     formatMinutesSeconds,
     parseMinutesSeconds,
     toSeconds,

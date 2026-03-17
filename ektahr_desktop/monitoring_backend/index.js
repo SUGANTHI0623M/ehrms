@@ -18,21 +18,7 @@ app.use(helmet());
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));
 
-app.use('/api/device', (req, res, next) => {
-    const ts = new Date().toISOString();
-    console.log(`[${ts}] [Monitoring API] ${req.method} ${req.path}`, req.method === 'POST' && req.body && Object.keys(req.body).length ? req.body : '(no body)');
-    next();
-});
-
 app.use('/api/device', deviceRoutes);
-app.use('/api/activity', (req, res, next) => {
-    const ts = new Date().toISOString();
-    const meta = req.body?.metadata;
-    const type = meta?.type || 'unknown';
-    console.log(`[${ts}] [Monitoring API] ${req.method} ${req.path} type=${type}`, meta ? { type: meta.type, deviceId: meta.deviceId?.substring?.(0, 12) + '...', tenantId: meta.tenantId } : '(no metadata)');
-    if (type === 'screenshot') console.log(`[${ts}] [Monitoring API] SCREENSHOT RECEIVED - will process`);
-    next();
-});
 app.use('/api/activity', activityRoutes);
 app.use('/api/break', breakRoutes);
 app.use('/api/pause', pauseRoutes);
@@ -70,10 +56,8 @@ const USE_REDIS = process.env.USE_REDIS === 'true' || process.env.USE_REDIS === 
 const start = async () => {
     try {
         await connectDB();
-        // Attendance check runs as separate PM2 app (monitoring-attendance-cron) for load balancing
         if (!USE_REDIS) {
-            console.log('[Monitoring API] No Redis (default). Processing uploads inline. No Worker needed.');
-            app.listen(PORT, () => console.log(`[Monitoring API] Running on port ${PORT}`));
+            app.listen(PORT, () => console.log('started agent'));
             return;
         }
         const Bull = require('bull');
@@ -83,14 +67,11 @@ const start = async () => {
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
         ]);
         await redisQueue.close();
-        console.log('[Monitoring API] Redis: OK');
-        app.listen(PORT, () => console.log(`[Monitoring API] Running on port ${PORT}`));
+        app.listen(PORT, () => console.log('started agent'));
     } catch (err) {
         if (err.message === 'timeout' || err.code === 'ECONNREFUSED' || (err.message && err.message.includes('Redis'))) {
-            console.error('[Monitoring API] Redis not reachable at', REDIS_URL, '- leave USE_REDIS unset to run without Redis.');
-            app.listen(PORT, () => console.log(`[Monitoring API] Running on port ${PORT} (Redis not connected)`));
+            app.listen(PORT, () => console.log('started agent'));
         } else {
-            console.error('Failed to start:', err.message);
             process.exit(1);
         }
     }

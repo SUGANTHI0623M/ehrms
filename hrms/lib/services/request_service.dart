@@ -139,6 +139,56 @@ class RequestService {
     }
   }
 
+  /// Checks leave dates for conflict. Pass [startDate] and [endDate] (range), and optionally [selectedDates] for calendar selection.
+  /// When [selectedDates] is provided, backend uses it for conflict check; otherwise uses range.
+  /// Returns { success, hasConflict, effectiveDays }.
+  Future<Map<String, dynamic>> checkLeaveDates(
+    DateTime startDate,
+    DateTime endDate, {
+    List<DateTime>? selectedDates,
+  }) async {
+    try {
+      await _setToken();
+      final Map<String, dynamic> data;
+      if (selectedDates != null && selectedDates.isNotEmpty) {
+        data = {
+          'selectedDates': selectedDates
+              .map((d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}')
+              .toList(),
+        };
+      } else {
+        data = {
+          'startDate': startDate.toIso8601String(),
+          'endDate': endDate.toIso8601String(),
+        };
+      }
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/requests/leave/check-dates',
+        data: data,
+      );
+      final body = response.data;
+      if (body == null || body['success'] != true) {
+        return {'success': false, 'hasConflict': false};
+      }
+      final resData = body['data'] as Map<String, dynamic>?;
+      final list = (dynamic value) => value is List ? List<String>.from(value.map((e) => e.toString())) : <String>[];
+      return {
+        'success': true,
+        'hasConflict': resData?['hasConflict'] == true,
+        'effectiveDays': (resData?['effectiveDays'] is int) ? resData!['effectiveDays'] as int : null,
+        'paidLeaveDates': list(resData?['paidLeaveDates']),
+        'pendingLeaveDates': list(resData?['pendingLeaveDates']),
+        'approvedLeaveDates': list(resData?['approvedLeaveDates']),
+        'weekOffDates': list(resData?['weekOffDates']),
+        'holidayDates': list(resData?['holidayDates']),
+      };
+    } on DioException catch (e) {
+      return {'success': false, 'hasConflict': false, 'message': _dioMessage(e)};
+    } catch (e) {
+      return {'success': false, 'hasConflict': false, 'message': _handleException(e)};
+    }
+  }
+
   /// Fetches leave balance: availableCasualLeaves from attendances, totalAllowed from leave template.
   Future<Map<String, dynamic>> getLeaveBalance() async {
     try {

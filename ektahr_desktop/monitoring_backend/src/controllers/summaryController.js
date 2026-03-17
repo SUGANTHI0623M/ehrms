@@ -71,7 +71,7 @@ exports.getToday = async (req, res) => {
         if (dailySummary) {
             totalTrackedSeconds = dailySummary.totalTrackedSeconds ?? dailySummaryUpdater.toSeconds(dailySummary.totalTrackedTime);
             productiveSeconds = dailySummaryUpdater.toSeconds(dailySummary.productiveTime);
-            unproductiveSeconds = typeof dailySummary.idleSec === 'number' ? dailySummary.idleSec : 0;
+            unproductiveSeconds = Math.max(dailySummaryUpdater.toSeconds(dailySummary.unproductiveTime), typeof dailySummary.idleSec === 'number' ? dailySummary.idleSec : 0);
             activeMinutes = Math.round(productiveSeconds / 60);
             idleMinutes = Math.round(unproductiveSeconds / 60);
             productivityScore = dailySummary.productivityScore ?? 0;
@@ -154,7 +154,6 @@ exports.getToday = async (req, res) => {
 
         res.status(200).json(payload);
     } catch (error) {
-        console.error('[Summary getToday] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -177,7 +176,6 @@ exports.getTodayUpdated = async (req, res) => {
             updatedAt: doc?.updatedAt ? doc.updatedAt.toISOString() : null
         });
     } catch (error) {
-        console.error('[Summary getTodayUpdated] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };

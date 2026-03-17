@@ -1232,14 +1232,14 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
   final RequestService _requestService = RequestService();
 
   String? _leaveType;
-  String? _session; // New field for Half Day
+  String? _session; // For Half Day
   List<dynamic> _allowedTypes = [];
   DateTime? _startDate;
   DateTime? _endDate;
+  bool _isOneDay = true;
   final TextEditingController _reasonController = TextEditingController();
   bool _isSubmitting = false;
   bool _isLoadingTypes = true;
-  bool _isOneDay = false; // Toggle for single day leave
   double _availableCasualLeaves = 0.0;
   double _totalAllowed = 0.0;
 
@@ -1250,11 +1250,19 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     _fetchLeaveBalance();
   }
 
+  @override
+  void dispose() {
+    SnackBarUtils.dismiss();
+    _reasonController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchLeaveBalance() async {
     final result = await _requestService.getLeaveBalance();
     if (mounted && result['success'] == true) {
       setState(() {
-        _availableCasualLeaves = (result['availableCasualLeaves'] as num?)?.toDouble() ?? 0.0;
+        _availableCasualLeaves =
+            (result['availableCasualLeaves'] as num?)?.toDouble() ?? 0.0;
         _totalAllowed = (result['totalAllowed'] as num?)?.toDouble() ?? 0.0;
       });
     }
@@ -1286,72 +1294,48 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     }
   }
 
-  /// Max days allowed for currently selected leave type (null = no limit, e.g. Unpaid Leave).
-  int? get _maxDaysForCurrentType {
-    if (_leaveType == null) return null;
-    for (final e in _allowedTypes) {
-      if (e is Map && (e['type'] as String?) == _leaveType) {
-        final d = e['days'];
-        if (d == null) return null;
-        if (d is int) return d;
-        if (d is num) return d.toInt();
-        return null;
-      }
-    }
-    return null;
-  }
-
   int get _days {
     if (_startDate == null) return 0;
-    if (_isHalfDayLeave(_leaveType)) return 0; // Handled as 0.5 on backend
+    if (_isHalfDayLeave(_leaveType)) return 0; // 0.5 on backend
     if (_isOneDay) return 1;
-    if (_endDate == null) return 0;
+    if (_endDate == null) return 1;
     return _endDate!.difference(_startDate!).inDays + 1;
   }
 
   Future<void> _pickDate(bool isStart) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final DateTime firstDate;
-    final DateTime initialDate;
-    if (isStart) {
-      firstDate = today;
-      initialDate = _startDate ?? now;
-    } else {
-      final startOrToday = _startDate != null && !_startDate!.isBefore(today)
-          ? _startDate!
-          : today;
-      firstDate = startOrToday;
-      initialDate = _endDate ?? _startDate ?? now;
-    }
+    final today = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
     final picked = await showDatePicker(
       context: context,
-      initialDate: initialDate.isBefore(firstDate) ? firstDate : initialDate,
-      firstDate: firstDate,
-      lastDate: DateTime(2030),
+      initialDate: (isStart ? _startDate : _endDate) ?? today,
+      firstDate: today,
+      lastDate: DateTime(2030, 12, 31),
     );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startDate = picked;
-          if (_isOneDay) {
-            _endDate = picked;
-          } else {
-            if (_endDate != null && _endDate!.isBefore(_startDate!)) {
-              _endDate = null;
-            }
-          }
-        } else {
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _startDate = picked;
+        if (_isOneDay || _isHalfDayLeave(_leaveType)) {
+          _endDate = picked;
+        } else if (_endDate != null && _endDate!.isBefore(picked)) {
           _endDate = picked;
         }
-      });
-    }
+      } else {
+        _endDate = picked;
+        if (_startDate != null && picked.isBefore(_startDate!)) {
+          _startDate = picked;
+        }
+      }
+    });
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_startDate == null) {
-      SnackBarUtils.showSnackBar(context, 'Please select a date');
+      SnackBarUtils.showSnackBar(context, 'Please select date');
       return;
     }
     final today = DateTime(
@@ -1362,27 +1346,25 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
     if (_startDate!.isBefore(today)) {
       SnackBarUtils.showSnackBar(
         context,
-        'Start date cannot be in the past. Please select today or a future date.',
+        'Cannot select past dates. Please select today or future dates.',
         isError: true,
       );
       return;
     }
-    // End date not required for half day or one day leave
-    if (!_isOneDay && !_isHalfDayLeave(_leaveType) && _endDate == null) {
-      SnackBarUtils.showSnackBar(context, 'Please select an end date');
-      return;
-    }
-    if (_endDate != null && _endDate!.isBefore(today)) {
+    final effectiveEnd = _isOneDay || _isHalfDayLeave(_leaveType)
+        ? _startDate!
+        : _endDate;
+    if (!_isOneDay &&
+        !_isHalfDayLeave(_leaveType) &&
+        (effectiveEnd == null || effectiveEnd.isBefore(today))) {
       SnackBarUtils.showSnackBar(
         context,
-        'End date cannot be in the past. Please select today or a future date.',
+        'End date cannot be in the past.',
         isError: true,
       );
       return;
     }
-    if (_endDate != null &&
-        _startDate != null &&
-        _endDate!.isBefore(_startDate!)) {
+    if (!_isOneDay && _endDate != null && _endDate!.isBefore(_startDate!)) {
       SnackBarUtils.showSnackBar(
         context,
         'End date must be on or after start date.',
@@ -1390,12 +1372,17 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       );
       return;
     }
-
-    // Ensure end date is set for one day leave or half day
-    if ((_isOneDay || _isHalfDayLeave(_leaveType)) && _endDate == null) {
-      _endDate = _startDate;
+    if (_isHalfDayLeave(_leaveType) &&
+        !_isOneDay &&
+        _endDate != null &&
+        _endDate != _startDate) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Half Day leave allows only one date.',
+        isError: true,
+      );
+      return;
     }
-
     if (_isHalfDayLeave(_leaveType) && _session == null) {
       SnackBarUtils.showSnackBar(
         context,
@@ -1405,12 +1392,15 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       return;
     }
 
-    final daysValue = _isHalfDayLeave(_leaveType) ? 1 : _days;
+    final daysValue = _isHalfDayLeave(_leaveType) ? 0.5 : _days;
     final requestedDays = _isHalfDayLeave(_leaveType) ? 0.5 : _days.toDouble();
+    final rangeEnd = effectiveEnd ?? _startDate!;
 
     // Unpaid Leave: no balance validation
-    final isUnpaidLeave = _leaveType != null &&
-        _leaveType!.toLowerCase().replaceAll(RegExp(r'\s+'), '') == 'unpaidleave';
+    final isUnpaidLeave =
+        _leaveType != null &&
+        _leaveType!.toLowerCase().replaceAll(RegExp(r'\s+'), '') ==
+            'unpaidleave';
     if (!isUnpaidLeave) {
       await _fetchLeaveBalance();
       if (!mounted) return;
@@ -1441,54 +1431,18 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
       }
     }
 
-    // Control by template days: if this leave type has a day limit, enforce it (skip for Half Day: always 0.5)
-    if (!_isHalfDayLeave(_leaveType)) {
-      final maxDays = _maxDaysForCurrentType;
-      if (maxDays != null && daysValue > maxDays) {
-        SnackBarUtils.showSnackBar(
-          context,
-          '$_leaveType allows maximum $maxDays day${maxDays == 1 ? '' : 's'}. You selected $daysValue day${daysValue == 1 ? '' : 's'}.',
-          isError: true,
-        );
-        return;
-      }
-    }
-    // Check if employee already has leave (Pending or Approved) on any of the requested dates
-    final reqEnd = _endDate ?? _startDate!;
-    final existingResult = await _requestService.getLeaveRequests(
-      startDate: _startDate,
-      endDate: reqEnd,
-      limit: 100,
-    );
-    if (existingResult['success'] == true) {
-      List<dynamic> leaves = [];
-      if (existingResult['data'] is Map) {
-        leaves = (existingResult['data'] as Map)['leaves'] ?? [];
-      } else if (existingResult['data'] is List) {
-        leaves = existingResult['data'] as List;
-      }
-      final hasExisting = leaves.any((l) {
-        if (l is! Map) return false;
-        final status = (l['status'] as String?)?.trim();
-        return status == 'Pending' || status == 'Approved';
-      });
-      if (hasExisting && mounted) {
-        SnackBarUtils.showSnackBar(
-          context,
-          'You have already applied for leave on one or more of these dates. Please choose different dates or check your existing leave requests.',
-          isError: true,
-        );
-        return;
-      }
-    }
-
+    // Backend checks "leave already applied" and returns a single error message
     final payload = {
       'leaveType': _leaveType,
       'startDate': _startDate!.toIso8601String(),
-      'endDate': _endDate!.toIso8601String(),
+      'endDate': rangeEnd.toIso8601String(),
       'days': daysValue,
       'reason': _reasonController.text,
       'session': _isHalfDayLeave(_leaveType) ? _session : null,
+      if (_isHalfDayLeave(_leaveType) && _session != null)
+        'halfDaySession': _session == '1'
+            ? 'First Half Day'
+            : 'Second Half Day',
     };
 
     setState(() => _isSubmitting = true);
@@ -1623,21 +1577,17 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           initialValue: _leaveType,
                           items: _allowedTypes.map((e) {
                             final type = e['type'] as String? ?? '';
-                            final days = e['days'];
-                            final label = days != null
-                                ? '$type (${days == 1 ? '1 day' : days == 0.5 ? '0.5 day' : '$days days'})'
-                                : type;
                             return DropdownMenuItem<String>(
                               value: type,
-                              child: Text(label),
+                              child: Text(type),
                             );
                           }).toList(),
                           onChanged: (val) {
                             setState(() {
                               _leaveType = val!;
                               if (_isHalfDayLeave(_leaveType)) {
-                                _isOneDay = true;
                                 _session = '1';
+                                _isOneDay = true;
                                 if (_startDate != null) _endDate = _startDate;
                               }
                             });
@@ -1648,218 +1598,135 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
                           ),
                         ),
                       ),
-                    if (_allowedTypes.isNotEmpty && _leaveType != null &&
-                        _leaveType!.toLowerCase().replaceAll(RegExp(r'\s+'), '') != 'unpaidleave') ...[
+                    if (_allowedTypes.isNotEmpty &&
+                        _leaveType != null &&
+                        _leaveType!.toLowerCase().replaceAll(
+                              RegExp(r'\s+'),
+                              '',
+                            ) !=
+                            'unpaidleave') ...[
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Text(
                           'Leave balance: ${_availableCasualLeaves.toStringAsFixed(1)} days${_totalAllowed > 0 ? ' (of ${_totalAllowed.toStringAsFixed(0)} total)' : ''}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
                       ),
                     ],
-                    if (_isHalfDayLeave(_leaveType)) ...[
-                      Text(
-                        'Select Session',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _session = '1'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _session == '1'
-                                      ? AppColors.primary.withOpacity(0.1)
-                                      : Colors.white,
-                                  border: Border.all(
-                                    color: _session == '1'
-                                        ? AppColors.primary
-                                        : Colors.grey.shade300,
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      'Session 1',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: _session == '1'
-                                            ? AppColors.primary
-                                            : Colors.black87,
-                                      ),
-                                    ),
-                                    Text(
-                                      'First Half',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _session = '2'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _session == '2'
-                                      ? AppColors.primary.withOpacity(0.1)
-                                      : Colors.white,
-                                  border: Border.all(
-                                    color: _session == '2'
-                                        ? AppColors.primary
-                                        : Colors.grey.shade300,
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      'Session 2',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: _session == '2'
-                                            ? AppColors.primary
-                                            : Colors.black87,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Second Half',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                    ],
 
-                    if (!_isHalfDayLeave(_leaveType))
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'One Day Leave',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
-                              ),
-                            ),
-                            Switch.adaptive(
-                              value: _isOneDay,
-                              activeColor: AppColors.primary,
-                              onChanged: (val) {
-                                setState(() {
-                                  _isOneDay = val;
-                                  if (_isOneDay && _startDate != null) {
-                                    _endDate = _startDate;
-                                  }
-                                });
-                              },
-                            ),
-                          ],
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Date',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
                         ),
                       ),
-
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: InkWell(
-                        onTap: () => _pickDate(true),
-                        child: InputDecorator(
-                          decoration:
-                              _inputDecoration(
-                                'Start Date *',
-                                Icons.calendar_today,
-                              ).copyWith(
-                                helperText:
-                                    'Select the start date of your leave',
-                                helperStyle: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                          child: Text(
-                            _startDate == null
-                                ? 'dd-mm-yyyy'
-                                : DateFormat('dd-MM-yyyy').format(_startDate!),
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              color: _startDate == null
-                                  ? Colors.grey
-                                  : Colors.black,
-                            ),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(child: Text('One day')),
+                        Switch(
+                          value: _isHalfDayLeave(_leaveType) ? true : _isOneDay,
+                          onChanged: _isHalfDayLeave(_leaveType)
+                              ? null
+                              : (v) {
+                                  setState(() {
+                                    _isOneDay = v;
+                                    if (_isOneDay && _startDate != null)
+                                      _endDate = _startDate;
+                                  });
+                                },
+                          activeColor: AppColors.primary,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () => _pickDate(true),
+                      child: InputDecorator(
+                        decoration: _inputDecoration(
+                          _isOneDay || _isHalfDayLeave(_leaveType)
+                              ? 'Date *'
+                              : 'Start Date *',
+                          Icons.calendar_today,
+                        ),
+                        child: Text(
+                          _startDate != null
+                              ? DateFormat('dd-MM-yyyy').format(_startDate!)
+                              : 'Select date',
+                          style: TextStyle(
+                            color: _startDate != null
+                                ? Colors.black87
+                                : Colors.grey,
                           ),
                         ),
                       ),
                     ),
                     if (!_isOneDay && !_isHalfDayLeave(_leaveType)) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 20),
-                        child: InkWell(
-                          onTap: () => _pickDate(false),
-                          child: InputDecorator(
-                            decoration:
-                                _inputDecoration(
-                                  'End Date *',
-                                  Icons.calendar_today,
-                                ).copyWith(
-                                  helperText:
-                                      'End date must be after start date',
-                                  helperStyle: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                            child: Text(
-                              _endDate == null
-                                  ? 'dd-mm-yyyy'
-                                  : DateFormat('dd-MM-yyyy').format(_endDate!),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: _endDate == null
-                                    ? Colors.grey
-                                    : Colors.black,
-                              ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () => _pickDate(false),
+                        child: InputDecorator(
+                          decoration: _inputDecoration(
+                            'End Date *',
+                            Icons.calendar_today,
+                          ),
+                          child: Text(
+                            _endDate != null
+                                ? DateFormat('dd-MM-yyyy').format(_endDate!)
+                                : 'Select end date',
+                            style: TextStyle(
+                              color: _endDate != null
+                                  ? Colors.black87
+                                  : Colors.grey,
                             ),
                           ),
                         ),
                       ),
                     ],
-                    if (_days > 0 || _isHalfDayLeave(_leaveType))
+                    if (_startDate != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           _isHalfDayLeave(_leaveType)
-                              ? 'Total Days: 0.5'
-                              : 'Total Days: $_days',
+                              ? 'Total: 0.5 day — ${_availableCasualLeaves.toStringAsFixed(1)} days remaining'
+                              : 'Total: $_days day${_days == 1 ? '' : 's'} — ${_availableCasualLeaves.toStringAsFixed(1)} days remaining',
                           style: TextStyle(
                             color: AppColors.primary,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
+                    if (_isHalfDayLeave(_leaveType) && _startDate != null) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Session for Half Day *',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          ChoiceChip(
+                            label: const Text('First Half Day'),
+                            selected: _session == '1',
+                            onSelected: (v) => setState(() => _session = '1'),
+                            selectedColor: AppColors.primary.withOpacity(0.3),
+                          ),
+                          const SizedBox(width: 12),
+                          ChoiceChip(
+                            label: const Text('Second Half Day'),
+                            selected: _session == '2',
+                            onSelected: (v) => setState(() => _session = '2'),
+                            selectedColor: AppColors.primary.withOpacity(0.3),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _reasonController,
@@ -3027,27 +2894,15 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
         ),
         const SizedBox(height: 6),
         ...proofs.asMap().entries.map((entry) {
-          final index = entry.key;
           final proof = entry.value;
-          String fileName;
           String proofUrl;
           if (proof is Map) {
-            fileName = proof['fileName']?.toString() ?? 'Proof ${index + 1}';
             proofUrl =
                 proof['url']?.toString() ??
                 proof['fileUrl']?.toString() ??
                 proof.toString();
           } else {
-            final urlString = proof.toString();
-            proofUrl = urlString;
-            try {
-              final uri = Uri.parse(urlString);
-              fileName = uri.pathSegments.isNotEmpty
-                  ? uri.pathSegments.last
-                  : 'Proof ${index + 1}';
-            } catch (e) {
-              fileName = 'Proof ${index + 1}';
-            }
+            proofUrl = proof.toString();
           }
           return Padding(
             padding: const EdgeInsets.only(bottom: 6),
@@ -3060,7 +2915,7 @@ class _ExpenseRequestsTabState extends State<ExpenseRequestsTab> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      fileName,
+                      'View Proof',
                       style: TextStyle(
                         color: Colors.blue,
                         fontWeight: FontWeight.w500,

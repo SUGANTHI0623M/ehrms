@@ -18,6 +18,7 @@ import '../../utils/face_detection_helper.dart';
 import '../../utils/request_guard.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../utils/error_message_utils.dart';
+import '../../widgets/attendance_success_overlay.dart';
 
 class SelfieCheckInScreen extends StatefulWidget {
   final Map<String, dynamic>? template;
@@ -258,7 +259,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     );
   }
 
-  void _onAttendanceStateChanged(BuildContext context, AttendanceState state) {
+  Future<void> _onAttendanceStateChanged(BuildContext context, AttendanceState state) async {
     if (state is AttendanceStatusLoaded) {
       if (!mounted) return;
       setState(() {
@@ -299,21 +300,27 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     } else if (state is AttendanceCheckInSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      SnackBarUtils.showSnackBar(
+      final userName = await _authService.getCurrentUserName();
+      if (!mounted) return;
+      await AttendanceSuccessOverlay.show(
         context,
-        'Checked In Successfully!',
-        backgroundColor: AppColors.primary,
+        isCheckIn: true,
+        userName: userName,
       );
+      if (!mounted) return;
       Navigator.pop(context, true);
     } else if (state is AttendanceCheckOutSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);
       PresenceTrackingService().stopTracking();
-      SnackBarUtils.showSnackBar(
+      final userName = await _authService.getCurrentUserName();
+      if (!mounted) return;
+      await AttendanceSuccessOverlay.show(
         context,
-        'Checked Out Successfully!',
-        backgroundColor: AppColors.primary,
+        isCheckIn: false,
+        userName: userName,
       );
+      if (!mounted) return;
       Navigator.pop(context, true);
     } else if (state is AttendanceLoadInProgress && _isLoading) {
       // Submitting check-in/out: keep _isLoading true (already set in _submitAttendance).

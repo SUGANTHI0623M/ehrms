@@ -65,19 +65,13 @@ async function runAttendanceCheck() {
                 try {
                     await dailySummaryUpdater.setCheckInTime(dev.tenantId, dev.employeeID, today, punchIn);
                     await upsertDailySummaryForStaff(dev.tenantId, dev.employeeID, today);
-                    console.log('[AttendanceCheckCron] Daily summary upserted on check-in', { deviceId: dev.deviceId, employeeID: dev.employeeID });
-                } catch (summaryErr) {
-                    console.error('[AttendanceCheckCron] Daily summary error on check-in:', dev.deviceId, summaryErr.message);
-                }
+                } catch (summaryErr) { /* ignore */ }
             } else if (previousShouldTrack === true && !shouldTrack) {
                 alertToShow = 'stop_tracking';
                 try {
                     await dailySummaryUpdater.setCheckOutTime(dev.tenantId, dev.employeeID, today, punchOut);
                     await upsertDailySummaryForStaff(dev.tenantId, dev.employeeID, today);
-                    console.log('[AttendanceCheckCron] Daily summary upserted on checkout', { deviceId: dev.deviceId, employeeID: dev.employeeID });
-                } catch (summaryErr) {
-                    console.error('[AttendanceCheckCron] Daily summary error on checkout:', dev.deviceId, summaryErr.message);
-                }
+                } catch (summaryErr) { /* ignore */ }
             }
 
             await MonitoringAttendanceCache.findOneAndUpdate(
@@ -98,9 +92,7 @@ async function runAttendanceCheck() {
                 { upsert: true, new: true }
             );
             updated++;
-        } catch (err) {
-            console.error('[AttendanceCheckCron] Device error:', dev.deviceId, err.message);
-        }
+        } catch (err) { /* ignore */ }
     }
 
     return updated;
@@ -109,9 +101,10 @@ async function runAttendanceCheck() {
 const INTERVAL_MS = 60 * 1000; // 1 min
 
 if (require.main === module) {
-    const runOnce = () => runAttendanceCheck().catch((e) => console.error('[AttendanceCheckCron]', e?.message || e));
-    runOnce(); // run immediately
-    setInterval(runOnce, INTERVAL_MS); // then every 1 min (no exit – stop with Ctrl+C)
+    console.log('cron started');
+    const runOnce = () => runAttendanceCheck().catch(() => {});
+    runOnce();
+    setInterval(runOnce, INTERVAL_MS);
 }
 
 module.exports = { runAttendanceCheck };

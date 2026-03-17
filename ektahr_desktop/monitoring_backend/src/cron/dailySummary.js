@@ -130,7 +130,6 @@ async function runDailySummary(targetDate) {
         upserted++;
     }
 
-    console.log(`[DailySummary] Processed date ${date.toISOString().slice(0, 10)}: ${upserted} summaries upserted`);
     return upserted;
 }
 
@@ -236,8 +235,7 @@ async function run(targetDate) {
 if (require.main === module) {
     const arg = process.argv[2];
     const targetDate = arg ? new Date(arg) : undefined;
-    run(targetDate).catch((err) => {
-        console.error('[DailySummary] Error:', err);
+    run(targetDate).catch(() => {
         process.exit(1);
     });
 }

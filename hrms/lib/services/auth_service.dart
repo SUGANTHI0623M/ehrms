@@ -220,6 +220,20 @@ class AuthService {
     return ErrorMessageUtils.toUserFriendlyMessage(error);
   }
 
+  /// Returns the current user's display name from cached user data, or empty string if not found.
+  Future<String> getCurrentUserName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userStr = prefs.getString('user');
+      if (userStr == null) return '';
+      final user = jsonDecode(userStr) as Map<String, dynamic>?;
+      final name = user?['name']?.toString().trim();
+      return name ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<Map<String, dynamic>> getProfile() async {
     try {
       final prefs = await SharedPreferences.getInstance();

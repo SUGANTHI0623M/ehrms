@@ -22,6 +22,7 @@ import '../../services/salary_service.dart';
 import '../../utils/salary_structure_calculator.dart';
 import '../../utils/fine_calculation_util.dart';
 import '../../utils/attendance_display_util.dart';
+import '../../utils/absent_alert_helper.dart';
 
 class HomeDashboardScreen extends StatefulWidget {
   final Function(int index, {int subTabIndex})? onNavigate;
@@ -258,6 +259,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 .length;
           });
           _calculateSalaryFromModule();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final punchIn = _todayAttendance?['punchIn']?.toString().trim();
+            final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
+            showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
+          });
         } else {
           setState(
             () => _fcmNotificationCount = fcmList

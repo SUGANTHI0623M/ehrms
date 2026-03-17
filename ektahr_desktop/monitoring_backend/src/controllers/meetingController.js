@@ -28,10 +28,11 @@ exports.startMeeting = async (req, res) => {
         });
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'meeting', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'meeting' } });
-        console.log('[Meeting] Started', { meetingId: doc._id, employeeID: device.employeeID, source: normalizedSource });
+        const staffDoc = await Staff.findById(device.employeeID).select('name employeeId').lean();
+        const displayName = (staffDoc?.name || staffDoc?.employeeId || 'Unknown').trim();
+        console.log(`${displayName} meeting`);
         res.status(201).json({ success: true, meetingId: doc._id.toString() });
     } catch (error) {
-        console.error('[Meeting] startMeeting error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -58,10 +59,8 @@ exports.endMeeting = async (req, res) => {
         }
         await Device.updateOne({ deviceId: device.deviceId }, { $set: { status: 'active', lastSeenAt: new Date() } });
         await Staff.updateOne({ _id: device.employeeID }, { $set: { monitoringStatus: 'active' } });
-        console.log('[Meeting] Ended', { meetingId: doc._id, employeeID: device.employeeID, totalSeconds });
         res.status(200).json({ success: true, meetingId: doc._id.toString() });
     } catch (error) {
-        console.error('[Meeting] endMeeting error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
