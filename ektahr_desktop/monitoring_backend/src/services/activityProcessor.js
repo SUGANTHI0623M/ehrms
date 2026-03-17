@@ -180,7 +180,7 @@ async function processPayload(jobData) {
         const log = await ActivityLog.create(logData);
         const staffForLog = await Staff.findById(employeeIDObj).select('name employeeId').lean();
         const displayName = (staffForLog?.name || staffForLog?.employeeId || 'Unknown').trim();
-        console.log(`inserted logs ${displayName}`);
+        console.log(`activity inserted ${displayName}`);
 
         // Update monitoringdailysummaries: activity totals + running average of log scores
         const durationSecForSummary = durationSec != null ? durationSec : 60;
@@ -285,7 +285,7 @@ async function processPayload(jobData) {
         });
         const staffForScreenshot = await Staff.findById(employeeIDObj).select('name employeeId').lean();
         const displayNameSs = (staffForScreenshot?.name || staffForScreenshot?.employeeId || 'Unknown').trim();
-        console.log(`inserted screenshots ${displayNameSs}`);
+        console.log(`screenshot inserted ${displayNameSs}`);
         lastScreenshotCache.set(cacheKey, { lastInsertedMs: nowMs, lastCaptureTs: ts });
         try {
             await dailySummaryUpdater.incrementScreenshotCount(tenantObjId, employeeIDObj, ts);

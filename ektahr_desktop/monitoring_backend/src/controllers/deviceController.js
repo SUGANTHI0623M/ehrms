@@ -396,7 +396,9 @@ exports.getSettings = async (req, res) => {
         if (cached && cached.expiresAt > now) {
             const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
             const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
-            console.log(`${displayName} settings fetched`);
+            const d = cached.data;
+            const details = `monitoringEnabled=${d.monitoringEnabled}, autoupdate=${d.autoupdate}, activityUploadIntervalSeconds=${d.syncSettings?.activityUploadIntervalSeconds ?? '?'}, screenshotUploadIntervalMinutes=${d.syncSettings?.screenshotUploadIntervalMinutes ?? '?'}, idleAlert=${d.alerts?.idleAlert}`;
+            console.log(`settings fetched ${displayName}: ${details}`);
             res.status(200).json(cached.data);
             return;
         }
@@ -460,9 +462,11 @@ exports.getSettings = async (req, res) => {
         settingsCache.set(deviceId, { data: payload, expiresAt: now + SETTINGS_CACHE_TTL_MS });
         const staff = device?.employeeID ? await Staff.findById(device.employeeID).select('name employeeId').lean() : null;
         const displayName = (staff?.name || staff?.employeeId || 'Unknown').trim();
-        console.log(`${displayName} settings fetched`);
+        const details = `monitoringEnabled=${payload.monitoringEnabled}, autoupdate=${payload.autoupdate}, activityUploadIntervalSeconds=${payload.syncSettings?.activityUploadIntervalSeconds ?? '?'}, screenshotUploadIntervalMinutes=${payload.syncSettings?.screenshotUploadIntervalMinutes ?? '?'}, idleAlert=${payload.alerts?.idleAlert}, idleTimeMinutes=${payload.idleSettings?.idleTimeMinutes}, maxBreakDurationMinutes=${payload.breakSettings?.maxBreakDurationMinutes}`;
+        console.log(`settings fetched ${displayName}: ${details}`);
         res.status(200).json(payload);
     } catch (error) {
+        console.error('Error (getSettings):', error.message || error);
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again or contact your administrator.' });
     }
 };

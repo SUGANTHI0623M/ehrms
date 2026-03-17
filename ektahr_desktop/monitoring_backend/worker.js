@@ -19,7 +19,9 @@ queue.process(WORKER_CONCURRENCY, async (job) => {
     await activityProcessor.processPayload(job.data);
 });
 
-queue.on('failed', () => {});
+queue.on('failed', (job, err) => {
+    console.error('Error (worker job failed):', err?.message || err);
+});
 
 const start = async () => {
     try {

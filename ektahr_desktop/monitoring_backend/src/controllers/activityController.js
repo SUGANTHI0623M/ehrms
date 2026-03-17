@@ -69,6 +69,7 @@ exports.uploadActivity = async (req, res) => {
                 if (isScreenshotTooSoon) {
                     return res.status(200).json({ success: true, skipped: true });
                 }
+                console.error('Error (activity upload):', err.message || err);
                 return res.status(500).json({ success: false, message: err.message });
             }
         }
@@ -92,9 +93,11 @@ exports.uploadActivity = async (req, res) => {
                 if (isScreenshotTooSoon) {
                     return res.status(200).json({ success: true, skipped: true });
                 }
+                console.error('Error (activity upload fallback):', fallbackErr.message || fallbackErr);
                 return res.status(500).json({ success: false, message: fallbackErr.message });
             }
         }
+        console.error('Error (activity upload):', error.message || error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
