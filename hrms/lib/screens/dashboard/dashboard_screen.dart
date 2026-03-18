@@ -13,6 +13,7 @@ import '../../config/constants.dart';
 import '../../utils/error_message_utils.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../widgets/attendance_success_overlay.dart';
+import '../../widgets/notification_reaction_overlay.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/attendance_service.dart';
 import '../../services/attendance_template_store.dart';
@@ -456,8 +457,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     right: 0,
                     top: -82,
                     child: RepaintBoundary(
-                      child: const Center(
-                        child: WalkingTurtleEmoji(fontSize: 64),
+                      child: Center(
+                        child: WalkingTurtleEmoji(
+                          fontSize: 64,
+                          playOnlyOncePerApp: isLate,
+                          animationKey: 'late-login-card-turtle',
+                          emoji: isLate ? '🐢' : '😐',
+                        ),
                       ),
                     ),
                   ),
@@ -694,6 +700,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         isError: true,
       );
+      await NotificationReactionOverlay.show(context, emoji: '😊');
       return false;
     }
     if (isCheckedIn && isOnLeave && !checkOutAllowed) {

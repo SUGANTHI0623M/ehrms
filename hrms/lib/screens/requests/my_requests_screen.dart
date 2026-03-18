@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:hrms/utils/snackbar_utils.dart';
 import 'package:hrms/utils/error_message_utils.dart';
+import 'package:hrms/utils/request_success_dialog.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -1457,10 +1458,7 @@ class _ApplyLeaveDialogState extends State<ApplyLeaveDialog> {
           Navigator.of(context).pop();
           widget.onSuccess();
           if (overlay != null && overlay.context.mounted) {
-            SnackBarUtils.showSnackBar(
-              overlay.context,
-              'Leave request submitted',
-            );
+            showRequestSubmittedSuccessDialog(overlay.context);
           }
         });
       } else {
@@ -2448,9 +2446,12 @@ class _RequestLoanDialogState extends State<RequestLoanDialog> {
 
     if (mounted) {
       if (result['success']) {
+        final overlay = Navigator.of(context, rootNavigator: true).overlay;
         widget.onSuccess();
         Navigator.pop(context);
-        SnackBarUtils.showSnackBar(context, 'Loan request submitted');
+        if (overlay != null && overlay.context.mounted) {
+          showRequestSubmittedSuccessDialog(overlay.context);
+        }
       } else {
         SnackBarUtils.showSnackBar(
           context,
@@ -3538,9 +3539,12 @@ class _ClaimExpenseDialogState extends State<ClaimExpenseDialog> {
 
     if (mounted) {
       if (result['success']) {
+        final overlay = Navigator.of(context, rootNavigator: true).overlay;
         widget.onSuccess();
         Navigator.pop(context);
-        SnackBarUtils.showSnackBar(context, 'Expense claim submitted');
+        if (overlay != null && overlay.context.mounted) {
+          showRequestSubmittedSuccessDialog(overlay.context);
+        }
       } else {
         SnackBarUtils.showSnackBar(
           context,
@@ -5020,14 +5024,12 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
 
       if (mounted) {
         if (result['success']) {
+          final overlay = Navigator.of(context, rootNavigator: true).overlay;
           widget.onSuccess();
           Navigator.pop(context);
-          final createdCount =
-              result['data']?['created']?.length ?? _selectedMonths.length;
-          SnackBarUtils.showSnackBar(
-            context,
-            'Created $createdCount payslip request(s)',
-          );
+          if (overlay != null && overlay.context.mounted) {
+            showRequestSubmittedSuccessDialog(overlay.context);
+          }
         } else {
           SnackBarUtils.showSnackBar(
             context,
@@ -5062,9 +5064,12 @@ class _RequestPayslipDialogState extends State<RequestPayslipDialog> {
 
       if (mounted) {
         if (result['success']) {
+          final overlay = Navigator.of(context, rootNavigator: true).overlay;
           widget.onSuccess();
           Navigator.pop(context);
-          SnackBarUtils.showSnackBar(context, 'Payslip request submitted');
+          if (overlay != null && overlay.context.mounted) {
+            showRequestSubmittedSuccessDialog(overlay.context);
+          }
         } else {
           SnackBarUtils.showSnackBar(
             context,

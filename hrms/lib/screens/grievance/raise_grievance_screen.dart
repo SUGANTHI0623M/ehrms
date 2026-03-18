@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import '../../config/app_colors.dart';
 import '../../services/grievance_service.dart';
 import '../../utils/error_message_utils.dart';
+import '../../utils/snackbar_utils.dart';
 import '../../widgets/bottom_navigation_bar.dart';
+import '../../widgets/notification_reaction_overlay.dart';
 import 'grievance_detail_screen.dart';
 
 class RaiseGrievanceScreen extends StatefulWidget {
@@ -121,11 +123,13 @@ class _RaiseGrievanceScreenState extends State<RaiseGrievanceScreen> {
         if (id != null) {
           if (mounted) Navigator.of(context).pop(true);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Grievance submitted successfully'),
-                backgroundColor: AppColors.success,
-              ),
+            SnackBarUtils.showSnackBar(
+              context,
+              'Grievance submitted successfully',
+            );
+            await NotificationReactionOverlay.show(
+              context,
+              emoji: '🤝',
             );
           }
         }

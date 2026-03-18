@@ -22,6 +22,7 @@ import '../../utils/snackbar_utils.dart';
 import '../../utils/error_message_utils.dart';
 import '../../utils/absent_alert_helper.dart';
 import '../../widgets/attendance_success_overlay.dart';
+import '../../widgets/notification_reaction_overlay.dart';
 import '../../widgets/walking_turtle_emoji.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -1734,8 +1735,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     right: 0,
                     top: -82,
                     child: RepaintBoundary(
-                      child: const Center(
-                        child: WalkingTurtleEmoji(fontSize: 64),
+                      child: Center(
+                        child: WalkingTurtleEmoji(
+                          fontSize: 64,
+                          playOnlyOncePerApp: isLate,
+                          animationKey: 'late-login-card-turtle',
+                          emoji: isLate ? '🐢' : '😐',
+                        ),
                       ),
                     ),
                   ),
@@ -2226,6 +2232,37 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _attendanceData?['session']?.toString().trim();
     if (session == '1') return 0; // Session 2 working: no grace
     return _getGracePeriodMinutes();
+  }
+
+  /// Returns (emoji, message) for check-in success overlay: before shift = very happy, after shift = happy, in grace = somewhat sad.
+  ({String emoji, String message}) _getCheckInOverlayEmojiAndMessage(String userName) {
+    final name = userName.isNotEmpty ? userName : 'there';
+    final sessionTimings = _getWorkingSessionTimings();
+    final shiftStartStr =
+        sessionTimings?['startTime'] ?? _getShiftStartTimeFromDb() ?? _getShiftStartTime();
+    if (shiftStartStr.isEmpty) {
+      return (emoji: '😊', message: 'Hey $name, you have checked in. Have a productive day!');
+    }
+    final parts = shiftStartStr.split(':').map((s) => int.tryParse(s.trim()) ?? 0).toList();
+    final now = DateTime.now();
+    final shiftStart = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      parts.isNotEmpty ? parts[0] : 9,
+      parts.length > 1 ? parts[1] : 0,
+    );
+    final graceMinutes = _getGracePeriodMinutesForLateCheckIn();
+    final graceEnd = shiftStart.add(Duration(minutes: graceMinutes));
+
+    if (now.isBefore(shiftStart)) {
+      return (emoji: '😄', message: "You're early! Have a great day!");
+    }
+    if (!now.isAfter(graceEnd)) {
+      return (emoji: '😕', message: 'You checked in within grace time.');
+    }
+    // Late (after grace): use requested late-login emoji.
+    return (emoji: '😕', message: 'You have checked in.');
   }
 
   // Helper to determine if late. Pass [record] when evaluating a specific record (e.g. history) so half-day uses that record's session.
@@ -3765,11 +3802,26 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           if (mounted) {
             final userName = await _authService.getCurrentUserName();
             if (mounted) {
-              await AttendanceSuccessOverlay.show(
-                context,
-                isCheckIn: state is AttendanceCheckInSuccess,
-                userName: userName,
-              );
+              if (state is AttendanceCheckInSuccess) {
+                final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
+                await AttendanceSuccessOverlay.show(
+                  context,
+                  isCheckIn: true,
+                  userName: userName,
+                  checkInEmoji: overlayContent.emoji,
+                  checkInMessage: overlayContent.message,
+                  snackbarMessage: overlayContent.message,
+                );
+              } else {
+                await AttendanceSuccessOverlay.show(
+                  context,
+                  isCheckIn: false,
+                  userName: userName,
+                  checkOutEmoji: '😊',
+                  checkOutMessage: 'Checkout success!',
+                  snackbarMessage: 'Checkout success!',
+                );
+              }
             }
             if (mounted) {
               _attendanceService.clearCachesForRefresh();
@@ -4174,6 +4226,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ErrorMessageUtils.sanitizeForDisplay(msg),
         isError: true,
       );
+      await NotificationReactionOverlay.show(context, emoji: '😊');
       return;
     }
     if (isCheckedIn && _isOnLeave && !_checkOutAllowed) {

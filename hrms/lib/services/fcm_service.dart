@@ -14,6 +14,7 @@ import '../config/app_colors.dart';
 import '../screens/requests/my_requests_screen.dart';
 import '../screens/attendance/attendance_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
+import '../widgets/notification_reaction_overlay.dart';
 
 /// Channel ID for FCM notifications. Must match Android default channel when using data-only messages.
 const String kFcmNotificationChannelId = 'hrms_fcm_channel';
@@ -400,6 +401,12 @@ class FcmService {
     final context = navigatorKey?.currentContext;
     if (context != null && context.mounted) {
       SystemSound.play(SystemSoundType.alert);
+      await _showForegroundReactionIfNeeded(
+        context,
+        title: title,
+        body: body,
+        data: data,
+      );
       final overlay = Navigator.of(context, rootNavigator: true).overlay;
       if (overlay != null) {
         OverlayEntry? entry;
@@ -490,6 +497,84 @@ class FcmService {
         });
       }
     }
+  }
+
+  static Future<void> _showForegroundReactionIfNeeded(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
+    final reaction = _getNotificationReaction(title: title, body: body, data: data);
+    if (reaction == null) return;
+
+    await NotificationReactionOverlay.show(
+      context,
+      emoji: reaction.emoji,
+    );
+  }
+
+  static _NotificationReaction? _getNotificationReaction({
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) {
+    final type = data['type']?.toString().toLowerCase() ?? '';
+    final module = data['module']?.toString().toLowerCase() ?? '';
+    final combinedText = '$title $body'.toLowerCase();
+    final isAnnouncement =
+        type == 'announcement' ||
+        module == 'announcement' ||
+        module == 'announcements' ||
+        combinedText.contains('announcement');
+    final isBirthday =
+        type == 'birthday' ||
+        combinedText.contains('birthday');
+    final isAnniversary =
+        type == 'anniversary' ||
+        combinedText.contains('anniversary');
+
+    final isApproval =
+        type.endsWith('_approved') ||
+        combinedText.contains(' approved') ||
+        combinedText.contains('has been approved') ||
+        combinedText.contains('request approved');
+    final isRejection =
+        type.endsWith('_rejected') ||
+        combinedText.contains(' rejected') ||
+        combinedText.contains('has been rejected') ||
+        combinedText.contains('was rejected') ||
+        combinedText.contains('request rejected');
+
+    if (isAnnouncement) {
+      return _NotificationReaction(
+        emoji: '📢',
+      );
+    }
+
+    if (isBirthday) {
+      return _NotificationReaction(
+        emoji: '🎂',
+      );
+    }
+
+    if (isAnniversary) {
+      return _NotificationReaction(
+        emoji: '🥳',
+      );
+    }
+
+    if (!isApproval && !isRejection) return null;
+
+    if (isApproval) {
+      return _NotificationReaction(
+        emoji: '🤩',
+      );
+    }
+
+    return _NotificationReaction(
+      emoji: '😔',
+    );
   }
 
   static Future<void> _showForegroundSystemNotification({
@@ -810,4 +895,12 @@ class FcmService {
 
   static Future<void> unsubscribeFromTopic(String topic) =>
       _messaging.unsubscribeFromTopic(topic);
+}
+
+class _NotificationReaction {
+  final String emoji;
+
+  const _NotificationReaction({
+    required this.emoji,
+  });
 }

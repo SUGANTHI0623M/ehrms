@@ -1,6 +1,6 @@
 # EktaHR Desktop Agent – Client distribution
 
-The agent is built as a **single .exe** (self-contained, no .NET install required) with **all features** (attendance, screenshots, Tesseract OCR, SQLite, etc.). No features are removed.
+The agent is built as a self-contained desktop app with **all features** (attendance, screenshots, Tesseract OCR, SQLite, etc.). No features are removed.
 
 ## What to share with clients
 
@@ -8,12 +8,12 @@ Share **one file**:
 
 | Artifact | Use case |
 |----------|----------|
-| **`output\EktaHR-Agent.exe`** | Single executable. Clients run it directly (no zip, no extra files). |
-| **`output\EktaHR-Agent-Setup.exe`** | Optional: installer (desktop/startup shortcuts, uninstall). Run `build-and-package.ps1`. |
+| **`output\EktaHR-Agent-Setup.exe`** | Client installer. Use this for all installs and updates so Windows replaces the existing app. |
+| **`output\EktaHR-Agent-Portable.exe`** | Portable/internal build only. Do not send this to already-installed clients, or Windows may show it as a separate app. |
 
-The single exe is produced by both build scripts.
+The portable exe is produced by both build scripts, but client updates should use the installer.
 
-## How to build (single .exe)
+## How to build
 
 From repo root:
 
@@ -22,7 +22,7 @@ cd ektahr_desktop
 .\build-agent.ps1
 ```
 
-Output: **`ektahr_desktop\output\EktaHR-Agent.exe`** — share this one file with clients.
+Output: **`ektahr_desktop\output\EktaHR-Agent-Portable.exe`** — portable/internal build only.
 
 With installer (requires Inno Setup 6):
 
@@ -30,7 +30,7 @@ With installer (requires Inno Setup 6):
 .\build-and-package.ps1
 ```
 
-Output: **`output\EktaHR-Agent.exe`** (single exe to share) and **`output\EktaHR-Agent-Setup.exe`** (installer).
+Output: **`output\EktaHR-Agent-Portable.exe`** (portable/internal build) and **`output\EktaHR-Agent-Setup.exe`** (installer for clients).
 
 ## Single-file behavior (no feature loss)
 
@@ -40,5 +40,5 @@ Output: **`output\EktaHR-Agent.exe`** (single exe to share) and **`output\EktaHR
 
 ## Client usage
 
-- **Single exe:** Send `EktaHR-Agent.exe`. Client double-clicks to run. No install, no unzip.
-- **Installer:** Run `EktaHR-Agent-Setup.exe` for shortcuts and “Run at Windows startup”.
+- **Installer:** Send `EktaHR-Agent-Setup.exe` for all client installs and updates.
+- **Portable exe:** Use `EktaHR-Agent-Portable.exe` only for internal/dev testing. Do not use it to update an installed client.

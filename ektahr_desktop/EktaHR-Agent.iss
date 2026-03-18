@@ -16,9 +16,10 @@ OutputDir=output
 OutputBaseFilename=EktaHR-Agent-Setup
 SetupIconFile=EktaHR.DesktopAgent/assets/ekta_circlelogo.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+AppMutex=EktaHR.DesktopAgent
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=modern dark
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
@@ -38,7 +39,6 @@ Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs creat
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon
 
@@ -53,15 +53,32 @@ function IsSilentInstall: Boolean;
 begin
   Result := WizardSilent;
 end;
-procedure UninstallOldAgentAndCleanShortcuts;
+procedure StopRunningAgents;
 var
-  Uninstaller, DesktopPath: String;
   ResultCode: Integer;
 begin
-  { Remove old "Ekta HR Agent" installation }
+  { Close any running agent before uninstall/replace, including legacy installs. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM EktaHR.DesktopAgent.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+procedure UninstallOldAgentAndCleanShortcuts;
+var
+  Uninstaller, DesktopPath, LocalProgramsUninstaller, CurrentUninstaller: String;
+  ResultCode: Integer;
+begin
+  { Remove old "Ekta HR Agent" installation from legacy per-user install path }
+  LocalProgramsUninstaller := ExpandConstant('{localappdata}') + '\Programs\Ekta HR Agent\unins000.exe';
+  if FileExists(LocalProgramsUninstaller) then
+    Exec(LocalProgramsUninstaller, '/VERYSILENT /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  { Remove old "Ekta HR Agent" installation from older machine-wide install path }
   Uninstaller := ExpandConstant('{autopf}') + '\Ekta HR Agent\unins000.exe';
   if FileExists(Uninstaller) then
     Exec(Uninstaller, '/VERYSILENT /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  { If reinstalling over the current app id/location, run the registered uninstaller too. }
+  CurrentUninstaller := ExpandConstant('{uninstallexe}');
+  if FileExists(CurrentUninstaller) then
+    Exec(CurrentUninstaller, '/VERYSILENT /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   { Remove leftover desktop shortcuts from old installs }
   DesktopPath := ExpandConstant('{userdesktop}');
@@ -83,6 +100,7 @@ end;
 function InitializeSetup: Boolean;
 begin
   Result := True;
+  StopRunningAgents;
   UninstallOldAgentAndCleanShortcuts;
   ClearAgentCacheAndData;
 end;

@@ -49,6 +49,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
   String _selectedMonth = _initialMonth();
   String _selectedYear = _initialYear();
+  DateTime? _joiningDate;
 
   static String _initialMonth() {
     final now = DateTime.now();
@@ -123,28 +124,87 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     'December',
   ];
 
-  static const int _yearStart = 2023;
+  static DateTime? _parseJoiningDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
 
-  /// Years from [_yearStart] up to current year (no future years).
+    String? rawValue;
+    if (value is String) {
+      rawValue = value;
+    } else if (value is Map && value.containsKey(r'$date')) {
+      rawValue = value[r'$date']?.toString();
+    }
+
+    if (rawValue == null || rawValue.isEmpty) return null;
+    return DateTime.tryParse(rawValue);
+  }
+
+  int get _currentYear => DateTime.now().year;
+  int get _currentMonth => DateTime.now().month;
+  int get _joiningYear => _joiningDate?.year ?? _currentYear;
+  int get _joiningMonth => _joiningDate?.month ?? 1;
+
+  /// Years from user's joining year up to current year (no future years).
   List<String> get _allowedYears {
-    final currentYear = DateTime.now().year;
+    final startYear = _joiningYear;
+    final currentYear = _currentYear;
     final years = <String>[];
-    for (int y = _yearStart; y <= currentYear; y++) {
+    for (int y = startYear; y <= currentYear; y++) {
       years.add('$y');
     }
     return years;
   }
 
-  /// Months allowed for the selected year: previous months and current month (no future months).
-  /// For current year: Jan through current month. For past years: all 12 months.
+  /// Months allowed for the selected year based on joining date and current month.
   List<String> get _allowedMonths {
-    final now = DateTime.now();
-    final selectedYear = int.tryParse(_selectedYear) ?? now.year;
-    if (selectedYear < now.year) {
-      return List<String>.from(_months);
+    final selectedYear = int.tryParse(_selectedYear) ?? _currentYear;
+    if (selectedYear < _joiningYear || selectedYear > _currentYear) {
+      return [];
     }
-    // Current year: months 1..currentMonth (including this month)
-    return _months.sublist(0, now.month);
+
+    int startMonth = 1;
+    int endMonth = 12;
+
+    if (selectedYear == _joiningYear) {
+      startMonth = _joiningMonth;
+    }
+    if (selectedYear == _currentYear) {
+      endMonth = _currentMonth;
+    }
+
+    if (startMonth > endMonth) {
+      return [];
+    }
+
+    return _months.sublist(startMonth - 1, endMonth);
+  }
+
+  void _clampSelectedFiltersToAllowed() {
+    final allowedYears = _allowedYears;
+    if (allowedYears.isEmpty) return;
+
+    final minYear = int.parse(allowedYears.first);
+    final maxYear = int.parse(allowedYears.last);
+    final selectedYear = int.tryParse(_selectedYear) ?? _currentYear;
+
+    if (selectedYear < minYear) {
+      _selectedYear = allowedYears.first;
+    } else if (selectedYear > maxYear) {
+      _selectedYear = allowedYears.last;
+    }
+
+    final allowedMonths = _allowedMonths;
+    if (allowedMonths.isEmpty) return;
+    if (allowedMonths.contains(_selectedMonth)) return;
+
+    final selectedMonthIndex = _months.indexOf(_selectedMonth);
+    final firstAllowedIndex = _months.indexOf(allowedMonths.first);
+    if (selectedMonthIndex >= 0 && selectedMonthIndex < firstAllowedIndex) {
+      _selectedMonth = allowedMonths.first;
+      return;
+    }
+
+    _selectedMonth = allowedMonths.last;
   }
 
   /// True when selected month/year is the current month and year (calculation applies).
@@ -225,14 +285,45 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     if (!mounted) return;
 
     try {
+      Map<String, dynamic>? profileData;
+      Map<String, dynamic>? staffData;
+      try {
+        final profileResult = await _authService.getProfile();
+        if (profileResult['success'] == true && profileResult['data'] is Map) {
+          profileData = Map<String, dynamic>.from(profileResult['data'] as Map);
+          final dynamic rawStaffData = profileData['staffData'];
+          if (rawStaffData is Map) {
+            staffData = Map<String, dynamic>.from(rawStaffData);
+          }
+
+          DateTime? joiningDate;
+          if (staffData != null && staffData.containsKey('joiningDate')) {
+            joiningDate = _parseJoiningDate(staffData['joiningDate']);
+          }
+          if (joiningDate == null && profileData.containsKey('joiningDate')) {
+            joiningDate = _parseJoiningDate(profileData['joiningDate']);
+          }
+          _joiningDate = joiningDate;
+          _clampSelectedFiltersToAllowed();
+        }
+      } catch (_) {}
+
       int monthIndex = _months.indexOf(_selectedMonth) + 1;
       int year = int.parse(_selectedYear);
+
+      if (staffData != null && staffData['salary'] != null) {
+        _staffSalary = staffData['salary'] as Map<String, dynamic>;
+        final basicSalary = _staffSalary!['basicSalary'];
+        if (!(basicSalary == null || (basicSalary is num && basicSalary <= 0))) {
+          final salaryInputs = SalaryStructureInputs.fromMap(_staffSalary!);
+          _calculatedSalary = calculateSalaryStructure(salaryInputs);
+        }
+      }
 
       // Past month: no calculation – use payroll for that month/year or show 0.00
       if (!_isCurrentMonth(monthIndex, year)) {
         _pastMonthPayroll = null;
         _currentPayroll = null;
-        _calculatedSalary = null;
         _proratedSalary = null;
         _workingDaysInfo = null;
         _backendThisMonthNet = null;
@@ -272,12 +363,9 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
       _pastMonthPayroll = null;
 
       // 1. Fetch staff profile to get salary structure
-      final profileResult = await _authService.getProfile();
-      if (profileResult['success'] != true) {
+      if (profileData == null) {
         throw Exception('Failed to fetch profile');
       }
-
-      final staffData = profileResult['data']?['staffData'];
       if (staffData == null || staffData['salary'] == null) {
         throw Exception(
           'No salary structure found. Please contact HR to set up your salary structure.',
@@ -472,8 +560,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                 recordDate.month,
                 recordDate.day,
               );
-              if (recordDay.isAfter(todayDate))
-                continue; // Skip future dates
+              if (recordDay.isAfter(todayDate)) continue; // Skip future dates
             } catch (_) {}
           }
           final status = (record['status'] as String? ?? '')
@@ -486,7 +573,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
           final compensationType = (record['compensationType'] as String? ?? '')
               .trim()
               .toLowerCase();
-          final isPaidLeaveDay = status == 'on leave' &&
+          final isPaidLeaveDay =
+              status == 'on leave' &&
               isPaidLeave &&
               compensationType != 'weekoff' &&
               compensationType != 'compoff';
@@ -518,8 +606,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
             (backendAttendance['paidLeaveDays'] as num?)?.toDouble();
         _paidLeaveDays =
             (paidLeaveFromBackend != null && paidLeaveFromBackend >= 0)
-                ? paidLeaveFromBackend
-                : computedPaidLeaveDays;
+            ? paidLeaveFromBackend
+            : computedPaidLeaveDays;
       } else if (attendanceResult['success'] == true &&
           attendanceResult['data'] != null) {
         final data = attendanceResult['data'] as Map<String, dynamic>;
@@ -528,12 +616,11 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         _presentDays = (fromStats != null && fromStats >= 0)
             ? fromStats
             : computedPresentDays;
-        final paidLeaveFromStats =
-            (stats?['paidLeaveDays'] as num?)?.toDouble();
-        _paidLeaveDays =
-            (paidLeaveFromStats != null && paidLeaveFromStats >= 0)
-                ? paidLeaveFromStats
-                : computedPaidLeaveDays;
+        final paidLeaveFromStats = (stats?['paidLeaveDays'] as num?)
+            ?.toDouble();
+        _paidLeaveDays = (paidLeaveFromStats != null && paidLeaveFromStats >= 0)
+            ? paidLeaveFromStats
+            : computedPaidLeaveDays;
       } else {
         _presentDays = computedPresentDays;
         _paidLeaveDays = computedPaidLeaveDays;
@@ -1046,20 +1133,17 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                                     ? _allowedYears.last
                                     : _selectedYear),
                           _allowedYears,
-(val) {
-                              if (val != null) {
-                                setState(() {
-                                  _selectedYear = val;
-                                  if (_allowedMonths.isNotEmpty &&
-                                      !_allowedMonths.contains(_selectedMonth)) {
-                                    _selectedMonth = _allowedMonths.last;
-                                  }
-                                  _isLoading = true;
-                                  _error = '';
-                                });
-                                _fetchSalaryData(debounce: true);
-                              }
-                            },
+                          (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedYear = val;
+                                _clampSelectedFiltersToAllowed();
+                                _isLoading = true;
+                                _error = '';
+                              });
+                              _fetchSalaryData(debounce: true);
+                            }
+                          },
                         ),
                       ),
                     ],
@@ -1235,25 +1319,20 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
   Widget _buildSummaryCards() {
     final isPastMonth = !_isSelectedCurrentMonth;
     if (isPastMonth) {
-      // Past month: show from payroll or 0.00
+      // Past month: show only monthly salary structure cards.
       final currencyFormat = NumberFormat.currency(
         locale: 'en_IN',
         symbol: '₹',
       );
-      final payroll = _pastMonthPayroll;
-      final gross = (payroll?['grossSalary'] as num?)?.toDouble() ?? 0.0;
-      final net = (payroll?['netPay'] as num?)?.toDouble() ?? 0.0;
-      final isProcessed =
-          payroll != null &&
-          (payroll['status'] == 'Processed' || payroll['status'] == 'Paid');
-      final subtitle = payroll != null
-          ? (isProcessed ? 'From payroll' : 'From payroll')
-          : 'No payroll for this month';
+      final gross = _calculatedSalary?.monthly.grossSalary ?? 0.0;
+      final net = _calculatedSalary?.monthly.netMonthlySalary ?? 0.0;
+      final subtitle = _calculatedSalary != null
+          ? 'From salary structure'
+          : 'Salary structure not available';
 
       return LayoutBuilder(
         builder: (context, constraints) {
           bool isWide = constraints.maxWidth > 600;
-          // Row 1: Monthly Gross, Monthly Net | Row 2: This Month Gross, This Month Net
           final cards = [
             _buildStatCard(
               'Monthly Gross',
@@ -1271,26 +1350,12 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
               textColor: Colors.white,
               usePrimaryGradient: true,
             ),
-            _buildStatCard(
-              'This Month Gross',
-              currencyFormat.format(gross),
-              isPastMonth ? 'From payroll' : '',
-              Colors.black,
-              textColor: Colors.white,
-            ),
-            _buildStatCard(
-              'This Month Net',
-              currencyFormat.format(net),
-              isPastMonth ? 'From payroll' : '',
-              Colors.black,
-              textColor: Colors.white,
-            ),
           ];
           return GridView.count(
-            crossAxisCount: isWide ? 4 : 2,
+            crossAxisCount: isWide ? 2 : 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: isWide ? 1.6 : 1.5,
+            childAspectRatio: isWide ? 2.4 : 1.5,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
             children: cards,
@@ -1392,11 +1457,8 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
         _backendThisMonthNet ?? _proratedSalary!.proratedNetSalary;
     final displayThisMonthNet = rawThisMonthNet < 0 ? 0.0 : rawThisMonthNet;
     final workingTillToday = _workingDaysInfo?.workingDays ?? 0;
-    final absentForChips =
-        (workingTillToday - _presentDays - _paidLeaveDays).clamp(
-      0.0,
-      double.infinity,
-    );
+    final absentForChips = (workingTillToday - _presentDays - _paidLeaveDays)
+        .clamp(0.0, double.infinity);
     int pendingDaysCount = 0;
     for (final record in _attendanceRecords) {
       final status = (record['status'] as String? ?? '').trim().toLowerCase();
@@ -1686,7 +1748,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
                       _formatDayChip(_paidLeaveDays),
                       color: Colors.blue,
                       isPrimaryCard: true,
-                  ),
+                    ),
                   _buildAttStat(
                     'Absent Days',
                     absentStr,
@@ -1962,7 +2024,7 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
 
       status = AttendanceDisplayUtil.getDailyBreakdownStatus(record);
 
-        if (recordStatus == 'present' || recordStatus == 'approved') {
+      if (recordStatus == 'present' || recordStatus == 'approved') {
         if (isHalfDay) {
           statusColor = Colors.blue;
           statusIcon = Icons.schedule;
@@ -2184,16 +2246,19 @@ class _SalaryOverviewScreenState extends State<SalaryOverviewScreen> {
     final lateMinutes = (record['lateMinutes'] as num?)?.toInt() ?? 0;
     final earlyMinutes = (record['earlyMinutes'] as num?)?.toInt() ?? 0;
     // Late login fine only for Present/Approved (never for Absent/Pending/On Leave)
-    final recordStatusForFine = (record['status'] as String? ?? '').trim().toLowerCase();
-    final fineAmount = (recordStatusForFine == 'present' ||
-                recordStatusForFine == 'approved')
+    final recordStatusForFine = (record['status'] as String? ?? '')
+        .trim()
+        .toLowerCase();
+    final fineAmount =
+        (recordStatusForFine == 'present' || recordStatusForFine == 'approved')
         ? ((record['fineAmount'] as num?)?.toDouble() ??
-            _dailyFineAmounts[dateKey] ??
-            0.0)
+              _dailyFineAmounts[dateKey] ??
+              0.0)
         : 0.0;
 
-    final isHoliday =
-        _holidays.any((d) => DateFormat('yyyy-MM-dd').format(d) == dateKey);
+    final isHoliday = _holidays.any(
+      (d) => DateFormat('yyyy-MM-dd').format(d) == dateKey,
+    );
     final isWeekOff = _weekOffDates.contains(dateKey);
     final isWorkingDay = !isHoliday && !isWeekOff;
 

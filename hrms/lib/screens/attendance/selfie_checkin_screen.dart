@@ -302,10 +302,14 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       setState(() => _isLoading = false);
       final userName = await _authService.getCurrentUserName();
       if (!mounted) return;
+      final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
       await AttendanceSuccessOverlay.show(
         context,
         isCheckIn: true,
         userName: userName,
+        checkInEmoji: overlayContent.emoji,
+        checkInMessage: overlayContent.message,
+        snackbarMessage: overlayContent.message,
       );
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -319,6 +323,9 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         context,
         isCheckIn: false,
         userName: userName,
+        checkOutEmoji: '😊',
+        checkOutMessage: 'Checkout success!',
+        snackbarMessage: 'Checkout success!',
       );
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -655,6 +662,56 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       _template?['shiftStartTime']?.toString().trim() ?? '09:00';
   String get _shiftEndTime =>
       widget.template?['shiftEndTime']?.toString().trim() ?? '17:00';
+
+  /// Grace period in minutes from template (for check-in overlay emoji).
+  int _getGracePeriodMinutes() {
+    final template = _template;
+    if (template == null) return 15;
+    final flat = template['gracePeriodMinutes'];
+    if (flat != null) {
+      if (flat is int) return flat;
+      final parsed = int.tryParse(flat.toString());
+      if (parsed != null) return parsed;
+    }
+    try {
+      final shifts = template['settings']?['attendance']?['shifts'] as List?;
+      if (shifts != null && shifts.isNotEmpty) {
+        final shift = shifts[0] as Map<String, dynamic>?;
+        final graceTime = shift?['graceTime'];
+        if (graceTime is Map) {
+          final value = graceTime['value'];
+          final unit = graceTime['unit']?.toString().toLowerCase();
+          final v = value is int ? value : int.tryParse(value?.toString() ?? '');
+          if (v != null) {
+            if (unit == 'hours') return v * 60;
+            return v;
+          }
+        }
+      }
+    } catch (_) {}
+    return 15;
+  }
+
+  /// Returns (emoji, message) for check-in success overlay: before shift = very happy, after shift = happy, in grace = somewhat sad.
+  ({String emoji, String message}) _getCheckInOverlayEmojiAndMessage(String userName) {
+    final shiftStr = _shiftStartTime;
+    final parts = shiftStr.split(':').map((s) => int.tryParse(s) ?? 0).toList();
+    final shiftHour = parts.isNotEmpty ? parts[0] : 9;
+    final shiftMin = parts.length > 1 ? parts[1] : 0;
+    final now = DateTime.now();
+    final shiftStart = DateTime(now.year, now.month, now.day, shiftHour, shiftMin);
+    final graceMinutes = _getGracePeriodMinutes();
+    final graceEnd = shiftStart.add(Duration(minutes: graceMinutes));
+
+    if (now.isBefore(shiftStart)) {
+      return (emoji: '😄', message: "You're early! Have a great day!");
+    }
+    if (!now.isAfter(graceEnd)) {
+      return (emoji: '😕', message: 'You checked in within grace time.');
+    }
+    // Late (after grace): sad emoji, snackbar "You have checked in."
+    return (emoji: '😕', message: 'You have checked in.');
+  }
 
   Widget _buildWorkingHoursCard({
     required IconData icon,

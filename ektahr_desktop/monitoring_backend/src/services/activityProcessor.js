@@ -296,4 +296,12 @@ async function processPayload(jobData) {
     throw new Error('Unknown type: ' + type);
 }
 
-module.exports = { processPayload };
+function isSkippableTrackingError(err) {
+    const message = err?.message || String(err || '');
+    return (
+        message.startsWith('Tracking disabled:') ||
+        message.startsWith('Screenshot too soon:')
+    );
+}
+
+module.exports = { processPayload, isSkippableTrackingError };

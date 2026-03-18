@@ -45,13 +45,14 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 if ($LASTEXITCODE -eq 0) {
     $setupPath = Join-Path $outputDir "EktaHR-Agent-Setup.exe"
-    # Copy single exe for direct share (one file, no zip)
-    $singleExe = Join-Path $outputDir "EktaHR-Agent.exe"
-    Copy-Item -Force $agentExe $singleExe
+    # Keep portable build separate so client installs always use the setup package.
+    $portableExe = Join-Path $outputDir "EktaHR-Agent-Portable.exe"
+    Copy-Item -Force $agentExe $portableExe
     if (Test-Path $setupPath) {
-        Write-Host "Done! Share with clients: $singleExe  (or installer: $setupPath)" -ForegroundColor Green
+        Write-Host "Done! Share with clients: $setupPath" -ForegroundColor Green
+        Write-Host "Portable build for internal/dev use only: $portableExe" -ForegroundColor Yellow
     } else {
-        Write-Host "Single exe: $singleExe" -ForegroundColor Green
+        Write-Host "Portable build only: $portableExe" -ForegroundColor Yellow
     }
 } else {
     Write-Host "Inno Setup failed." -ForegroundColor Red

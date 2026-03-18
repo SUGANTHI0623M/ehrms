@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
-import '../config/constants.dart';
+import '../services/attendance_service.dart';
+import '../services/attendance_template_store.dart';
 
-const String _keyPrefix = 'absent_alert_shown_';
+const String _keyPrefix = 'absent_alert_shown';
+const Duration _firstAbsentAlertOffset = Duration(minutes: 10);
+const Duration _secondAbsentAlertOffset = Duration(hours: 2);
 
 /// In-memory guard so we never show more than one dialog (e.g. if two screens call at once).
 bool _absentAlertShowing = false;
+Timer? _absentAlertTimer;
+String? _scheduledAbsentAlertKey;
 
 /// Blinking icon for the absent alert (repeating opacity pulse).
 class _BlinkingAlertIcon extends StatefulWidget {
@@ -54,33 +61,58 @@ class _BlinkingAlertIconState extends State<_BlinkingAlertIcon>
   }
 }
 
-/// Shows the "Absent Notification" popup once per day when:
-/// - Current time is at or after [AppConstants.absentAlertAfterHour]:[absentAlertAfterMinute] (e.g. 10:11),
-/// - User has not punched in today ([hasPunchInToday] is false),
-/// - Alert has not already been shown today.
+/// Shows the "Absent Notification" popup after shift start +10 minutes and
+/// shift start +2 hours, only until shift end, when user has not punched in.
 Future<void> showAbsentAlertIfNeeded(
   BuildContext context, {
   required bool hasPunchInToday,
 }) async {
-  if (hasPunchInToday) return;
-  if (_absentAlertShowing) return;
-
   final now = DateTime.now();
-  final afterHour = AppConstants.absentAlertAfterHour;
-  final afterMinute = AppConstants.absentAlertAfterMinute;
-  if (now.hour < afterHour || (now.hour == afterHour && now.minute < afterMinute)) {
+  if (hasPunchInToday) {
+    _cancelScheduledAbsentAlert();
+    return;
+  }
+
+  final schedule = await _loadAbsentAlertSchedule(now);
+  if (schedule == null || !now.isBefore(schedule.shiftEnd)) {
+    _cancelScheduledAbsentAlert();
     return;
   }
 
   final prefs = await SharedPreferences.getInstance();
-  final todayKey = '$_keyPrefix${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-  if (prefs.getBool(todayKey) == true) return;
+  final firstKey = _alertKey(schedule.shiftStart, '10m');
+  final secondKey = _alertKey(schedule.shiftStart, '2h');
+  final firstShown = prefs.getBool(firstKey) == true;
+  final secondShown = prefs.getBool(secondKey) == true;
+
+  final shouldShowFirst =
+      !firstShown &&
+      !now.isBefore(schedule.firstAlertAt) &&
+      now.isBefore(schedule.secondAlertAt) &&
+      now.isBefore(schedule.shiftEnd);
+  final shouldShowSecond =
+      !secondShown &&
+      !now.isBefore(schedule.secondAlertAt) &&
+      now.isBefore(schedule.shiftEnd);
+
+  if (!shouldShowFirst && !shouldShowSecond) {
+    _scheduleNextAbsentAlert(
+      context,
+      schedule: schedule,
+      hasPunchInToday: hasPunchInToday,
+      firstShown: firstShown,
+      secondShown: secondShown,
+    );
+    return;
+  }
+
+  if (_absentAlertShowing) return;
 
   if (!context.mounted) return;
 
   // Mark as shown before displaying so a second call (e.g. from another screen) does not stack another dialog
   _absentAlertShowing = true;
-  await prefs.setBool(todayKey, true);
+  await prefs.setBool(shouldShowFirst ? firstKey : secondKey, true);
 
   try {
     await showDialog<void>(
@@ -166,5 +198,168 @@ Future<void> showAbsentAlertIfNeeded(
     );
   } finally {
     _absentAlertShowing = false;
+    _scheduleNextAbsentAlert(
+      context,
+      schedule: schedule,
+      hasPunchInToday: false,
+      firstShown: (shouldShowFirst || firstShown),
+      secondShown: (shouldShowSecond || secondShown),
+    );
   }
+}
+
+void _scheduleNextAbsentAlert(
+  BuildContext context, {
+  required _AbsentAlertSchedule schedule,
+  required bool hasPunchInToday,
+  required bool firstShown,
+  required bool secondShown,
+}) {
+  if (hasPunchInToday || !context.mounted) {
+    _cancelScheduledAbsentAlert();
+    return;
+  }
+
+  final now = DateTime.now();
+  DateTime? target;
+  String? targetSlot;
+
+  if (!firstShown &&
+      now.isBefore(schedule.firstAlertAt) &&
+      schedule.firstAlertAt.isBefore(schedule.shiftEnd)) {
+    target = schedule.firstAlertAt;
+    targetSlot = '10m';
+  } else if (!secondShown &&
+      now.isBefore(schedule.secondAlertAt) &&
+      schedule.secondAlertAt.isBefore(schedule.shiftEnd)) {
+    target = schedule.secondAlertAt;
+    targetSlot = '2h';
+  }
+
+  if (target == null || targetSlot == null) {
+    _cancelScheduledAbsentAlert();
+    return;
+  }
+
+  final targetKey = _alertKey(schedule.shiftStart, targetSlot);
+  if (_scheduledAbsentAlertKey == targetKey) return;
+
+  _cancelScheduledAbsentAlert();
+  _scheduledAbsentAlertKey = targetKey;
+  _absentAlertTimer = Timer(target.difference(now), () async {
+    _scheduledAbsentAlertKey = null;
+    if (!context.mounted) return;
+    final latestHasPunchInToday = await _resolveHasPunchInToday(
+      fallback: hasPunchInToday,
+    );
+    if (!context.mounted) return;
+    await showAbsentAlertIfNeeded(
+      context,
+      hasPunchInToday: latestHasPunchInToday,
+    );
+  });
+}
+
+void _cancelScheduledAbsentAlert() {
+  _absentAlertTimer?.cancel();
+  _absentAlertTimer = null;
+  _scheduledAbsentAlertKey = null;
+}
+
+Future<bool> _resolveHasPunchInToday({required bool fallback}) async {
+  try {
+    final response = await AttendanceService().getTodayAttendance();
+    if (response['success'] == true && response['data'] is Map<String, dynamic>) {
+      final data = response['data'] as Map<String, dynamic>;
+      final punchIn = data['punchIn']?.toString().trim();
+      return punchIn != null && punchIn.isNotEmpty;
+    }
+  } catch (_) {}
+  return fallback;
+}
+
+Future<_AbsentAlertSchedule?> _loadAbsentAlertSchedule(DateTime now) async {
+  Map<String, dynamic>? details = await AttendanceTemplateStore.loadTemplateDetails();
+  Map<String, dynamic>? template = _extractTemplate(details);
+
+  if (!_hasValidShiftTimings(template)) {
+    try {
+      final response = await AttendanceService().getTodayAttendance();
+      if (response['success'] == true && response['data'] is Map<String, dynamic>) {
+        details = Map<String, dynamic>.from(response['data'] as Map<String, dynamic>);
+        await AttendanceTemplateStore.saveTemplateDetails(details);
+        template = _extractTemplate(details);
+      }
+    } catch (_) {}
+  }
+
+  if (!_hasValidShiftTimings(template)) return null;
+
+  final shiftStart = _parseTimeOnDate(
+    template!['shiftStartTime']?.toString(),
+    now,
+  );
+  var shiftEnd = _parseTimeOnDate(
+    template['shiftEndTime']?.toString(),
+    now,
+  );
+  if (shiftStart == null || shiftEnd == null) return null;
+  if (!shiftEnd.isAfter(shiftStart)) {
+    shiftEnd = shiftEnd.add(const Duration(days: 1));
+  }
+
+  return _AbsentAlertSchedule(
+    shiftStart: shiftStart,
+    shiftEnd: shiftEnd,
+    firstAlertAt: shiftStart.add(_firstAbsentAlertOffset),
+    secondAlertAt: shiftStart.add(_secondAbsentAlertOffset),
+  );
+}
+
+Map<String, dynamic>? _extractTemplate(Map<String, dynamic>? details) {
+  if (details == null) return null;
+  final template = details['template'];
+  if (template is Map<String, dynamic>) return template;
+  if (template is Map) return Map<String, dynamic>.from(template);
+  if (details['shiftStartTime'] != null || details['shiftEndTime'] != null) {
+    return details;
+  }
+  return null;
+}
+
+bool _hasValidShiftTimings(Map<String, dynamic>? template) {
+  final start = template?['shiftStartTime']?.toString().trim();
+  final end = template?['shiftEndTime']?.toString().trim();
+  return start != null && start.isNotEmpty && end != null && end.isNotEmpty;
+}
+
+DateTime? _parseTimeOnDate(String? raw, DateTime date) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final parts = raw.trim().split(':');
+  if (parts.length < 2) return null;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  final second = parts.length > 2 ? int.tryParse(parts[2]) ?? 0 : 0;
+  if (hour == null || minute == null) return null;
+  return DateTime(date.year, date.month, date.day, hour, minute, second);
+}
+
+String _alertKey(DateTime shiftStart, String slot) {
+  final datePart =
+      '${shiftStart.year}${shiftStart.month.toString().padLeft(2, '0')}${shiftStart.day.toString().padLeft(2, '0')}';
+  return '${_keyPrefix}_${datePart}_$slot';
+}
+
+class _AbsentAlertSchedule {
+  final DateTime shiftStart;
+  final DateTime shiftEnd;
+  final DateTime firstAlertAt;
+  final DateTime secondAlertAt;
+
+  const _AbsentAlertSchedule({
+    required this.shiftStart,
+    required this.shiftEnd,
+    required this.firstAlertAt,
+    required this.secondAlertAt,
+  });
 }
