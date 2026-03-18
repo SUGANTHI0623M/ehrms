@@ -6,6 +6,8 @@ import 'package:hrms/screens/geo/completed_task_detail_screen.dart';
 import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
+import 'package:hrms/utils/snackbar_utils.dart';
+import 'package:hrms/widgets/notification_reaction_overlay.dart';
 
 /// One event in the task track timeline.
 class _TimelineEvent {
@@ -75,6 +77,7 @@ class TaskCompletedScreen extends StatefulWidget {
 class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
   Task? _fetchedTask;
   bool _loading = true;
+  bool _didShowCompletionFeedback = false;
 
   @override
   void initState() {
@@ -88,6 +91,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
         _fetchedTask = widget.task;
         _loading = false;
       });
+      _showCompletionFeedbackIfNeeded();
       return;
     }
     try {
@@ -97,6 +101,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
           _fetchedTask = t;
           _loading = false;
         });
+        _showCompletionFeedbackIfNeeded();
       }
     } catch (_) {
       if (mounted) {
@@ -104,6 +109,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
           _fetchedTask = widget.task;
           _loading = false;
         });
+        _showCompletionFeedbackIfNeeded();
       }
     }
   }
@@ -135,6 +141,19 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
   bool get _displayOtpVerified => _task?.isOtpVerified ?? widget.otpVerified;
 
   bool get _displayPhotoProof => _task?.photoProof ?? widget.photoProof;
+
+  Future<void> _showCompletionFeedbackIfNeeded() async {
+    if (!mounted || _didShowCompletionFeedback) return;
+    _didShowCompletionFeedback = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      SnackBarUtils.showSnackBar(context, 'Wuhu! Task completed!');
+      await NotificationReactionOverlay.show(
+        context,
+        emoji: '😎',
+      );
+    });
+  }
 
   /// Only true when a form was actually submitted (had assigned forms and filled them).
   bool get _displayFormSubmitted {
@@ -422,12 +441,6 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                       ),
                       _divider(),
                       _verificationRow('OTP Verified', _displayOtpVerified),
-                      _divider(),
-                      _verificationRow(
-                        'Geo-Fence',
-                        widget.geoFence,
-                        value: widget.geoFence ? 'Inside' : 'Outside',
-                      ),
                       _divider(),
                       _verificationRow('Form Submitted', _displayFormSubmitted),
                       _divider(),

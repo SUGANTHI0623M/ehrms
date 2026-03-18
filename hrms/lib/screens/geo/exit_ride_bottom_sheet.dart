@@ -74,9 +74,14 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    return Padding(
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
       padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Container(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -128,7 +133,7 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Exit Ride',
+              'Exit Task',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 22,
@@ -283,7 +288,7 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
                       shadowColor: Colors.orange.withOpacity(0.4),
                     ),
                     child: const Text(
-                      'Exit Ride',
+                      'Exit Task',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -294,6 +299,8 @@ class _ExitRideBottomSheetState extends State<ExitRideBottomSheet> {
               ],
             ),
           ],
+        ),
+          ),
         ),
       ),
     );

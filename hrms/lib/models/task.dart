@@ -222,6 +222,8 @@ class Task {
 
   final TaskLocation? sourceLocation;
   final TaskLocation? destinationLocation;
+  /// GPS + address where staff tapped Arrived (TaskDetails / arrived* fields).
+  final TaskLocation? arrivalLocation;
 
   /// Exit history – each exit is a separate record.
   final List<TaskExitRecord> tasksExit;
@@ -282,6 +284,7 @@ class Task {
     this.autoApprove = false,
     this.sourceLocation,
     this.destinationLocation,
+    this.arrivalLocation,
     this.tasksExit = const [],
     this.taskExitStatus,
     this.tasksRestarted = const [],
@@ -373,6 +376,7 @@ class Task {
               json['destinationLocation'] as Map<String, dynamic>,
             )
           : null,
+      arrivalLocation: _parseArrivalLocation(json),
       tasksExit: _parseList(
         json['exit'] ?? json['tasks_exit'],
         TaskExitRecord.fromJson,
@@ -403,6 +407,21 @@ class Task {
       completedBatteryPercent: (json['completedBatteryPercent'] as num?)
           ?.toInt(),
     );
+  }
+
+  static TaskLocation? _parseArrivalLocation(Map<String, dynamic> json) {
+    final al = json['arrivalLocation'];
+    if (al is Map<String, dynamic>) {
+      final loc = TaskLocation.fromJson(al);
+      if (loc.lat != 0 || loc.lng != 0) return loc;
+    }
+    final lat = (json['arrivedLatitude'] as num?)?.toDouble();
+    final lng = (json['arrivedLongitude'] as num?)?.toDouble();
+    if (lat != null && lng != null && (lat != 0 || lng != 0)) {
+      final addr = json['arrivedFullAddress'] as String?;
+      return TaskLocation(lat: lat, lng: lng, address: addr, fullAddress: addr);
+    }
+    return null;
   }
 
   static String? _stringFromId(dynamic value) {
@@ -544,6 +563,7 @@ class Task {
     bool? autoApprove,
     TaskLocation? sourceLocation,
     TaskLocation? destinationLocation,
+    TaskLocation? arrivalLocation,
     List<TaskExitRecord>? tasksExit,
     List<TaskRestartRecord>? tasksRestarted,
     List<TaskDestinationRecord>? destinations,
@@ -582,6 +602,7 @@ class Task {
       autoApprove: autoApprove ?? this.autoApprove,
       sourceLocation: sourceLocation ?? this.sourceLocation,
       destinationLocation: destinationLocation ?? this.destinationLocation,
+      arrivalLocation: arrivalLocation ?? this.arrivalLocation,
       tasksExit: tasksExit ?? this.tasksExit,
       tasksRestarted: tasksRestarted ?? this.tasksRestarted,
       destinations: destinations ?? this.destinations,

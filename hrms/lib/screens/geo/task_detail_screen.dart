@@ -1,4 +1,6 @@
 // Task Details / Start Task – UI matches reference (blue app bar, map card, customer card, fixed Start button)
+import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -84,6 +86,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     destLat: refreshed.destinationLocation?.lat,
                     destLng: refreshed.destinationLocation?.lng,
                     destAddress: refreshed.destinationLocation?.address,
+                    arrivalAtLat: refreshed.arrivalLocation?.lat,
+                    arrivalAtLng: refreshed.arrivalLocation?.lng,
+                    arrivalAtAddress: refreshed.arrivalLocation?.displayAddress,
                   ),
                 ),
               );
@@ -230,6 +235,106 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
     final currentPos = position!;
     final dest = destLatLng!;
+
+    // Actual GPS path until Arrived (from Tracking) — not straight Directions route
+    if (task.id != null && task.id!.isNotEmpty) {
+      final travelledMaps = await TaskService().getTravelledPathUntilArrived(
+        task.id!,
+        arrivalTime: task.arrivalTime,
+      );
+      if (travelledMaps.length >= 2) {
+        final travelledPts = travelledMaps
+            .map((e) => LatLng(e['lat']!, e['lng']!))
+            .toList();
+        final pathStart = travelledPts.first;
+        final pathEnd = travelledPts.last;
+        try {
+          final toDest = await DirectionsService.getRouteBetweenCoordinates(
+            originLat: pathEnd.latitude,
+            originLng: pathEnd.longitude,
+            destLat: dest.latitude,
+            destLng: dest.longitude,
+          );
+          if (!mounted) return;
+          setState(() {
+            _distanceKm = toDest.distanceKm;
+            _durationText = toDest.durationText;
+            _loadingMap = false;
+            _markers = {
+              Marker(
+                markerId: const MarkerId('pathStart'),
+                position: pathStart,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
+                infoWindow: const InfoWindow(title: 'Trip start'),
+              ),
+              Marker(
+                markerId: const MarkerId('pathEnd'),
+                position: pathEnd,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueRed,
+                ),
+                infoWindow: const InfoWindow(title: 'Arrived here'),
+              ),
+            };
+            _polylines.clear();
+            _polylines.add(
+              Polyline(
+                polylineId: const PolylineId('travelled'),
+                points: travelledPts,
+                color: AppColors.primary,
+                width: 4,
+              ),
+            );
+          });
+        } catch (_) {
+          final meters = Geolocator.distanceBetween(
+            pathEnd.latitude,
+            pathEnd.longitude,
+            dest.latitude,
+            dest.longitude,
+          );
+          final km = meters / 1000;
+          final min = (km / 30 * 60).round().clamp(0, 999);
+          final eta = min > 60 ? '~${min ~/ 60} h' : '~$min min';
+          if (!mounted) return;
+          setState(() {
+            _distanceKm = km;
+            _durationText = eta;
+            _loadingMap = false;
+            _markers = {
+              Marker(
+                markerId: const MarkerId('pathStart'),
+                position: pathStart,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
+                infoWindow: const InfoWindow(title: 'Trip start'),
+              ),
+              Marker(
+                markerId: const MarkerId('pathEnd'),
+                position: pathEnd,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueRed,
+                ),
+                infoWindow: const InfoWindow(title: 'Arrived here'),
+              ),
+            };
+            _polylines.clear();
+            _polylines.add(
+              Polyline(
+                polylineId: const PolylineId('travelled'),
+                points: travelledPts,
+                color: AppColors.primary,
+                width: 4,
+              ),
+            );
+          });
+        }
+        return;
+      }
+    }
 
     try {
       final result = await DirectionsService.getRouteBetweenCoordinates(
@@ -480,8 +585,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 myLocationButtonEnabled: true,
                 zoomControlsEnabled: false,
                 mapToolbarEnabled: false,
+                minMaxZoomPreference: const MinMaxZoomPreference(2, 22),
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
+                tiltGesturesEnabled: true,
+                rotateGesturesEnabled: true,
+                // Map sits inside SingleChildScrollView — without this, scroll steals pinch/pan.
+                gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                  Factory<OneSequenceGestureRecognizer>(
+                    () => EagerGestureRecognizer(),
+                  ),
+                },
                 onMapCreated: (controller) {
-                  if (_currentPosition != null && _destinationLatLng != null) {
+                  if (_markers.isNotEmpty || _polylines.isNotEmpty) {
                     _fitBounds(controller);
                   }
                 },
@@ -575,24 +691,52 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   void _fitBounds(GoogleMapController controller) {
-    if (_currentPosition == null || _destinationLatLng == null) return;
+    final List<LatLng> pts = [];
+    for (final m in _markers) {
+      pts.add(m.position);
+    }
+    for (final pl in _polylines) {
+      pts.addAll(pl.points);
+    }
+    if (pts.isEmpty) {
+      if (_destinationLatLng != null) {
+        controller.animateCamera(
+          CameraUpdate.newLatLngZoom(_destinationLatLng!, 14),
+        );
+      }
+      return;
+    }
+    if (pts.length == 1) {
+      controller.animateCamera(CameraUpdate.newLatLngZoom(pts.first, 15));
+      return;
+    }
+    var minLat = pts.first.latitude;
+    var maxLat = pts.first.latitude;
+    var minLng = pts.first.longitude;
+    var maxLng = pts.first.longitude;
+    for (var i = 1; i < pts.length; i++) {
+      final e = pts[i];
+      if (e.latitude < minLat) minLat = e.latitude;
+      if (e.latitude > maxLat) maxLat = e.latitude;
+      if (e.longitude < minLng) minLng = e.longitude;
+      if (e.longitude > maxLng) maxLng = e.longitude;
+    }
+    const pad = 0.002;
+    if ((maxLat - minLat).abs() < 1e-6 && (maxLng - minLng).abs() < 1e-6) {
+      controller.animateCamera(CameraUpdate.newLatLngZoom(pts.first, 15));
+      return;
+    }
+    if ((maxLat - minLat).abs() < pad) {
+      minLat -= pad;
+      maxLat += pad;
+    }
+    if ((maxLng - minLng).abs() < pad) {
+      minLng -= pad;
+      maxLng += pad;
+    }
     final bounds = LatLngBounds(
-      southwest: LatLng(
-        _currentPosition!.latitude < _destinationLatLng!.latitude
-            ? _currentPosition!.latitude
-            : _destinationLatLng!.latitude,
-        _currentPosition!.longitude < _destinationLatLng!.longitude
-            ? _currentPosition!.longitude
-            : _destinationLatLng!.longitude,
-      ),
-      northeast: LatLng(
-        _currentPosition!.latitude > _destinationLatLng!.latitude
-            ? _currentPosition!.latitude
-            : _destinationLatLng!.latitude,
-        _currentPosition!.longitude > _destinationLatLng!.longitude
-            ? _currentPosition!.longitude
-            : _destinationLatLng!.longitude,
-      ),
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
     );
     controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 48));
   }
@@ -602,12 +746,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 12,
+            color: AppColors.primary.withOpacity(0.3),
+            blurRadius: 8,
             offset: const Offset(0, 4),
           ),
         ],
@@ -624,17 +772,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                   ),
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.secondary.withOpacity(0.12),
+                  color: Colors.white.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: AppColors.secondary.withOpacity(0.5),
+                    color: Colors.white.withOpacity(0.35),
                   ),
                 ),
                 child: Text(
@@ -642,7 +790,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.secondary,
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -651,7 +799,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(height: 6),
           Text(
             'Task #${task.taskId}',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
           ),
           if (task.description.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -667,7 +815,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   descText,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade700,
+                    color: Colors.white.withOpacity(0.9),
                     height: 1.4,
                   ),
                 );
@@ -1170,22 +1318,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               text: TextSpan(
                 style: DefaultTextStyle.of(context).style,
                 children: [
-                  TextSpan(
-                    text: 'OTP Verified: ${verified ? "Yes" : "No"}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: verified
-                          ? AppColors.primary
-                          : Colors.orange.shade700,
-                    ),
-                  ),
-                  if (!verified)
+                  if (verified)
                     TextSpan(
-                      text: ' (OTP required at arrival to complete task)',
+                      text: 'OTP Verified: Yes',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
                     ),
                 ],
@@ -1684,6 +1823,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 destLat: updated.destinationLocation?.lat,
                 destLng: updated.destinationLocation?.lng,
                 destAddress: updated.destinationLocation?.address,
+                arrivalAtLat: updated.arrivalLocation?.lat,
+                arrivalAtLng: updated.arrivalLocation?.lng,
+                arrivalAtAddress: updated.arrivalLocation?.displayAddress,
               ),
             ),
           );
@@ -1898,7 +2040,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
+                          backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -1935,7 +2077,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
+                          backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),

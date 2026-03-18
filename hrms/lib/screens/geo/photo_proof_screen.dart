@@ -29,7 +29,6 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
   File? _photo;
   bool _uploading = false;
   String? _error;
-  bool _uploaded = false;
   final TextEditingController _descriptionController = TextEditingController();
 
   @override
@@ -64,7 +63,11 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
     if (_photo == null ||
         widget.taskMongoId == null ||
         widget.taskMongoId!.isEmpty) {
-      setState(() => _error = 'Tap the area above to take a photo first');
+      setState(() => _error = 'Please take a photo first');
+      return;
+    }
+    if (_descriptionController.text.trim().isEmpty) {
+      setState(() => _error = 'Please enter a description');
       return;
     }
     setState(() {
@@ -95,19 +98,14 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
       await TaskService().uploadPhotoProof(
         widget.taskMongoId!,
         _photo!.path,
-        description: _descriptionController.text.trim().isNotEmpty
-            ? _descriptionController.text.trim()
-            : null,
+        description: _descriptionController.text.trim(),
         lat: lat,
         lng: lng,
         fullAddress: fullAddress,
       );
       if (mounted) {
-        setState(() {
-          _uploading = false;
-          _uploaded = true;
-        });
         widget.onPhotoUploaded?.call();
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {
@@ -143,32 +141,8 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline_rounded, color: AppColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Tap the area below to take a photo. Add a description and upload.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
               GestureDetector(
-                onTap: _uploaded ? null : _takePhoto,
+                onTap: _uploading ? null : _takePhoto,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   height: 280,
@@ -240,9 +214,18 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
+                                'Upload proof',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
                                 'Tap to take photo',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: 14,
                                   color: Colors.grey.shade600,
                                 ),
                               ),
@@ -255,8 +238,11 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
               TextField(
                 controller: _descriptionController,
                 maxLines: 3,
+                onChanged: (_) {
+                  if (mounted) setState(() {});
+                },
                 decoration: InputDecoration(
-                  labelText: 'Description (optional)',
+                  labelText: 'Description',
                   hintText: 'Add a description for this photo...',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -270,7 +256,7 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
                     borderSide: BorderSide(color: AppColors.primary, width: 2),
                   ),
                 ),
-                enabled: !_uploaded,
+                enabled: !_uploading,
               ),
               const SizedBox(height: 16),
               if (_error != null)
@@ -284,7 +270,7 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
                     ),
                   ),
                 ),
-              if (_photo != null && !_uploaded)
+              if (_photo != null && _descriptionController.text.trim().isNotEmpty)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -299,7 +285,7 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
                             ),
                           )
                         : const Icon(Icons.cloud_upload_rounded, size: 20),
-                    label: Text(_uploading ? 'Uploading...' : 'Upload'),
+                    label: Text(_uploading ? 'Uploading...' : 'Upload Proof'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -310,51 +296,6 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
                     ),
                   ),
                 ),
-              if (_uploaded) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle_rounded,
-                        color: AppColors.primary,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Photo uploaded successfully!',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.secondary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text('Done'),
-                  ),
-                ),
-              ],
             ],
           ),
         ),

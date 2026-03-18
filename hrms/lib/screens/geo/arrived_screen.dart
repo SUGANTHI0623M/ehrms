@@ -33,10 +33,15 @@ class ArrivedScreen extends StatefulWidget {
   final double? sourceLng;
   final String? sourceAddress;
 
-  /// Destination (dropoff) location - lat, lng, address.
+  /// Task map destination (exit-ride fallback only). Not shown in Trip Details "Destination".
   final double? destLat;
   final double? destLng;
   final String? destAddress;
+
+  /// Where staff tapped Arrived (GPS + address). Shown as Destination in Trip Details.
+  final double? arrivalAtLat;
+  final double? arrivalAtLng;
+  final String? arrivalAtAddress;
 
   /// Optional: driving duration/distance if available from tracking.
   final Duration? drivingDuration;
@@ -59,6 +64,9 @@ class ArrivedScreen extends StatefulWidget {
     this.destLat,
     this.destLng,
     this.destAddress,
+    this.arrivalAtLat,
+    this.arrivalAtLng,
+    this.arrivalAtAddress,
     this.drivingDuration,
     this.drivingDistanceKm,
     this.walkingDuration,
@@ -80,7 +88,27 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   String? _staffId;
   bool _formLoading = false;
 
+  /// Physical arrival point (Trip Details "Destination" row).
+  String? _arrivalDisplayAddress;
+  double? _arrivalDisplayLat;
+  double? _arrivalDisplayLng;
+
   Task? get task => _task;
+
+  void _syncArrivalDisplayFromState() {
+    if (widget.arrivalAtLat != null && widget.arrivalAtLng != null) {
+      _arrivalDisplayLat = widget.arrivalAtLat;
+      _arrivalDisplayLng = widget.arrivalAtLng;
+      _arrivalDisplayAddress = widget.arrivalAtAddress;
+      return;
+    }
+    final a = _task?.arrivalLocation ?? widget.task?.arrivalLocation;
+    if (a != null && (a.lat != 0 || a.lng != 0)) {
+      _arrivalDisplayLat = a.lat;
+      _arrivalDisplayLng = a.lng;
+      _arrivalDisplayAddress = a.displayAddress;
+    }
+  }
 
   /// Form is required when staff has assigned templates. Shown only when > 0.
   bool get _hasFormAssigned => _assignedTemplates.isNotEmpty;
@@ -130,6 +158,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
     super.initState();
     _task = widget.task;
     _photoProofDone = widget.task?.photoProof == true;
+    _syncArrivalDisplayFromState();
     _loadStoredTaskSettings();
     _loadStaffIdAndForms();
     _refreshTask();
@@ -197,6 +226,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
         setState(() {
           _task = t;
           _photoProofDone = t.photoProof == true;
+          if (widget.arrivalAtLat == null) _syncArrivalDisplayFromState();
         });
       }
       final staffId = _staffId ?? t.assignedTo;
@@ -219,10 +249,6 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final drivingDur = widget.drivingDuration ?? widget.totalDuration;
-    final drivingKm = widget.drivingDistanceKm ?? widget.totalDistanceKm;
-    final walkingDur = widget.walkingDuration ?? Duration.zero;
-    final walkingKm = widget.walkingDistanceKm ?? 0.0;
 
     return PopScope(
       canPop: false,
@@ -271,7 +297,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Task info card – Task Name, ID, Description
+                  // Task info card – same bg as dashboard Recent Leaves card
                   if ((task ?? widget.task) != null)
                     Builder(
                       builder: (context) {
@@ -280,13 +306,17 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                           padding: const EdgeInsets.all(16),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
+                            gradient: LinearGradient(
+                              colors: [AppColors.primary, AppColors.primaryDark],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
+                                color: AppColors.primary.withOpacity(0.3),
                                 blurRadius: 8,
-                                offset: const Offset(0, 2),
+                                offset: const Offset(0, 4),
                               ),
                             ],
                           ),
@@ -295,10 +325,10 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                             children: [
                               Text(
                                 t.taskTitle,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.grey.shade800,
+                                  color: Colors.white,
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -306,7 +336,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                 'ID: ${t.taskId}',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade600,
+                                  color: Colors.white.withOpacity(0.95),
                                 ),
                               ),
                               if (t.description.isNotEmpty) ...[
@@ -315,7 +345,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                   t.description,
                                   style: TextStyle(
                                     fontSize: 13,
-                                    color: Colors.grey.shade700,
+                                    color: Colors.white.withOpacity(0.95),
                                   ),
                                 ),
                               ],
@@ -452,20 +482,6 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                           'Arrival Time',
                           DateDisplayUtil.formatTime(widget.arrivalTime),
                         ),
-                        if (drivingKm > 0 || walkingKm > 0) ...[
-                          _row(
-                            'Driving',
-                            drivingKm > 0
-                                ? '${_formatDuration(drivingDur)} (${drivingKm.toStringAsFixed(1)} km)'
-                                : '—',
-                          ),
-                          _row(
-                            'Walking',
-                            walkingKm > 0
-                                ? '${_formatDuration(walkingDur)} (${walkingKm.toStringAsFixed(1)} km)'
-                                : '—',
-                          ),
-                        ],
                         const SizedBox(height: 12),
                         const Divider(height: 1),
                         const SizedBox(height: 12),
@@ -478,10 +494,9 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                         const SizedBox(height: 12),
                         _locationSection(
                           'Destination',
-                          widget.destAddress ??
-                              task?.destinationLocation?.address,
-                          widget.destLat ?? task?.destinationLocation?.lat,
-                          widget.destLng ?? task?.destinationLocation?.lng,
+                          _arrivalDisplayAddress,
+                          _arrivalDisplayLat,
+                          _arrivalDisplayLng,
                         ),
                       ],
                     ),
@@ -622,14 +637,45 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                         const SizedBox(height: 20),
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed:
-                                !_submittingComplete &&
-                                    (!_isOtpRequiredFromSettings ||
-                                        (task ?? widget.task)?.isOtpVerified ==
-                                            true) &&
-                                    (!_hasFormAssigned || _formFilled)
-                                ? () async {
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient:
+                                    !_submittingComplete &&
+                                            (!_isOtpRequiredFromSettings ||
+                                                (task ?? widget.task)
+                                                        ?.isOtpVerified ==
+                                                    true) &&
+                                            (!_hasFormAssigned || _formFilled)
+                                        ? LinearGradient(
+                                            colors: [
+                                              AppColors.primary,
+                                              AppColors.primaryDark,
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          )
+                                        : null,
+                                color:
+                                    !_submittingComplete &&
+                                            (!_isOtpRequiredFromSettings ||
+                                                (task ?? widget.task)
+                                                        ?.isOtpVerified ==
+                                                    true) &&
+                                            (!_hasFormAssigned || _formFilled)
+                                        ? null
+                                        : Colors.grey.shade300,
+                              ),
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  !_submittingComplete &&
+                                          (!_isOtpRequiredFromSettings ||
+                                              (task ?? widget.task)
+                                                      ?.isOtpVerified ==
+                                                  true) &&
+                                          (!_hasFormAssigned || _formFilled)
+                                      ? () async {
                                     if (_submittingComplete) return;
                                     setState(() => _submittingComplete = true);
                                     final t = task ?? widget.task;
@@ -703,33 +749,41 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                       );
                                     }
                                   }
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.secondary,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                              disabledForegroundColor: Colors.grey.shade600,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                                      : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                surfaceTintColor: Colors.transparent,
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor: Colors.transparent,
+                                disabledForegroundColor: Colors.grey.shade600,
+                                minimumSize: const Size.fromHeight(52),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: _submittingComplete
+                                  ? SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.check_circle_rounded,
+                                      size: 22,
+                                    ),
+                              label: Text(
+                                _submittingComplete
+                                    ? 'Completing...'
+                                    : 'Complete Task',
                               ),
                             ),
-                            icon: _submittingComplete
-                                ? SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 22,
-                                  ),
-                            label: Text(
-                                _submittingComplete ? 'Completing...' : 'Complete Task'),
                           ),
+                        ),
                         ),
                       ],
                     ),
@@ -780,8 +834,14 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
           lat = pos.latitude;
           lng = pos.longitude;
         } catch (_) {
-          lat = widget.destLat ?? task?.destinationLocation?.lat;
-          lng = widget.destLng ?? task?.destinationLocation?.lng;
+          lat = widget.arrivalAtLat ??
+              _task?.arrivalLocation?.lat ??
+              widget.destLat ??
+              task?.destinationLocation?.lat;
+          lng = widget.arrivalAtLng ??
+              _task?.arrivalLocation?.lng ??
+              widget.destLng ??
+              task?.destinationLocation?.lng;
         }
         await TaskService().exitRide(
           mongoId,
@@ -911,23 +971,17 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
           ],
         ),
         const SizedBox(height: 6),
-        if (hasAddress)
-          Text(
-            address!,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+        Text(
+          hasAddress
+              ? address!
+              : (hasCoords
+                  ? '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}'
+                  : '—'),
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade700,
           ),
-        if (hasCoords)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade500,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
+        ),
       ],
     );
   }

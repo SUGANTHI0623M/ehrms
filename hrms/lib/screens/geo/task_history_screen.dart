@@ -5,7 +5,6 @@ import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class TaskHistoryScreen extends StatefulWidget {
   final Task task;
@@ -498,24 +497,42 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                 if (photoUrl != null && photoUrl.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   InkWell(
-                    onTap: () async {
-                      final uri = Uri.tryParse(photoUrl);
-                      if (uri != null && await canLaunchUrl(uri)) {
-                        await launchUrl(
-                          uri,
-                          mode: LaunchMode.externalApplication,
-                        );
-                      }
-                    },
-                    child: Text(
-                      photoUrl,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.blue.shade700,
-                        decoration: TextDecoration.underline,
+                    onTap: () => _showNetworkImage(context, photoUrl),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.visibility_rounded,
+                            size: 16,
+                            color: Colors.purple,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Proof uploaded',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.purple,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: Colors.purple.shade300,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -868,6 +885,65 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
       ),
     );
   }
+
+  void _showNetworkImage(BuildContext context, String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Align(
+              alignment: Alignment.topRight,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.broken_image_outlined,
+                            size: 40,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Unable to load image',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Bottom sheet that shows filled form details with photos.
@@ -1173,4 +1249,5 @@ class _FormDetailsSheetState extends State<_FormDetailsSheet> {
       );
     } catch (_) {}
   }
+
 }

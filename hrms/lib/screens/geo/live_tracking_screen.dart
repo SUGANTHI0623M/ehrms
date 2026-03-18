@@ -11,6 +11,7 @@ import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/services/geo/location_service.dart'
     show LocationService, GeofenceEvent;
 import 'package:hrms/screens/geo/pin_destination_map_screen.dart';
+import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/services/geo/live_tracking_service.dart';
@@ -70,6 +71,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
 
   /// Road route from current/last position to destination (fetched from Directions API).
   Polyline? _shortestRoutePolyline;
+  double _plannedTripDistanceKm = 0.0;
   double _remainingDistanceKm = 0.0;
   DateTime? _lastRouteFetchTime;
   static const _routeRefreshInterval = Duration(seconds: 60);
@@ -160,6 +162,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       widget.pickupLocation.latitude,
       widget.pickupLocation.longitude,
     );
+    _fetchPlannedTripRoute();
 
     // Send GPS point every 15 sec: updateLocation (task path) + storeTracking (Tracking collection).
     // Persist for background tracking (continues when app closed or in background).
@@ -396,15 +399,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   }
 
   /// Total trip distance (pickup to dropoff) in km, for progress bar denominator.
-  double get _totalTripDistanceKm {
-    final m = gl.Geolocator.distanceBetween(
-      widget.pickupLocation.latitude,
-      widget.pickupLocation.longitude,
-      _dropoffLatLng.latitude,
-      _dropoffLatLng.longitude,
-    );
-    return m / 1000;
-  }
+  double get _totalTripDistanceKm => _plannedTripDistanceKm;
 
   void _onDropoffMarkerDragEnd(LatLng newPosition) {
     setState(() {
@@ -567,6 +562,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       _updateDropoffMarker();
       _updateDestinationOnBackend();
       _lastRouteFetchTime = null;
+      _plannedTripDistanceKm = 0.0;
+      _fetchPlannedTripRoute();
       _fetchRoadRoute(
         _lastLocation?.latitude ?? widget.pickupLocation.latitude,
         _lastLocation?.longitude ?? widget.pickupLocation.longitude,
@@ -625,6 +622,25 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     }
   }
 
+  Future<void> _fetchPlannedTripRoute() async {
+    try {
+      final result = await DirectionsService.getRouteBetweenCoordinates(
+        originLat: widget.pickupLocation.latitude,
+        originLng: widget.pickupLocation.longitude,
+        destLat: _dropoffLatLng.latitude,
+        destLng: _dropoffLatLng.longitude,
+      );
+      if (mounted && result.distanceKm > 0) {
+        setState(() {
+          _plannedTripDistanceKm = result.distanceKm;
+          if (_remainingDistanceKm <= 0) {
+            _remainingDistanceKm = result.distanceKm;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
   void _updateRoutePolyline(LatLng newLatLng) {
     if (_routePolyline == null) {
       _routePolyline = Polyline(
@@ -649,6 +665,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   }
 
   void _updateRemainingEta() {
+    if (_remainingDistanceKm > 0) return;
+
     // Use last known location, or pickup if no location yet
     final fromLat = _lastLocation?.latitude ?? widget.pickupLocation.latitude;
     final fromLng = _lastLocation?.longitude ?? widget.pickupLocation.longitude;
@@ -740,7 +758,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       builder: (ctx) => const ExitRideBottomSheet(),
     );
     if (result == null || !mounted) return;
-    final exitType = result['exitType'] as String?;
+    final exitType = result['exitType'];
     final reason = result['reason']?.trim();
     if (exitType == null ||
         exitType.isEmpty ||
@@ -788,9 +806,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       }
     }
     if (mounted) {
-      await _floating.cancelOnLeavePiP();
-      await Future.delayed(const Duration(milliseconds: 150));
-      if (mounted) Navigator.of(context).pop();
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MyTasksScreen()),
+        (route) => false,
+      );
     }
   }
 
@@ -837,12 +856,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         lng != null) {
       if (mounted) setState(() => _submittingArrived = true);
       try {
-        final destAddress = _dropoffAddress.isNotEmpty
-            ? _dropoffAddress
-            : (widget.task?.destinationLocation?.address ??
-                  (widget.task?.customer != null
-                      ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
-                      : null));
+        // Arrival lat/lng = staff GPS here (above). Do not send destination as fullAddress —
+        // DB arrival fields must describe this point; backend reverse-geocodes lat/lng.
         final sourceAddress =
             widget.task?.sourceLocation?.address ??
             (widget.task?.customer != null
@@ -852,8 +867,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           widget.taskMongoId!,
           lat: lat,
           lng: lng,
-          fullAddress: destAddress,
-          pincode: widget.task?.customer?.pincode,
           sourceFullAddress: sourceAddress,
           tripDistanceKm: totalKm,
           tripDurationSeconds: durationSeconds,
@@ -874,6 +887,25 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         return;
       }
       // _arrivedSent and _submittingArrived keep Arrived button disabled
+    }
+    if (!mounted) return;
+    String? arrivalAddr;
+    if (lat != null && lng != null) {
+      try {
+        final placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          arrivalAddr = [
+            p.street,
+            p.subAdministrativeArea,
+            p.locality,
+            p.administrativeArea,
+            p.postalCode,
+            p.country,
+          ].where((e) => e != null && e.isNotEmpty).join(', ');
+        }
+      } catch (_) {}
+      arrivalAddr ??= '${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}';
     }
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -897,6 +929,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                     (widget.task?.customer != null
                         ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
                         : null)),
+          arrivalAtLat: lat,
+          arrivalAtLng: lng,
+          arrivalAtAddress: arrivalAddr,
         ),
       ),
     );
@@ -1142,7 +1177,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                 onPressed: _onExitRide,
                 icon: const Icon(Icons.exit_to_app_rounded, size: 18),
                 label: const Text(
-                  'Exit Ride',
+                  'Exit Task',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
                 style: OutlinedButton.styleFrom(

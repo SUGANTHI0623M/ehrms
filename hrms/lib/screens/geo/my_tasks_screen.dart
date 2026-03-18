@@ -1120,6 +1120,13 @@ class _MyTasksScreenState extends State<MyTasksScreen>
                                                   destAddress: task
                                                       .destinationLocation
                                                       ?.address,
+                                                  arrivalAtLat: task
+                                                      .arrivalLocation?.lat,
+                                                  arrivalAtLng: task
+                                                      .arrivalLocation?.lng,
+                                                  arrivalAtAddress: task
+                                                      .arrivalLocation
+                                                      ?.displayAddress,
                                                 ),
                                               ),
                                             );

@@ -121,6 +121,81 @@ class TaskService {
     }
   }
 
+  /// GPS points from Tracking until Arrived (for task detail map polyline).
+  /// Returns [{lat, lng}, ...] sorted by time, trimmed at first `status: arrived` or [arrivalTime].
+  Future<List<Map<String, double>>> getTravelledPathUntilArrived(
+    String taskMongoId, {
+    DateTime? arrivalTime,
+  }) async {
+    try {
+      await _setToken();
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/tasks/$taskMongoId/tracking-path',
+      );
+      final path = response.data?['path'] as List<dynamic>? ?? [];
+      return _filterTrackingPathUntilArrived(path, arrivalTime);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static List<Map<String, double>> _filterTrackingPathUntilArrived(
+    List<dynamic> path,
+    DateTime? arrivalTime,
+  ) {
+    DateTime? parseTs(dynamic v) {
+      if (v == null) return null;
+      if (v is String) return DateTime.tryParse(v);
+      if (v is Map && v[r'$date'] != null) {
+        return DateTime.tryParse(v[r'$date'].toString());
+      }
+      return null;
+    }
+
+    final rows = <Map<String, dynamic>>[];
+    for (final r in path) {
+      if (r is! Map) continue;
+      final lat = (r['latitude'] as num?)?.toDouble();
+      final lng = (r['longitude'] as num?)?.toDouble();
+      if (lat == null || lng == null) continue;
+      rows.add({
+        'lat': lat,
+        'lng': lng,
+        'ts': parseTs(r['timestamp']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+        'status': r['status']?.toString().toLowerCase(),
+      });
+    }
+    if (rows.isEmpty) return [];
+    rows.sort(
+      (a, b) => (a['ts'] as DateTime).compareTo(b['ts'] as DateTime),
+    );
+
+    int endExclusive = rows.length;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i]['status'] == 'arrived') {
+        endExclusive = i + 1;
+        break;
+      }
+    }
+    if (endExclusive == rows.length && arrivalTime != null) {
+      endExclusive = 0;
+      for (var i = 0; i < rows.length; i++) {
+        final t = rows[i]['ts'] as DateTime;
+        if (t.isAfter(arrivalTime)) break;
+        endExclusive = i + 1;
+      }
+    }
+
+    final out = <Map<String, double>>[];
+    for (var i = 0; i < endExclusive; i++) {
+      out.add({
+        'lat': rows[i]['lat'] as double,
+        'lng': rows[i]['lng'] as double,
+      });
+    }
+    return out;
+  }
+
   /// Fetch full task completion report: task, timeline, route points from DB.
   Future<TaskCompletionReport> getTaskCompletionReport(String taskId) async {
     try {

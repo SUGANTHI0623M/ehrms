@@ -43,6 +43,13 @@ const int kConsecutiveActivityRequired = 2;
 /// Large jump: if last segment (current minus previous point) has speed >= this, consider drive.
 const double kLargeJumpDriveMinKmh = 10.0;
 
+/// Guard against GPS jitter immediately after task start.
+/// Require a little real displacement before allowing stop -> walk/drive.
+const int kWalkWarmupMinSamples = 3;
+const double kWalkWarmupMinDisplacementM = 8.0;
+const int kDriveWarmupMinSamples = 3;
+const double kDriveWarmupMinDisplacementM = 15.0;
+
 /// Classifies movement (drive / walk / stop) using:
 /// - Android: Activity Recognition (IN_VEHICLE→drive, ON_FOOT/WALKING→walk, STILL→stop)
 ///   with confidence ≥70% and 2 consecutive same type.
@@ -66,6 +73,8 @@ class MovementClassificationService {
   /// Current output state (hysteresis).
   String _currentMovementType = kMovementStop;
   int _consecutiveLowSpeedCount = 0;
+  int _consecutiveWalkCount = 0;
+  int _consecutiveDriveCount = 0;
 
   /// Last known activity-based suggestion (for agreement check). Null = no valid activity.
   String? _activitySuggestedMovement;
@@ -80,6 +89,8 @@ class MovementClassificationService {
     _lastActivityConsecutive = 0;
     _currentMovementType = kMovementStop;
     _consecutiveLowSpeedCount = 0;
+    _consecutiveWalkCount = 0;
+    _consecutiveDriveCount = 0;
     _activitySuggestedMovement = null;
 
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -181,9 +192,66 @@ class MovementClassificationService {
     if (!_agreeWithActivity(speedClass)) {
       return _currentMovementType;
     }
+    if (!_canTransitionFromStop(speedClass)) {
+      return _currentMovementType;
+    }
     final next = _applyHysteresis(speedClass, effectiveSpeedKmh, inBackground: inBackground);
     _currentMovementType = next;
     return next;
+  }
+
+  bool _canTransitionFromStop(String speedClass) {
+    if (_currentMovementType != kMovementStop) {
+      _consecutiveWalkCount = 0;
+      _consecutiveDriveCount = 0;
+      return true;
+    }
+
+    if (speedClass == kMovementWalk) {
+      _consecutiveDriveCount = 0;
+      _consecutiveWalkCount++;
+
+      if (_locationWindow.length < kWalkWarmupMinSamples) {
+        return false;
+      }
+
+      if (_windowDisplacementM() < kWalkWarmupMinDisplacementM) {
+        return false;
+      }
+
+      if (_consecutiveWalkCount < 2) {
+        return false;
+      }
+
+      _consecutiveWalkCount = 0;
+      _consecutiveDriveCount = 0;
+      return true;
+    }
+
+    if (speedClass == kMovementDrive) {
+      _consecutiveWalkCount = 0;
+      _consecutiveDriveCount++;
+
+      if (_locationWindow.length < kDriveWarmupMinSamples) {
+        return false;
+      }
+
+      if (_windowDisplacementM() < kDriveWarmupMinDisplacementM) {
+        return false;
+      }
+
+      if (_consecutiveDriveCount < 2) {
+        return false;
+      }
+
+      _consecutiveWalkCount = 0;
+      _consecutiveDriveCount = 0;
+      return true;
+    }
+
+    _consecutiveWalkCount = 0;
+    _consecutiveDriveCount = 0;
+    return true;
   }
 
   /// Classify from speed only (for background / iOS). Uses same thresholds and hysteresis.
@@ -239,6 +307,13 @@ class MovementClassificationService {
     if (avgKmh == null) return lastSegmentKmh;
     if (lastSegmentKmh == null) return avgKmh;
     return avgKmh > lastSegmentKmh ? avgKmh : lastSegmentKmh;
+  }
+
+  double _windowDisplacementM() {
+    if (_locationWindow.length < 2) return 0.0;
+    final first = _locationWindow.first;
+    final last = _locationWindow.last;
+    return gl.Geolocator.distanceBetween(first.lat, first.lng, last.lat, last.lng);
   }
 
   String? _speedToClassification(double speedKmh, {bool inBackground = false}) {
