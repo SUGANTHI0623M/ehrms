@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/holiday_model.dart';
+import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 
 class HolidayService {
@@ -38,7 +39,9 @@ class HolidayService {
       }
       return {
         'success': false,
-        'message': body?['error']?['message'] ?? 'Failed to load holidays',
+        'message':
+            ErrorMessageUtils.messageFromResponseData(body) ??
+                'Failed to load holidays',
       };
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
@@ -51,12 +54,7 @@ class HolidayService {
   }
 
   String _dioMessage(DioException e) {
-    final d = e.response?.data;
-    if (d is Map) {
-      return (d['error']?['message'] ?? d['message']) as String? ?? 'Request failed';
-    }
-    if (e.response?.statusCode == 429) return 'Too many requests. Please wait a moment.';
-    return 'Request failed';
+    return ErrorMessageUtils.messageFromDioException(e);
   }
 
   String _handleException(dynamic error) {

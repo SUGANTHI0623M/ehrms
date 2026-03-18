@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/constants.dart';
+import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 
 class GrievanceService {
@@ -19,14 +20,7 @@ class GrievanceService {
   }
 
   String _dioMessage(DioException e) {
-    final d = e.response?.data;
-    if (d is Map) {
-      return (d['message'] ?? d['error']?['message']) as String? ?? 'Request failed';
-    }
-    if (e.response?.statusCode == 429) {
-      return 'Too many requests. Please wait a moment.';
-    }
-    return 'Request failed';
+    return ErrorMessageUtils.messageFromDioException(e);
   }
 
   Future<Map<String, dynamic>> getCategories() async {

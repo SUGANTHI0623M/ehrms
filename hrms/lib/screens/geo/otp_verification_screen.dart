@@ -3,10 +3,10 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/services/geo/address_resolution_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
 import 'package:hrms/utils/snackbar_utils.dart';
@@ -135,16 +135,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         );
         lat = pos.latitude;
         lng = pos.longitude;
-        final placemarks = await placemarkFromCoordinates(lat, lng);
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          fullAddress = [
-            p.street,
-            p.locality,
-            p.administrativeArea,
-            p.country,
-          ].where((e) => e != null && e.isNotEmpty).join(', ');
-        }
+        fullAddress =
+            (await AddressResolutionService.reverseGeocode(lat, lng))
+                ?.formattedAddress;
       } catch (_) {}
       await TaskService().verifyOtp(
         widget.taskMongoId!,

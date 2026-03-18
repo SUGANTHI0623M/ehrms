@@ -14,6 +14,7 @@ const trackingSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
   batteryPercent: { type: Number },
   movementType: { type: String }, // drive | walk | stop
+  accuracy: { type: Number }, // horizontal accuracy (meters) from device GPS
   destinationLat: { type: Number },
   destinationLng: { type: Number },
   address: { type: String }, // Reverse-geocoded from lat/lng
@@ -23,12 +24,12 @@ const trackingSchema = new mongoose.Schema({
   pincode: { type: String },
   // Exit ride
   exitStatus: { type: String }, // "exited"
-  // Arrived
-  status: { type: String }, // "arrived"
+  // Arrived / app session
+  status: { type: String }, // "arrived" | "app_closed" | "in_progress" | "active" | "inactive"
   time: { type: Date },
   exitReason: { type: String },
   exitedAt: { type: Date },
-  presenceStatus: { type: String, enum: ['in_office', 'task', 'out_of_office'] }, // based on task status + branch geofence
+  presenceStatus: { type: String, enum: ['in_office', 'task', 'out_of_office', 'app_closed'] }, // based on task status + branch geofence
 }, { timestamps: true });
 
 trackingSchema.index({ staffId: 1, timestamp: -1 });

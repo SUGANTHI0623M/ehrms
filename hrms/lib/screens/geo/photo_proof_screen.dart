@@ -1,10 +1,10 @@
-// Photo proof screen – tap to take photo, add description, upload to Cloudinary.
+// Photo proof screen – tap to take photo, add description, upload via API (Digital Ocean).
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/task.dart';
+import 'package:hrms/services/geo/address_resolution_service.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/error_message_utils.dart';
 import 'package:image_picker/image_picker.dart';
@@ -84,16 +84,9 @@ class _PhotoProofScreenState extends State<PhotoProofScreen> {
         );
         lat = pos.latitude;
         lng = pos.longitude;
-        final placemarks = await placemarkFromCoordinates(lat, lng);
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          fullAddress = [
-            p.street,
-            p.locality,
-            p.administrativeArea,
-            p.country,
-          ].where((e) => e != null && e.isNotEmpty).join(', ');
-        }
+        fullAddress =
+            (await AddressResolutionService.reverseGeocode(lat, lng))
+                ?.formattedAddress;
       } catch (_) {}
       await TaskService().uploadPhotoProof(
         widget.taskMongoId!,

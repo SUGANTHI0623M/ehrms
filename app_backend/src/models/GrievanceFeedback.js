@@ -7,6 +7,4 @@ const grievanceFeedbackSchema = new mongoose.Schema({
     submittedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
-grievanceFeedbackSchema.index({ grievanceId: 1 });
-
 module.exports = mongoose.model('GrievanceFeedback', grievanceFeedbackSchema);

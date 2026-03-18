@@ -9,6 +9,7 @@ import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/customer.dart';
 import 'package:hrms/models/task.dart';
 import 'package:hrms/services/customer_service.dart';
+import 'package:hrms/services/geo/address_resolution_service.dart';
 import 'package:hrms/services/geo/places_service.dart';
 import 'package:hrms/screens/geo/start_ride_screen.dart';
 
@@ -150,16 +151,10 @@ class _SelectSourceDestinationScreenState
 
   Future<void> _reverseGeocodeSourceAt(double lat, double lng) async {
     try {
-      final placemarks = await placemarkFromCoordinates(lat, lng);
-      if (mounted && placemarks.isNotEmpty) {
-        final p = placemarks.first;
+      final resolved = await AddressResolutionService.reverseGeocode(lat, lng);
+      if (mounted && resolved != null) {
         setState(() {
-          _sourceAddress = [
-            p.street,
-            p.locality,
-            p.administrativeArea,
-            p.country,
-          ].where((e) => e != null && e.isNotEmpty).join(', ');
+          _sourceAddress = resolved.formattedAddress;
           if (_sourceAddress.isEmpty) _sourceAddress = 'Your current location';
         });
       }

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:hrms/config/constants.dart';
 import 'package:hrms/models/task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
@@ -274,6 +275,11 @@ class TaskService {
     double lng, {
     int? batteryPercent,
     String? movementType,
+    String? address,
+    String? fullAddress,
+    String? city,
+    String? area,
+    String? pincode,
   }) async {
     await _setToken();
     final body = <String, dynamic>{
@@ -283,6 +289,13 @@ class TaskService {
     };
     if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
     if (movementType != null) body['movementType'] = movementType;
+    if (address != null && address.isNotEmpty) body['address'] = address;
+    if (fullAddress != null && fullAddress.isNotEmpty) {
+      body['fullAddress'] = fullAddress;
+    }
+    if (city != null && city.isNotEmpty) body['city'] = city;
+    if (area != null && area.isNotEmpty) body['area'] = area;
+    if (pincode != null && pincode.isNotEmpty) body['pincode'] = pincode;
     await _api.dio.post<dynamic>('/tasks/$taskMongoId/location', data: body);
   }
 
@@ -297,6 +310,11 @@ class TaskService {
     String? movementType,
     double? destinationLat,
     double? destinationLng,
+    String? address,
+    String? fullAddress,
+    String? city,
+    String? area,
+    String? pincode,
   }) async {
     await _setToken();
     final body = <String, dynamic>{
@@ -309,7 +327,31 @@ class TaskService {
     if (movementType != null) body['movementType'] = movementType;
     if (destinationLat != null) body['destinationLat'] = destinationLat;
     if (destinationLng != null) body['destinationLng'] = destinationLng;
-    await _api.dio.post<dynamic>('/tracking/store', data: body);
+    if (address != null && address.isNotEmpty) body['address'] = address;
+    if (fullAddress != null && fullAddress.isNotEmpty) {
+      body['fullAddress'] = fullAddress;
+    }
+    if (city != null && city.isNotEmpty) body['city'] = city;
+    if (area != null && area.isNotEmpty) body['area'] = area;
+    if (pincode != null && pincode.isNotEmpty) body['pincode'] = pincode;
+    try {
+      await _api.dio.post<dynamic>('/tracking/store', data: body);
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] task_store OK (fg) taskId=$taskMongoId '
+          'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
+          'movement=${movementType ?? "—"}',
+        );
+      }
+    } on DioException catch (e) {
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] task_store FAIL (fg) taskId=$taskMongoId '
+          '${e.response?.statusCode} ${e.response?.data}',
+        );
+      }
+      rethrow;
+    }
   }
 
   /// Update task progress steps (reachedLocation, photoProof, formFilled, otpVerified).

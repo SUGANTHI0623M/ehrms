@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart' hide Location;
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hrms/config/app_colors.dart';
 import 'package:hrms/models/location_data.dart';
 import 'package:hrms/models/tracking_event.dart';
+import 'package:hrms/services/geo/address_resolution_service.dart';
+import 'package:hrms/services/geo/accurate_location_helper.dart';
 import 'package:hrms/services/geo/directions_service.dart';
 import 'package:hrms/services/geo/location_service.dart'
     show LocationService, GeofenceEvent;
@@ -86,6 +87,44 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   final List<TrackingEvent> _trackingEvents = [];
 
   Location? _lastLocation;
+  ResolvedAddress? _lastResolvedTrackingAddress;
+  double? _lastResolvedTrackingLat;
+  double? _lastResolvedTrackingLng;
+
+  int _addressDetailScore(ResolvedAddress? address) {
+    if (address == null) return -1;
+    final text = address.formattedAddress.trim();
+    if (text.isEmpty) return -1;
+
+    var score = 0;
+    if (address.area != null && address.area!.trim().isNotEmpty) score += 2;
+    if (address.city != null && address.city!.trim().isNotEmpty) score += 1;
+    if (address.pincode != null && address.pincode!.trim().isNotEmpty) score += 1;
+    if (RegExp(r'\d').hasMatch(text)) score += 2;
+    if (RegExp(r'\b(road|rd|street|st|lane|ln|nagar|main)\b', caseSensitive: false)
+        .hasMatch(text)) {
+      score += 2;
+    }
+    score += ','.allMatches(text).length.clamp(0, 3);
+    return score;
+  }
+
+  bool _hasDetailedTrackingAddress(ResolvedAddress? address) {
+    return _addressDetailScore(address) >= 5;
+  }
+
+  Future<gl.Position> _captureTrackingPosition() {
+    // Match attendance-style capture until we have a strong road-level address.
+    if (_hasDetailedTrackingAddress(_lastResolvedTrackingAddress)) {
+      return getPositionForTrackings(
+        primaryTimeout: const Duration(seconds: 8),
+        sampleWindow: const Duration(seconds: 2),
+        stopEarlyWhenAccuracyMeters: 10,
+        maxSamples: 8,
+      );
+    }
+    return getAccuratePositionForUi();
+  }
 
   String _currentActivity = "Standing";
 
@@ -109,6 +148,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   final bool _otpVerified = false;
   bool _updatingSteps = false;
   bool _submittingArrived = false;
+
   /// True once arrived has been successfully sent; keeps Arrived button disabled.
   bool _arrivedSent = false;
   Timer? _locationUploadTimer;
@@ -286,9 +326,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     double lng;
     double? accuracyM;
     try {
-      final pos = await gl.Geolocator.getCurrentPosition(
-        desiredAccuracy: gl.LocationAccuracy.high,
-      );
+      final pos = await _captureTrackingPosition();
       lat = pos.latitude;
       lng = pos.longitude;
       accuracyM = pos.accuracy;
@@ -307,6 +345,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     try {
       battery = await Battery().batteryLevel;
     } catch (_) {}
+    final resolvedAddress = await _resolveTrackingAddress(lat, lng);
     final movementType = MovementClassificationService().addLocationAndClassify(
       lat: lat,
       lng: lng,
@@ -322,6 +361,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           lng,
           batteryPercent: battery,
           movementType: movementType,
+          address: resolvedAddress?.formattedAddress,
+          fullAddress: resolvedAddress?.formattedAddress,
+          city: resolvedAddress?.city ?? resolvedAddress?.state,
+          area: resolvedAddress?.area,
+          pincode: resolvedAddress?.pincode,
         )
         .catchError((e) {});
     taskSvc
@@ -333,6 +377,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           movementType: movementType,
           destinationLat: _dropoffLatLng.latitude,
           destinationLng: _dropoffLatLng.longitude,
+          address: resolvedAddress?.formattedAddress,
+          fullAddress: resolvedAddress?.formattedAddress,
+          city: resolvedAddress?.city ?? resolvedAddress?.state,
+          area: resolvedAddress?.area,
+          pincode: resolvedAddress?.pincode,
         )
         .then((_) {
           final classifier = MovementClassificationService();
@@ -345,6 +394,48 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           _syncPendingDestinationIfAny();
         })
         .catchError((e) {});
+  }
+
+  Future<ResolvedAddress?> _resolveTrackingAddress(
+    double lat,
+    double lng,
+  ) async {
+    final cached = _lastResolvedTrackingAddress;
+    if (_lastResolvedTrackingAddress != null &&
+        _lastResolvedTrackingLat != null &&
+        _lastResolvedTrackingLng != null) {
+      final distance = gl.Geolocator.distanceBetween(
+        _lastResolvedTrackingLat!,
+        _lastResolvedTrackingLng!,
+        lat,
+        lng,
+      );
+      if (distance <= 30 && _hasDetailedTrackingAddress(cached)) {
+        return cached;
+      }
+    }
+
+    final resolved = await AddressResolutionService.reverseGeocode(lat, lng);
+    final resolvedScore = _addressDetailScore(resolved);
+    final cachedScore = _addressDetailScore(cached);
+    final bestResolved =
+        cachedScore > resolvedScore && cached != null ? cached : resolved;
+
+    if (bestResolved != null) {
+      _lastResolvedTrackingAddress = bestResolved;
+      _lastResolvedTrackingLat = lat;
+      _lastResolvedTrackingLng = lng;
+      await LiveTrackingService.persistResolvedAddress(
+        lat,
+        lng,
+        address: bestResolved.formattedAddress,
+        fullAddress: bestResolved.formattedAddress,
+        city: bestResolved.city ?? bestResolved.state,
+        area: bestResolved.area,
+        pincode: bestResolved.pincode,
+      );
+    }
+    return bestResolved;
   }
 
   TrackingEventType _movementTypeToEventType(String movementType) {
@@ -420,18 +511,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
 
   Future<void> _reverseGeocodeDropoff(double lat, double lng) async {
     try {
-      final placemarks = await placemarkFromCoordinates(lat, lng);
-      if (mounted && placemarks.isNotEmpty) {
-        final p = placemarks.first;
+      final resolved = await AddressResolutionService.reverseGeocode(lat, lng);
+      if (mounted && resolved != null) {
         setState(() {
-          _dropoffAddress = [
-            p.street,
-            p.subAdministrativeArea,
-            p.locality,
-            p.administrativeArea,
-            p.postalCode,
-            p.country,
-          ].where((e) => e != null && e.isNotEmpty).join(', ');
+          _dropoffAddress = resolved.formattedAddress;
         });
       } else if (mounted) {
         setState(
@@ -877,10 +960,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             'fullAddress': sourceAddress,
           },
         );
-        if (mounted) setState(() {
-          _reachedLocation = true;
-          _arrivedSent = true;
-        });
+        if (mounted)
+          setState(() {
+            _reachedLocation = true;
+            _arrivedSent = true;
+          });
         await LiveTrackingService().stopTracking();
       } catch (_) {
         if (mounted) setState(() => _submittingArrived = false);
@@ -892,18 +976,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     String? arrivalAddr;
     if (lat != null && lng != null) {
       try {
-        final placemarks = await placemarkFromCoordinates(lat, lng);
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          arrivalAddr = [
-            p.street,
-            p.subAdministrativeArea,
-            p.locality,
-            p.administrativeArea,
-            p.postalCode,
-            p.country,
-          ].where((e) => e != null && e.isNotEmpty).join(', ');
-        }
+        arrivalAddr = (await AddressResolutionService.reverseGeocode(
+          lat,
+          lng,
+        ))?.formattedAddress;
       } catch (_) {}
       arrivalAddr ??= '${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}';
     }
@@ -1194,7 +1270,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                onPressed: (_submittingArrived || _arrivedSent) ? null : _onArrived,
+                onPressed: (_submittingArrived || _arrivedSent)
+                    ? null
+                    : _onArrived,
                 icon: _submittingArrived
                     ? const SizedBox(
                         width: 18,
@@ -1205,12 +1283,16 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                         ),
                       )
                     : Icon(
-                        _arrivedSent ? Icons.check_circle_rounded : Icons.location_on_rounded,
+                        _arrivedSent
+                            ? Icons.check_circle_rounded
+                            : Icons.location_on_rounded,
                         color: Colors.white,
                         size: 18,
                       ),
                 label: Text(
-                  _arrivedSent ? 'Arrived' : (_submittingArrived ? 'Submitting...' : 'Arrived'),
+                  _arrivedSent
+                      ? 'Arrived'
+                      : (_submittingArrived ? 'Submitting...' : 'Arrived'),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

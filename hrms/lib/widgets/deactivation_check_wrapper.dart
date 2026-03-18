@@ -8,6 +8,7 @@ import '../bloc/auth/auth_bloc.dart';
 import '../screens/auth/login_screen.dart';
 import '../services/auth_service.dart';
 import '../services/fcm_service.dart';
+import '../services/presence_tracking_service.dart';
 
 class DeactivationCheckWrapper extends StatefulWidget {
   const DeactivationCheckWrapper({
@@ -45,8 +46,14 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _scheduleNextCheck();
-      // Re-sync FCM token so backend has current token after reinstall/refresh
       FcmService.sendTokenToBackend();
+      // Resume presence tracking 5-min timer and insert one "active" record (works from any screen).
+      PresenceTrackingService().recordAppOpened();
+      PresenceTrackingService().onAppLifecycleResumed();
+    } else if (state == AppLifecycleState.detached) {
+      PresenceTrackingService().recordAppClosed();
+      _timer?.cancel();
+      _timer = null;
     } else {
       _timer?.cancel();
       _timer = null;

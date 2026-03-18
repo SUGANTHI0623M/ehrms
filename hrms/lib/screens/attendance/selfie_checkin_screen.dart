@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'selfie_camera_screen.dart' show SelfieCameraScreen, useImagePickerFallback;
 import 'package:permission_handler/permission_handler.dart';
@@ -12,6 +11,8 @@ import '../../config/app_colors.dart';
 import '../../config/constants.dart';
 import '../../services/auth_service.dart';
 import '../../services/attendance_template_store.dart';
+import '../../services/geo/address_resolution_service.dart';
+import '../../services/geo/accurate_location_helper.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
@@ -300,6 +301,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     } else if (state is AttendanceCheckInSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);
+      await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
       final userName = await _authService.getCurrentUserName();
       if (!mounted) return;
       final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
@@ -386,44 +388,20 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
 
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      final position = await getAccuratePositionForUi();
 
       _position = position;
 
-      // Reverse Geocoding
-      List<Placemark> placemarks = await placemarkFromCoordinates(
+      final resolved = await AddressResolutionService.reverseGeocode(
         position.latitude,
         position.longitude,
       );
 
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        _area = place.subLocality ?? place.locality ?? place.name;
-        _city = place.locality ?? place.administrativeArea;
-        _pincode = place.postalCode;
-
-        List<String> parts = [];
-        if (place.name != null && place.name!.isNotEmpty) {
-          parts.add(place.name!);
-        }
-        if (place.street != null &&
-            place.street!.isNotEmpty &&
-            place.street != place.name) {
-          parts.add(place.street!);
-        }
-        if (place.subLocality != null && place.subLocality!.isNotEmpty) {
-          parts.add(place.subLocality!);
-        }
-        if (place.locality != null && place.locality!.isNotEmpty) {
-          parts.add(place.locality!);
-        }
-        if (place.postalCode != null && place.postalCode!.isNotEmpty) {
-          parts.add(place.postalCode!);
-        }
-
-        _address = parts.join(', ');
+      if (resolved != null) {
+        _area = resolved.area;
+        _city = resolved.city ?? resolved.state;
+        _pincode = resolved.pincode;
+        _address = resolved.formattedAddress;
       } else {
         _address = 'Lat: ${position.latitude}, Lng: ${position.longitude}';
       }

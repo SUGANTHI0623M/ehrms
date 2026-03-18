@@ -201,16 +201,9 @@ async function mergeTaskWithDetails(taskDoc) {
   merged.status = normalizeStatusForApp(merged.status);
   return merged;
 }
-const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const { sendTaskOtpEmail } = require('../services/emailService');
 const digitalOceanService = require('../services/digitalOceanService');
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 /** Normalize date fields in request body for correct UTC storage. */
 function normalizeTaskBody(body) {
@@ -823,7 +816,7 @@ exports.getTrackingPath = async (req, res) => {
   }
 };
 
-// POST /tasks/:id/photo – upload photo proof to Digital Ocean (employees/.../documents/tasks-proof) or Cloudinary fallback.
+// POST /tasks/:id/photo – upload photo proof to Digital Ocean only (employees/.../documents/tasks-proof).
 exports.uploadPhotoProof = async (req, res) => {
   try {
     const taskId = req.params.id;
@@ -839,7 +832,6 @@ exports.uploadPhotoProof = async (req, res) => {
     const buffer = fs.readFileSync(file.path);
     const format = file.mimetype?.includes('png') ? 'png' : 'jpg';
 
-    let photoUrl;
     const doResult = await digitalOceanService.uploadImage(buffer, undefined, {
       req,
       companyId: companyId ? String(companyId) : undefined,
@@ -848,28 +840,23 @@ exports.uploadPhotoProof = async (req, res) => {
       subfolder: 'documents/tasks-proof',
       format,
     });
-    if (doResult.success) {
-      photoUrl = doResult.url;
-    }
-    if (!photoUrl) {
-      let uploadResult;
-      try {
-        uploadResult = await cloudinary.uploader.upload(file.path, {
-          folder: 'hrms/task-photos',
-          resource_type: 'image',
-          public_id: `task_${taskId}_${Date.now()}`,
-        });
-        photoUrl = uploadResult?.secure_url;
-      } catch (uploadErr) {
-        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        return res.status(500).json({ message: 'Photo upload failed: ' + (doResult?.error || uploadErr.message) });
+    if (!doResult.success || !doResult.url) {
+      if (file.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (e) {
+          /* ignore */
+        }
       }
+      const errMsg = doResult.error || 'Digital Ocean upload failed';
+      return res.status(500).json({
+        message:
+          `Photo upload failed: ${errMsg}. Configure DIGITAL_OCEAN_ACCESS_KEY, DIGITAL_OCEAN_SECRET_KEY, and bucket (see server logs).`,
+      });
     }
+    const photoUrl = doResult.url;
     if (file.path && fs.existsSync(file.path)) {
       try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
-    }
-    if (!photoUrl) {
-      return res.status(500).json({ message: 'Photo upload failed' });
     }
     const { lat, lng, fullAddress } = req.body;
     const details = await TaskDetails.findOne({ taskId: task._id }).lean();

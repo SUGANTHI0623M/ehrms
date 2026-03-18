@@ -21,6 +21,19 @@ const DIGITAL_OCEAN_SECRET_KEY = process.env.DIGITAL_OCEAN_SECRET_KEY;
 const DIGITAL_OCEAN_REGION = process.env.DIGITAL_OCEAN_REGION || 'blr1';
 const DIGITAL_OCEAN_ENDPOINT = process.env.DIGITAL_OCEAN_ENDPOINT || `https://${process.env.DIGITAL_OCEAN_REGION || 'blr1'}.digitaloceanspaces.com`;
 const BUCKET_NAME = process.env.DIGITAL_OCEAN_BUCKET_NAME || 'hrms-storage';
+/** When false, upload without object ACL (required if bucket has "ACLs disabled"). */
+const USE_OBJECT_ACL = process.env.DIGITAL_OCEAN_USE_OBJECT_ACL !== '0'
+  && process.env.DIGITAL_OCEAN_USE_OBJECT_ACL !== 'false';
+
+function shouldRetryUploadWithoutAcl(err) {
+  const msg = String(err?.message || err?.Code || '').toLowerCase();
+  const name = String(err?.name || '');
+  return name === 'AccessControlListNotSupported'
+    || msg.includes('acl')
+    || msg.includes('does not allow')
+    || msg.includes('bucketownerforced')
+    || msg.includes('access control list');
+}
 
 // Validate required environment variables
 if (!DIGITAL_OCEAN_ACCESS_KEY || !DIGITAL_OCEAN_SECRET_KEY) {
@@ -141,16 +154,32 @@ async function uploadBuffer(buffer, options = {}) {
       key = `${baseFolder}/${secureFileName}`;
     }
 
-    await s3Client.send(new PutObjectCommand({
+    const basePut = {
       Bucket: BUCKET_NAME,
       Key: key,
       Body: buffer,
       ContentType: contentType,
       Metadata: metadata,
-      ACL: 'public-read',
-    }));
+    };
+    try {
+      if (USE_OBJECT_ACL) {
+        await s3Client.send(new PutObjectCommand({ ...basePut, ACL: 'public-read' }));
+      } else {
+        await s3Client.send(new PutObjectCommand(basePut));
+      }
+    } catch (firstErr) {
+      if (USE_OBJECT_ACL && shouldRetryUploadWithoutAcl(firstErr)) {
+        console.warn('[DigitalOceanService] Retrying upload without object ACL (bucket may disallow ACLs)');
+        await s3Client.send(new PutObjectCommand(basePut));
+      } else {
+        throw firstErr;
+      }
+    }
 
-    const url = `https://${BUCKET_NAME}.${DIGITAL_OCEAN_REGION}.digitaloceanspaces.com/${key}`;
+    const cdnBase = (process.env.DIGITAL_OCEAN_SPACES_CDN_URL || '').replace(/\/+$/, '');
+    const url = cdnBase
+      ? `${cdnBase}/${key}`
+      : `https://${BUCKET_NAME}.${DIGITAL_OCEAN_REGION}.digitaloceanspaces.com/${key}`;
     return { success: true, url, key };
   } catch (err) {
     console.error('[DigitalOceanService] Upload error:', err);

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../config/constants.dart';
+import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 
 class AttendanceService {
@@ -108,14 +109,10 @@ class AttendanceService {
   }
 
   String? _dioErrorMessage(DioException e) {
-    final data = e.response?.data;
-    if (data is Map) {
-      return (data['error']?['message'] ?? data['message']) as String?;
-    }
     if (e.response?.statusCode == 429) {
       return 'Too many requests. Please wait a moment.';
     }
-    return null;
+    return ErrorMessageUtils.messageFromResponseData(e.response?.data);
   }
 
   Future<Map<String, dynamic>> checkOut(

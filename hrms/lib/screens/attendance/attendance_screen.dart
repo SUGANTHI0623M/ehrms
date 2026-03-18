@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../config/app_colors.dart';
@@ -14,6 +13,9 @@ import '../../widgets/menu_icon_button.dart';
 import '../../services/attendance_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/attendance_template_store.dart';
+import '../../services/geo/address_resolution_service.dart';
+import '../../services/geo/accurate_location_helper.dart';
+import '../../services/presence_tracking_service.dart';
 import '../../utils/attendance_display_util.dart';
 import '../../utils/face_detection_helper.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
@@ -3803,6 +3805,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             final userName = await _authService.getCurrentUserName();
             if (mounted) {
               if (state is AttendanceCheckInSuccess) {
+                await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
                 final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
                 await AttendanceSuccessOverlay.show(
                   context,
@@ -3813,6 +3816,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   snackbarMessage: overlayContent.message,
                 );
               } else {
+                await PresenceTrackingService().ensureTrackingIfPunchedIn(false);
                 await AttendanceSuccessOverlay.show(
                   context,
                   isCheckIn: false,
@@ -3990,29 +3994,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           pincode: null,
         );
       }
-      position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      final placemarks = await placemarkFromCoordinates(
+      position = await getAccuratePositionForUi();
+      final resolved = await AddressResolutionService.reverseGeocode(
         position.latitude,
         position.longitude,
       );
-      if (placemarks.isNotEmpty) {
-        final p = placemarks[0];
-        area = p.subLocality ?? p.locality ?? p.name;
-        city = p.locality ?? p.administrativeArea;
-        pincode = p.postalCode;
-        final parts = <String>[];
-        if (p.name != null && p.name!.isNotEmpty) parts.add(p.name!);
-        if (p.street != null && p.street!.isNotEmpty && p.street != p.name)
-          parts.add(p.street!);
-        if (p.subLocality != null && p.subLocality!.isNotEmpty)
-          parts.add(p.subLocality!);
-        if (p.locality != null && p.locality!.isNotEmpty)
-          parts.add(p.locality!);
-        if (p.postalCode != null && p.postalCode!.isNotEmpty)
-          parts.add(p.postalCode!);
-        address = parts.join(', ');
+      if (resolved != null) {
+        area = resolved.area;
+        city = resolved.city ?? resolved.state;
+        pincode = resolved.pincode;
+        address = resolved.formattedAddress;
       } else {
         address = 'Lat: ${position.latitude}, Lng: ${position.longitude}';
       }

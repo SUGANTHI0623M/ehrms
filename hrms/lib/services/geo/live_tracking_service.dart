@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart' as gl;
 import '../../config/constants.dart';
+import 'address_resolution_service.dart';
 import 'movement_classification_service.dart';
 
 /// Persists active live tracking state and sends tracking in background.
@@ -24,6 +25,17 @@ class LiveTrackingService {
   static const _keyLastSentTime = 'live_tracking_last_sent_time';
   static const _keyLastMovementType = 'live_tracking_last_movement_type';
   static const _keyConsecutiveLowSpeed = 'live_tracking_consecutive_low_speed';
+  static const _keyLastResolvedAddressLat =
+      'live_tracking_last_resolved_address_lat';
+  static const _keyLastResolvedAddressLng =
+      'live_tracking_last_resolved_address_lng';
+  static const _keyLastResolvedAddress = 'live_tracking_last_resolved_address';
+  static const _keyLastResolvedFullAddress =
+      'live_tracking_last_resolved_full_address';
+  static const _keyLastResolvedCity = 'live_tracking_last_resolved_city';
+  static const _keyLastResolvedArea = 'live_tracking_last_resolved_area';
+  static const _keyLastResolvedPincode =
+      'live_tracking_last_resolved_pincode';
 
   static final LiveTrackingService _instance = LiveTrackingService._internal();
   factory LiveTrackingService() => _instance;
@@ -51,10 +63,7 @@ class LiveTrackingService {
     await prefs.setString(_keyBaseUrl, AppConstants.baseUrl);
     await prefs.setDouble(_keyLastSentLat, pickupLat);
     await prefs.setDouble(_keyLastSentLng, pickupLng);
-    await prefs.setInt(
-      _keyLastSentTime,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+    await prefs.setInt(_keyLastSentTime, DateTime.now().millisecondsSinceEpoch);
     final token = prefs.getString('token');
     if (token != null) {
       await prefs.setString(_keyToken, token);
@@ -79,11 +88,22 @@ class LiveTrackingService {
     await prefs.remove(_keyLastSentTime);
     await prefs.remove(_keyLastMovementType);
     await prefs.remove(_keyConsecutiveLowSpeed);
+    await prefs.remove(_keyLastResolvedAddressLat);
+    await prefs.remove(_keyLastResolvedAddressLng);
+    await prefs.remove(_keyLastResolvedAddress);
+    await prefs.remove(_keyLastResolvedFullAddress);
+    await prefs.remove(_keyLastResolvedCity);
+    await prefs.remove(_keyLastResolvedArea);
+    await prefs.remove(_keyLastResolvedPincode);
   }
 
   /// Persist last sent position and movement state for background hysteresis.
-  static Future<void> persistLastSentPosition(double lat, double lng,
-      {String? movementType, int consecutiveLowSpeed = 0}) async {
+  static Future<void> persistLastSentPosition(
+    double lat,
+    double lng, {
+    String? movementType,
+    int consecutiveLowSpeed = 0,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(_keyActive) != true) return;
@@ -98,6 +118,60 @@ class LiveTrackingService {
         await prefs.setInt(_keyConsecutiveLowSpeed, consecutiveLowSpeed);
       }
     } catch (_) {}
+  }
+
+  static Future<void> persistResolvedAddress(
+    double lat,
+    double lng, {
+    String? address,
+    String? fullAddress,
+    String? city,
+    String? area,
+    String? pincode,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_keyActive) != true) return;
+      await prefs.setDouble(_keyLastResolvedAddressLat, lat);
+      await prefs.setDouble(_keyLastResolvedAddressLng, lng);
+      if (address != null && address.isNotEmpty) {
+        await prefs.setString(_keyLastResolvedAddress, address);
+      }
+      if (fullAddress != null && fullAddress.isNotEmpty) {
+        await prefs.setString(_keyLastResolvedFullAddress, fullAddress);
+      }
+      if (city != null && city.isNotEmpty) {
+        await prefs.setString(_keyLastResolvedCity, city);
+      }
+      if (area != null && area.isNotEmpty) {
+        await prefs.setString(_keyLastResolvedArea, area);
+      }
+      if (pincode != null && pincode.isNotEmpty) {
+        await prefs.setString(_keyLastResolvedPincode, pincode);
+      }
+    } catch (_) {}
+  }
+
+  static int _addressDetailScore(Map<String, String?> address) {
+    final formatted =
+        (address['fullAddress'] ?? address['address'] ?? '').trim();
+    if (formatted.isEmpty) return -1;
+
+    var score = 0;
+    if ((address['area'] ?? '').trim().isNotEmpty) score += 2;
+    if ((address['city'] ?? '').trim().isNotEmpty) score += 1;
+    if ((address['pincode'] ?? '').trim().isNotEmpty) score += 1;
+    if (RegExp(r'\d').hasMatch(formatted)) score += 2;
+    if (RegExp(r'\b(road|rd|street|st|lane|ln|nagar|main)\b', caseSensitive: false)
+        .hasMatch(formatted)) {
+      score += 2;
+    }
+    score += ','.allMatches(formatted).length.clamp(0, 3);
+    return score;
+  }
+
+  static bool _hasDetailedAddress(Map<String, String?> address) {
+    return _addressDetailScore(address) >= 5;
   }
 
   /// Check if live tracking is active.
@@ -152,8 +226,16 @@ class LiveTrackingService {
       final consecutiveLow = prefs.getInt(_keyConsecutiveLowSpeed) ?? 0;
 
       double avgSpeedKmh = 0.0;
-      if (lastLat != null && lastLng != null && lastTimeMs != null && lastTimeMs > 0) {
-        final distanceM = gl.Geolocator.distanceBetween(lastLat, lastLng, lat, lng);
+      if (lastLat != null &&
+          lastLng != null &&
+          lastTimeMs != null &&
+          lastTimeMs > 0) {
+        final distanceM = gl.Geolocator.distanceBetween(
+          lastLat,
+          lastLng,
+          lat,
+          lng,
+        );
         final nowMs = DateTime.now().millisecondsSinceEpoch;
         final elapsedSec = (nowMs - lastTimeMs) / 1000.0;
         if (elapsedSec > 0.1) {
@@ -162,16 +244,22 @@ class LiveTrackingService {
         }
       }
 
-      String resolvedMovementType = MovementClassificationService.classifyFromSpeedOnly(
-        avgSpeedKmh: avgSpeedKmh,
-        lastMovementType: lastMovement,
-        inBackground: true,
-        consecutiveLowSpeed: consecutiveLow,
-      );
+      String resolvedMovementType =
+          MovementClassificationService.classifyFromSpeedOnly(
+            avgSpeedKmh: avgSpeedKmh,
+            lastMovementType: lastMovement,
+            inBackground: true,
+            consecutiveLowSpeed: consecutiveLow,
+          );
       int nextConsecutive = avgSpeedKmh <= 1.0 ? (consecutiveLow + 1) : 0;
 
       final destinationLat = prefs.getDouble(_keyDropoffLat);
       final destinationLng = prefs.getDouble(_keyDropoffLng);
+      final resolvedAddress = await _resolveTrackingAddressForBackground(
+        prefs,
+        lat,
+        lng,
+      );
 
       final url = baseUrl.replaceAll(RegExp(r'/$'), '');
       final uri = Uri.parse('$url/tracking/store');
@@ -185,6 +273,21 @@ class LiveTrackingService {
       body['movementType'] = resolvedMovementType;
       if (destinationLat != null) body['destinationLat'] = destinationLat;
       if (destinationLng != null) body['destinationLng'] = destinationLng;
+      if ((resolvedAddress['address'] ?? '').toString().isNotEmpty) {
+        body['address'] = resolvedAddress['address'];
+      }
+      if ((resolvedAddress['fullAddress'] ?? '').toString().isNotEmpty) {
+        body['fullAddress'] = resolvedAddress['fullAddress'];
+      }
+      if ((resolvedAddress['city'] ?? '').toString().isNotEmpty) {
+        body['city'] = resolvedAddress['city'];
+      }
+      if ((resolvedAddress['area'] ?? '').toString().isNotEmpty) {
+        body['area'] = resolvedAddress['area'];
+      }
+      if ((resolvedAddress['pincode'] ?? '').toString().isNotEmpty) {
+        body['pincode'] = resolvedAddress['pincode'];
+      }
 
       final response = await http.post(
         uri,
@@ -195,6 +298,13 @@ class LiveTrackingService {
         body: jsonEncode(body),
       );
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (kDebugMode && AppConstants.logTrackingsToConsole) {
+          debugPrint(
+            '[Trackings] task_store OK taskId=$taskMongoId '
+            'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
+            'movement=$resolvedMovementType acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m',
+          );
+        }
         await prefs.setDouble(_keyLastSentLat, lat);
         await prefs.setDouble(_keyLastSentLng, lng);
         await prefs.setInt(
@@ -203,9 +313,81 @@ class LiveTrackingService {
         );
         await prefs.setString(_keyLastMovementType, resolvedMovementType);
         await prefs.setInt(_keyConsecutiveLowSpeed, nextConsecutive);
+      } else if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] task_store FAIL ${response.statusCode} taskId=$taskMongoId body=${response.body.length > 200 ? "${response.body.substring(0, 200)}..." : response.body}',
+        );
       }
-    } catch (e, st) {
-      // Background tracking error
+    } catch (e) {
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint('[Trackings] task_store error: $e');
+      }
     }
   }
+
+  static Future<Map<String, String?>> _resolveTrackingAddressForBackground(
+    SharedPreferences prefs,
+    double lat,
+    double lng,
+  ) async {
+    final cachedLat = prefs.getDouble(_keyLastResolvedAddressLat);
+    final cachedLng = prefs.getDouble(_keyLastResolvedAddressLng);
+    final cachedAddress = prefs.getString(_keyLastResolvedAddress);
+    final cachedFullAddress = prefs.getString(_keyLastResolvedFullAddress);
+    final cachedCity = prefs.getString(_keyLastResolvedCity);
+    final cachedArea = prefs.getString(_keyLastResolvedArea);
+    final cachedPincode = prefs.getString(_keyLastResolvedPincode);
+
+    final cached = <String, String?>{
+      'address': cachedAddress,
+      'fullAddress': cachedFullAddress,
+      'city': cachedCity,
+      'area': cachedArea,
+      'pincode': cachedPincode,
+    };
+
+    if (cachedLat != null &&
+        cachedLng != null &&
+        ((cachedAddress ?? '').isNotEmpty || (cachedFullAddress ?? '').isNotEmpty)) {
+      final distance = gl.Geolocator.distanceBetween(
+        cachedLat,
+        cachedLng,
+        lat,
+        lng,
+      );
+      if (distance <= 30 && _hasDetailedAddress(cached)) {
+        return cached;
+      }
+    }
+
+    final resolved = await AddressResolutionService.reverseGeocodeWithGoogle(
+      lat,
+      lng,
+    );
+    if (resolved != null && resolved.formattedAddress.isNotEmpty) {
+      final fresh = <String, String?>{
+        'address': resolved.formattedAddress,
+        'fullAddress': resolved.formattedAddress,
+        'city': resolved.city ?? resolved.state,
+        'area': resolved.area,
+        'pincode': resolved.pincode,
+      };
+      if (_addressDetailScore(cached) > _addressDetailScore(fresh)) {
+        return cached;
+      }
+      await persistResolvedAddress(
+        lat,
+        lng,
+        address: fresh['address'],
+        fullAddress: fresh['fullAddress'],
+        city: fresh['city'],
+        area: fresh['area'],
+        pincode: fresh['pincode'],
+      );
+      return fresh;
+    }
+
+    return cached;
+  }
+
 }

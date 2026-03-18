@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/walking_turtle_emoji.dart';
 import '../../config/constants.dart';
@@ -18,6 +17,8 @@ import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/attendance_service.dart';
 import '../../services/attendance_template_store.dart';
 import '../../services/auth_service.dart';
+import '../../services/geo/address_resolution_service.dart';
+import '../../services/geo/accurate_location_helper.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
@@ -37,7 +38,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   late int _currentIndex;
   int _requestsSubTabIndex = 0;
   int _attendanceSubTabIndex = 0;
@@ -51,16 +53,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentIndex = _normalizeTabIndex((widget.initialIndex ?? 0));
-    PresenceTrackingService().startTracking();
     _attendanceService.clearCachesForRefresh();
     _fetchPunchStatusForNavBar();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _dashboardRefreshTrigger.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Presence resume is handled app-wide in DeactivationCheckWrapper so it runs from any screen.
   }
 
   Future<void> _fetchPunchStatusForNavBar() async {
@@ -85,10 +93,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isPunchedInToday = isPunchedIn;
       });
       await _savePunchStateToPrefs(attendance);
+      if (isPunchedIn) {
+        PresenceTrackingService().recordAppOpened();
+      }
+      await PresenceTrackingService().ensureTrackingIfPunchedIn(isPunchedIn);
     } else {
       if (kDebugMode) debugPrint('[Dashboard] _fetchPunchStatusForNavBar: no data => isPunchedInToday=false');
       setState(() => _isPunchedInToday = false);
       await _clearTodayPunchPrefs();
+      await PresenceTrackingService().ensureTrackingIfPunchedIn(false);
     }
   }
 
@@ -165,25 +178,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           permission == LocationPermission.deniedForever) {
         return (position: null, address: '', area: null, city: null, pincode: null);
       }
-      position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      final placemarks = await placemarkFromCoordinates(
+      position = await getAccuratePositionForUi();
+      final resolved = await AddressResolutionService.reverseGeocode(
         position.latitude,
         position.longitude,
       );
-      if (placemarks.isNotEmpty) {
-        final p = placemarks[0];
-        area = p.subLocality ?? p.locality ?? p.name;
-        city = p.locality ?? p.administrativeArea;
-        pincode = p.postalCode;
-        final parts = <String>[];
-        if (p.name != null && p.name!.isNotEmpty) parts.add(p.name!);
-        if (p.street != null && p.street!.isNotEmpty && p.street != p.name) parts.add(p.street!);
-        if (p.subLocality != null && p.subLocality!.isNotEmpty) parts.add(p.subLocality!);
-        if (p.locality != null && p.locality!.isNotEmpty) parts.add(p.locality!);
-        if (p.postalCode != null && p.postalCode!.isNotEmpty) parts.add(p.postalCode!);
-        address = parts.join(', ');
+      if (resolved != null) {
+        area = resolved.area;
+        city = resolved.city ?? resolved.state;
+        pincode = resolved.pincode;
+        address = resolved.formattedAddress;
       } else {
         address = 'Lat: ${position.latitude}, Lng: ${position.longitude}';
       }
@@ -1047,8 +1051,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _isSubmittingFromFingerprint = false;
             if (mounted) Navigator.of(context).pop();
           }
-          await PresenceTrackingService().setTrackingAllowed();
-          PresenceTrackingService().startTracking();
+          await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
           if (mounted) {
             final userName = await _authService.getCurrentUserName();
             if (mounted) {

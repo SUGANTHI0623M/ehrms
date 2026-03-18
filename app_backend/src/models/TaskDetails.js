@@ -91,7 +91,4 @@ const taskDetailsSchema = new mongoose.Schema({
   taskTravelDistance: { type: Array, default: [] }, // [{ segment, endType, distanceKm, endTime }]
 }, { timestamps: true, strict: false });
 
-// Upsert by taskId
-taskDetailsSchema.index({ taskId: 1 }, { unique: true });
-
 module.exports = mongoose.model('TaskDetails', taskDetailsSchema);

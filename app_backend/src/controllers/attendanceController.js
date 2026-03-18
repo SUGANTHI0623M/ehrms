@@ -6,6 +6,7 @@ const AttendanceTemplate = require('../models/AttendanceTemplate'); // Register 
 const WeeklyHolidayTemplate = require('../models/WeeklyHolidayTemplate');
 const Tracking = require('../models/Tracking');
 const { reverseGeocode } = require('../services/geocodingService');
+const { logTrackingWrite } = require('../utils/trackingLogger');
 const { calculateAttendanceStats } = require('./payrollController');
 const { getWeekOffConfigForStaff } = require('../utils/weekOffHelper');
 const digitalOceanService = require('../services/digitalOceanService');
@@ -35,7 +36,7 @@ async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceSt
             }
         }
         const now = new Date();
-        await Tracking.create({
+        const doc = {
             staffId,
             staffName: staffName || undefined,
             latitude: Number(lat),
@@ -47,6 +48,15 @@ async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceSt
             address: address || fullAddress || undefined,
             fullAddress: fullAddress || address || undefined,
             pincode: pincode || undefined,
+        };
+        const created = await Tracking.create(doc);
+        logTrackingWrite('attendance_punch', {
+            _id: String(created._id),
+            staffId: String(staffId),
+            staffName: staffName || undefined,
+            latitude: doc.latitude,
+            longitude: doc.longitude,
+            presenceStatus,
         });
     } catch (e) {
         console.error('[AttendanceTracking] Insert failed:', e.message);

@@ -1,20 +1,19 @@
 // hrms/lib/config/constants.dart
 class AppConstants {
   /// Production API – use for release builds.
-static const String baseUrl = 'https://ehrms.askeva.net/api';
+//static const String baseUrl = 'https://ehrms.askeva.net/api';
 
   /// Local dev – backend on port 9001. Use your machine's IP for physical device.
   /// For LMS (and all) data to match the web for the same user, point [baseUrl]
   /// to the same backend the web frontend uses (e.g. production or same dev server).
-//static const String baseUrl = 'http://192.168.16.104:9001/api';
+static const String baseUrl = 'http://192.168.16.104:9001/api';
 
   // Android emulator: use 10.0.2.2 to reach host
   // stati
 
 
-  /// Google Maps API key for Places and Directions API (road routes).
-  /// If Places/Directions return no data or straight-line only, check key restrictions
-  /// (unrestricted or allow this app's package/bundle ID).
+  /// Google Maps key — enable **Geocoding API** for reverse geocode (lat/lng → address in app).
+  /// Also Maps SDK, Places, Directions as needed. Restrict by app + APIs in Google Cloud Console.
   static const String googleMapsApiKey =
       'AIzaSyBcoj_g5hxrsv3mEJCVF1Uev_JZRcFO0F8';
 
@@ -28,6 +27,9 @@ static const String baseUrl = 'https://ehrms.askeva.net/api';
     if (u.endsWith('/api')) return u.substring(0, u.length - 4);
     return u.replaceAll(RegExp(r'/+$'), '');
   }
+
+  /// Debug console: presence + live task tracking POSTs (flutter run / debug only).
+  static const bool logTrackingsToConsole = true;
 
   /// When true, attendance selfie is verified against profile photo (face matching).
   /// When false, only on-device face detection runs; no server-side face matching.
