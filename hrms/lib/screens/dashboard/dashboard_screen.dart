@@ -45,11 +45,39 @@ class _DashboardScreenState extends State<DashboardScreen>
   int _requestsSubTabIndex = 0;
   int _attendanceSubTabIndex = 0;
   bool _isSubmittingFromFingerprint = false;
+  bool _isPunchActionInProgress = false;
   bool? _isPunchedInToday;
 
   final AttendanceService _attendanceService = AttendanceService();
   final AuthService _authService = AuthService();
   final ValueNotifier<int> _dashboardRefreshTrigger = ValueNotifier<int>(0);
+
+  static bool _hasPunchValue(dynamic value) =>
+      value != null && value.toString().trim().isNotEmpty;
+
+  static Map<String, dynamic>? _extractAttendanceRecord(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final nested = data['data'];
+    if (nested is Map<String, dynamic>) return nested;
+    return data;
+  }
+
+  static bool _isAttendancePunchedIn(Map<String, dynamic>? attendance) {
+    final hasIn = _hasPunchValue(attendance?['punchIn']);
+    final hasOut = _hasPunchValue(attendance?['punchOut']);
+    return hasIn && !hasOut;
+  }
+
+  static bool _isAttendanceCompleted(Map<String, dynamic>? attendance) {
+    final hasIn = _hasPunchValue(attendance?['punchIn']);
+    final hasOut = _hasPunchValue(attendance?['punchOut']);
+    return hasIn && hasOut;
+  }
+
+  void _setPunchActionInProgress(bool value) {
+    if (!mounted || _isPunchActionInProgress == value) return;
+    setState(() => _isPunchActionInProgress = value);
+  }
 
   @override
   void initState() {
@@ -82,27 +110,24 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _fetchPunchStatusForNavBar() async {
-    final res = await _attendanceService.getTodayAttendance();
+    final res = await _attendanceService.getTodayAttendance(forceRefresh: true);
     if (!mounted) return;
     final data = res['data'] as Map<String, dynamic>?;
     if (data != null) {
-      final attendance = data['data'] as Map<String, dynamic>? ?? data;
-      final punchIn = attendance['punchIn'];
-      final punchOut = attendance['punchOut'];
-      // Same logic as dashboard today card: punched in = has punchIn and no punchOut
-      final hasIn = punchIn != null && punchIn.toString().trim().isNotEmpty;
-      final hasOut = punchOut != null && punchOut.toString().trim().isNotEmpty;
-      final isPunchedIn = hasIn && !hasOut;
+      final attendance = _extractAttendanceRecord(data);
+      final isPunchedIn = _isAttendancePunchedIn(attendance);
+      final hasIn = _hasPunchValue(attendance?['punchIn']);
+      final hasOut = _hasPunchValue(attendance?['punchOut']);
       if (kDebugMode) {
         debugPrint(
-          '[Dashboard] _fetchPunchStatusForNavBar: punchIn=${punchIn != null ? "set" : "null"} '
-          'punchOut=${punchOut != null ? "set" : "null"} hasIn=$hasIn hasOut=$hasOut => isPunchedInToday=$isPunchedIn',
+          '[Dashboard] _fetchPunchStatusForNavBar: '
+          'hasIn=$hasIn hasOut=$hasOut => isPunchedInToday=$isPunchedIn',
         );
       }
       setState(() {
         _isPunchedInToday = isPunchedIn;
       });
-      await _savePunchStateToPrefs(attendance);
+      await _savePunchStateToPrefs(attendance ?? <String, dynamic>{});
       if (isPunchedIn) {
         PresenceTrackingService().recordAppOpened();
       }
@@ -210,6 +235,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// Fetches profile + today attendance for fingerprint validation (same data as attendance screen).
   Future<Map<String, dynamic>?> _fetchAttendanceValidationData() async {
     try {
+      _attendanceService.clearCachesForRefresh();
       final profileResult = await _authService.getProfile();
       if (!mounted) return null;
       final staffData =
@@ -251,7 +277,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         'isCompensationWeekOff': body['isCompensationWeekOff'] ?? false,
         'isCompensationCompOff': body['isCompensationCompOff'] ?? false,
         'isPaidLeaveToday': body['isPaidLeaveToday'] ?? false,
-        'checkedInFromApi': body['checkedIn'],
       };
     } catch (_) {
       return null;
@@ -609,18 +634,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isCompensationCompOff =
         data['isCompensationCompOff'] as bool? ?? false;
     final isPaidLeaveToday = data['isPaidLeaveToday'] as bool? ?? false;
-    final punchIn = attendanceData?['punchIn'];
-    final punchOut = attendanceData?['punchOut'];
-    final checkedInFromApi = data['checkedInFromApi'] as bool?;
-    final isCheckedIn =
-        checkedInFromApi ?? (punchIn != null && punchOut == null);
-    final isCompleted = punchIn != null && punchOut != null;
+    final isCheckedIn = _isAttendancePunchedIn(attendanceData);
+    final isCompleted = _isAttendanceCompleted(attendanceData);
     final status = attendanceData?['status'] ?? '';
     final isAdminMarked =
-        (punchIn == null && punchOut == null) &&
+        !_hasPunchValue(attendanceData?['punchIn']) &&
+        !_hasPunchValue(attendanceData?['punchOut']) &&
         (status == 'Present' || status == 'Approved');
 
-    if (isCompleted || isAdminMarked) return false;
+    if (isCompleted) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'You have already checked out for today',
+        isError: true,
+      );
+      return false;
+    }
+    if (isAdminMarked) return false;
 
     if (staffHasTemplate != true) {
       await _showValidationAlertDialog(
@@ -895,6 +925,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     if (!result.valid) {
       _isSubmittingFromFingerprint = false;
+      _setPunchActionInProgress(false);
       Navigator.of(context).pop();
       SnackBarUtils.showSnackBar(
         context,
@@ -930,6 +961,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (requireGeolocation && usePosition == null) {
       if (mounted) {
         _isSubmittingFromFingerprint = false;
+        _setPunchActionInProgress(false);
         Navigator.of(context).pop();
         SnackBarUtils.showSnackBar(context, 'Could not get location.', isError: true);
       }
@@ -937,23 +969,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final todayRes = await _attendanceService.getTodayAttendance(forceRefresh: true);
-    bool isCheckedIn = false;
-    if (todayRes['data'] is Map<String, dynamic>) {
-      final d = todayRes['data'] as Map<String, dynamic>;
-      // Prefer backend's checkedIn; else same extraction as _fetchPunchStatusForNavBar (punchIn/punchOut in data.data)
-      if (d['checkedIn'] == true) {
-        isCheckedIn = true;
-      } else if (d['checkedIn'] == false) {
-        isCheckedIn = false;
-      } else {
-        final attendance = d['data'] as Map<String, dynamic>? ?? d;
-        final punchIn = attendance['punchIn'];
-        final punchOut = attendance['punchOut'];
-        final hasIn = punchIn != null && punchIn.toString().trim().isNotEmpty;
-        final hasOut = punchOut != null && punchOut.toString().trim().isNotEmpty;
-        isCheckedIn = hasIn && !hasOut;
-      }
-    }
+    final todayData = todayRes['data'] as Map<String, dynamic>?;
+    final isCheckedIn = _isAttendancePunchedIn(_extractAttendanceRecord(todayData));
 
     List<int> imageBytes = await file.readAsBytes();
     String base64Image = base64Encode(imageBytes);
@@ -967,6 +984,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (!mounted) return;
         if (verify['success'] != true || verify['match'] != true) {
           _isSubmittingFromFingerprint = false;
+          _setPunchActionInProgress(false);
           Navigator.of(context).pop();
           SnackBarUtils.showSnackBar(
             context,
@@ -980,6 +998,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       } catch (_) {
         if (mounted) {
           _isSubmittingFromFingerprint = false;
+          _setPunchActionInProgress(false);
           Navigator.of(context).pop();
           SnackBarUtils.showSnackBar(context, 'Face verification failed. Please try again.', isError: true);
         }
@@ -1057,6 +1076,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     return BlocListener<AttendanceBloc, AttendanceState>(
       listener: (context, state) async {
         if (state is AttendanceCheckInSuccess) {
+          _setPunchActionInProgress(false);
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
             if (mounted) Navigator.of(context).pop();
@@ -1076,6 +1096,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           await _fetchPunchStatusForNavBar();
           _dashboardRefreshTrigger.value++;
         } else if (state is AttendanceCheckOutSuccess) {
+          _setPunchActionInProgress(false);
           if (_isSubmittingFromFingerprint) {
             _isSubmittingFromFingerprint = false;
             if (mounted) Navigator.of(context).pop();
@@ -1095,6 +1116,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           await _fetchPunchStatusForNavBar();
           _dashboardRefreshTrigger.value++;
         } else if (state is AttendanceFailure && _isSubmittingFromFingerprint) {
+          _setPunchActionInProgress(false);
           _isSubmittingFromFingerprint = false;
           if (mounted) Navigator.of(context).pop();
           if (mounted) {
@@ -1126,12 +1148,16 @@ class _DashboardScreenState extends State<DashboardScreen>
           bottomNavigationBar: AppBottomNavigationBar(
             currentIndex: _currentIndex.clamp(0, 5),
             isPunchedInToday: _isPunchedInToday,
+            isPunchActionInProgress: _isPunchActionInProgress,
             onTap: (index) async {
               if (index == 5) {
+                if (_isPunchActionInProgress) return;
+                _setPunchActionInProgress(true);
                 // Same validations as attendance screen before check-in/check-out
                 final validationData = await _fetchAttendanceValidationData();
                 if (!mounted) return;
                 if (validationData == null) {
+                  _setPunchActionInProgress(false);
                   SnackBarUtils.showSnackBar(
                     context,
                     'Unable to load attendance details. Try again.',
@@ -1142,7 +1168,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                 final canProceed =
                     await _runFingerprintAttendanceValidations(validationData);
                 if (!mounted) return;
-                if (!canProceed) return;
+                if (!canProceed) {
+                  _setPunchActionInProgress(false);
+                  return;
+                }
 
                 // Get location before opening camera
                 showDialog(
@@ -1173,6 +1202,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     : null;
                 final requireGeolocation = template?['requireGeolocation'] ?? true;
                 if (requireGeolocation && location.position == null) {
+                  _setPunchActionInProgress(false);
                   SnackBarUtils.showSnackBar(
                     context,
                     'Location is required. Please enable location and try again.',
@@ -1202,6 +1232,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 if (result is File) {
                   file = result;
                 } else if (identical(result, useImagePickerFallback)) {
+                  _setPunchActionInProgress(false);
                   SnackBarUtils.showSnackBar(
                     context,
                     'Camera unavailable. Try again from Attendance.',
@@ -1209,7 +1240,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                   );
                   return;
                 }
-                if (file == null) return; // Cancelled
+                if (file == null) {
+                  _setPunchActionInProgress(false);
+                  return;
+                } // Cancelled
                 _isSubmittingFromFingerprint = true;
                 showDialog(
                   context: context,

@@ -30,6 +30,7 @@ class AppBottomNavigationBar extends StatefulWidget {
 
   /// When provided, used for Punch button label (Punch In vs Punch Out). From today's attendance.
   final bool? isPunchedInToday;
+  final bool isPunchActionInProgress;
 
   const AppBottomNavigationBar({
     super.key,
@@ -37,6 +38,7 @@ class AppBottomNavigationBar extends StatefulWidget {
     this.onTap,
     this.items,
     this.isPunchedInToday,
+    this.isPunchActionInProgress = false,
   });
 
   static int getCurrentIndex(BuildContext context) {
@@ -156,46 +158,54 @@ class _AppBottomNavigationBarState extends State<AppBottomNavigationBar> {
     final isPunchedIn = widget.isPunchedInToday ?? _isPunchedIn;
     final label = isPunchedIn ? 'Punch Out' : 'Punch In';
     final icon = isPunchedIn ? Icons.logout_rounded : Icons.login_rounded;
+    final isDisabled = widget.isPunchActionInProgress;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _handleNavigation(context, 5),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primary, AppColors.primaryDark],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withOpacity(0.45),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: Colors.white),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
+      child: IgnorePointer(
+        ignoring: isDisabled,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: isDisabled ? 0.6 : 1,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _handleNavigation(context, 5),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppColors.primary, AppColors.primaryDark],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.45),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 16, color: Colors.white),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

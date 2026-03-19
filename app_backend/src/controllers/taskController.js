@@ -658,7 +658,14 @@ exports.getCompletionReport = async (req, res) => {
         if (nextHasSameType || enoughTimeSinceLast) {
           lastMovementType = tr.movementType;
           lastMovementTime = tsMs;
-          let label = tr.movementType === 'drive' ? 'Ride' : tr.movementType === 'walk' ? 'Walk' : tr.movementType === 'stop' ? 'Stop' : tr.movementType;
+          let label =
+            tr.movementType === 'drive' || tr.movementType === 'driving'
+              ? 'Ride'
+              : tr.movementType === 'walk' || tr.movementType === 'walking'
+                ? 'Walk'
+                : tr.movementType === 'stop'
+                  ? 'Stop'
+                  : tr.movementType;
           let type = 'movement';
           if ((label === 'Start' || tr.movementType === 'start') && hasHadExit) {
             label = 'Resumed';

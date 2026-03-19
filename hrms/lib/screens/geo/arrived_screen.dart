@@ -1,4 +1,5 @@
 // Arrived screen – trip summary, "You've Arrived!", Within Geo-Fence, Next Steps.
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -81,7 +82,6 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   Task? _task;
   bool _photoProofDone = false;
   bool _storedOtpRequired = false;
-  bool _submittingExit = false;
   bool _submittingComplete = false;
   List<Map<String, dynamic>> _assignedTemplates = [];
   List<Map<String, dynamic>> _formResponsesForTask = [];
@@ -249,7 +249,6 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -307,7 +306,10 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [AppColors.primary, AppColors.primaryDark],
+                              colors: [
+                                AppColors.primary,
+                                AppColors.primaryDark,
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -643,147 +645,159 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                               decoration: BoxDecoration(
                                 gradient:
                                     !_submittingComplete &&
-                                            (!_isOtpRequiredFromSettings ||
-                                                (task ?? widget.task)
-                                                        ?.isOtpVerified ==
-                                                    true) &&
-                                            (!_hasFormAssigned || _formFilled)
-                                        ? LinearGradient(
-                                            colors: [
-                                              AppColors.primary,
-                                              AppColors.primaryDark,
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          )
-                                        : null,
+                                        (!_isOtpRequiredFromSettings ||
+                                            (task ?? widget.task)
+                                                    ?.isOtpVerified ==
+                                                true) &&
+                                        (!_hasFormAssigned || _formFilled)
+                                    ? LinearGradient(
+                                        colors: [
+                                          AppColors.primary,
+                                          AppColors.primaryDark,
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : null,
                                 color:
                                     !_submittingComplete &&
-                                            (!_isOtpRequiredFromSettings ||
-                                                (task ?? widget.task)
-                                                        ?.isOtpVerified ==
-                                                    true) &&
-                                            (!_hasFormAssigned || _formFilled)
-                                        ? null
-                                        : Colors.grey.shade300,
+                                        (!_isOtpRequiredFromSettings ||
+                                            (task ?? widget.task)
+                                                    ?.isOtpVerified ==
+                                                true) &&
+                                        (!_hasFormAssigned || _formFilled)
+                                    ? null
+                                    : Colors.grey.shade300,
                               ),
-                            child: ElevatedButton.icon(
-                              onPressed:
-                                  !_submittingComplete &&
-                                          (!_isOtpRequiredFromSettings ||
-                                              (task ?? widget.task)
-                                                      ?.isOtpVerified ==
-                                                  true) &&
-                                          (!_hasFormAssigned || _formFilled)
-                                      ? () async {
-                                    if (_submittingComplete) return;
-                                    setState(() => _submittingComplete = true);
-                                    final t = task ?? widget.task;
-                                    final startedAt = widget.arrivalTime
-                                        .subtract(widget.totalDuration);
-                                    final otpVerified =
-                                        (task ?? widget.task)?.isOtpVerified ==
-                                        true;
-                                    Task? refreshed = task ?? t;
-                                    if (widget.taskMongoId != null &&
-                                        widget.taskMongoId!.isNotEmpty) {
-                                      try {
-                                        refreshed = await TaskService().endTask(
-                                          widget.taskMongoId!,
+                              child: ElevatedButton.icon(
+                                onPressed:
+                                    !_submittingComplete &&
+                                        (!_isOtpRequiredFromSettings ||
+                                            (task ?? widget.task)
+                                                    ?.isOtpVerified ==
+                                                true) &&
+                                        (!_hasFormAssigned || _formFilled)
+                                    ? () async {
+                                        if (_submittingComplete) return;
+                                        setState(
+                                          () => _submittingComplete = true,
                                         );
-                                        await PresenceTrackingService()
-                                            .resumePresenceTracking();
-                                      } catch (e) {
-                                        if (mounted) {
-                                          setState(
-                                              () => _submittingComplete = false);
-                                          String msg =
-                                              'Failed to complete task';
-                                          if (e is DioException &&
-                                              e.response?.data != null) {
-                                            final d = e.response!.data;
-                                            if (d is Map) {
-                                              msg =
-                                                  (d['message'] ?? d['error'])
-                                                      ?.toString() ??
-                                                  msg;
+                                        final t = task ?? widget.task;
+                                        final startedAt = widget.arrivalTime
+                                            .subtract(widget.totalDuration);
+                                        final otpVerified =
+                                            (task ?? widget.task)
+                                                ?.isOtpVerified ==
+                                            true;
+                                        Task? refreshed = task ?? t;
+                                        if (widget.taskMongoId != null &&
+                                            widget.taskMongoId!.isNotEmpty) {
+                                          try {
+                                            refreshed = await TaskService()
+                                                .endTask(widget.taskMongoId!);
+                                            await PresenceTrackingService()
+                                                .resumePresenceTracking();
+                                          } catch (e) {
+                                            if (mounted) {
+                                              setState(
+                                                () =>
+                                                    _submittingComplete = false,
+                                              );
+                                              String msg =
+                                                  'Failed to complete task';
+                                              if (e is DioException &&
+                                                  e.response?.data != null) {
+                                                final d = e.response!.data;
+                                                if (d is Map) {
+                                                  msg =
+                                                      (d['message'] ??
+                                                              d['error'])
+                                                          ?.toString() ??
+                                                      msg;
+                                                }
+                                              } else {
+                                                msg = '$msg: ${e.toString()}';
+                                              }
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(content: Text(msg)),
+                                              );
                                             }
-                                          } else {
-                                            msg = '$msg: ${e.toString()}';
+                                            return;
                                           }
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(content: Text(msg)),
+                                        }
+                                        if (mounted) {
+                                          Navigator.of(context).pushReplacement(
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  TaskCompletedScreen(
+                                                    task:
+                                                        refreshed ?? task ?? t,
+                                                    taskMongoId:
+                                                        widget.taskMongoId,
+                                                    taskId: widget.taskId,
+                                                    startedAt: startedAt,
+                                                    completedAt: DateTime.now(),
+                                                    totalDuration:
+                                                        widget.totalDuration,
+                                                    totalDistanceKm:
+                                                        widget.totalDistanceKm,
+                                                    otpVerified: otpVerified,
+                                                    geoFence:
+                                                        widget.isWithinGeofence,
+                                                    formSubmitted:
+                                                        _hasFormAssigned &&
+                                                        _formFilled,
+                                                    photoProof: _photoProofDone,
+                                                    arrivalTime:
+                                                        widget.arrivalTime,
+                                                    otpVerifiedAt:
+                                                        (refreshed ?? task ?? t)
+                                                            ?.otpVerifiedAt,
+                                                    verifiedOtp: null,
+                                                  ),
+                                            ),
                                           );
                                         }
-                                        return;
                                       }
-                                    }
-                                    if (mounted) {
-                                      Navigator.of(context).pushReplacement(
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              TaskCompletedScreen(
-                                                task: refreshed ?? task ?? t,
-                                                taskMongoId: widget.taskMongoId,
-                                                taskId: widget.taskId,
-                                                startedAt: startedAt,
-                                                completedAt: DateTime.now(),
-                                                totalDuration:
-                                                    widget.totalDuration,
-                                                totalDistanceKm:
-                                                    widget.totalDistanceKm,
-                                                otpVerified: otpVerified,
-                                                geoFence:
-                                                    widget.isWithinGeofence,
-                                                formSubmitted: _hasFormAssigned && _formFilled,
-                                                photoProof: _photoProofDone,
-                                                arrivalTime: widget.arrivalTime,
-                                                otpVerifiedAt:
-                                                    (refreshed ?? task ?? t)
-                                                        ?.otpVerifiedAt,
-                                                verifiedOtp: null,
-                                              ),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                      : null,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                surfaceTintColor: Colors.transparent,
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor: Colors.transparent,
-                                disabledForegroundColor: Colors.grey.shade600,
-                                minimumSize: const Size.fromHeight(52),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                    : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  surfaceTintColor: Colors.transparent,
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: Colors.transparent,
+                                  disabledForegroundColor: Colors.grey.shade600,
+                                  minimumSize: const Size.fromHeight(52),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
-                              ),
-                              icon: _submittingComplete
-                                  ? SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
+                                icon: _submittingComplete
+                                    ? SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.check_circle_rounded,
+                                        size: 22,
                                       ),
-                                    )
-                                  : const Icon(
-                                      Icons.check_circle_rounded,
-                                      size: 22,
-                                    ),
-                              label: Text(
-                                _submittingComplete
-                                    ? 'Completing...'
-                                    : 'Complete Task',
+                                label: Text(
+                                  _submittingComplete
+                                      ? 'Completing...'
+                                      : 'Complete Task',
+                                ),
                               ),
                             ),
                           ),
-                        ),
                         ),
                       ],
                     ),
@@ -800,84 +814,87 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   /// Exit Ride: open bottom sheet with reason form (same as live tracking).
   /// Calls exitRide API with current GPS, then pops.
   Future<void> _onExitRide() async {
-    if (_submittingExit) return;
-    final result = await showModalBottomSheet<Map<String, String>>(
+    final exited = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const ExitRideBottomSheet(),
+      builder: (ctx) => ExitRideBottomSheet(onSubmit: _submitExitRide),
     );
-    if (result == null || !mounted) return;
-    final exitType = result['exitType'] as String?;
-    final reason = result['reason']?.trim();
-    if (exitType == null ||
-        exitType.isEmpty ||
-        reason == null ||
-        reason.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select exit type and provide a reason'),
-        ),
-      );
-      return;
-    }
+    if (exited != true || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  Future<void> _submitExitRide(String exitType, String reason) async {
     final mongoId = widget.taskMongoId ?? task?.id;
-    if (mongoId != null && mongoId.isNotEmpty) {
-      if (mounted) setState(() => _submittingExit = true);
-      try {
-        double? lat;
-        double? lng;
-        try {
-          final pos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
-          );
-          lat = pos.latitude;
-          lng = pos.longitude;
-        } catch (_) {
-          lat = widget.arrivalAtLat ??
-              _task?.arrivalLocation?.lat ??
-              widget.destLat ??
-              task?.destinationLocation?.lat;
-          lng = widget.arrivalAtLng ??
-              _task?.arrivalLocation?.lng ??
-              widget.destLng ??
-              task?.destinationLocation?.lng;
-        }
-        await TaskService().exitRide(
-          mongoId,
-          reason,
-          exitType: exitType,
-          lat: lat,
-          lng: lng,
-        );
-        await PresenceTrackingService().resumePresenceTracking();
-      } catch (e) {
-        if (mounted) {
-          setState(() => _submittingExit = false);
-          String msg = 'Failed to exit ride';
-          if (e is DioException && e.response?.data != null) {
-            final data = e.response!.data;
-            if (data is Map) {
-              msg = (data['message'] ?? data['error'])?.toString() ?? msg;
-            } else if (data is String && data.isNotEmpty) {
-              msg = data;
-            }
-          } else {
-            msg = ErrorMessageUtils.toUserFriendlyMessage(e);
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg)),
+    if (mongoId == null || mongoId.isEmpty) return;
+    try {
+      final exitLocation = await _resolveExitLocation();
+      await TaskService().exitRide(
+        mongoId,
+        reason,
+        exitType: exitType,
+        lat: exitLocation.lat,
+        lng: exitLocation.lng,
+        fullAddress: exitLocation.address,
+        pincode: exitLocation.pincode,
+      );
+      unawaited(PresenceTrackingService().resumePresenceTracking());
+    } catch (e) {
+      if (e is DioException && e.response?.data != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          throw Exception(
+            (data['message'] ?? data['error'])?.toString() ??
+                'Failed to exit ride',
           );
         }
-        return;
+        if (data is String && data.isNotEmpty) {
+          throw Exception(data);
+        }
       }
-      if (mounted) setState(() => _submittingExit = false);
+      throw Exception(ErrorMessageUtils.toUserFriendlyMessage(e));
     }
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).pop();
-      });
-    }
+  }
+
+  Future<({double? lat, double? lng, String? address, String? pincode})>
+  _resolveExitLocation() async {
+    double? lat =
+        widget.arrivalAtLat ??
+        _task?.arrivalLocation?.lat ??
+        widget.destLat ??
+        task?.destinationLocation?.lat;
+    double? lng =
+        widget.arrivalAtLng ??
+        _task?.arrivalLocation?.lng ??
+        widget.destLng ??
+        task?.destinationLocation?.lng;
+    final address = _arrivalDisplayAddress;
+    final pincode = _extractPincodeFromAddress(address);
+
+    try {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      lat ??= lastKnown?.latitude;
+      lng ??= lastKnown?.longitude;
+    } catch (_) {}
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 3),
+      );
+      lat = pos.latitude;
+      lng = pos.longitude;
+    } catch (_) {}
+
+    return (lat: lat, lng: lng, address: address, pincode: pincode);
+  }
+
+  String? _extractPincodeFromAddress(String? address) {
+    if (address == null || address.isEmpty) return null;
+    final match = RegExp(r'\b\d{6}\b').firstMatch(address);
+    return match?.group(0);
   }
 
   Widget _row(String label, String value) {
@@ -957,7 +974,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                   ? Icons.gps_fixed_rounded
                   : Icons.location_on_rounded,
               size: 18,
-             // color: title == 'Source' ? Colors.green : Colors.red,
+              // color: title == 'Source' ? Colors.green : Colors.red,
             ),
             const SizedBox(width: 6),
             Text(
@@ -975,12 +992,9 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
           hasAddress
               ? address!
               : (hasCoords
-                  ? '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}'
-                  : '—'),
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade700,
-          ),
+                    ? '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}'
+                    : '—'),
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
         ),
       ],
     );

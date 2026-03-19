@@ -20,6 +20,8 @@ import 'bloc/auth/auth_bloc.dart';
 import 'bloc/task/task_bloc.dart';
 import 'bloc/attendance/attendance_bloc.dart';
 
+const Duration _defaultBackgroundLocationInterval = Duration(minutes: 1);
+
 @pragma('vm:entry-point')
 void backgroundCallback() {
   BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
@@ -42,6 +44,7 @@ void backgroundCallback() {
       lon,
       batteryPercent: batteryPercent,
       accuracyM: data.horizontalAccuracy,
+      speedMps: speedMps,
     );
   });
 }
@@ -132,7 +135,7 @@ void main() {
               channelName: 'Live Tracking',
               cancelTrackingActionText: 'Stop tracking',
               enableCancelTrackingAction: true,
-              trackingInterval: Duration(seconds: 5),
+              trackingInterval: _defaultBackgroundLocationInterval,
               distanceFilterMeters: null,
             ),
             iOSConfig: IOSConfig(

@@ -25,6 +25,10 @@ class LiveTrackingService {
   static const _keyLastSentTime = 'live_tracking_last_sent_time';
   static const _keyLastMovementType = 'live_tracking_last_movement_type';
   static const _keyConsecutiveLowSpeed = 'live_tracking_consecutive_low_speed';
+  static const _keyLastStoredTaskMongoId =
+      'live_tracking_last_stored_task_mongo_id';
+  static const _keyLastStoredLat = 'live_tracking_last_stored_lat';
+  static const _keyLastStoredLng = 'live_tracking_last_stored_lng';
   static const _keyLastResolvedAddressLat =
       'live_tracking_last_resolved_address_lat';
   static const _keyLastResolvedAddressLng =
@@ -36,6 +40,7 @@ class LiveTrackingService {
   static const _keyLastResolvedArea = 'live_tracking_last_resolved_area';
   static const _keyLastResolvedPincode =
       'live_tracking_last_resolved_pincode';
+  static const double duplicateLocationThresholdMeters = 10;
 
   static final LiveTrackingService _instance = LiveTrackingService._internal();
   factory LiveTrackingService() => _instance;
@@ -98,6 +103,9 @@ class LiveTrackingService {
     await prefs.remove(_keyLastSentTime);
     await prefs.remove(_keyLastMovementType);
     await prefs.remove(_keyConsecutiveLowSpeed);
+    await prefs.remove(_keyLastStoredTaskMongoId);
+    await prefs.remove(_keyLastStoredLat);
+    await prefs.remove(_keyLastStoredLng);
     await prefs.remove(_keyLastResolvedAddressLat);
     await prefs.remove(_keyLastResolvedAddressLng);
     await prefs.remove(_keyLastResolvedAddress);
@@ -127,6 +135,44 @@ class LiveTrackingService {
         await prefs.setString(_keyLastMovementType, movementType);
         await prefs.setInt(_keyConsecutiveLowSpeed, consecutiveLowSpeed);
       }
+    } catch (_) {}
+  }
+
+  static Future<bool> shouldSkipDuplicateTrackingSend(
+    String taskMongoId,
+    double lat,
+    double lng, {
+    double thresholdMeters = duplicateLocationThresholdMeters,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastTaskMongoId = prefs.getString(_keyLastStoredTaskMongoId);
+      if (lastTaskMongoId != taskMongoId) return false;
+      final lastLat = prefs.getDouble(_keyLastStoredLat);
+      final lastLng = prefs.getDouble(_keyLastStoredLng);
+      if (lastLat == null || lastLng == null) return false;
+      final distanceM = gl.Geolocator.distanceBetween(
+        lastLat,
+        lastLng,
+        lat,
+        lng,
+      );
+      return distanceM <= thresholdMeters;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> persistStoredTrackingPoint(
+    String taskMongoId,
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyLastStoredTaskMongoId, taskMongoId);
+      await prefs.setDouble(_keyLastStoredLat, lat);
+      await prefs.setDouble(_keyLastStoredLng, lng);
     } catch (_) {}
   }
 
@@ -207,8 +253,8 @@ class LiveTrackingService {
     };
   }
 
-  /// Send tracking from background isolate. Uses GPS-only classification (spec thresholds + hysteresis).
-  /// Ignores points with accuracy > 40m. Stricter in background: no single-point downgrade.
+  /// Send tracking from background isolate.
+  /// Ignores points with accuracy > 50m before movement classification.
   static Future<void> sendTrackingFromBackground(
     double lat,
     double lng, {
@@ -227,7 +273,16 @@ class LiveTrackingService {
       if (taskMongoId == null || taskMongoId.isEmpty) return;
       if (baseUrl == null || baseUrl.isEmpty) return;
       if (token == null || token.isEmpty) return;
-      if (accuracyM != null && accuracyM > 40.0) return;
+      if (accuracyM != null && accuracyM > kMaxAccuracyM) return;
+      if (await shouldSkipDuplicateTrackingSend(taskMongoId, lat, lng)) {
+        if (kDebugMode && AppConstants.logTrackingsToConsole) {
+          debugPrint(
+            '[Trackings] task_store SKIP duplicate taskId=$taskMongoId '
+            'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)}',
+          );
+        }
+        return;
+      }
 
       final lastLat = prefs.getDouble(_keyLastSentLat);
       final lastLng = prefs.getDouble(_keyLastSentLng);
@@ -323,6 +378,7 @@ class LiveTrackingService {
         );
         await prefs.setString(_keyLastMovementType, resolvedMovementType);
         await prefs.setInt(_keyConsecutiveLowSpeed, nextConsecutive);
+        await persistStoredTrackingPoint(taskMongoId, lat, lng);
       } else if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
           '[Trackings] task_store FAIL ${response.statusCode} taskId=$taskMongoId body=${response.body.length > 200 ? "${response.body.substring(0, 200)}..." : response.body}',

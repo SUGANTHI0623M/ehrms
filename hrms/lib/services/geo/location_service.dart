@@ -21,6 +21,7 @@ class GeofenceEvent {
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   static bool _ensureAppLocationAccessInProgress = false;
+  static bool _syncLocationPermissionStatusInProgress = false;
   static final ApiClient _api = ApiClient();
 
   factory LocationService() {
@@ -281,7 +282,7 @@ class LocationService {
         }
       }
     } finally {
-      await _syncLocationPermissionStatusToBackend();
+      await syncLocationPermissionStatusToBackend();
       _ensureAppLocationAccessInProgress = false;
     }
   }
@@ -418,7 +419,9 @@ class LocationService {
     return trimmed;
   }
 
-  static Future<void> _syncLocationPermissionStatusToBackend() async {
+  static Future<void> syncLocationPermissionStatusToBackend() async {
+    if (_syncLocationPermissionStatusInProgress) return;
+    _syncLocationPermissionStatusInProgress = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = _sanitizeStoredToken(prefs.getString('token'));
@@ -447,6 +450,8 @@ class LocationService {
       if (kDebugMode) {
         debugPrint('[LocationService] syncLocationPermissionStatus failed: $error');
       }
+    } finally {
+      _syncLocationPermissionStatusInProgress = false;
     }
   }
 

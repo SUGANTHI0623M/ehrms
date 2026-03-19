@@ -121,6 +121,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   /// True when submitting from camera-direct flow; used to pop dialog on bloc success.
   bool _isSubmittingFromAttendanceCamera = false;
+  bool _isPunchActionInProgress = false;
 
   /// True while fetching template details on open.
   bool _isFetchingTemplateDetails = false;
@@ -130,6 +131,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   /// ScrollController for the horizontal date strip (strip hidden; kept for dispose).
   final ScrollController _dateStripScrollController = ScrollController();
+
+  void _setPunchActionInProgress(bool value) {
+    if (!mounted || _isPunchActionInProgress == value) return;
+    setState(() => _isPunchActionInProgress = value);
+  }
 
   @override
   void initState() {
@@ -2854,8 +2860,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ((_attendanceData?['status'] ?? '') == 'Present' ||
             (_attendanceData?['status'] ?? '') == 'Approved');
     final canCheckIn =
-        !isCompleted && !isAdminMarked && punchIn == null && isSelectedDayToday;
-    final canCheckOut = isCheckedIn && isSelectedDayToday;
+        !_isPunchActionInProgress &&
+        !isCompleted &&
+        !isAdminMarked &&
+        punchIn == null &&
+        isSelectedDayToday;
+    final canCheckOut =
+        !_isPunchActionInProgress && isCheckedIn && isSelectedDayToday;
 
     final punchInTime = punchIn != null ? _formatTimeShort(punchIn) : '--:--';
     final String punchOutDisplay = punchOut != null
@@ -3795,17 +3806,30 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final colorScheme = Theme.of(context).colorScheme;
     return BlocListener<AttendanceBloc, AttendanceState>(
       listener: (context, state) async {
+        final shouldHandleForegroundUi =
+            widget.isActiveTab == true || _isSubmittingFromAttendanceCamera;
         if (state is AttendanceCheckInSuccess ||
             state is AttendanceCheckOutSuccess) {
+          _setPunchActionInProgress(false);
           if (_isSubmittingFromAttendanceCamera) {
             _isSubmittingFromAttendanceCamera = false;
             if (mounted) Navigator.of(context).pop();
           }
+          if (!mounted) return;
+          if (state is AttendanceCheckInSuccess) {
+            await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
+          } else {
+            await PresenceTrackingService().ensureTrackingIfPunchedIn(false);
+          }
+          if (mounted) {
+            _attendanceService.clearCachesForRefresh();
+            _refreshData(forceRefresh: true);
+          }
+          if (!shouldHandleForegroundUi || !mounted) return;
           if (mounted) {
             final userName = await _authService.getCurrentUserName();
             if (mounted) {
               if (state is AttendanceCheckInSuccess) {
-                await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
                 final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
                 await AttendanceSuccessOverlay.show(
                   context,
@@ -3816,7 +3840,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   snackbarMessage: overlayContent.message,
                 );
               } else {
-                await PresenceTrackingService().ensureTrackingIfPunchedIn(false);
                 await AttendanceSuccessOverlay.show(
                   context,
                   isCheckIn: false,
@@ -3827,17 +3850,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 );
               }
             }
-            if (mounted) {
-              _attendanceService.clearCachesForRefresh();
-              _refreshData(forceRefresh: true);
-            }
           }
         } else if (state is AttendanceFailure) {
+          _setPunchActionInProgress(false);
           if (_isSubmittingFromAttendanceCamera) {
             _isSubmittingFromAttendanceCamera = false;
             if (mounted) Navigator.of(context).pop();
           }
-          if (mounted) {
+          if (mounted && shouldHandleForegroundUi) {
             SnackBarUtils.showSnackBar(
               context,
               ErrorMessageUtils.sanitizeForDisplay(state.message),
@@ -4032,6 +4052,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final result = await FaceDetectionHelper.detectFromFile(file);
     if (!mounted) return;
     if (!result.valid) {
+      _setPunchActionInProgress(false);
       if (mounted) Navigator.of(context).pop();
       SnackBarUtils.showSnackBar(
         context,
@@ -4044,6 +4065,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final requireGeolocation =
         _attendanceTemplate?['requireGeolocation'] ?? true;
     if (requireGeolocation && position == null) {
+      _setPunchActionInProgress(false);
       if (mounted) Navigator.of(context).pop();
       SnackBarUtils.showSnackBar(
         context,
@@ -4063,6 +4085,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final verify = await _authService.verifyFace(selfiePayload);
         if (!mounted) return;
         if (verify['success'] != true || verify['match'] != true) {
+          _setPunchActionInProgress(false);
           if (mounted) Navigator.of(context).pop();
           SnackBarUtils.showSnackBar(
             context,
@@ -4075,6 +4098,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         }
       } catch (_) {
         if (mounted) {
+          _setPunchActionInProgress(false);
           Navigator.of(context).pop();
           SnackBarUtils.showSnackBar(
             context,
@@ -4119,6 +4143,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   /// Opens punch in/out via camera-direct flow: load location, open camera, submit. No-op if completed/admin-marked.
   Future<void> _openMarkAttendanceScreen() async {
+    if (_isPunchActionInProgress) return;
     final punchIn = _attendanceData?['punchIn'];
     final punchOut = _attendanceData?['punchOut'];
     final isCheckedIn = punchIn != null && punchOut == null;
@@ -4129,36 +4154,43 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             (_attendanceData?['status'] ?? '') == 'Approved');
 
     if (isCompleted || isAdminMarked) return;
+    _setPunchActionInProgress(true);
 
     // --- Check-in/check-out validation: show popup and block if any check fails ---
     if (_staffHasAttendanceTemplate != true) {
       await _showValidationAlert(
         'Attendance template is not assigned. Contact HR.',
       );
+      _setPunchActionInProgress(false);
       return;
     }
     if (_attendanceTemplate == null) {
       await _showValidationAlert('Template not mapped. Contact HR.');
+      _setPunchActionInProgress(false);
       return;
     }
     if (_shiftAssigned != true) {
       await _showValidationAlert('Shift not assigned. Contact HR.');
+      _setPunchActionInProgress(false);
       return;
     }
     if (_branchData == null) {
       await _showValidationAlert('Branch not assigned.');
+      _setPunchActionInProgress(false);
       return;
     }
     final branchStatus =
         (_branchData!['status']?.toString().trim().toUpperCase()) ?? '';
     if (branchStatus != 'ACTIVE') {
       await _showValidationAlert('Your branch is not active.');
+      _setPunchActionInProgress(false);
       return;
     }
     final geofence = _branchData!['geofence'] as Map<String, dynamic>?;
     final geofenceEnabled = geofence?['enabled'] == true;
     if (!geofenceEnabled) {
       await _showValidationAlert('Geo fence is not set for your branch.');
+      _setPunchActionInProgress(false);
       return;
     }
     final branchLat = geofence?['latitude'];
@@ -4172,12 +4204,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             (branchLng is String && branchLng.toString().trim().isNotEmpty));
     if (!latLngSet) {
       await _showValidationAlert('Lat and long is not set for the branch.');
+      _setPunchActionInProgress(false);
       return;
     }
     if (_attendanceTemplate!['isActive'] == false) {
       await _showValidationAlert(
         'Attendance template is not active. Contact HR.',
       );
+      _setPunchActionInProgress(false);
       return;
     }
     final shiftStart = _getShiftStartTimeFromDb();
@@ -4191,6 +4225,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             ? 'Shift timings not set. Contact HR.'
             : 'Shift not assigned. Contact HR.',
       );
+      _setPunchActionInProgress(false);
       return;
     }
     // --- End validation ---
@@ -4218,6 +4253,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         isError: true,
       );
       await NotificationReactionOverlay.show(context, emoji: '😊');
+      _setPunchActionInProgress(false);
       return;
     }
     if (isCheckedIn && _isOnLeave && !_checkOutAllowed) {
@@ -4231,12 +4267,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ErrorMessageUtils.sanitizeForDisplay(msg),
         isError: true,
       );
+      _setPunchActionInProgress(false);
       return;
     }
 
     if (_isHoliday &&
         _attendanceTemplate?['allowAttendanceOnHolidays'] == false) {
       SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
+      _setPunchActionInProgress(false);
       return;
     }
     if (_isCompensationWeekOff) {
@@ -4245,20 +4283,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         "Today is compensation week off",
         isError: true,
       );
+      _setPunchActionInProgress(false);
       return;
     }
     if (_isCompensationCompOff) {
       SnackBarUtils.showSnackBar(context, "Today is comp off", isError: true);
+      _setPunchActionInProgress(false);
       return;
     }
     if (_isPaidLeaveToday) {
       SnackBarUtils.showSnackBar(context, "Today is paid leave", isError: true);
+      _setPunchActionInProgress(false);
       return;
     }
     if (_isWeeklyOff &&
         _attendanceTemplate?['allowAttendanceOnWeeklyOff'] == false &&
         !_isAlternateWorkDate) {
       SnackBarUtils.showSnackBar(context, "Today is a holiday", isError: true);
+      _setPunchActionInProgress(false);
       return;
     }
 
@@ -4284,6 +4326,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               'Check-in not allowed after shift end time ($shiftEndStrForBlock).',
               isError: true,
             );
+            _setPunchActionInProgress(false);
             return;
           }
         } catch (_) {}
@@ -4362,7 +4405,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final isEarly = alertMessage.contains('early');
       await _showWarningAlert(alertMessage, isLate: isLate, isEarly: isEarly);
       if (!mounted) return;
-      if (shouldBlock) return; // Block only when not allowed
+      if (shouldBlock) {
+        _setPunchActionInProgress(false);
+        return; // Block only when not allowed
+      }
     }
     if (!mounted) return;
 
@@ -4395,6 +4441,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         'Location is required. Please enable location and try again.',
         isError: true,
       );
+      _setPunchActionInProgress(false);
       return;
     }
     final locationStr = location.address.isNotEmpty
@@ -4419,6 +4466,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (result is File) {
       file = result;
     } else if (identical(result, useImagePickerFallback)) {
+      _setPunchActionInProgress(false);
       SnackBarUtils.showSnackBar(
         context,
         'Camera unavailable. Try again later.',
@@ -4426,7 +4474,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
       return;
     }
-    if (file == null) return;
+    if (file == null) {
+      _setPunchActionInProgress(false);
+      return;
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -4759,9 +4810,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     final bool punchDisabled =
-        isHalfDayLeave &&
-        ((!isCheckedIn && !_checkInAllowed) ||
-            (isCheckedIn && !_checkOutAllowed));
+        _isPunchActionInProgress ||
+        (isHalfDayLeave &&
+            ((!isCheckedIn && !_checkInAllowed) ||
+                (isCheckedIn && !_checkOutAllowed)));
 
     return Opacity(
       opacity: punchDisabled ? 0.65 : 1.0,
@@ -4891,7 +4943,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               ),
                             )
                           : ElevatedButton.icon(
-                              onPressed: _openMarkAttendanceScreen,
+                              onPressed: _isPunchActionInProgress
+                                  ? null
+                                  : _openMarkAttendanceScreen,
                               icon: Icon(
                                 (_attendanceTemplate?['requireSelfie'] ?? true)
                                     ? Icons.camera_alt

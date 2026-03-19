@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:activity_recognition_flutter/activity_recognition_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' as gl;
-import 'package:activity_recognition_flutter/activity_recognition_flutter.dart';
+import 'package:hrms/config/constants.dart';
 
-/// Single location sample for rolling window. Accuracy in meters.
 class _LocationSample {
   final double lat;
   final double lng;
@@ -13,49 +13,24 @@ class _LocationSample {
   _LocationSample(this.lat, this.lng, this.time, this.accuracyM);
 }
 
-/// Movement types sent to backend. Exact values only: drive | walk | stop.
-const String kMovementDrive = 'drive';
-const String kMovementWalk = 'walk';
+const String kMovementDrive = 'driving';
+const String kMovementWalk = 'walking';
 const String kMovementStop = 'stop';
 
-/// Accuracy above which we ignore GPS points (meters).
-const double kMaxAccuracyM = 40.0;
-
-/// Rolling window size for speed calculation (3–5 points).
-const int kLocationWindowSize = 5;
-
-/// Minimum confidence for activity recognition (%). Accept only if >= 70.
-const int kMinActivityConfidence = 70;
-
-/// Speed thresholds per spec (km/h). Hysteresis applied in logic.
-/// stop ≤ 1 km/h; walk 1–6 km/h; drive ≥ 10 km/h; 6–10 keep previous.
-const double kSpeedStopMaxKmh = 1.0;
+const double kMaxAccuracyM = 50.0;
+const double kSameLocationDistanceM = 10.0;
 const double kSpeedWalkEnterKmh = 2.0;
-const double kSpeedWalkExitKmh = 1.0;
-const double kSpeedWalkMaxKmh = 6.0;
-const double kSpeedDriveEnterKmh = 10.0;
-const double kSpeedDriveExitKmh = 6.0;
-
-/// Consecutive readings required: stop needs 2 low-speed; activity needs 2 same type.
-const int kConsecutiveStopRequired = 2;
+const double kSpeedDriveEnterKmh = 15.0;
+const Duration kMovementHoldDuration = Duration(seconds: 10);
+const int kLocationWindowSize = 5;
+const int kMinActivityConfidence = 70;
 const int kConsecutiveActivityRequired = 2;
 
-/// Large jump: if last segment (current minus previous point) has speed >= this, consider drive.
-const double kLargeJumpDriveMinKmh = 10.0;
-
-/// Guard against GPS jitter immediately after task start.
-/// Require a little real displacement before allowing stop -> walk/drive.
-const int kWalkWarmupMinSamples = 3;
-const double kWalkWarmupMinDisplacementM = 8.0;
-const int kDriveWarmupMinSamples = 3;
-const double kDriveWarmupMinDisplacementM = 15.0;
-
-/// Classifies movement (drive / walk / stop) using:
-/// - Android: Activity Recognition (IN_VEHICLE→drive, ON_FOOT/WALKING→walk, STILL→stop)
-///   with confidence ≥70% and 2 consecutive same type.
-/// - GPS: rolling window 3–5 points, accuracy ≤40m, speed = distance/time.
-/// - Final: update only when activity and GPS classification agree (or GPS-only on iOS).
-/// - Hysteresis to prevent flapping.
+/// Final production logic:
+/// 1. Ignore low quality GPS fixes (> 50m accuracy) for movement changes.
+/// 2. Treat movement under 10m as the same location.
+/// 3. Speed > 15 km/h => driving, > 2 km/h => walking, else stop.
+/// 4. Only switch movement type after the condition is held for at least 10s.
 class MovementClassificationService {
   static final MovementClassificationService _instance =
       MovementClassificationService._internal();
@@ -66,67 +41,99 @@ class MovementClassificationService {
   final List<_LocationSample> _locationWindow = [];
   static const int _maxSamples = kLocationWindowSize;
 
-  /// Activity: only accept if confidence >= 70% and same type for 2 consecutive.
   ActivityType? _lastActivityType;
   int _lastActivityConsecutive = 0;
-
-  /// Current output state (hysteresis).
-  String _currentMovementType = kMovementStop;
-  int _consecutiveLowSpeedCount = 0;
-  int _consecutiveWalkCount = 0;
-  int _consecutiveDriveCount = 0;
-
-  /// Last known activity-based suggestion (for agreement check). Null = no valid activity.
   String? _activitySuggestedMovement;
+
+  String _currentMovementType = kMovementStop;
+  String? _pendingMovementType;
+  DateTime? _pendingMovementSince;
+  int _consecutiveLowSpeedCount = 0;
 
   bool _activityAvailable = false;
   StreamSubscription<ActivityEvent>? _activitySubscription;
 
-  /// Initialize and optionally start activity recognition (Android). Call from foreground.
+  void _logDetection({
+    required String stage,
+    required double lat,
+    required double lng,
+    required DateTime time,
+    double? accuracyM,
+    double? distanceM,
+    double? speedKmh,
+    String? candidate,
+    String? result,
+  }) {
+    if (!kDebugMode || !AppConstants.logTrackingsToConsole) return;
+    debugPrint(
+      '[MovementDetection] stage=$stage '
+      'time=${time.toIso8601String()} '
+      'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
+      'acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m '
+      'distance=${distanceM?.toStringAsFixed(1) ?? "—"}m '
+      'speed=${speedKmh?.toStringAsFixed(2) ?? "—"}kmh '
+      'activity=${_activitySuggestedMovement ?? "—"} '
+      'candidate=${candidate ?? "—"} '
+      'pending=${_pendingMovementType ?? "—"} '
+      'current=$_currentMovementType '
+      'result=${result ?? _currentMovementType}',
+    );
+  }
+
   Future<void> start() async {
     _locationWindow.clear();
     _lastActivityType = null;
     _lastActivityConsecutive = 0;
-    _currentMovementType = kMovementStop;
-    _consecutiveLowSpeedCount = 0;
-    _consecutiveWalkCount = 0;
-    _consecutiveDriveCount = 0;
     _activitySuggestedMovement = null;
+    _currentMovementType = kMovementStop;
+    _pendingMovementType = null;
+    _pendingMovementSince = null;
+    _consecutiveLowSpeedCount = 0;
 
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        final available = await ActivityRecognition().isAvailable();
-        if (available) {
-          _activityAvailable = true;
-          _activitySubscription = ActivityRecognition()
-              .activityStream(runForegroundService: false)
-              .listen(_onActivityEvent);
-        }
-      } catch (e) {
-        // Activity recognition error
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return;
+    }
+
+    try {
+      final available = await ActivityRecognition().isAvailable();
+      if (available) {
+        _activityAvailable = true;
+        await _activitySubscription?.cancel();
+        _activitySubscription = ActivityRecognition()
+            .activityStream(runForegroundService: false)
+            .listen(_onActivityEvent);
       }
+    } catch (_) {
+      _activityAvailable = false;
     }
   }
 
   void _onActivityEvent(ActivityEvent event) {
-    if (event.type == ActivityType.unknown || event.type == ActivityType.invalid) {
+    if (kDebugMode && AppConstants.logTrackingsToConsole) {
+      debugPrint(
+        '[MovementDetection] activity_event '
+        'time=${DateTime.now().toIso8601String()} '
+        'type=${event.type.name} confidence=${event.confidence}',
+      );
+    }
+
+    if (event.type == ActivityType.unknown ||
+        event.type == ActivityType.invalid ||
+        event.confidence < kMinActivityConfidence) {
       _lastActivityType = null;
       _lastActivityConsecutive = 0;
       _activitySuggestedMovement = null;
       return;
     }
-    if (event.confidence < kMinActivityConfidence) {
-      _lastActivityType = null;
-      _lastActivityConsecutive = 0;
-      _activitySuggestedMovement = null;
-      return;
-    }
+
     if (event.type == _lastActivityType) {
       _lastActivityConsecutive++;
     } else {
       _lastActivityType = event.type;
       _lastActivityConsecutive = 1;
     }
+
     if (_lastActivityConsecutive >= kConsecutiveActivityRequired) {
       _activitySuggestedMovement = _activityToMovement(event.type);
     } else {
@@ -151,15 +158,12 @@ class MovementClassificationService {
     }
   }
 
-  /// Stop activity stream. Call when leaving live tracking.
   Future<void> stop() async {
     await _activitySubscription?.cancel();
     _activitySubscription = null;
     _activityAvailable = false;
   }
 
-  /// Add a location and get movement type. Ignores point if accuracy > 40m.
-  /// [accuracyM] can be null → treated as poor (we still add point but may not use for speed if window has bad accuracy).
   String addLocationAndClassify({
     required double lat,
     required double lng,
@@ -169,219 +173,193 @@ class MovementClassificationService {
   }) {
     final accuracy = accuracyM ?? 999.0;
     if (accuracy > kMaxAccuracyM) {
+      _logDetection(
+        stage: 'ignored_accuracy',
+        lat: lat,
+        lng: lng,
+        time: time,
+        accuracyM: accuracy,
+        result: _currentMovementType,
+      );
       return _currentMovementType;
     }
 
-    _locationWindow.add(_LocationSample(lat, lng, time, accuracy));
+    final previous = _locationWindow.isNotEmpty ? _locationWindow.last : null;
+    final current = _LocationSample(lat, lng, time, accuracy);
+    _locationWindow.add(current);
     if (_locationWindow.length > _maxSamples) {
       _locationWindow.removeAt(0);
     }
 
-    final avgSpeedKmh = _averageSpeedKmh();
-    final lastSegmentKmh = _lastSegmentSpeedKmh();
-    // Use max of average and last-segment: large jump in distance in short time → consider drive
-    final effectiveSpeedKmh = _effectiveSpeedKmh(avgSpeedKmh, lastSegmentKmh);
-    if (effectiveSpeedKmh == null) {
+    if (previous == null) {
+      _clearPendingMovement();
+      _updateConsecutiveStopCount(_currentMovementType);
+      _logDetection(
+        stage: 'first_accurate_sample',
+        lat: lat,
+        lng: lng,
+        time: time,
+        accuracyM: accuracy,
+        result: _currentMovementType,
+      );
       return _currentMovementType;
     }
 
-    final speedClass = _speedToClassification(effectiveSpeedKmh, inBackground: inBackground);
-    if (speedClass == null) {
+    final elapsedSeconds =
+        current.time.difference(previous.time).inMilliseconds / 1000.0;
+    if (elapsedSeconds <= 0) {
+      _logDetection(
+        stage: 'invalid_elapsed',
+        lat: lat,
+        lng: lng,
+        time: time,
+        accuracyM: accuracy,
+        result: _currentMovementType,
+      );
       return _currentMovementType;
     }
-    if (!_agreeWithActivity(speedClass)) {
-      return _currentMovementType;
-    }
-    if (!_canTransitionFromStop(speedClass)) {
-      return _currentMovementType;
-    }
-    final next = _applyHysteresis(speedClass, effectiveSpeedKmh, inBackground: inBackground);
-    _currentMovementType = next;
-    return next;
+
+    final distanceM = gl.Geolocator.distanceBetween(
+      previous.lat,
+      previous.lng,
+      current.lat,
+      current.lng,
+    );
+    final speedKmh = speedKmhFromDistance(
+      distanceM: distanceM,
+      elapsedSeconds: elapsedSeconds,
+    );
+    final candidate = _classifyBySpeedKmh(speedKmh);
+    final result = _resolveMovementWithHold(
+      candidate: candidate,
+      now: current.time,
+      evidenceStart: previous.time,
+    );
+
+    _updateConsecutiveStopCount(result);
+    _logDetection(
+      stage: result == _currentMovementType ? 'classified' : 'pending',
+      lat: lat,
+      lng: lng,
+      time: time,
+      accuracyM: accuracy,
+      distanceM: distanceM,
+      speedKmh: speedKmh,
+      candidate: candidate,
+      result: result,
+    );
+    return result;
   }
 
-  bool _canTransitionFromStop(String speedClass) {
-    if (_currentMovementType != kMovementStop) {
-      _consecutiveWalkCount = 0;
-      _consecutiveDriveCount = 0;
-      return true;
-    }
-
-    if (speedClass == kMovementWalk) {
-      _consecutiveDriveCount = 0;
-      _consecutiveWalkCount++;
-
-      if (_locationWindow.length < kWalkWarmupMinSamples) {
-        return false;
-      }
-
-      if (_windowDisplacementM() < kWalkWarmupMinDisplacementM) {
-        return false;
-      }
-
-      if (_consecutiveWalkCount < 2) {
-        return false;
-      }
-
-      _consecutiveWalkCount = 0;
-      _consecutiveDriveCount = 0;
-      return true;
-    }
-
-    if (speedClass == kMovementDrive) {
-      _consecutiveWalkCount = 0;
-      _consecutiveDriveCount++;
-
-      if (_locationWindow.length < kDriveWarmupMinSamples) {
-        return false;
-      }
-
-      if (_windowDisplacementM() < kDriveWarmupMinDisplacementM) {
-        return false;
-      }
-
-      if (_consecutiveDriveCount < 2) {
-        return false;
-      }
-
-      _consecutiveWalkCount = 0;
-      _consecutiveDriveCount = 0;
-      return true;
-    }
-
-    _consecutiveWalkCount = 0;
-    _consecutiveDriveCount = 0;
-    return true;
+  String classifyFromPosition(gl.Position position, {bool inBackground = false}) {
+    return addLocationAndClassify(
+      lat: position.latitude,
+      lng: position.longitude,
+      time: DateTime.now(),
+      accuracyM: position.accuracy,
+      inBackground: inBackground,
+    );
   }
 
-  /// Classify from speed only (for background / iOS). Uses same thresholds and hysteresis.
-  /// [lastMovementType] is the previous state for hysteresis.
+  String _resolveMovementWithHold({
+    required String candidate,
+    required DateTime now,
+    required DateTime evidenceStart,
+  }) {
+    if (candidate == _currentMovementType) {
+      _clearPendingMovement();
+      return _currentMovementType;
+    }
+
+    if (_pendingMovementType != candidate) {
+      _pendingMovementType = candidate;
+      _pendingMovementSince = evidenceStart;
+      if (now.difference(evidenceStart) >= kMovementHoldDuration) {
+        _currentMovementType = candidate;
+        _clearPendingMovement();
+      }
+      return _currentMovementType;
+    }
+
+    final holdSince = _pendingMovementSince;
+    if (holdSince == null || evidenceStart.isBefore(holdSince)) {
+      _pendingMovementSince = evidenceStart;
+    }
+
+    if (now.difference(_pendingMovementSince!) >= kMovementHoldDuration) {
+      _currentMovementType = candidate;
+      _clearPendingMovement();
+    }
+
+    return _currentMovementType;
+  }
+
+  void _clearPendingMovement() {
+    _pendingMovementType = null;
+    _pendingMovementSince = null;
+  }
+
+  void _updateConsecutiveStopCount(String movementType) {
+    if (movementType == kMovementStop) {
+      _consecutiveLowSpeedCount++;
+    } else {
+      _consecutiveLowSpeedCount = 0;
+    }
+  }
+
+  static double speedKmhFromDistance({
+    required double distanceM,
+    required double elapsedSeconds,
+  }) {
+    if (!distanceM.isFinite || !elapsedSeconds.isFinite || elapsedSeconds <= 0) {
+      return 0.0;
+    }
+    if (distanceM < kSameLocationDistanceM) {
+      return 0.0;
+    }
+    return (distanceM / elapsedSeconds) * 3.6;
+  }
+
+  static String classifyFromDistanceAndDuration({
+    required double distanceM,
+    required double elapsedSeconds,
+  }) {
+    return _classifyBySpeedKmh(
+      speedKmhFromDistance(
+        distanceM: distanceM,
+        elapsedSeconds: elapsedSeconds,
+      ),
+    );
+  }
+
   static String classifyFromSpeedOnly({
     required double avgSpeedKmh,
     required String lastMovementType,
     bool inBackground = false,
     int consecutiveLowSpeed = 0,
   }) {
-    final speedClass = _speedToClassificationStatic(avgSpeedKmh, inBackground: inBackground);
-    if (speedClass == null) return lastMovementType;
-    return _applyHysteresisStatic(
-      speedClass,
-      avgSpeedKmh,
-      lastMovementType,
-      inBackground: inBackground,
-      consecutiveLowSpeed: consecutiveLowSpeed,
-    );
+    if (!avgSpeedKmh.isFinite || avgSpeedKmh < 0) return lastMovementType;
+    return _classifyBySpeedKmh(avgSpeedKmh);
   }
 
-  double? _averageSpeedKmh() {
-    if (_locationWindow.length < 2) return null;
-    double totalDistM = 0;
-    int n = _locationWindow.length;
-    for (int i = 1; i < n; i++) {
-      final a = _locationWindow[i - 1];
-      final b = _locationWindow[i];
-      totalDistM += gl.Geolocator.distanceBetween(a.lat, a.lng, b.lat, b.lng);
-    }
-    final first = _locationWindow.first;
-    final last = _locationWindow.last;
-    final secs = last.time.difference(first.time).inMilliseconds / 1000.0;
-    if (secs <= 0) return null;
-    final speedMps = totalDistM / secs;
-    return speedMps * 3.6;
-  }
-
-  /// Speed over the last segment (previous point → current). Used so a large jump counts as drive.
-  double? _lastSegmentSpeedKmh() {
-    if (_locationWindow.length < 2) return null;
-    final prev = _locationWindow[_locationWindow.length - 2];
-    final cur = _locationWindow[_locationWindow.length - 1];
-    final distM = gl.Geolocator.distanceBetween(prev.lat, prev.lng, cur.lat, cur.lng);
-    final secs = cur.time.difference(prev.time).inMilliseconds / 1000.0;
-    if (secs <= 0) return null;
-    return (distM / secs) * 3.6;
-  }
-
-  /// Effective speed for classification: max of average and last-segment so large jumps → drive.
-  double? _effectiveSpeedKmh(double? avgKmh, double? lastSegmentKmh) {
-    if (avgKmh == null && lastSegmentKmh == null) return null;
-    if (avgKmh == null) return lastSegmentKmh;
-    if (lastSegmentKmh == null) return avgKmh;
-    return avgKmh > lastSegmentKmh ? avgKmh : lastSegmentKmh;
-  }
-
-  double _windowDisplacementM() {
-    if (_locationWindow.length < 2) return 0.0;
-    final first = _locationWindow.first;
-    final last = _locationWindow.last;
-    return gl.Geolocator.distanceBetween(first.lat, first.lng, last.lat, last.lng);
-  }
-
-  String? _speedToClassification(double speedKmh, {bool inBackground = false}) {
-    return _speedToClassificationStatic(speedKmh, inBackground: inBackground);
-  }
-
-  /// Speed → classification. 6–10 km/h returns null (caller keeps previous).
-  static String? _speedToClassificationStatic(double speedKmh, {bool inBackground = false}) {
-    if (speedKmh <= kSpeedStopMaxKmh) return kMovementStop;
-    if (speedKmh >= kSpeedDriveEnterKmh) return kMovementDrive;
-    if (speedKmh >= kSpeedWalkEnterKmh && speedKmh < kSpeedWalkMaxKmh) return kMovementWalk;
-    if (speedKmh >= kSpeedWalkMaxKmh && speedKmh < kSpeedDriveEnterKmh) return null;
-    return kMovementStop;
-  }
-
-  bool _agreeWithActivity(String speedClass) {
-    if (!_activityAvailable || _activitySuggestedMovement == null) {
-      return true;
-    }
-    return speedClass == _activitySuggestedMovement;
-  }
-
-  String _applyHysteresis(String speedClass, double speedKmh, {bool inBackground = false}) {
-    return _applyHysteresisStatic(
-      speedClass,
-      speedKmh,
-      _currentMovementType,
-      inBackground: inBackground,
-      consecutiveLowSpeed: _consecutiveLowSpeedCount,
-      updateConsecutive: (int n) {
-        _consecutiveLowSpeedCount = n;
-      },
-    );
-  }
-
-  static String _applyHysteresisStatic(
-    String speedClass,
-    double speedKmh,
-    String current, {
+  static String classifyFromInstantSpeed({
+    required double speedKmh,
+    required String lastMovementType,
     bool inBackground = false,
     int consecutiveLowSpeed = 0,
-    void Function(int)? updateConsecutive,
   }) {
-    if (speedKmh <= kSpeedStopMaxKmh) {
-      final nextConsecutive = consecutiveLowSpeed + 1;
-      if (updateConsecutive != null) updateConsecutive(nextConsecutive);
-      if (nextConsecutive >= kConsecutiveStopRequired) return kMovementStop;
-      return current;
-    }
-    if (updateConsecutive != null) updateConsecutive(0);
+    if (!speedKmh.isFinite || speedKmh < 0) return lastMovementType;
+    return _classifyBySpeedKmh(speedKmh);
+  }
 
-    switch (current) {
-      case kMovementDrive:
-        if (speedKmh <= kSpeedDriveExitKmh) {
-          if (speedClass == kMovementWalk) return kMovementWalk;
-          if (speedClass == kMovementStop) return kMovementStop;
-        }
-        return kMovementDrive;
-      case kMovementWalk:
-        if (speedKmh <= kSpeedWalkExitKmh) return kMovementStop;
-        if (speedKmh >= kSpeedDriveEnterKmh && speedClass == kMovementDrive) return kMovementDrive;
-        return kMovementWalk;
-      case kMovementStop:
-      default:
-        if (speedKmh >= kSpeedDriveEnterKmh && speedClass == kMovementDrive) return kMovementDrive;
-        if (speedKmh >= kSpeedWalkEnterKmh && speedClass == kMovementWalk) return kMovementWalk;
-        return kMovementStop;
+  static String _classifyBySpeedKmh(double speedKmh) {
+    if (!speedKmh.isFinite || speedKmh <= kSpeedWalkEnterKmh) {
+      return kMovementStop;
     }
+    if (speedKmh > kSpeedDriveEnterKmh) {
+      return kMovementDrive;
+    }
+    return kMovementWalk;
   }
 
   String get currentMovementType => _currentMovementType;

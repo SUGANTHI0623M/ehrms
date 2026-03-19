@@ -6,6 +6,7 @@ const Branch = require('../models/Branch');
 const Attendance = require('../models/Attendance');
 const { upsertTaskDetails, buildUnsetExtended } = require('./taskController');
 const { reverseGeocode } = require('../services/geocodingService');
+const { markLatestPresenceTrackingInactiveForStaff } = require('../services/presenceTrackingStatusService');
 const { parseTimestamp } = require('../utils/dateUtils');
 const { logTrackingWrite, shouldLogTrackings } = require('../utils/trackingLogger');
 
@@ -137,6 +138,67 @@ async function findNearbyRecentAddress({ staffId, lat, lng, taskId = null, maxDi
   }
 
   return null;
+}
+
+async function normalizePresenceMovementType({
+  staffId,
+  lat,
+  lng,
+  timestamp,
+  movementType,
+  accuracy,
+}) {
+  const requested = String(movementType || '').trim().toLowerCase();
+  if (!['stop', 'walking', 'driving'].includes(requested)) return movementType || undefined;
+
+  const now = timestamp ? new Date(timestamp) : new Date();
+  const since = new Date(now.getTime() - 10 * 60 * 1000);
+  const latestPresence = await Tracking.findOne({
+    staffId,
+    timestamp: { $gte: since, $lt: now },
+    $or: [{ taskId: null }, { taskId: { $exists: false } }],
+  })
+    .select('latitude longitude timestamp movementType accuracy')
+    .sort({ timestamp: -1 })
+    .lean();
+
+  if (!latestPresence?.latitude || !latestPresence?.longitude || !latestPresence?.timestamp) {
+    if (requested === 'driving' || requested === 'walking') {
+      const acc = accuracy != null ? Number(accuracy) : null;
+      if (acc != null && acc > 25) return 'stop';
+    }
+    return requested;
+  }
+
+  const distanceM = haversineDistanceM(
+    Number(lat),
+    Number(lng),
+    Number(latestPresence.latitude),
+    Number(latestPresence.longitude)
+  );
+  const elapsedSeconds = Math.max(
+    1,
+    Math.round((now.getTime() - new Date(latestPresence.timestamp).getTime()) / 1000)
+  );
+  const speedKmh = (distanceM / elapsedSeconds) * 3.6;
+  const currentAccuracy = accuracy != null ? Number(accuracy) : null;
+
+  if (requested === 'driving') {
+    if (distanceM < 25 || speedKmh < 10 || (currentAccuracy != null && currentAccuracy > 25)) {
+      return distanceM >= 8 && speedKmh >= 2 ? 'walking' : 'stop';
+    }
+    return 'driving';
+  }
+
+  if (requested === 'walking') {
+    if (distanceM < 6 || speedKmh < 1.5 || (currentAccuracy != null && currentAccuracy > 30)) {
+      return 'stop';
+    }
+    if (speedKmh >= 12 && distanceM >= 25) return 'driving';
+    return 'walking';
+  }
+
+  return 'stop';
 }
 
 /**
@@ -275,10 +337,11 @@ async function validateAttendanceForPresence(staffId) {
 
 /**
  * POST /api/tracking/presence/store
- * Body: { lat, lng, timestamp?, batteryPercent?, movementType?, accuracy?, presenceStatus?, status?, address?, fullAddress?, city?, area?, pincode? }
+ * Body: { lat, lng, timestamp?, batteryPercent?, movementType?, accuracy?, presenceStatus?, status?, appStatus?, address?, fullAddress?, city?, area?, pincode? }
  * Stores presence tracking point. Attendance-validated: only when checked in, not checked out, not on leave.
  * presenceStatus: 'in_office' | 'out_of_office' | 'task' (server computes if not sent)
- * status: 'active' (app opened) | 'app_background' (background) | 'app_closed' (app closed) — stored as doc.status when provided
+ * status: backend-managed active/inactive for fresh/stale presence tracking
+ * appStatus: app lifecycle state from client (active | inactive | offline | app_background | app_closed)
  */
 exports.storePresenceTracking = async (req, res) => {
   try {
@@ -291,6 +354,7 @@ exports.storePresenceTracking = async (req, res) => {
       accuracy,
       presenceStatus: clientPresenceStatus,
       status: clientStatus,
+      appStatus: clientAppStatus,
       address,
       fullAddress,
       city,
@@ -346,13 +410,22 @@ exports.storePresenceTracking = async (req, res) => {
     }
 
     const now = parseTimestamp(timestamp);
-    const statusValue =
-      clientStatus === 'active' ||
-      clientStatus === 'inactive' ||
-      clientStatus === 'app_background' ||
-      clientStatus === 'app_closed'
-        ? clientStatus
-        : 'arrived';
+    const normalizedClientStatus = String(clientStatus || '').trim();
+    const normalizedClientAppStatus = String(clientAppStatus || '').trim();
+    const validAppStatuses = ['app_closed', 'app_background', 'active', 'inactive', 'offline'];
+    const appStatusValue = validAppStatuses.includes(normalizedClientAppStatus)
+      ? normalizedClientAppStatus
+      : validAppStatuses.includes(normalizedClientStatus)
+        ? normalizedClientStatus
+        : 'active';
+    const normalizedMovementType = await normalizePresenceMovementType({
+      staffId,
+      lat: Number(lat),
+      lng: Number(lng),
+      timestamp: now,
+      movementType,
+      accuracy,
+    });
     const doc = {
       staffId,
       staffName: staffName || undefined,
@@ -360,10 +433,11 @@ exports.storePresenceTracking = async (req, res) => {
       longitude: Number(lng),
       presenceStatus: resolvedPresenceStatus,
       timestamp: now,
-      status: statusValue,
+      status: 'active',
+      appStatus: appStatusValue,
       time: now,
       batteryPercent: batteryPercent != null ? Number(batteryPercent) : undefined,
-      movementType: movementType || undefined,
+      movementType: normalizedMovementType || undefined,
       accuracy: accuracy != null ? Number(accuracy) : undefined,
       address: resolvedAddress?.address || resolvedAddress?.fullAddress || undefined,
       fullAddress: resolvedAddress?.fullAddress || resolvedAddress?.address || undefined,
@@ -384,6 +458,7 @@ exports.storePresenceTracking = async (req, res) => {
           latitude: doc.latitude,
           longitude: doc.longitude,
           presenceStatus: resolvedPresenceStatus,
+          movementType: doc.movementType,
           timestamp: doc.timestamp,
           address: doc.address,
           accuracy: doc.accuracy,
@@ -407,6 +482,7 @@ exports.getPresenceTrackingStatus = async (req, res) => {
     const staffId = req.staff?._id;
     if (!staffId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
+    await markLatestPresenceTrackingInactiveForStaff(staffId);
     const validation = await validateAttendanceForPresence(staffId);
     const staff = await Staff.findById(staffId)
       .select('branchId')
@@ -444,6 +520,9 @@ exports.getPresenceTrackingStatus = async (req, res) => {
 exports.getPresenceTrackingData = async (req, res) => {
   try {
     const { staffId, from, to, limit = 500 } = req.query;
+    if (staffId) {
+      await markLatestPresenceTrackingInactiveForStaff(staffId);
+    }
     const query = { $or: [{ taskId: null }, { taskId: { $exists: false } }] };
     if (staffId) query.staffId = staffId;
     if (from || to) {

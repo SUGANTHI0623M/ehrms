@@ -17,8 +17,20 @@ function buildAddressString(address, area, city, pincode) {
   return parts.length ? parts.join(', ') : '';
 }
 
-/** Insert presence tracking into trackings collection (presenceStatus: in_office on check-in, out_of_office on check-out). */
-async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceStatus, address, area, city, pincode) {
+/** Insert attendance punch tracking into trackings collection. */
+async function insertAttendanceTracking(
+    staffId,
+    staffName,
+    lat,
+    lng,
+    presenceStatus,
+    trackingStatus,
+    movementType,
+    address,
+    area,
+    city,
+    pincode
+) {
     try {
         let fullAddress = address || '';
         if (!fullAddress && (area || city || pincode)) {
@@ -43,10 +55,13 @@ async function insertAttendanceTracking(staffId, staffName, lat, lng, presenceSt
             longitude: Number(lng),
             timestamp: now,
             time: now,
-            status: 'arrived',
+            status: trackingStatus,
             presenceStatus,
+            movementType: movementType || undefined,
             address: address || fullAddress || undefined,
             fullAddress: fullAddress || address || undefined,
+            area: area || undefined,
+            city: city || undefined,
             pincode: pincode || undefined,
         };
         const created = await Tracking.create(doc);
@@ -448,7 +463,7 @@ async function calculateCombinedFine(punchInTime, punchOutTime, attendanceDate, 
 // @route   POST /api/attendance/checkin
 // @access  Private
 const checkIn = async (req, res) => {
-    const { latitude, longitude, address, area, city, pincode, selfie, businessId: bodyBusinessId, source: bodySource } = req.body;
+    const { latitude, longitude, address, area, city, pincode, selfie, movementType, businessId: bodyBusinessId, source: bodySource } = req.body;
 
     const VALID_SOURCES = ['app', 'software', 'webemp', 'webadmin'];
     const source = (bodySource && VALID_SOURCES.includes(String(bodySource).toLowerCase()))
@@ -714,7 +729,7 @@ const checkIn = async (req, res) => {
                 punchInAddress: buildAddressString(address, area, city, pincode) || undefined,
                 timestamp: now
             }).catch(err => console.warn('[AttendanceLog] PUNCH_IN create failed:', err?.message));
-            await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
+            await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', 'checked_in', movementType, address, area, city, pincode);
             const response = existing.toObject ? existing.toObject() : existing;
             if (warnings.length > 0) response.warnings = warnings;
             console.log('[Attendance checkIn] success (half-day update)', { staffId: staffId?.toString(), attendanceId: existing._id?.toString() });
@@ -802,7 +817,7 @@ const checkIn = async (req, res) => {
             timestamp: now
         }).catch(err => console.warn('[AttendanceLog] PUNCH_IN create failed:', err?.message));
 
-        await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', address, area, city, pincode);
+        await insertAttendanceTracking(staffId, staff.name, userLat, userLng, 'in_office', 'checked_in', movementType, address, area, city, pincode);
 
         // Include warnings in response if any
         const response = attendance.toObject ? attendance.toObject() : attendance;
@@ -823,7 +838,7 @@ const checkIn = async (req, res) => {
 // @route   PUT /api/attendance/checkout
 // @access  Private
 const checkOut = async (req, res) => {
-    const { latitude, longitude, address, area, city, pincode, selfie, source: bodySource } = req.body;
+    const { latitude, longitude, address, area, city, pincode, selfie, movementType, source: bodySource } = req.body;
 
     const VALID_SOURCES = ['app', 'software', 'webemp', 'webadmin'];
     const source = (bodySource && VALID_SOURCES.includes(String(bodySource).toLowerCase()))
@@ -868,10 +883,10 @@ const checkOut = async (req, res) => {
             if (!legacyAttendance) {
                 return res.status(404).json({ message: 'No check-in record found for today' });
             }
-            return processCheckOut(legacyAttendance, req, res, staff, now, { latitude, longitude, address, area, city, pincode, selfie }, template);
+            return processCheckOut(legacyAttendance, req, res, staff, now, { latitude, longitude, address, area, city, pincode, selfie, movementType }, template);
         }
 
-        return processCheckOut(attendance, req, res, staff, now, { latitude, longitude, address, area, city, pincode, selfie }, template);
+        return processCheckOut(attendance, req, res, staff, now, { latitude, longitude, address, area, city, pincode, selfie, movementType }, template);
 
     } catch (error) {
         console.error('[Attendance checkOut] error', error);
@@ -880,7 +895,7 @@ const checkOut = async (req, res) => {
 };
 
 async function processCheckOut(attendance, req, res, staff, now, data, template = {}) {
-    const { latitude, longitude, address, area, city, pincode, selfie, source } = data;
+    const { latitude, longitude, address, area, city, pincode, selfie, source, movementType } = data;
 
     // Half Day: allow updating punchOut even if already set (update existing record)
     const isHalfDayStatus = attendance && String(attendance.status || '').trim().toLowerCase() === 'half day';
@@ -1114,7 +1129,7 @@ async function processCheckOut(attendance, req, res, staff, now, data, template 
     const userLat = latitude != null ? parseFloat(latitude) : (attendance.location?.punchOut?.latitude ?? attendance.location?.punchIn?.latitude ?? 0);
     const userLng = longitude != null ? parseFloat(longitude) : (attendance.location?.punchOut?.longitude ?? attendance.location?.punchIn?.longitude ?? 0);
     if (userLat !== 0 || userLng !== 0) {
-        await insertAttendanceTracking(staff._id, staff.name, userLat, userLng, 'out_of_office', address, area, city, pincode);
+        await insertAttendanceTracking(staff._id, staff.name, userLat, userLng, 'out_of_office', 'checked_out', movementType, address, area, city, pincode);
     }
 
     // Include warnings in response if any

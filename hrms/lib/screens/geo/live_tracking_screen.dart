@@ -99,10 +99,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     var score = 0;
     if (address.area != null && address.area!.trim().isNotEmpty) score += 2;
     if (address.city != null && address.city!.trim().isNotEmpty) score += 1;
-    if (address.pincode != null && address.pincode!.trim().isNotEmpty) score += 1;
+    if (address.pincode != null && address.pincode!.trim().isNotEmpty)
+      score += 1;
     if (RegExp(r'\d').hasMatch(text)) score += 2;
-    if (RegExp(r'\b(road|rd|street|st|lane|ln|nagar|main)\b', caseSensitive: false)
-        .hasMatch(text)) {
+    if (RegExp(
+      r'\b(road|rd|street|st|lane|ln|nagar|main)\b',
+      caseSensitive: false,
+    ).hasMatch(text)) {
       score += 2;
     }
     score += ','.allMatches(text).length.clamp(0, 3);
@@ -383,14 +386,16 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           area: resolvedAddress?.area,
           pincode: resolvedAddress?.pincode,
         )
-        .then((_) {
-          final classifier = MovementClassificationService();
-          LiveTrackingService.persistLastSentPosition(
-            lat,
-            lng,
-            movementType: movementType,
-            consecutiveLowSpeed: classifier.consecutiveLowSpeedCount,
-          );
+        .then((stored) {
+          if (stored) {
+            final classifier = MovementClassificationService();
+            LiveTrackingService.persistLastSentPosition(
+              lat,
+              lng,
+              movementType: movementType,
+              consecutiveLowSpeed: classifier.consecutiveLowSpeedCount,
+            );
+          }
           _syncPendingDestinationIfAny();
         })
         .catchError((e) {});
@@ -418,8 +423,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     final resolved = await AddressResolutionService.reverseGeocode(lat, lng);
     final resolvedScore = _addressDetailScore(resolved);
     final cachedScore = _addressDetailScore(cached);
-    final bestResolved =
-        cachedScore > resolvedScore && cached != null ? cached : resolved;
+    final bestResolved = cachedScore > resolvedScore && cached != null
+        ? cached
+        : resolved;
 
     if (bestResolved != null) {
       _lastResolvedTrackingAddress = bestResolved;
@@ -441,8 +447,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   TrackingEventType _movementTypeToEventType(String movementType) {
     switch (movementType) {
       case 'drive':
+      case 'driving':
         return TrackingEventType.drive;
       case 'walk':
+      case 'walking':
         return TrackingEventType.walk;
       case 'stop':
       default:
@@ -453,8 +461,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   String _getMovementDisplay() {
     switch (_currentActivity.toLowerCase()) {
       case 'drive':
+      case 'driving':
         return 'Driving';
       case 'walk':
+      case 'walking':
         return 'Walking';
       case 'stop':
       case 'standing':
@@ -764,7 +774,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       setState(() {
         _remainingDistanceKm = km;
         // Shortest distance from live location to destination; ETA based on speed
-        final speedKmh = _currentActivity.toLowerCase() == 'walk' ? 5.0 : 30.0;
+        final normalized = _currentActivity.toLowerCase();
+        final speedKmh = normalized == 'walk' || normalized == 'walking'
+            ? 5.0
+            : 30.0;
         final min = (km / speedKmh * 60).round().clamp(0, 999);
         _etaMinutes = min;
         _etaText = min > 60 ? '~${min ~/ 60} h' : '~$min min';
@@ -1323,6 +1336,12 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             _lastLocation!.longitude != null
         ? LatLng(_lastLocation!.latitude!, _lastLocation!.longitude!)
         : widget.pickupLocation;
+    final pipTitle = _dropoffAddress.isNotEmpty
+        ? _dropoffAddress
+        : 'Towards destination';
+    final pipSubtitle = _etaText != null
+        ? 'Arrive $_etaText'
+        : '${_remainingDistanceKm.toStringAsFixed(1)} km';
     return Container(
       color: Colors.white,
       child: Stack(
@@ -1344,47 +1363,71 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             left: 0,
             right: 0,
             bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: Colors.white.withOpacity(0.95),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.navigation_rounded,
-                        size: 16,
-                        color: AppColors.primary,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: ClipRect(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 52),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
                       ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _dropoffAddress.isNotEmpty
-                              ? (_dropoffAddress.length > 35
-                                    ? '${_dropoffAddress.substring(0, 35)}...'
-                                    : _dropoffAddress)
-                              : 'Towards destination',
-                          style: const TextStyle(fontSize: 11),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _etaText != null
-                        ? 'Arrive $_etaText'
-                        : '${_remainingDistanceKm.toStringAsFixed(2)} km',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.navigation_rounded,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  pipTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 10.5),
+                                ),
+                                const SizedBox(height: 2),
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    pipSubtitle,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),

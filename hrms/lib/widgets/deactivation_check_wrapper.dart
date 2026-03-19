@@ -8,6 +8,7 @@ import '../bloc/auth/auth_bloc.dart';
 import '../screens/auth/login_screen.dart';
 import '../services/auth_service.dart';
 import '../services/fcm_service.dart';
+import '../services/geo/location_service.dart';
 import '../services/presence_tracking_service.dart';
 
 class DeactivationCheckWrapper extends StatefulWidget {
@@ -33,6 +34,7 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scheduleNextCheck();
+    unawaited(_handleResumeForLoggedInUser());
   }
 
   @override
@@ -65,6 +67,7 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
     PresenceTrackingService().markAppForeground();
     _scheduleNextCheck();
     FcmService.sendTokenToBackend();
+    LocationService.syncLocationPermissionStatusToBackend();
     // Resume presence tracking timer and insert one "active" record.
     PresenceTrackingService().recordAppOpened();
     PresenceTrackingService().onAppLifecycleResumed();

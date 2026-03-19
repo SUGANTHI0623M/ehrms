@@ -70,6 +70,7 @@ class AttendanceService {
     String? city,
     String? pincode,
     String? selfie,
+    String? movementType,
   }) async {
     try {
       final headers = await _getHeaders();
@@ -85,6 +86,7 @@ class AttendanceService {
         'city': city,
         'pincode': pincode,
         'selfie': selfie,
+        'movementType': movementType,
         'source': 'app',
       };
       if (businessId != null && businessId.isNotEmpty) {
@@ -123,6 +125,7 @@ class AttendanceService {
     String? city,
     String? pincode,
     String? selfie,
+    String? movementType,
   }) async {
     try {
       final headers = await _getHeaders();
@@ -136,6 +139,7 @@ class AttendanceService {
         'city': city,
         'pincode': pincode,
         'selfie': selfie,
+        'movementType': movementType,
         'source': 'app',
       };
       final response = await _api.dio.put<Map<String, dynamic>>(

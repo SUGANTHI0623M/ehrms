@@ -162,6 +162,19 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     if (mounted) _checkLiveTracking();
   }
 
+  Map<String, dynamic>? _extractLiveTodayAttendance(dynamic responseBody) {
+    if (responseBody is! Map<String, dynamic>) return null;
+    final nested = responseBody['data'];
+    if (nested is Map<String, dynamic>) return Map<String, dynamic>.from(nested);
+    if (nested is Map) return Map<String, dynamic>.from(nested);
+    final hasAttendanceFields =
+        responseBody['punchIn'] != null ||
+        responseBody['punchOut'] != null ||
+        responseBody['status'] != null;
+    if (!hasAttendanceFields) return null;
+    return Map<String, dynamic>.from(responseBody);
+  }
+
   Future<void> _loadData() async {
     final hasCachedData = _stats != null;
     // Full-screen loading only when no cached data; otherwise show content and refresh in background
@@ -206,15 +219,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
       // Run dashboard, month attendance, and loans in parallel for faster load
       final dashboardFuture = _requestService.getDashboardData();
+      final liveTodayFuture =
+          _attendanceService.getTodayAttendance(forceRefresh: true);
       _fetchMonthAttendance(forceRefresh: true);
       _fetchActiveLoans();
 
       final result = await dashboardFuture;
+      final liveTodayResult = await liveTodayFuture;
       final fcmList = await FcmService.getStoredNotifications();
       if (mounted) {
         if (result['success']) {
           final data = result['data'];
           final stats = data['stats'];
+          final liveTodayAttendance =
+              _extractLiveTodayAttendance(liveTodayResult['data']);
           final activeLoansList = stats?['activeLoansList'];
           final loansList = activeLoansList is List
               ? activeLoansList
@@ -224,7 +242,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             _recentLeaves = data['recentLeaves'] ?? [];
             _activeLoans = loansList;
             _activeLoansCount = loansList.length;
-            _todayAttendance = stats?['attendanceToday'];
+            _todayAttendance = liveTodayAttendance ?? stats?['attendanceToday'];
             _todayAnnouncements = data['todayAnnouncements'] is List
                 ? data['todayAnnouncements'] as List
                 : [];

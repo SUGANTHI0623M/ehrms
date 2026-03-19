@@ -14,6 +14,7 @@ import '../../services/attendance_template_store.dart';
 import '../../services/geo/address_resolution_service.dart';
 import '../../services/geo/accurate_location_helper.dart';
 import '../../services/geo/location_service.dart';
+import '../../services/geo/movement_classification_service.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
@@ -401,6 +402,12 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       final position = await getQuickPositionForUi();
 
       _position = position;
+      MovementClassificationService().addLocationAndClassify(
+        lat: position.latitude,
+        lng: position.longitude,
+        time: DateTime.now(),
+        accuracyM: position.accuracy,
+      );
 
       final resolved = await AddressResolutionService.reverseGeocodeForUi(
         position.latitude,
@@ -423,6 +430,13 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
         setState(() => _isLocationLoading = false);
       }
     }
+  }
+
+  String _resolveAttendanceMovementType() {
+    final position = _position;
+    if (position == null) return kMovementStop;
+
+    return MovementClassificationService().classifyFromPosition(position);
   }
 
   Future<void> _takeSelfie() async {
@@ -608,6 +622,8 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
       );
     }
 
+    final movementType = _resolveAttendanceMovementType();
+
     if (!mounted) return;
     if (_isCheckedIn) {
       context.read<AttendanceBloc>().add(
@@ -619,6 +635,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
           city: _city,
           pincode: _pincode,
           selfie: selfiePayload,
+          movementType: movementType,
         ),
       );
     } else {
@@ -631,6 +648,7 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
           city: _city,
           pincode: _pincode,
           selfie: selfiePayload,
+          movementType: movementType,
         ),
       );
     }

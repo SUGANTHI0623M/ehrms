@@ -19,6 +19,7 @@ const announcementRoutes = require('./src/routes/announcementRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 const trackingRoutes = require('./src/routes/trackingRoutes');
+const { startPresenceTrackingStatusMonitor } = require('./src/services/presenceTrackingStatusService');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 const monitoringRoutes = require('./src/routes/monitoringRoutes');
 const grievanceRoutes = require('./src/routes/grievanceRoutes');
@@ -97,6 +98,7 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
     try {
         await connectDB();
+        startPresenceTrackingStatusMonitor();
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
         });

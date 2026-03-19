@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hrms/config/constants.dart';
 import 'package:hrms/models/task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hrms/services/geo/live_tracking_service.dart';
 import 'api_client.dart';
 
 class TaskService {
@@ -167,9 +168,7 @@ class TaskService {
       });
     }
     if (rows.isEmpty) return [];
-    rows.sort(
-      (a, b) => (a['ts'] as DateTime).compareTo(b['ts'] as DateTime),
-    );
+    rows.sort((a, b) => (a['ts'] as DateTime).compareTo(b['ts'] as DateTime));
 
     int endExclusive = rows.length;
     for (var i = 0; i < rows.length; i++) {
@@ -302,7 +301,7 @@ class TaskService {
   /// Store tracking point in Tracking collection (separate route, not socket.io).
   /// Call on Start Ride and every 15 sec during Live Tracking.
   /// Payload includes currentLat, currentLng, destinationLat, destinationLng.
-  Future<void> storeTracking(
+  Future<bool> storeTracking(
     String taskMongoId,
     double lat,
     double lng, {
@@ -317,6 +316,19 @@ class TaskService {
     String? pincode,
   }) async {
     await _setToken();
+    if (await LiveTrackingService.shouldSkipDuplicateTrackingSend(
+      taskMongoId,
+      lat,
+      lng,
+    )) {
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] task_store SKIP duplicate (fg) taskId=$taskMongoId '
+          'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)}',
+        );
+      }
+      return false;
+    }
     final body = <String, dynamic>{
       'taskId': taskMongoId,
       'lat': lat,
@@ -336,6 +348,7 @@ class TaskService {
     if (pincode != null && pincode.isNotEmpty) body['pincode'] = pincode;
     try {
       await _api.dio.post<dynamic>('/tracking/store', data: body);
+      await LiveTrackingService.persistStoredTrackingPoint(taskMongoId, lat, lng);
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
           '[Trackings] task_store OK (fg) taskId=$taskMongoId '
@@ -343,6 +356,7 @@ class TaskService {
           'movement=${movementType ?? "—"}',
         );
       }
+      return true;
     } on DioException catch (e) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
@@ -420,7 +434,8 @@ class TaskService {
       final success = data?['success'] == true;
       return {
         'success': success,
-        'message': data?['message'] as String? ??
+        'message':
+            data?['message'] as String? ??
             (success ? 'OTP sent to customer email' : 'Failed to send OTP'),
       };
     } on DioException catch (e) {
@@ -428,12 +443,13 @@ class TaskService {
       final msg = body is Map ? (body['message'] as String?) : null;
       return {
         'success': false,
-        'message': msg ??
+        'message':
+            msg ??
             (e.response?.statusCode == 404
                 ? 'Task not found.'
                 : e.response?.statusCode == 400
-                    ? 'Customer email is required. Please add email to customer.'
-                    : 'We couldn\'t deliver the OTP to the customer email. Please try again or check email configuration.'),
+                ? 'Customer email is required. Please add email to customer.'
+                : 'We couldn\'t deliver the OTP to the customer email. Please try again or check email configuration.'),
       };
     } catch (e) {
       return {
@@ -474,6 +490,8 @@ class TaskService {
     required String exitType,
     double? lat,
     double? lng,
+    String? fullAddress,
+    String? pincode,
   }) async {
     await _setToken();
     final data = <String, dynamic>{
@@ -483,6 +501,10 @@ class TaskService {
     };
     if (lat != null) data['lat'] = lat;
     if (lng != null) data['lng'] = lng;
+    if (fullAddress != null && fullAddress.isNotEmpty) {
+      data['fullAddress'] = fullAddress;
+    }
+    if (pincode != null && pincode.isNotEmpty) data['pincode'] = pincode;
     await _api.dio.post<dynamic>('/tracking/exit', data: data);
   }
 
@@ -560,9 +582,7 @@ class TaskService {
     if (data == null) return [];
     final list = data['data']?['templates'] as List?;
     if (list == null) return [];
-    return list
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   /// Check if form response exists for task+staff.
@@ -579,9 +599,7 @@ class TaskService {
     if (data == null) return [];
     final list = data['data']?['responses'] as List?;
     if (list == null) return [];
-    return list
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   /// Submit form response. Returns created response.
