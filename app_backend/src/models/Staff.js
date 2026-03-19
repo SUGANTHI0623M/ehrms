@@ -74,6 +74,11 @@ const staffSchema = new mongoose.Schema({
     // Tasks module visibility – when true, show Tasks in app drawer
     locationAccess: { type: Boolean, default: false },
 
+    // Device/app location permission snapshot from the mobile app.
+    isGpsEnabled: { type: Boolean },
+    isGpsAllowed: { type: String }, // "Allow all the time" | "Allow only while using the app" | "Ask every time" | "Don't allow"
+    isEnabledPreciseLocation: { type: Boolean },
+
     // LMS access (employee portal "My Learning" visibility)
     lmsAccessEnabled: { type: Boolean, default: true },
 

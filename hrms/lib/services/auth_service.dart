@@ -10,11 +10,13 @@ import '../utils/error_message_utils.dart';
 import 'api_client.dart';
 import 'fcm_service.dart';
 import 'attendance_template_store.dart';
+import 'geo/live_tracking_service.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
+  static const String _kAuthBaseUrl = 'auth_base_url';
   // Use the constant from config
   final String baseUrl = AppConstants.baseUrl;
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
@@ -79,6 +81,7 @@ class AuthService {
           await prefs.setString('businessId', idStr);
         }
       }
+      await _persistCurrentBaseUrl(prefs);
       _api.setAuthToken(accessToken);
       if (kDebugMode) debugPrint('[AuthService] login success – registering FCM token');
       await FcmService.sendTokenToBackendAfterLogin();
@@ -153,6 +156,67 @@ class AuthService {
     return null;
   }
 
+  dynamic _normalizeJson(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (key, nestedValue) =>
+            MapEntry(key.toString(), _normalizeJson(nestedValue)),
+      );
+    }
+    if (value is List) {
+      return value.map(_normalizeJson).toList();
+    }
+    return value;
+  }
+
+  Map<String, dynamic>? _normalizeJsonMap(dynamic value) {
+    final normalized = _normalizeJson(value);
+    return normalized is Map<String, dynamic> ? normalized : null;
+  }
+
+  String _normalizedBaseUrl(String? value) {
+    if (value == null) return '';
+    return value.trim().replaceAll(RegExp(r'/+$'), '');
+  }
+
+  Future<void> _persistCurrentBaseUrl(SharedPreferences prefs) async {
+    await prefs.setString(_kAuthBaseUrl, _normalizedBaseUrl(AppConstants.baseUrl));
+  }
+
+  Future<void> _clearStoredSession(SharedPreferences prefs) async {
+    _api.clearAuthToken();
+    await AttendanceTemplateStore.clear();
+    await LiveTrackingService().stopTracking();
+    await prefs.remove('token');
+    await prefs.remove('user');
+    await prefs.remove('staff');
+    await prefs.remove('taskSettings');
+    await prefs.remove('businessId');
+  }
+
+  Future<bool> clearSessionIfBaseUrlChanged() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentBaseUrl = _normalizedBaseUrl(AppConstants.baseUrl);
+    final storedBaseUrl = _normalizedBaseUrl(prefs.getString(_kAuthBaseUrl));
+
+    if (storedBaseUrl.isEmpty) {
+      await _persistCurrentBaseUrl(prefs);
+      return false;
+    }
+
+    if (storedBaseUrl == currentBaseUrl) {
+      return false;
+    }
+
+    final hadSession =
+        (prefs.getString('token')?.trim().isNotEmpty ?? false) ||
+        prefs.getString('user') != null;
+
+    await _clearStoredSession(prefs);
+    await _persistCurrentBaseUrl(prefs);
+    return hadSession;
+  }
+
   Future<UserCredential?> signInWithGoogle() async {
     try {
       // Trigger the authentication flow
@@ -200,6 +264,7 @@ class AuthService {
           await prefs.setString('taskSettings', jsonEncode(taskSettings));
         }
       }
+      await _persistCurrentBaseUrl(prefs);
       _api.setAuthToken(data?['accessToken']);
       if (kDebugMode) debugPrint('[AuthService] login success – registering FCM token');
       await FcmService.sendTokenToBackendAfterLogin();
@@ -253,20 +318,23 @@ class AuthService {
           '/auth/profile',
         );
         final body = response.data ?? {};
-        return {'success': true, 'data': body['data']};
+        return {'success': true, 'data': _normalizeJsonMap(body['data'])};
       } on DioException catch (e) {
         if (e.response?.statusCode == 404) {
           final userStr = prefs.getString('user');
           if (userStr != null) {
             try {
-              final userObj = jsonDecode(userStr);
+              final userObj = _normalizeJsonMap(jsonDecode(userStr));
+              final staffObj = _normalizeJsonMap(
+                prefs.getString('staff') != null
+                    ? jsonDecode(prefs.getString('staff')!)
+                    : null,
+              );
               return {
                 'success': true,
                 'data': {
                   'profile': userObj,
-                  'staffData': prefs.getString('staff') != null
-                      ? jsonDecode(prefs.getString('staff')!)
-                      : {},
+                  'staffData': staffObj ?? <String, dynamic>{},
                 },
               };
             } catch (_) {}
@@ -384,7 +452,9 @@ class AuthService {
     }
     _api.clearAuthToken();
     await AttendanceTemplateStore.clear();
+    await LiveTrackingService().stopTracking();
     await prefs.clear();
+    await _persistCurrentBaseUrl(prefs);
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
   }

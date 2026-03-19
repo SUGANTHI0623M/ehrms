@@ -45,19 +45,29 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _scheduleNextCheck();
-      FcmService.sendTokenToBackend();
-      // Resume presence tracking 5-min timer and insert one "active" record (works from any screen).
-      PresenceTrackingService().recordAppOpened();
-      PresenceTrackingService().onAppLifecycleResumed();
+      unawaited(_handleResumeForLoggedInUser());
     } else if (state == AppLifecycleState.detached) {
       PresenceTrackingService().recordAppClosed();
       _timer?.cancel();
       _timer = null;
     } else {
+      PresenceTrackingService().markAppBackground();
       _timer?.cancel();
       _timer = null;
     }
+  }
+
+  Future<void> _handleResumeForLoggedInUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null || token.isEmpty || !mounted) return;
+
+    PresenceTrackingService().markAppForeground();
+    _scheduleNextCheck();
+    FcmService.sendTokenToBackend();
+    // Resume presence tracking timer and insert one "active" record.
+    PresenceTrackingService().recordAppOpened();
+    PresenceTrackingService().onAppLifecycleResumed();
   }
 
   void _scheduleNextCheck() {

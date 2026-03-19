@@ -8,17 +8,22 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:background_location_tracker/background_location_tracker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' as gl;
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:hrms/config/constants.dart';
 import 'package:hrms/services/geo/address_resolution_service.dart';
 import 'package:hrms/services/geo/accurate_location_helper.dart';
+import 'package:hrms/services/geo/live_tracking_service.dart';
 import 'api_client.dart';
 
 /// SharedPref key: stores today's date when checked in (YYYY-MM-DD). Cleared on checkout.
 const String _kPresenceTrackingDate = 'presence_tracking_date';
+const String _kPresenceBackgroundEnabled = 'presence_background_enabled';
+const String _kPresenceAppLifecycleState = 'presence_app_lifecycle_state';
 
 const String _kPresencePendingQueue = 'presence_pending_queue';
 const int _maxPendingPresence = 80;
@@ -39,9 +44,19 @@ class PresenceTrackingService {
   bool _periodicTickInProgress = false;
 
   /// Interval for inserting presence tracking into DB (trackings collection).
-  static const Duration trackingInterval = Duration(minutes: 5);
+  /// Applied to both foreground timer and native Android background tracker.
+  static const Duration trackingInterval = Duration(minutes: 1);
 
   static const double defaultOfficeRadiusMeters = 200;
+  static const AndroidConfig _presenceBackgroundConfig = AndroidConfig(
+    notificationIcon: 'explore',
+    notificationBody: 'Attendance presence tracking active. Tap to open.',
+    channelName: 'Presence Tracking',
+    cancelTrackingActionText: 'Stop tracking',
+    enableCancelTrackingAction: true,
+    trackingInterval: trackingInterval,
+    distanceFilterMeters: null,
+  );
 
   Future<gl.Position> _capturePresencePosition() {
     // Use the same stabilized GPS sampling as attendance check-in so
@@ -55,16 +70,154 @@ class PresenceTrackingService {
     if (token != null) _api.setAuthToken(token);
   }
 
+  static String? _sanitizeStoredToken(String? token) {
+    if (token == null) return null;
+    final trimmed = token.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('"') || trimmed.endsWith('"')) {
+      return trimmed.replaceAll('"', '');
+    }
+    return trimmed;
+  }
+
   Future<void> setTrackingAllowed() async {
     final prefs = await SharedPreferences.getInstance();
     final today = DateTime.now().toIso8601String().split('T')[0];
     await prefs.setString(_kPresenceTrackingDate, today);
+    await prefs.setBool(_kPresenceBackgroundEnabled, true);
+    await prefs.setString(_kPresenceAppLifecycleState, 'foreground');
   }
 
   Future<void> clearTrackingAllowed() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kPresenceTrackingDate);
+    await prefs.remove(_kPresenceBackgroundEnabled);
+    await prefs.remove(_kPresenceAppLifecycleState);
     await prefs.remove(_kPresencePendingQueue);
+  }
+
+  Future<void> markAppForeground() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPresenceAppLifecycleState, 'foreground');
+  }
+
+  Future<void> markAppBackground() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPresenceAppLifecycleState, 'background');
+  }
+
+  Future<void> markAppClosed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPresenceAppLifecycleState, 'closed');
+  }
+
+  static Future<String> _getLifecycleStatusForBackgroundInsert() async {
+    final prefs = await SharedPreferences.getInstance();
+    final state = prefs.getString(_kPresenceAppLifecycleState);
+    if (state == 'closed') return 'app_closed';
+    return 'app_background';
+  }
+
+  Future<String?> _getPresenceStatusForCurrentLifecycle() async {
+    final prefs = await SharedPreferences.getInstance();
+    final state = prefs.getString(_kPresenceAppLifecycleState);
+    if (state == 'closed') return 'app_closed';
+    if (state == 'background') return 'app_background';
+    return null;
+  }
+
+  static Future<bool> isBackgroundPresenceEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPresenceBackgroundEnabled) == true;
+  }
+
+  Future<void> _ensureBackgroundPresenceTracking() async {
+    if (_taskInProgress) return;
+    if (!await isTrackingAllowed()) return;
+    if (await LiveTrackingService().isActive()) return;
+    try {
+      await BackgroundLocationTrackerManager.startTracking(
+        config: _presenceBackgroundConfig,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[PresenceTracking] background tracker start failed: $e');
+      }
+    }
+  }
+
+  Future<void> _stopBackgroundPresenceTrackingIfIdle() async {
+    if (await LiveTrackingService().isActive()) return;
+    if (await isTrackingAllowed()) return;
+    try {
+      final isTracking = await BackgroundLocationTrackerManager.isTracking();
+      if (isTracking) {
+        await BackgroundLocationTrackerManager.stopTracking();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[PresenceTracking] background tracker stop failed: $e');
+      }
+    }
+  }
+
+  static Future<void> sendPresenceFromBackground(
+    double lat,
+    double lng, {
+    int? batteryPercent,
+    double? accuracyM,
+  }) async {
+    if (await LiveTrackingService().isActive()) return;
+    if (!await isBackgroundPresenceEnabled()) return;
+
+    final self = PresenceTrackingService();
+    if (!await self.isTrackingAllowed()) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = _sanitizeStoredToken(prefs.getString('token'));
+    if (token == null || token.isEmpty) return;
+
+    final baseUrl = AppConstants.baseUrl.replaceAll(RegExp(r'/$'), '');
+    final uri = Uri.parse('$baseUrl/tracking/presence/store');
+    final body = <String, dynamic>{
+      'lat': lat,
+      'lng': lng,
+      'status': await _getLifecycleStatusForBackgroundInsert(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+    };
+    if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
+    if (accuracyM != null) body['accuracy'] = accuracyM;
+
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode && AppConstants.logTrackingsToConsole) {
+          debugPrint(
+            '[Trackings] presence_store_bg FAIL ${response.statusCode} '
+            'lat=$lat lng=$lng status=${body['status']} body=${response.body}',
+          );
+        }
+      } else if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] presence_store_bg OK '
+          'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
+          'status=${body['status']}',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] presence_store_bg error status=${body['status']}: $e',
+        );
+      }
+    }
   }
 
   Future<bool> isTrackingAllowed() async {
@@ -72,7 +225,6 @@ class PresenceTrackingService {
     final stored = prefs.getString(_kPresenceTrackingDate);
     if (stored == null || stored.isEmpty) return false;
 
-    final now = DateTime.now();
     final parts = stored.split('-');
     if (parts.length != 3) return false;
     final year = int.tryParse(parts[0]);
@@ -80,12 +232,17 @@ class PresenceTrackingService {
     final day = int.tryParse(parts[2]);
     if (year == null || month == null || day == null) return false;
 
-    final endOfCheckInDay = DateTime(year, month, day, 23, 59, 59, 999);
-
-    if (now.isAfter(endOfCheckInDay)) {
-      await prefs.remove(_kPresenceTrackingDate);
-      return false;
-    }
+    // TESTING ONLY:
+    // Keep presence tracking alive after midnight so overnight/background
+    // tracking can be verified. Re-enable the block below after testing.
+    //
+    // final now = DateTime.now();
+    // final endOfCheckInDay = DateTime(year, month, day, 23, 59, 59, 999);
+    //
+    // if (now.isAfter(endOfCheckInDay)) {
+    //   await prefs.remove(_kPresenceTrackingDate);
+    //   return false;
+    // }
     return true;
   }
 
@@ -142,7 +299,12 @@ class PresenceTrackingService {
         'timestamp':
             (timestampUtc ?? DateTime.now().toUtc()).toIso8601String(),
       };
-      if (status == 'active' || status == 'inactive') body['status'] = status;
+      if (status == 'active' ||
+          status == 'inactive' ||
+          status == 'app_background' ||
+          status == 'app_closed') {
+        body['status'] = status;
+      }
       if (accuracy != null) body['accuracy'] = accuracy;
       if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
       if (address != null && address.isNotEmpty) body['address'] = address;
@@ -166,7 +328,8 @@ class PresenceTrackingService {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
           '[Trackings] presence_store FAIL ${e.response?.statusCode} '
-          'presence=$presenceStatus lat=$lat lng=$lng → ${e.response?.data}',
+          'presence=$presenceStatus status=${status ?? "—"} '
+          'lat=$lat lng=$lng → ${e.response?.data}',
         );
       }
       if (kDebugMode) {
@@ -215,6 +378,7 @@ class PresenceTrackingService {
     required double lat,
     required double lng,
     required String presenceStatus,
+    String? status,
     double? accuracy,
     int? batteryPercent,
     String? address,
@@ -229,6 +393,7 @@ class PresenceTrackingService {
       'lat': lat,
       'lng': lng,
       'presenceStatus': presenceStatus,
+      if (status != null && status.isNotEmpty) 'status': status,
       if (accuracy != null) 'accuracy': accuracy,
       if (batteryPercent != null) 'batteryPercent': batteryPercent,
       if (address != null && address.isNotEmpty) 'address': address,
@@ -276,6 +441,7 @@ class PresenceTrackingService {
         lat: lat,
         lng: lng,
         presenceStatus: ps,
+        status: m['status'] as String?,
         accuracy: (m['accuracy'] as num?)?.toDouble(),
         batteryPercent: (m['batteryPercent'] as num?)?.toInt(),
         address: m['address'] as String?,
@@ -349,12 +515,14 @@ class PresenceTrackingService {
     final presenceStatus = _isInsideOffice(lat, lng, gf)
         ? 'in_office'
         : 'out_of_office';
+    final status = await _getPresenceStatusForCurrentLifecycle();
 
     final capturedAt = DateTime.now().toUtc();
     final ok = await _sendPresence(
       lat: lat,
       lng: lng,
       presenceStatus: presenceStatus,
+      status: status,
       accuracy: accuracy,
       batteryPercent: batteryPercent,
       address: resolvedAddress?.formattedAddress,
@@ -369,6 +537,7 @@ class PresenceTrackingService {
         lat: lat,
         lng: lng,
         presenceStatus: presenceStatus,
+        status: status,
         accuracy: accuracy,
         batteryPercent: batteryPercent,
         address: resolvedAddress?.formattedAddress,
@@ -410,6 +579,7 @@ class PresenceTrackingService {
 
     _isTracking = true;
     await flushPendingPresenceQueue();
+    await _ensureBackgroundPresenceTracking();
     try {
       final status = await getPresenceStatus();
       final gf = status['branchGeofence'] as Map<String, dynamic>?;
@@ -430,6 +600,7 @@ class PresenceTrackingService {
   Future<void> recordAppOpened() async {
     if (_taskInProgress) return;
     if (!await isTrackingAllowed()) return;
+    await markAppForeground();
 
     try {
       final position = await _capturePresencePosition();
@@ -469,6 +640,7 @@ class PresenceTrackingService {
     if (!await isTrackingAllowed()) return;
 
     _sendingAppClosed = true;
+    await markAppClosed();
     try {
       final status = await getPresenceStatus();
       final branchGeofence = status['branchGeofence'] as Map<String, dynamic>?;
@@ -481,12 +653,19 @@ class PresenceTrackingService {
         position.latitude,
         position.longitude,
       );
+      final presenceStatus = _isInsideOffice(
+        position.latitude,
+        position.longitude,
+        branchGeofence,
+      )
+          ? 'in_office'
+          : 'out_of_office';
 
       await _sendPresence(
         lat: position.latitude,
         lng: position.longitude,
-        presenceStatus: 'app_closed',
-        status: 'inactive',
+        presenceStatus: presenceStatus,
+        status: 'app_closed',
         accuracy: position.accuracy,
         batteryPercent: batteryPercent,
         address: resolvedAddress?.formattedAddress,
@@ -527,6 +706,7 @@ class PresenceTrackingService {
     _trackingTimer?.cancel();
     _trackingTimer = null;
     await clearTrackingAllowed();
+    await _stopBackgroundPresenceTrackingIfIdle();
   }
 
   void pausePresenceTracking() {

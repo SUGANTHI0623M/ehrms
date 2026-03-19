@@ -8,9 +8,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
 import 'services/alarm_service.dart';
+import 'services/auth_service.dart';
 import 'services/fcm_service.dart';
 import 'config/app_route_observer.dart';
 import 'services/geo/live_tracking_service.dart';
+import 'services/presence_tracking_service.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash/splash_screen.dart';
 import 'widgets/deactivation_check_wrapper.dart';
@@ -33,6 +35,12 @@ void backgroundCallback() {
       lon,
       batteryPercent: batteryPercent,
       speedMps: speedMps,
+      accuracyM: data.horizontalAccuracy,
+    );
+    await PresenceTrackingService.sendPresenceFromBackground(
+      lat,
+      lon,
+      batteryPercent: batteryPercent,
       accuracyM: data.horizontalAccuracy,
     );
   });
@@ -82,6 +90,20 @@ void main() {
           ),
         );
         return;
+      }
+
+      try {
+        final sessionReset = await AuthService().clearSessionIfBaseUrlChanged();
+        if (sessionReset) {
+          debugPrint(
+            '[main] Cleared stale session because baseUrl changed before startup init',
+          );
+        }
+      } catch (e, st) {
+        debugPrint(
+          '[main] clearSessionIfBaseUrlChanged failed (continuing): $e',
+        );
+        if (kDebugMode) debugPrint('[main] clearSessionIfBaseUrlChanged stack: $st');
       }
 
       try {

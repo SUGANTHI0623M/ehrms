@@ -13,6 +13,7 @@ import '../../services/auth_service.dart';
 import '../../services/attendance_template_store.dart';
 import '../../services/geo/address_resolution_service.dart';
 import '../../services/geo/accurate_location_helper.dart';
+import '../../services/geo/location_service.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
@@ -301,6 +302,15 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     } else if (state is AttendanceCheckInSuccess) {
       if (!mounted) return;
       setState(() => _isLoading = false);
+      if (Platform.isAndroid && !await Permission.locationAlways.isGranted) {
+        await LocationService.showBackgroundLocationDisclosureAndRequest(
+          context,
+          title: 'Background location for attendance',
+          message:
+              'To continue recording your attendance location while the app is in the background or the screen is off, this app needs "Allow all the time" location access.\n\n'
+              'Your location is used only for attendance presence tracking and is sent to your organization\'s HRMS server.',
+        );
+      }
       await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
       final userName = await _authService.getCurrentUserName();
       if (!mounted) return;
@@ -388,11 +398,11 @@ class _SelfieCheckInScreenState extends State<SelfieCheckInScreen> {
     }
 
     try {
-      final position = await getAccuratePositionForUi();
+      final position = await getQuickPositionForUi();
 
       _position = position;
 
-      final resolved = await AddressResolutionService.reverseGeocode(
+      final resolved = await AddressResolutionService.reverseGeocodeForUi(
         position.latitude,
         position.longitude,
       );

@@ -39,12 +39,35 @@ class AddressResolutionService {
     return _reverseGeocodeWithPlacemark(lat, lng);
   }
 
+  /// Faster reverse-geocode for attendance/check-in UI where responsiveness
+  /// matters more than waiting a long time for a perfect network result.
+  static Future<ResolvedAddress?> reverseGeocodeForUi(
+    double lat,
+    double lng,
+  ) async {
+    final googleResult = await reverseGeocodeWithGoogle(
+      lat,
+      lng,
+      receiveTimeout: const Duration(seconds: 4),
+    );
+    if (googleResult != null) return googleResult;
+    try {
+      return await _reverseGeocodeWithPlacemark(
+        lat,
+        lng,
+      ).timeout(const Duration(seconds: 2));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Google Geocoding API only. Use when you must send the same address the user
   /// sees from Google to the backend. Returns null if the key is invalid / API error.
   static Future<ResolvedAddress?> reverseGeocodeWithGoogle(
     double lat,
-    double lng,
-  ) async {
+    double lng, {
+    Duration receiveTimeout = const Duration(seconds: 12),
+  }) async {
     final key = AppConstants.googleMapsApiKey.trim();
     if (key.isEmpty) return null;
 
@@ -63,7 +86,7 @@ class AddressResolutionService {
 
       final response = await _dio.get<Map<String, dynamic>>(
         url,
-        options: Options(receiveTimeout: const Duration(seconds: 12)),
+        options: Options(receiveTimeout: receiveTimeout),
       );
       final data = response.data;
       if (data == null) return null;

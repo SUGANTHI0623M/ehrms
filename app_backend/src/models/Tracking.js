@@ -25,11 +25,14 @@ const trackingSchema = new mongoose.Schema({
   // Exit ride
   exitStatus: { type: String }, // "exited"
   // Arrived / app session
-  status: { type: String }, // "arrived" | "app_closed" | "in_progress" | "active" | "inactive"
+  status: {
+    type: String,
+    enum: ['arrived', 'app_background', 'app_closed', 'in_progress', 'active', 'inactive'],
+  },
   time: { type: Date },
   exitReason: { type: String },
   exitedAt: { type: Date },
-  presenceStatus: { type: String, enum: ['in_office', 'task', 'out_of_office', 'app_closed'] }, // based on task status + branch geofence
+  presenceStatus: { type: String, enum: ['in_office', 'task', 'out_of_office'] }, // based on task status + branch geofence
 }, { timestamps: true });
 
 trackingSchema.index({ staffId: 1, timestamp: -1 });

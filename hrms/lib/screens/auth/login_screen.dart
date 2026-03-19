@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../services/auth_service.dart';
 import '../../config/app_colors.dart';
@@ -19,6 +20,9 @@ class _LoginScreenState extends State<LoginScreen>
     with TickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _emailFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _otpFocusNode = FocusNode();
   // Firebase Google Sign-In only; login/logout go through AuthBloc → AuthRepository.
   final _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
@@ -52,6 +56,9 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    _emailFocusNode.addListener(_resetKeyboardStateOnFocus);
+    _passwordFocusNode.addListener(_resetKeyboardStateOnFocus);
+    _otpFocusNode.addListener(_resetKeyboardStateOnFocus);
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -107,6 +114,10 @@ class _LoginScreenState extends State<LoginScreen>
     _buttonScale = Tween<double>(begin: 1, end: 0.96).animate(
       CurvedAnimation(parent: _buttonScaleController, curve: Curves.easeInOut),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _clearHardwareKeyboardState();
+    });
   }
 
   @override
@@ -117,7 +128,33 @@ class _LoginScreenState extends State<LoginScreen>
     _emailController.dispose();
     _passwordController.dispose();
     _otpController.dispose();
+    _emailFocusNode
+      ..removeListener(_resetKeyboardStateOnFocus)
+      ..dispose();
+    _passwordFocusNode
+      ..removeListener(_resetKeyboardStateOnFocus)
+      ..dispose();
+    _otpFocusNode
+      ..removeListener(_resetKeyboardStateOnFocus)
+      ..dispose();
     super.dispose();
+  }
+
+  void _resetKeyboardStateOnFocus() {
+    if (_emailFocusNode.hasFocus ||
+        _passwordFocusNode.hasFocus ||
+        _otpFocusNode.hasFocus) {
+      _clearHardwareKeyboardState();
+    }
+  }
+
+  void _clearHardwareKeyboardState() {
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      ServicesBinding.instance.keyboard.clearState();
+    } catch (_) {
+      // Best-effort workaround for Flutter's Android key-state mismatch.
+    }
   }
 
   void _handleLogin() {
@@ -171,7 +208,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  void _playSuccessAndNavigate() {
+  void _playSuccessAndNavigate(BuildContext context) {
     setState(() => _showSuccessOverlay = true);
     _successController.forward(from: 0).then((_) {
       if (!mounted) return;
@@ -223,7 +260,7 @@ class _LoginScreenState extends State<LoginScreen>
         );
         return;
       }
-      _playSuccessAndNavigate();
+      _playSuccessAndNavigate(context);
     } else if (state is AuthFailure) {
       if (_lastAttemptWasGoogle) {
         _lastAttemptWasGoogle = false;
@@ -426,7 +463,9 @@ class _LoginScreenState extends State<LoginScreen>
               // EktaHR · attendance sign-in header
               TextFormField(
                 controller: _emailController,
+                focusNode: _emailFocusNode,
                 keyboardType: TextInputType.emailAddress,
+                onTap: _clearHardwareKeyboardState,
                 validator: (value) {
                   if (value == null || value.isEmpty)
                     return 'Please enter your email';
@@ -466,7 +505,9 @@ class _LoginScreenState extends State<LoginScreen>
               const SizedBox(height: 20),
               TextFormField(
                 controller: _passwordController,
+                focusNode: _passwordFocusNode,
                 obscureText: !_isPasswordVisible,
+                onTap: _clearHardwareKeyboardState,
                 validator: (value) {
                   if (value == null || value.isEmpty)
                     return 'Please enter your password';
@@ -637,7 +678,9 @@ class _LoginScreenState extends State<LoginScreen>
             // OTP input
             TextFormField(
               controller: _otpController,
+              focusNode: _otpFocusNode,
               keyboardType: TextInputType.number,
+              onTap: _clearHardwareKeyboardState,
               maxLength: 6,
               textAlign: TextAlign.center,
               style: const TextStyle(

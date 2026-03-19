@@ -3,7 +3,9 @@ const Staff = require('../models/Staff');
 const Company = require('../models/Company');
 const Branch = require('../models/Branch');
 const Candidate = require('../models/Candidate');
+require('../models/Role');
 const TaskSettings = require('../models/TaskSettings');
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const fs = require('fs').promises;
 const path = require('path');
@@ -31,6 +33,29 @@ const generateToken = (id) => {
 const buildEmailRegex = (email) => {
     const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`^${escaped}$`, 'i');
+};
+
+const getRoleIdValue = (user) => {
+    const roleId = user?.roleId;
+    if (!roleId) return null;
+    if (typeof roleId === 'object' && roleId._id) return roleId._id;
+    return roleId;
+};
+
+const populateRoleIfPresent = async (user) => {
+    if (!user) return user;
+
+    const roleId = getRoleIdValue(user);
+    if (!roleId || !mongoose.isValidObjectId(roleId)) {
+        return user;
+    }
+
+    try {
+        return await user.populate('roleId');
+    } catch (err) {
+        console.warn('[Auth] roleId populate skipped:', err?.message);
+        return user;
+    }
 };
 
 // Helper to find or create a user by email, with Candidate fallback
@@ -123,8 +148,8 @@ const login = async (req, res) => {
 
         // 1. Try to find User (explicitly select password field to ensure it's included)
         let user = await User.findOne({ email: emailRegex })
-            .select('+password')
-            .populate('roleId');
+            .select('+password');
+        user = await populateRoleIfPresent(user);
         let staff = null;
 
         if (user) {
@@ -159,8 +184,8 @@ const login = async (req, res) => {
                 if (!staff.password) {
                     if (staff.userId) {
                         user = await User.findById(staff.userId)
-                            .select('+password')
-                            .populate('roleId');
+                            .select('+password');
+                        user = await populateRoleIfPresent(user);
                         
                         if (!user || !user.password) {
                             return res.status(401).json({ success: false, error: { message: 'Password not set for this account' } });
@@ -182,7 +207,8 @@ const login = async (req, res) => {
                     // Staff has password, check it
                     const staffPasswordMatch = await staff.matchPassword(password);
                     if (staffPasswordMatch) {
-                        user = await User.findById(staff.userId).populate('roleId');
+                        user = await User.findById(staff.userId);
+                        user = await populateRoleIfPresent(user);
                     } else {
                         return res.status(401).json({ success: false, error: { message: 'Invalid credentials' } });
                     }
@@ -194,6 +220,16 @@ const login = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User record not found' } });
+        }
+
+        // Mobile app flows require a linked staff profile. Without it, downstream
+        // attendance/dashboard/protected endpoints will fail and the app may
+        // immediately force logout.
+        if (!staff) {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Staff profile not found for this account. Please contact your administrator.' }
+            });
         }
 
         // Only Active (or On Leave) staff can login; block Deactivated
@@ -346,7 +382,8 @@ const googleLogin = async (req, res) => {
         const { email } = req.body;
 
         // Find User
-        let user = await User.findOne({ email }).populate('roleId');
+        let user = await User.findOne({ email });
+        user = await populateRoleIfPresent(user);
         let staff = null;
 
         if (user) {
@@ -360,12 +397,20 @@ const googleLogin = async (req, res) => {
             // Check Staff by email
             staff = await Staff.findOne({ email }).populate('branchId');
             if (staff && staff.userId) {
-                user = await User.findById(staff.userId).populate('roleId');
+                user = await User.findById(staff.userId);
+                user = await populateRoleIfPresent(user);
             }
         }
 
         if (!user) {
             return res.status(401).json({ success: false, error: { message: 'User not registered. Please sign up first.' } });
+        }
+
+        if (!staff) {
+            return res.status(401).json({
+                success: false,
+                error: { message: 'Staff profile not found for this account. Please contact your administrator.' }
+            });
         }
 
         // Only Active (or On Leave) staff can login; block Deactivated
@@ -470,7 +515,8 @@ const getProfile = async (req, res) => {
         }
 
         // Re-fetch to ensure latest data and populated fields
-        const fullUser = await User.findById(user._id).populate('roleId');
+        let fullUser = await User.findById(user._id);
+        fullUser = await populateRoleIfPresent(fullUser);
 
         let fullStaff = null;
         let candidateData = null;
@@ -551,7 +597,8 @@ const updateProfile = async (req, res) => {
             const {
                 gender, maritalStatus, dob, bloodGroup, address, bankDetails,
                 employmentIds, uan, pan, aadhaar, pfNumber, esiNumber,
-                designation, department, shiftName, status
+                designation, department, shiftName, status,
+                isGpsEnabled, isGpsAllowed, isEnabledPreciseLocation
             } = req.body;
 
             const updateData = {};
@@ -573,6 +620,15 @@ const updateProfile = async (req, res) => {
             if (department) updateData.department = department;
             if (shiftName) updateData.shiftName = shiftName;
             if (status) updateData.status = status;
+            if (typeof isGpsEnabled === 'boolean') {
+                updateData.isGpsEnabled = isGpsEnabled;
+            }
+            if (typeof isGpsAllowed === 'string' && isGpsAllowed.trim()) {
+                updateData.isGpsAllowed = isGpsAllowed.trim();
+            }
+            if (typeof isEnabledPreciseLocation === 'boolean') {
+                updateData.isEnabledPreciseLocation = isEnabledPreciseLocation;
+            }
 
             // Handle employment IDs
             if (employmentIds) {

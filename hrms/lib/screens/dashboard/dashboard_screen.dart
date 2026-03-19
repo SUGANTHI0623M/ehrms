@@ -19,6 +19,7 @@ import '../../services/attendance_template_store.dart';
 import '../../services/auth_service.dart';
 import '../../services/geo/address_resolution_service.dart';
 import '../../services/geo/accurate_location_helper.dart';
+import '../../services/geo/location_service.dart';
 import '../../services/presence_tracking_service.dart';
 import '../../bloc/attendance/attendance_bloc.dart';
 import '../../utils/face_detection_helper.dart';
@@ -57,6 +58,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     _currentIndex = _normalizeTabIndex((widget.initialIndex ?? 0));
     _attendanceService.clearCachesForRefresh();
     _fetchPunchStatusForNavBar();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showLocationCardsAfterDelay();
+    });
   }
 
   @override
@@ -69,6 +73,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Presence resume is handled app-wide in DeactivationCheckWrapper so it runs from any screen.
+  }
+
+  Future<void> _showLocationCardsAfterDelay() async {
+    await Future.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    await LocationService.ensureAppLocationAccess(context);
   }
 
   Future<void> _fetchPunchStatusForNavBar() async {
@@ -178,8 +188,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           permission == LocationPermission.deniedForever) {
         return (position: null, address: '', area: null, city: null, pincode: null);
       }
-      position = await getAccuratePositionForUi();
-      final resolved = await AddressResolutionService.reverseGeocode(
+      position = await getQuickPositionForUi();
+      final resolved = await AddressResolutionService.reverseGeocodeForUi(
         position.latitude,
         position.longitude,
       );

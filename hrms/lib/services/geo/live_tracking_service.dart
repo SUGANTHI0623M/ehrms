@@ -41,6 +41,16 @@ class LiveTrackingService {
   factory LiveTrackingService() => _instance;
   LiveTrackingService._internal();
 
+  static String? _sanitizeStoredToken(String? token) {
+    if (token == null) return null;
+    final trimmed = token.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('"') || trimmed.endsWith('"')) {
+      return trimmed.replaceAll('"', '');
+    }
+    return trimmed;
+  }
+
   /// Start live tracking - persist state for background sending.
   Future<void> startTracking({
     required String taskMongoId,
@@ -213,7 +223,7 @@ class LiveTrackingService {
       if (active != true) return;
       final taskMongoId = prefs.getString(_keyTaskMongoId);
       final baseUrl = prefs.getString(_keyBaseUrl);
-      final token = prefs.getString(_keyToken);
+      final token = _sanitizeStoredToken(prefs.getString(_keyToken));
       if (taskMongoId == null || taskMongoId.isEmpty) return;
       if (baseUrl == null || baseUrl.isEmpty) return;
       if (token == null || token.isEmpty) return;

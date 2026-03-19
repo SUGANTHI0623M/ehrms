@@ -277,8 +277,8 @@ async function validateAttendanceForPresence(staffId) {
  * POST /api/tracking/presence/store
  * Body: { lat, lng, timestamp?, batteryPercent?, movementType?, accuracy?, presenceStatus?, status?, address?, fullAddress?, city?, area?, pincode? }
  * Stores presence tracking point. Attendance-validated: only when checked in, not checked out, not on leave.
- * presenceStatus: 'in_office' | 'out_of_office' | 'app_closed' (server computes if not sent)
- * status: 'active' (app opened) | 'inactive' (app closed) — stored as doc.status when provided
+ * presenceStatus: 'in_office' | 'out_of_office' | 'task' (server computes if not sent)
+ * status: 'active' (app opened) | 'app_background' (background) | 'app_closed' (app closed) — stored as doc.status when provided
  */
 exports.storePresenceTracking = async (req, res) => {
   try {
@@ -315,7 +315,7 @@ exports.storePresenceTracking = async (req, res) => {
 
     const branchId = req.staff?.branchId;
     const resolvedPresenceStatus =
-      clientPresenceStatus && ['in_office', 'out_of_office', 'app_closed'].includes(clientPresenceStatus)
+      clientPresenceStatus && ['in_office', 'out_of_office', 'task'].includes(clientPresenceStatus)
         ? clientPresenceStatus
         : await computePresenceStatusForOffice(Number(lat), Number(lng), branchId);
 
@@ -347,9 +347,12 @@ exports.storePresenceTracking = async (req, res) => {
 
     const now = parseTimestamp(timestamp);
     const statusValue =
-      clientStatus === 'active' || clientStatus === 'inactive'
+      clientStatus === 'active' ||
+      clientStatus === 'inactive' ||
+      clientStatus === 'app_background' ||
+      clientStatus === 'app_closed'
         ? clientStatus
-        : (resolvedPresenceStatus === 'app_closed' ? 'app_closed' : 'arrived');
+        : 'arrived';
     const doc = {
       staffId,
       staffName: staffName || undefined,

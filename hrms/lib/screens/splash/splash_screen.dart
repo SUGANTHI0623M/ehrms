@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
 import '../../config/app_colors.dart';
 import '../../services/geo/live_tracking_service.dart';
+import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../geo/live_tracking_screen.dart';
@@ -54,9 +55,17 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     final prefs = await SharedPreferences.getInstance();
+    final sessionReset = await AuthService().clearSessionIfBaseUrlChanged();
     final token = prefs.getString('token');
 
     if (!mounted) return;
+
+    if (sessionReset) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      return;
+    }
 
     if (token != null && token.isNotEmpty) {
       final activeInfo = await LiveTrackingService().getActiveTaskInfo();

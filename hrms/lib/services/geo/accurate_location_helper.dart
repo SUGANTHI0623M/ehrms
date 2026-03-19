@@ -83,6 +83,14 @@ Future<Position> getAccuratePositionForUi() => getPositionForTrackings(
       maxSamples: 18,
     );
 
+/// Attendance/check-in needs a responsive fix more than a heavily sampled one.
+Future<Position> getQuickPositionForUi() => getPositionForTrackings(
+      primaryTimeout: const Duration(seconds: 10),
+      sampleWindow: const Duration(seconds: 4),
+      stopEarlyWhenAccuracyMeters: 15,
+      maxSamples: 8,
+    );
+
 LocationSettings _primarySettings(Duration timeout) {
   if (kIsWeb) {
     return LocationSettings(

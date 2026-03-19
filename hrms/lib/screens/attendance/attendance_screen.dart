@@ -3994,8 +3994,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           pincode: null,
         );
       }
-      position = await getAccuratePositionForUi();
-      final resolved = await AddressResolutionService.reverseGeocode(
+      position = await getQuickPositionForUi();
+      final resolved = await AddressResolutionService.reverseGeocodeForUi(
         position.latitude,
         position.longitude,
       );
