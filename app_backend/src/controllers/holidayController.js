@@ -1,7 +1,5 @@
-
-const HolidayTemplate = require('../models/HolidayTemplate');
 const Staff = require('../models/Staff');
-const mongoose = require('mongoose');
+const { getHolidayTemplateForStaff } = require('../utils/holidayTemplateHelper');
 
 // @desc    Get holidays for employee
 // @route   GET /api/holidays/employee
@@ -20,15 +18,8 @@ const getEmployeeHolidays = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Staff is not assigned to a business/company' });
         }
 
-        // Find Holiday Template for this business
-        // Logic: Find active template for this business
-        // In the future, we might check assignedStaff, but for now getting the business default
-        const query = {
-            businessId: new mongoose.Types.ObjectId(businessId),
-            isActive: true
-        };
-
-        const holidayTemplate = await HolidayTemplate.findOne(query);
+        const staff = await Staff.findById(req.staff._id).select('businessId holidayTemplateId').lean();
+        const holidayTemplate = await getHolidayTemplateForStaff(staff || req.staff);
 
         if (!holidayTemplate) {
             return res.json({

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -146,6 +147,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     });
   }
 
+  Future<void> _runPostPunchSuccessTasks(bool isCheckedIn) async {
+    try {
+      await PresenceTrackingService().ensureTrackingIfPunchedIn(isCheckedIn);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Attendance] post-punch tracking sync failed: $e');
+      }
+    }
+    if (!mounted) return;
+    _attendanceService.clearCachesForRefresh();
+    unawaited(_refreshData(forceRefresh: true));
+  }
+
   bool _hasPunchValue(Object? value) {
     final text = value?.toString().trim();
     return text != null && text.isNotEmpty && text.toLowerCase() != 'null';
@@ -163,7 +177,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (_selectedDay.isAfter(todayOnly)) {
       _selectedDay = todayOnly;
     }
-    _showHistoryView = widget.initialTabIndex == 1;
+    // Attendance page should open directly in history view; punch in/out stays in bottom navbar.
+    _showHistoryView = true;
     _initData();
   }
 
@@ -283,7 +298,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               if (!mounted) return;
               final punchIn = _attendanceData?['punchIn']?.toString().trim();
               final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
-              showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
+              showAbsentAlertIfNeeded(
+                context,
+                hasPunchInToday: hasPunchInToday,
+                suppressAlert: _isHoliday,
+              );
             });
           }
 
@@ -702,7 +721,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               if (!mounted) return;
               final punchIn = _attendanceData?['punchIn']?.toString().trim();
               final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
-              showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
+              showAbsentAlertIfNeeded(
+                context,
+                hasPunchInToday: hasPunchInToday,
+                suppressAlert: _isHoliday,
+              );
             });
           }
         }
@@ -1005,11 +1028,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void _showAttendanceDetails(Map<String, dynamic> record) {
     final dateStr = record['date'] ?? '';
     String formattedDate = 'Invalid Date';
+    String formattedHeaderDate = '';
     try {
       final d = _extractDateOnly(dateStr);
       formattedDate = DateFormat('MMM dd, yyyy').format(d);
+      formattedHeaderDate = DateFormat('dd MMM yyyy | EEE').format(d);
     } catch (_) {
       formattedDate = dateStr.toString();
+      formattedHeaderDate = dateStr.toString();
     }
 
     final punchIn = record['punchIn'];
@@ -1046,6 +1072,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (status == 'Pending' && punchIn != null) {
       displayStatus = 'Waiting for Approval';
     }
+    final summaryStatus =
+        displayStatus == 'Waiting for Approval'
+            ? 'Approval Pending'
+            : displayStatus;
     final isLateIn = _isLateCheckIn(punchIn, record: record);
     final isEarlyOut = _isEarlyCheckOut(punchOut, record: record);
 
@@ -1055,8 +1085,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final fineHours = record['fineHours'] as num?;
     final fineAmount = record['fineAmount'] as num?;
     final hasFineInfo =
-        lateMinutes != null ||
-        earlyMinutes != null ||
+        (lateMinutes != null && lateMinutes > 0) ||
+        (earlyMinutes != null && earlyMinutes > 0) ||
         (fineHours != null && fineHours > 0) ||
         (fineAmount != null && fineAmount > 0);
 
@@ -1092,6 +1122,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final bool hasPunchOutSelfie =
         punchOutSelfieUrl != null &&
         punchOutSelfieUrl.toString().startsWith('http');
+    final logs = (record['logs'] is List)
+        ? List<Map<String, dynamic>>.from(
+            (record['logs'] as List).whereType<Map>(),
+          )
+        : <Map<String, dynamic>>[];
 
     // Status color
     Color statusColor = Colors.green;
@@ -1135,53 +1170,39 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                      onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            formattedDate,
+                            'Attendance Detail',
                             style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: colorScheme.onSurface,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: statusColor),
-                            ),
-                            child: Text(
-                              displayStatus,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: statusColor,
-                              ),
+                          const SizedBox(height: 2),
+                          Text(
+                            formattedHeaderDate,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
@@ -1193,102 +1214,49 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildDayDetailSection(
-                        'Attendance Details',
-                        Icons.access_time,
-                        [
-                          _buildDayDetailRow('Status', displayStatus),
-                          if (_hasMeaningfulValue(compensationType))
-                            _buildDayDetailRow(
-                              'Compensation Type',
-                              compensationType.trim(),
-                            ),
-                          if (_hasMeaningfulValue(leaveType?.toString()))
-                            _buildDayDetailRow(
-                              'Leave Type',
-                              leaveType.toString().trim(),
-                            ),
-                          if (isPaidLeave)
-                            _buildDayDetailRow('Paid Leave', 'Yes'),
-                          if (session != null && session.isNotEmpty)
-                            _buildDayDetailRow(
-                              'Session',
-                              _formatHalfDaySessionLabel(session),
-                            ),
-                          if (leaveReason != null &&
-                              leaveReason.toString().trim().isNotEmpty)
-                            _buildDayDetailRow(
-                              'Leave Reason',
-                              leaveReason.toString().trim(),
-                              isFullWidth: true,
-                            ),
-                          if (approvedAt != null)
-                            _buildDayDetailRow(
-                              'Approved At',
-                              _formatApprovedAt(approvedAt),
-                            ),
-                          if (approvedByName != null &&
-                              approvedByName.toString().trim().isNotEmpty)
-                            _buildDayDetailRow(
-                              'Approved By',
-                              approvedByName.toString().trim(),
-                            ),
-                          if (branchName != null && branchName.isNotEmpty)
-                            _buildDayDetailRow('Branch Name', branchName),
-                          if (_attendanceTemplate != null &&
-                              (_attendanceTemplate!['shiftStartTime'] != null ||
-                                  _attendanceTemplate!['shiftEndTime'] != null))
-                            Builder(
-                              builder: (context) {
-                                final halfDayTimings =
-                                    _getWorkingSessionTimingsForRecord(record);
-                                final start = halfDayTimings != null
-                                    ? halfDayTimings['startTime'] ?? 'N/A'
-                                    : _attendanceTemplate!['shiftStartTime']
-                                            ?.toString() ??
-                                        'N/A';
-                                final end = halfDayTimings != null
-                                    ? halfDayTimings['endTime'] ?? 'N/A'
-                                    : _attendanceTemplate!['shiftEndTime']
-                                            ?.toString() ??
-                                        'N/A';
-                                return _buildDayDetailRow(
-                                  'Shift Time',
-                                  '$start - $end',
-                                );
-                              },
-                            ),
-                          _buildDayDetailRow(
-                            'Punch In',
-                            _formatTime(punchIn),
-                          ),
-                          if (isLateIn &&
-                              (record['lateMinutes'] == null ||
-                                  (record['lateMinutes'] as num?)
-                                          ?.toDouble() !=
-                                      0))
-                            _buildDayDetailRow(
-                              'Late Check-in',
-                              '${lateMinutes?.toInt() ?? 0} minutes',
-                              valueColor: Colors.orange.shade700,
-                            ),
-                          _buildDayDetailRow(
-                            'Punch Out',
-                            _formatTime(punchOut),
-                          ),
-                          if (isEarlyOut)
-                            _buildDayDetailRow(
-                              'Early Check-out',
-                              '${earlyMinutes?.toInt() ?? 0} minutes',
-                              valueColor: Colors.orange.shade700,
-                            ),
-                          _buildDayDetailRow(
-                            'Work Hours',
-                            _formatWorkHoursWithUnits(
-                              workHours is num ? workHours : null,
-                            ),
-                          ),
-                        ],
+                      _buildAttendanceSummaryCard(
+                        shiftLabel:
+                            (record['shiftName'] ??
+                                        _attendanceTemplate?['name'] ??
+                                        'Shift')
+                                    .toString()
+                                    .trim()
+                                    .isNotEmpty
+                                ? (record['shiftName'] ??
+                                        _attendanceTemplate?['name'] ??
+                                        'Shift')
+                                    .toString()
+                                    .trim()
+                                : 'Shift',
+                        shiftTime: () {
+                          final halfDayTimings =
+                              _getWorkingSessionTimingsForRecord(record);
+                          final start = halfDayTimings != null
+                              ? halfDayTimings['startTime'] ?? 'N/A'
+                              : _attendanceTemplate?['shiftStartTime']
+                                      ?.toString() ??
+                                  'N/A';
+                          final end = halfDayTimings != null
+                              ? halfDayTimings['endTime'] ?? 'N/A'
+                              : _attendanceTemplate?['shiftEndTime']
+                                      ?.toString() ??
+                                  'N/A';
+                          return '$start - $end';
+                        }(),
+                        status: summaryStatus,
+                        statusColor: statusColor,
+                        punchIn: _formatTime(punchIn),
+                        punchOut: _formatTime(punchOut),
+                        workHours: _formatWorkHoursWithUnits(
+                          workHours is num ? workHours : null,
+                        ),
+                        paidLeaveLabel: isPaidLeave ? 'Paid Leave' : null,
+                        sessionLabel: session != null && session.isNotEmpty
+                            ? _formatHalfDaySessionLabel(session)
+                            : null,
+                        compensationType: _hasMeaningfulValue(compensationType)
+                            ? compensationType.trim()
+                            : null,
                       ),
                       if (hasFineInfo) ...[
                         const SizedBox(height: 20),
@@ -1324,141 +1292,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           ],
                         ),
                       ],
-                      if ((punchInAddress != null &&
-                              punchInAddress.trim().isNotEmpty) ||
-                          (punchOutAddress != null &&
-                              punchOutAddress.trim().isNotEmpty)) ...[
-                        const SizedBox(height: 20),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(left: 4),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.location_on,
-                                    size: 18,
-                                    color: AppColors.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Location',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey.shade200),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (punchInAddress != null &&
-                                      punchInAddress.trim().isNotEmpty)
-                                    _buildDayDetailRow(
-                                      'Check-in Location',
-                                      punchInAddress,
-                                      isFullWidth: true,
-                                    ),
-                                  if (punchOutAddress != null &&
-                                      punchOutAddress.trim().isNotEmpty)
-                                    _buildDayDetailRow(
-                                      'Check-out Location',
-                                      punchOutAddress,
-                                      isFullWidth: true,
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (hasPunchInSelfie || hasPunchOutSelfie) ...[
+                      if (logs.isNotEmpty || punchIn != null || punchOut != null) ...[
                         const SizedBox(height: 20),
                         _buildDayDetailSection(
-                          'Attendance Selfies',
-                          Icons.face,
-                          [
-                            if (hasPunchInSelfie)
-                              GestureDetector(
-                                onTap: () => _showSelfieDialog(
-                                  punchInSelfieUrl,
-                                  "Check-in Selfie",
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Check-in Selfie',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Image.network(
-                                          punchInSelfieUrl,
-                                          height: 200,
-                                          width: double.infinity,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              _buildImageNotFoundPlaceholder(),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            if (hasPunchOutSelfie)
-                              GestureDetector(
-                                onTap: () => _showSelfieDialog(
-                                  punchOutSelfieUrl,
-                                  "Check-out Selfie",
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Check-out Selfie',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(
-                                        punchOutSelfieUrl,
-                                        height: 200,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) =>
-                                            _buildImageNotFoundPlaceholder(),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
+                          'Log',
+                          Icons.list_alt_rounded,
+                          _buildAttendanceLogChildren(
+                            logs,
+                            punchIn: punchIn,
+                            punchOut: punchOut,
+                            branchName: branchName,
+                            punchInSelfieUrl:
+                                hasPunchInSelfie ? punchInSelfieUrl.toString() : null,
+                            punchOutSelfieUrl:
+                                hasPunchOutSelfie ? punchOutSelfieUrl.toString() : null,
+                          ),
                         ),
                       ],
                     ],
@@ -1500,6 +1348,356 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ),
       ],
     );
+  }
+
+  Widget _buildAttendanceSummaryCard({
+    required String shiftLabel,
+    required String shiftTime,
+    required String status,
+    required Color statusColor,
+    required String punchIn,
+    required String punchOut,
+    required String workHours,
+    String? paidLeaveLabel,
+    String? sessionLabel,
+    String? compensationType,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$shiftLabel - $shiftTime',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (paidLeaveLabel != null || sessionLabel != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        [paidLeaveLabel, sessionLabel]
+                            .whereType<String>()
+                            .where((e) => e.trim().isNotEmpty)
+                            .join(' • '),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    if (compensationType != null &&
+                        compensationType.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        compensationType.trim(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: _buildSummaryMetric('Check In', punchIn)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildSummaryMetric('Check Out', punchOut)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildSummaryMetric('Work Hours', workHours)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryMetric(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelfieThumbnail({
+    required String imageUrl,
+    required String label,
+  }) {
+    return GestureDetector(
+      onTap: () => _showSelfieDialog(imageUrl, '$label Selfie'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey.shade300),
+              image: DecorationImage(
+                image: NetworkImage(imageUrl),
+                fit: BoxFit.cover,
+                onError: (_, __) {},
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildAttendanceLogChildren(
+    List<Map<String, dynamic>> logs, {
+    required dynamic punchIn,
+    required dynamic punchOut,
+    String? branchName,
+    String? punchInSelfieUrl,
+    String? punchOutSelfieUrl,
+  }) {
+    final items = <Map<String, dynamic>>[];
+    if (logs.isNotEmpty) {
+      for (final log in logs) {
+        final action = (log['action'] ?? '').toString();
+        if (!const {
+          'PUNCH_IN',
+          'PUNCH_OUT',
+          'BREAK_START',
+          'BREAK_END',
+        }.contains(action)) {
+          continue;
+        }
+        final when = switch (action) {
+          'PUNCH_OUT' => log['punchOutDateTime'] ?? log['timestamp'],
+          'PUNCH_IN' => log['punchInDateTime'] ?? log['timestamp'],
+          'BREAK_START' => log['breakStartDateTime'] ?? log['timestamp'],
+          'BREAK_END' => log['breakEndDateTime'] ?? log['timestamp'],
+          _ => log['timestamp'] ?? log['punchOutDateTime'] ?? log['punchInDateTime'],
+        };
+        final title = switch (action) {
+          'PUNCH_IN' => 'Punched In',
+          'PUNCH_OUT' => 'Punched Out',
+          'BREAK_START' => 'Started Break',
+          'BREAK_END' => 'Ended Break',
+          _ => action.replaceAll('_', ' ').trim(),
+        };
+        final address = switch (action) {
+          'PUNCH_OUT' => log['punchOutAddress']?.toString(),
+          'PUNCH_IN' => log['punchInAddress']?.toString(),
+          'BREAK_START' => log['breakStartAddress']?.toString(),
+          'BREAK_END' => log['breakEndAddress']?.toString(),
+          _ => null,
+        };
+        final breakDuration =
+            action == 'BREAK_END'
+                ? _formatBreakDuration(log['totalBreakSeconds'])
+                : null;
+        final headlineParts = [
+          _formatLogTime(when),
+          if (branchName != null && branchName.trim().isNotEmpty) branchName.trim(),
+          if (breakDuration != null && breakDuration.isNotEmpty) breakDuration,
+          if (address != null && address.trim().isNotEmpty) address.trim(),
+        ];
+        items.add({
+          'title': title,
+          'headline': headlineParts.whereType<String>().join(' | '),
+          'subtitle': _formatLogByline(log['performedByName']?.toString(), when),
+          'imageUrl': log['selfieUrl']?.toString(),
+        });
+      }
+    } else {
+      if (punchOut != null) {
+        final headlineParts = [
+          _formatLogTime(punchOut),
+          if (branchName != null && branchName.trim().isNotEmpty) branchName.trim(),
+        ];
+        items.add({
+          'title': 'Punched Out',
+          'headline': headlineParts.join(' | '),
+          'subtitle': _formatLogByline(null, punchOut),
+          'imageUrl': punchOutSelfieUrl,
+        });
+      }
+      if (punchIn != null) {
+        final headlineParts = [
+          _formatLogTime(punchIn),
+          if (branchName != null && branchName.trim().isNotEmpty) branchName.trim(),
+        ];
+        items.add({
+          'title': 'Punched In',
+          'headline': headlineParts.join(' | '),
+          'subtitle': _formatLogByline(null, punchIn),
+          'imageUrl': punchInSelfieUrl,
+        });
+      }
+    }
+
+    return items.reversed
+        .map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildAttendanceLogTile(item),
+          ),
+        )
+        .toList();
+  }
+
+  Widget _buildAttendanceLogTile(Map<String, dynamic> item) {
+    final imageUrl = item['imageUrl']?.toString();
+    final hasImage = imageUrl != null && imageUrl.startsWith('http');
+    final subtitle = item['subtitle']?.toString();
+    final headline = item['headline']?.toString() ?? '';
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: hasImage ? () => _showSelfieDialog(imageUrl!, item['title']) : null,
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              color: Colors.orange.shade100,
+              image: hasImage
+                  ? DecorationImage(
+                      image: NetworkImage(imageUrl!),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: hasImage
+                ? null
+                : Icon(
+                    Icons.access_time_rounded,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${item['title']} ${headline.isNotEmpty ? 'at $headline' : ''}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+              if (subtitle != null && subtitle.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatLogTime(dynamic value) {
+    if (value == null) return 'N/A';
+    try {
+      final date = DateTime.parse(value.toString()).toLocal();
+      return DateFormat('hh:mm a').format(date);
+    } catch (_) {
+      return value.toString();
+    }
+  }
+
+  String? _formatBreakDuration(dynamic totalSeconds) {
+    if (totalSeconds == null) return null;
+    final seconds =
+        totalSeconds is num
+            ? totalSeconds.toInt()
+            : int.tryParse(totalSeconds.toString());
+    if (seconds == null || seconds <= 0) return null;
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    if (minutes <= 0) {
+      return '$remainingSeconds sec';
+    }
+    if (remainingSeconds == 0) {
+      return '$minutes min';
+    }
+    return '$minutes min $remainingSeconds sec';
+  }
+
+  String? _formatLogByline(String? name, dynamic value) {
+    final cleanName = name?.trim();
+    final when = _formatLogDateWithTime(value);
+    if ((cleanName == null || cleanName.isEmpty) && when == null) return null;
+    if (cleanName == null || cleanName.isEmpty) return when;
+    if (when == null) return 'By $cleanName';
+    return 'By $cleanName on $when';
+  }
+
+  String? _formatLogDateWithTime(dynamic value) {
+    if (value == null) return null;
+    try {
+      final date = DateTime.parse(value.toString()).toLocal();
+      return DateFormat('dd MMM, hh:mm a').format(date);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Section header + content box (matches salary breakdown form style)
@@ -3277,10 +3475,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               final today = DateTime.now();
               final todayNorm = DateTime(today.year, today.month, today.day);
               setState(() {
-                _showHistoryView = false;
+                _showHistoryView = true;
                 _selectedDay = todayNorm;
+                _focusedDay = todayNorm;
               });
               _fetchAttendanceStatus(date: todayNorm);
+              _fetchMonthData(todayNorm.year, todayNorm.month);
             },
             child: Container(
               width: 44,
@@ -3838,42 +4038,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 ? 'Finalizing check-in...'
                 : 'Finalizing check-out...',
           );
-          if (state is AttendanceCheckInSuccess) {
-            await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
-          } else {
-            await PresenceTrackingService().ensureTrackingIfPunchedIn(false);
-          }
-          if (mounted) {
-            _attendanceService.clearCachesForRefresh();
-            _refreshData(forceRefresh: true);
-          }
-          if (!shouldHandleForegroundUi || !mounted) return;
-          if (mounted) {
-            final userName = await _authService.getCurrentUserName();
-            _setPunchActionInProgress(false);
-            if (mounted) {
-              if (state is AttendanceCheckInSuccess) {
-                final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
-                await AttendanceSuccessOverlay.show(
+          final userName = await _authService.getCurrentUserName();
+          if (!mounted) return;
+          _setPunchActionInProgress(false);
+          if (shouldHandleForegroundUi && mounted) {
+            if (state is AttendanceCheckInSuccess) {
+              final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
+              unawaited(
+                AttendanceSuccessOverlay.show(
                   context,
                   isCheckIn: true,
                   userName: userName,
                   checkInEmoji: overlayContent.emoji,
                   checkInMessage: overlayContent.message,
                   snackbarMessage: overlayContent.message,
-                );
-              } else {
-                await AttendanceSuccessOverlay.show(
+                ),
+              );
+            } else {
+              unawaited(
+                AttendanceSuccessOverlay.show(
                   context,
                   isCheckIn: false,
                   userName: userName,
                   checkOutEmoji: '😊',
                   checkOutMessage: 'Checkout success!',
                   snackbarMessage: 'Checkout success!',
-                );
-              }
+                ),
+              );
             }
           }
+          unawaited(
+            _runPostPunchSuccessTasks(state is AttendanceCheckInSuccess),
+          );
         } else if (state is AttendanceFailure) {
           _setPunchActionInProgress(false);
           if (_isSubmittingFromAttendanceCamera) {
@@ -4449,27 +4645,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     if (!mounted) return;
 
-    // Load location first, then open camera directly
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 16),
-            Text('Getting location…'),
-          ],
-        ),
-      ),
-    );
     final location = await _getCurrentLocation();
     if (!mounted) return;
-    Navigator.of(context).pop();
     final requireGeolocation =
         _attendanceTemplate?['requireGeolocation'] ?? true;
     if (requireGeolocation && location.position == null) {
@@ -4515,23 +4692,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _setPunchActionInProgress(false);
       return;
     }
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 16),
-            Text('Submitting attendance…'),
-          ],
-        ),
-      ),
-    );
     await _submitAttendanceFromCameraFile(
       file,
       position: location.position,
@@ -4541,7 +4701,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       pincode: location.pincode,
       isCheckedIn: isCheckedIn,
     );
-    // Success/failure handled in BlocListener; dialog popped there
+    // Success/failure handled in BlocListener
   }
 
   Widget _buildAttendanceCard() {
@@ -5018,44 +5178,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       width: double.infinity,
                       child: _isPunchActionInProgress
                           ? Container(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 12,
-                                horizontal: 16,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               decoration: BoxDecoration(
-                                color: colorScheme.surfaceContainerHighest,
+                                color: isCheckedIn
+                                    ? AppColors.error
+                                    : AppColors.primary,
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: colorScheme.outlineVariant,
-                                ),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: isCheckedIn
-                                          ? AppColors.error
-                                          : AppColors.primary,
-                                    ),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.2,
+                                    valueColor:
+                                        const AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
+                                        ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Flexible(
-                                    child: Text(
-                                      _punchActionStatusMessage ??
-                                          'Processing attendance...',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             )
                           : punchDisabled

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../config/app_colors.dart';
 import '../../widgets/walking_turtle_emoji.dart';
 import '../../config/constants.dart';
@@ -15,6 +16,7 @@ import '../../widgets/attendance_success_overlay.dart';
 import '../../widgets/notification_reaction_overlay.dart';
 import '../../widgets/bottom_navigation_bar.dart';
 import '../../services/attendance_service.dart';
+import '../../services/break_service.dart';
 import '../../services/attendance_template_store.dart';
 import '../../services/auth_service.dart';
 import '../../services/geo/address_resolution_service.dart';
@@ -30,8 +32,16 @@ import '../holidays/holidays_screen.dart';
 import '../requests/my_requests_screen.dart';
 import '../salary/salary_overview_screen.dart';
 
+typedef _ResolvedLocation = ({
+  Position? position,
+  String address,
+  String? area,
+  String? city,
+  String? pincode
+});
+
 class DashboardScreen extends StatefulWidget {
-  /// 0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance, 5 maps to 4 (Attendance).
+  /// 0=Dashboard, 1=Requests, 2=Salary, 3=Holidays, 4=Attendance, 5=punch flow, 6=break flow.
   final int? initialIndex;
   const DashboardScreen({super.key, this.initialIndex});
 
@@ -46,9 +56,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   int _attendanceSubTabIndex = 0;
   bool _isSubmittingFromFingerprint = false;
   bool _isPunchActionInProgress = false;
+  bool _isBreakActionInProgress = false;
   bool? _isPunchedInToday;
+  Map<String, dynamic>? _activeBreak;
+  bool _openBreakAfterBuild = false;
 
   final AttendanceService _attendanceService = AttendanceService();
+  final BreakService _breakService = BreakService();
   final AuthService _authService = AuthService();
   final ValueNotifier<int> _dashboardRefreshTrigger = ValueNotifier<int>(0);
 
@@ -84,10 +98,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentIndex = _normalizeTabIndex((widget.initialIndex ?? 0));
+    _openBreakAfterBuild = widget.initialIndex == 6;
     _attendanceService.clearCachesForRefresh();
     _fetchPunchStatusForNavBar();
+    _fetchActiveBreak();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showLocationCardsAfterDelay();
+      if (_openBreakAfterBuild) {
+        _openBreakAfterBuild = false;
+        _openRequestedBreakFlow();
+      }
     });
   }
 
@@ -166,6 +186,45 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (_) {}
   }
 
+  Future<Map<String, dynamic>?> _fetchActiveBreak() async {
+    final result = await _breakService.getCurrentBreak();
+    if (!mounted) return null;
+    Map<String, dynamic>? activeBreak;
+    final data = result['data'];
+    if (result['success'] == true && data is Map<String, dynamic>) {
+      activeBreak = data;
+    } else if (result['success'] == true && data is Map) {
+      activeBreak = Map<String, dynamic>.from(data);
+    }
+    setState(() {
+      _activeBreak = activeBreak;
+    });
+    return activeBreak;
+  }
+
+  String _formatLocationText(_ResolvedLocation location) {
+    if (location.address.trim().isNotEmpty) {
+      return location.address;
+    }
+    final parts = <String>[
+      if ((location.area ?? '').trim().isNotEmpty) location.area!.trim(),
+      if ((location.city ?? '').trim().isNotEmpty) location.city!.trim(),
+    ];
+    var text = parts.join(', ');
+    if ((location.pincode ?? '').trim().isNotEmpty) {
+      text = text.isEmpty
+          ? location.pincode!.trim()
+          : '$text ${location.pincode!.trim()}';
+    }
+    return text;
+  }
+
+  DateTime? _activeBreakStartTime() {
+    final raw = _activeBreak?['startTime']?.toString();
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw)?.toLocal();
+  }
+
   int _normalizeTabIndex(int index) {
     if (index == 5) return 4;
     return index.clamp(0, 4);
@@ -195,8 +254,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   /// Fetches current position and address. Returns null position on failure.
-  Future<({Position? position, String address, String? area, String? city, String? pincode})>
-      _getCurrentLocation() async {
+  Future<_ResolvedLocation> _getCurrentLocation() async {
     String address = '';
     String? area;
     String? city;
@@ -230,6 +288,209 @@ class _DashboardScreenState extends State<DashboardScreen>
       address = 'Location found (Address unavailable)';
     }
     return (position: position, address: address, area: area, city: city, pincode: pincode);
+  }
+
+  Future<void> _submitBreakFromFile(
+    File file, {
+    required bool isEnding,
+    required Map<String, dynamic>? activeBreak,
+    _ResolvedLocation? prefetchedLocation,
+  }) async {
+    final detection = await FaceDetectionHelper.detectFromFile(file);
+    if (!mounted) return;
+    if (!detection.valid) {
+      SnackBarUtils.showSnackBar(
+        context,
+        detection.message ?? 'Please take a selfie with exactly one face visible.',
+        isError: true,
+      );
+      return;
+    }
+
+    final location = prefetchedLocation ?? await _getCurrentLocation();
+    if (!mounted) return;
+    final position = location.position;
+    if (position == null) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'Location is required for breaks.',
+        isError: true,
+      );
+      return;
+    }
+
+    final selfieBytes = await file.readAsBytes();
+    if (!mounted) return;
+    final selfie = 'data:image/jpeg;base64,${base64Encode(selfieBytes)}';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 16),
+            Text(isEnding ? 'Ending break…' : 'Starting break…'),
+          ],
+        ),
+      ),
+    );
+
+    Map<String, dynamic> result;
+    try {
+      result = isEnding
+          ? await _breakService.endBreak(
+              breakId: activeBreak?['id']?.toString() ?? '',
+              lat: position.latitude,
+              lng: position.longitude,
+              address: location.address,
+              area: location.area,
+              city: location.city,
+              pincode: location.pincode,
+              selfie: selfie,
+            )
+          : await _breakService.startBreak(
+              lat: position.latitude,
+              lng: position.longitude,
+              address: location.address,
+              area: location.area,
+              city: location.city,
+              pincode: location.pincode,
+              selfie: selfie,
+            );
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    }
+
+    if (!mounted) return;
+    if (result['success'] == true) {
+      await _fetchActiveBreak();
+      if (!mounted) return;
+      SnackBarUtils.showSnackBar(
+        context,
+        isEnding ? 'Break ended successfully' : 'Break started successfully',
+      );
+      _dashboardRefreshTrigger.value++;
+      return;
+    }
+
+    final serverBreak = result['data'];
+    if (serverBreak is Map) {
+      setState(() {
+        _activeBreak = Map<String, dynamic>.from(serverBreak);
+      });
+    }
+    SnackBarUtils.showSnackBar(
+      context,
+      ErrorMessageUtils.sanitizeForDisplay(result['message']?.toString()),
+      isError: true,
+    );
+  }
+
+  Future<void> _captureBreakSelfieAndSubmit({
+    required bool isEnding,
+    required Map<String, dynamic>? activeBreak,
+  }) async {
+    _ResolvedLocation? latestLocation;
+    final result = await SelfieCameraScreen.captureSelfie(
+      context,
+      title: isEnding ? 'End Break' : 'Start Break',
+      loadLocationOnOpen: true,
+      onRefreshLocation: () async {
+        final location = await _getCurrentLocation();
+        latestLocation = location;
+        final formatted = _formatLocationText(location);
+        return formatted.isEmpty ? null : formatted;
+      },
+    );
+    if (!mounted) return;
+
+    File? file;
+    if (result is File) {
+      file = result;
+    } else if (identical(result, useImagePickerFallback)) {
+      final pickedFile = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 85,
+        maxWidth: 1024,
+      );
+      if (!mounted) return;
+      if (pickedFile != null) {
+        file = File(pickedFile.path);
+      }
+    }
+    if (file == null) return;
+
+    await _submitBreakFromFile(
+      file,
+      isEnding: isEnding,
+      activeBreak: activeBreak,
+      prefetchedLocation: latestLocation,
+    );
+  }
+
+  Future<void> _startBreakFlow() async {
+    if (_isBreakActionInProgress) return;
+    setState(() => _isBreakActionInProgress = true);
+    try {
+      final activeBreak = await _fetchActiveBreak();
+      if (!mounted) return;
+      if (activeBreak != null) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'You are already on break. End that break to start a new one.',
+          isError: true,
+        );
+        return;
+      }
+      await _captureBreakSelfieAndSubmit(isEnding: false, activeBreak: null);
+    } finally {
+      if (mounted) {
+        setState(() => _isBreakActionInProgress = false);
+      }
+    }
+  }
+
+  Future<void> _endBreakFlow() async {
+    if (_isBreakActionInProgress) return;
+    setState(() => _isBreakActionInProgress = true);
+    try {
+      final activeBreak = await _fetchActiveBreak();
+      if (!mounted) return;
+      if (activeBreak == null) {
+        SnackBarUtils.showSnackBar(
+          context,
+          'No active break found.',
+          isError: true,
+        );
+        return;
+      }
+      await _captureBreakSelfieAndSubmit(
+        isEnding: true,
+        activeBreak: activeBreak,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isBreakActionInProgress = false);
+      }
+    }
+  }
+
+  Future<void> _openRequestedBreakFlow() async {
+    final activeBreak = await _fetchActiveBreak();
+    if (!mounted) return;
+    if (activeBreak != null) {
+      await _endBreakFlow();
+      return;
+    }
+    await _startBreakFlow();
   }
 
   /// Fetches profile + today attendance for fingerprint validation (same data as attendance screen).
@@ -1149,8 +1410,24 @@ class _DashboardScreenState extends State<DashboardScreen>
             currentIndex: _currentIndex.clamp(0, 5),
             isPunchedInToday: _isPunchedInToday,
             isPunchActionInProgress: _isPunchActionInProgress,
+            isBreakActive: _activeBreak != null,
+            isBreakActionInProgress: _isBreakActionInProgress,
+            activeBreakStartTime: _activeBreakStartTime(),
+            onEndBreakTap: _endBreakFlow,
             onTap: (index) async {
-              if (index == 5) {
+                  if (index == 6) {
+                    if (_activeBreak != null) {
+                      SnackBarUtils.showSnackBar(
+                        context,
+                        'You are already on break. Use End Break above the bottom bar.',
+                        isError: true,
+                      );
+                      return;
+                    }
+                    await _startBreakFlow();
+                    return;
+                  }
+                  if (index == 5) {
                 if (_isPunchActionInProgress) return;
                 _setPunchActionInProgress(true);
                 // Same validations as attendance screen before check-in/check-out
@@ -1273,8 +1550,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 );
                 return;
               }
-              final normalized = _normalizeTabIndex(index);
-              setState(() => _currentIndex = normalized);
+                  final normalized = _normalizeTabIndex(index);
+                  setState(() => _currentIndex = normalized);
             },
           ),
         ),

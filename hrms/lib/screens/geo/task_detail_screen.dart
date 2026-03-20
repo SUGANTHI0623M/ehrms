@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/utils/error_message_utils.dart';
+import 'package:hrms/utils/task_movement_summary_util.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final Task task;
@@ -33,6 +34,22 @@ class TaskDetailScreen extends StatefulWidget {
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
+}
+
+class _TaskTrackEvent {
+  final DateTime? time;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+
+  const _TaskTrackEvent({
+    required this.time,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+  });
 }
 
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
@@ -51,6 +68,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
+  TaskMovementSummary? _movementSummary;
+  double? _routeDistanceKm;
 
   @override
   void initState() {
@@ -65,6 +84,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         final refreshed = await TaskService().getTaskById(task.id!);
         if (mounted) {
           setState(() => task = refreshed);
+          _loadMovementSummary();
           if (refreshed.status == TaskStatus.arrived) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
@@ -98,6 +118,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         }
       } catch (_) {}
     }
+    _loadMovementSummary();
     if (task.customer != null) {
       setState(() {
         _customer = task.customer;
@@ -130,6 +151,39 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadMovementSummary() async {
+    final stored = task.travelActivityDuration;
+    if (stored != null) {
+      final summary = TaskMovementSummary.fromDurations(
+        drivingDuration: Duration(seconds: stored.driveDuration),
+        walkingDuration: Duration(seconds: stored.walkDuration),
+        stopDuration: Duration(seconds: stored.stopDuration),
+      );
+      if (summary.hasData) {
+        if (mounted) setState(() => _movementSummary = summary);
+        return;
+      }
+    }
+    final taskId = task.id;
+    if (taskId == null || taskId.isEmpty) return;
+    try {
+      final report = await TaskService().getTaskCompletionReport(taskId);
+      final summary = TaskMovementSummary.fromRoutePoints(
+        report.routePoints,
+        endTime: task.arrivalTime,
+      );
+      if (mounted) {
+        setState(() {
+          _movementSummary = summary.hasData ? summary : null;
+          _routeDistanceKm = computeRouteDistanceKm(
+            report.routePoints,
+            endTime: task.arrivalTime,
+          );
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _initMapAndDirections() async {
@@ -524,10 +578,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   const SizedBox(height: 16),
                   _buildTaskRequirements(),
                   _buildOtpVerificationStatus(),
-                  const SizedBox(height: 16),
-                  _buildExitRestartHistoryCard(),
-                  const SizedBox(height: 16),
-                  _buildReadyToStartCard(),
+                  if (_buildTrackEvents().isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _buildTrackDetailsCard(),
+                  ],
+                  if (_hasCompletionDetails) ...[
+                    const SizedBox(height: 16),
+                    _buildCompletionDetailsCard(),
+                  ],
+                  if (!_showBackOnly) ...[
+                    const SizedBox(height: 16),
+                    _buildReadyToStartCard(),
+                  ],
                 ],
               ),
             ),
@@ -1334,6 +1396,500 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         ],
       ),
     );
+  }
+
+  static String _formatDuration(Duration d) {
+    final secs = d.inSeconds;
+    if (secs < 60) return secs == 1 ? '1 sec' : '$secs secs';
+    final mins = d.inMinutes;
+    final remainderSecs = d.inSeconds.remainder(60);
+    if (d.inHours > 0) {
+      final h = d.inHours;
+      final m = mins.remainder(60);
+      if (remainderSecs > 0) return '${h}h ${m}m ${remainderSecs}s';
+      return '${h}h ${m}m';
+    }
+    if (remainderSecs > 0) {
+      return '${mins} min${mins == 1 ? '' : 's'} ${remainderSecs} secs';
+    }
+    return mins == 1 ? '1 min' : '$mins mins';
+  }
+
+  static String _formatDistanceKm(double distanceKm) {
+    final decimals = distanceKm < 1 ? 2 : 1;
+    return '${distanceKm.toStringAsFixed(decimals)} km';
+  }
+
+  Duration get _travelDuration {
+    final secs = task.tripDurationSeconds;
+    if (secs != null && secs > 0) {
+      return Duration(seconds: secs);
+    }
+    if (task.startTime != null &&
+        task.arrivalTime != null &&
+        !task.arrivalTime!.isBefore(task.startTime!)) {
+      return task.arrivalTime!.difference(task.startTime!);
+    }
+    return Duration.zero;
+  }
+
+  Duration? get _totalTaskDuration {
+    if (task.startTime != null &&
+        task.completedDate != null &&
+        !task.completedDate!.isBefore(task.startTime!)) {
+      return task.completedDate!.difference(task.startTime!);
+    }
+    return null;
+  }
+
+  bool get _showOtpRow =>
+      task.isOtpRequired || task.isOtpVerified != null || task.otpVerifiedAt != null;
+
+  bool get _showFormRow => task.formFilled != null;
+
+  bool get _showPhotoProofRow =>
+      task.photoProof != null ||
+      (task.photoProofUrl != null && task.photoProofUrl!.isNotEmpty);
+
+  double? get _displayDistanceKm {
+    final taskDistance = task.tripDistanceKm;
+    if (taskDistance != null && taskDistance > 0) return taskDistance;
+    if (_routeDistanceKm != null && _routeDistanceKm! > 0) return _routeDistanceKm;
+    return null;
+  }
+
+  bool get _hasCompletionDetails {
+    final distanceKm = _displayDistanceKm;
+    return task.startTime != null ||
+        task.completedDate != null ||
+        _travelDuration.inSeconds > 0 ||
+        (_totalTaskDuration?.inSeconds ?? 0) > 0 ||
+        (distanceKm != null && distanceKm >= 0) ||
+        _movementSummary?.hasData == true ||
+        _showOtpRow ||
+        _showFormRow ||
+        _showPhotoProofRow;
+  }
+
+  List<_TaskTrackEvent> _buildTrackEvents() {
+    final events = <_TaskTrackEvent>[];
+    final start = task.startTime;
+    final arrival = task.arrivalTime;
+    final completed = task.completedDate;
+    final duration = _travelDuration;
+    final distanceKm = _displayDistanceKm;
+
+    if (start != null) {
+      events.add(
+        _TaskTrackEvent(
+          time: start,
+          title: 'Task Started',
+          subtitle: 'Started journey',
+          icon: Icons.play_circle_filled_rounded,
+          iconColor: AppColors.secondary,
+        ),
+      );
+    }
+
+    if (start != null &&
+        (duration.inSeconds > 0 || (distanceKm != null && distanceKm > 0))) {
+      final distanceText = distanceKm != null && distanceKm > 0
+          ? '${_formatDistanceKm(distanceKm)} covered'
+          : 'Travel in progress';
+      events.add(
+        _TaskTrackEvent(
+          time: start,
+          title: 'Travel (${_formatDuration(duration)})',
+          subtitle: distanceText,
+          icon: Icons.route_rounded,
+          iconColor: AppColors.secondary,
+        ),
+      );
+    }
+
+    if (arrival != null) {
+      events.add(
+        _TaskTrackEvent(
+          time: arrival,
+          title: 'Arrived at Location',
+          subtitle: task.arrivalLocation?.displayAddress?.isNotEmpty == true
+              ? task.arrivalLocation!.displayAddress!
+              : 'Destination reached',
+          icon: Icons.location_on_rounded,
+          iconColor: Colors.pink.shade400,
+        ),
+      );
+    }
+
+    if (task.formFilled == true) {
+      events.add(
+        _TaskTrackEvent(
+          time: task.otpVerifiedAt ?? completed ?? arrival,
+          title: 'Form Submitted',
+          subtitle: 'Customer details captured',
+          icon: Icons.description_rounded,
+          iconColor: Colors.brown.shade400,
+        ),
+      );
+    }
+
+    if (task.isOtpVerified == true && task.otpVerifiedAt != null) {
+      events.add(
+        _TaskTrackEvent(
+          time: task.otpVerifiedAt,
+          title: 'OTP Verified',
+          subtitle: 'Customer confirmed',
+          icon: Icons.verified_user_rounded,
+          iconColor: AppColors.secondary,
+        ),
+      );
+    }
+
+    if (completed != null) {
+      events.add(
+        _TaskTrackEvent(
+          time: completed,
+          title: 'Task Completed',
+          subtitle: task.status == TaskStatus.waitingForApproval
+              ? 'Awaiting admin approval'
+              : '',
+          icon: Icons.check_circle_rounded,
+          iconColor: AppColors.primary,
+        ),
+      );
+    }
+
+    return events.where((e) => e.time != null).toList();
+  }
+
+  Widget _buildTrackDetailsCard() {
+    final events = _buildTrackEvents();
+    if (events.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Track Details',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                children: [
+                  for (int i = 0; i < events.length; i++) ...[
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: events[i].iconColor,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: events[i].iconColor.withOpacity(0.4),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (i < events.length - 1)
+                      Container(
+                        width: 2,
+                        height: 56,
+                        color: Colors.grey.shade300,
+                      ),
+                  ],
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (int i = 0; i < events.length; i++) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              events[i].icon,
+                              size: 22,
+                              color: events[i].iconColor,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    DateDisplayUtil.formatTime(events[i].time),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    events[i].title,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                  if (events[i].subtitle.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      events[i].subtitle,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (i < events.length - 1) const SizedBox(height: 4),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompletionDetailsCard() {
+    final distanceKm = _displayDistanceKm;
+    final totalTaskDuration = _totalTaskDuration;
+    final showDistance = distanceKm != null && distanceKm >= 0;
+    final otpVerified = task.isOtpVerified == true;
+    final formSubmitted = task.formFilled == true;
+    final photoProofDone = task.photoProof == true;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Task Summary',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (task.startTime != null) ...[
+            _summaryRow('Started At', DateDisplayUtil.formatTime(task.startTime)),
+          ],
+          if (task.completedDate != null) ...[
+            if (task.startTime != null) _summaryDivider(),
+            _summaryRow(
+              'Completed At',
+              DateDisplayUtil.formatTime(task.completedDate),
+            ),
+          ],
+          if (_travelDuration.inSeconds > 0) ...[
+            if (task.startTime != null || task.completedDate != null) _summaryDivider(),
+            _summaryRow('Travel Duration', _formatDuration(_travelDuration)),
+          ],
+          if (_movementSummary?.hasData == true) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0)
+              _summaryDivider(),
+            _summaryRow(
+              'Drive Duration',
+              _formatDuration(_movementSummary!.drivingDuration),
+            ),
+            _summaryDivider(),
+            _summaryRow(
+              'Walk Duration',
+              _formatDuration(_movementSummary!.walkingDuration),
+            ),
+            _summaryDivider(),
+            _summaryRow(
+              'Stop Duration',
+              _formatDuration(_movementSummary!.stopDuration),
+            ),
+          ],
+          if (totalTaskDuration != null && totalTaskDuration.inSeconds > 0) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0 ||
+                _movementSummary?.hasData == true)
+              _summaryDivider(),
+            _summaryRow(
+              'Total Task Duration',
+              _formatDuration(totalTaskDuration),
+            ),
+          ],
+          if (showDistance) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0 ||
+                (totalTaskDuration?.inSeconds ?? 0) > 0)
+              _summaryDivider(),
+            _summaryRow(
+              'Distance Travelled',
+              '${distanceKm!.toStringAsFixed(2)} km',
+            ),
+          ],
+          if (_showOtpRow) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0 ||
+                (totalTaskDuration?.inSeconds ?? 0) > 0 ||
+                showDistance)
+              _summaryDivider(),
+            _summaryVerificationRow('OTP Verified', otpVerified),
+          ],
+          if (_showFormRow) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0 ||
+                (totalTaskDuration?.inSeconds ?? 0) > 0 ||
+                showDistance ||
+                _showOtpRow)
+              _summaryDivider(),
+            _summaryVerificationRow('Form Submitted', formSubmitted),
+          ],
+          if (_showPhotoProofRow) ...[
+            if (task.startTime != null ||
+                task.completedDate != null ||
+                _travelDuration.inSeconds > 0 ||
+                (totalTaskDuration?.inSeconds ?? 0) > 0 ||
+                showDistance ||
+                _showOtpRow ||
+                _showFormRow)
+              _summaryDivider(),
+            _summaryVerificationRow(
+              'Photo Proof',
+              photoProofDone,
+              value: photoProofDone
+                  ? ((task.photoProofUrl != null && task.photoProofUrl!.isNotEmpty)
+                        ? 'Uploaded'
+                        : 'Yes')
+                  : 'No',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryVerificationRow(String label, bool done, {String? value}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (done)
+                Icon(Icons.check_rounded, size: 18, color: AppColors.primary),
+              if (done) const SizedBox(width: 4),
+              Text(
+                value ?? (done ? 'Yes' : 'No'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: done ? AppColors.primary : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryDivider() {
+    return Divider(height: 1, color: Colors.grey.shade200);
   }
 
   Widget _buildExitRestartHistoryCard() {

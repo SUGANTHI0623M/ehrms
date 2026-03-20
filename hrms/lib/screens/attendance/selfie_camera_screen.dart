@@ -13,23 +13,31 @@ const Object useImagePickerFallback = Object();
 class SelfieCameraScreen extends StatefulWidget {
   final String? locationText;
   final Future<String?> Function()? onRefreshLocation;
+  final String title;
+  final bool loadLocationOnOpen;
 
   const SelfieCameraScreen({
     super.key,
     this.locationText,
     this.onRefreshLocation,
+    this.title = 'Mark Attendance',
+    this.loadLocationOnOpen = false,
   });
 
   static Future<Object?> captureSelfie(
     BuildContext context, {
     String? location,
     Future<String?> Function()? onRefreshLocation,
+    String title = 'Mark Attendance',
+    bool loadLocationOnOpen = false,
   }) async {
     final result = await Navigator.of(context).push<Object?>(
       MaterialPageRoute(
         builder: (context) => SelfieCameraScreen(
           locationText: location,
           onRefreshLocation: onRefreshLocation,
+          title: title,
+          loadLocationOnOpen: loadLocationOnOpen,
         ),
       ),
     );
@@ -46,6 +54,7 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   bool _showTimeoutOverlay = false;
   String? _locationText;
   bool _isRefreshingLocation = false;
+  bool _isHandlingBack = false;
   /// Captured photo path; when set, show preview with Retake/Submit instead of camera.
   String? _capturedFilePath;
 
@@ -53,6 +62,9 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   void initState() {
     super.initState();
     _locationText = widget.locationText;
+    if (widget.loadLocationOnOpen && widget.onRefreshLocation != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLocation());
+    }
     _timeoutTimer = Timer(_initTimeout, () {
       // Don't show timeout overlay for now; code kept for future use (Retry / Use system camera).
       // if (mounted) setState(() => _showTimeoutOverlay = true);
@@ -81,6 +93,16 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
     Navigator.of(context).pop(useImagePickerFallback);
   }
 
+  void _handleBackPressed() {
+    if (_isHandlingBack || !mounted) return;
+    if (_capturedFilePath != null) {
+      setState(() => _capturedFilePath = null);
+      return;
+    }
+    _isHandlingBack = true;
+    Navigator.of(context).pop();
+  }
+
   void _retry() {
     setState(() => _showTimeoutOverlay = false);
     _timeoutTimer?.cancel();
@@ -91,77 +113,84 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPressed();
+      },
+      child: Scaffold(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _handleBackPressed,
+          ),
+          title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         ),
-        title: const Text('Mark Attendance', style: TextStyle(color: Colors.white)),
-      ),
-      body: _capturedFilePath != null
-          ? _buildPreviewBody()
-          : Stack(
-        fit: StackFit.expand,
-        children: [
-          CameraAwesomeBuilder.awesome(
-            topActionsBuilder: (_) => const SizedBox.shrink(),
-            bottomActionsBuilder: (state) => _buildBottomActions(context, state),
-            progressIndicator: const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: Colors.orange),
-                  SizedBox(height: 16),
-                  Text(
-                    'Opening camera…',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                ],
+        body: _capturedFilePath != null
+            ? _buildPreviewBody()
+            : Stack(
+          fit: StackFit.expand,
+          children: [
+            CameraAwesomeBuilder.awesome(
+              topActionsBuilder: (_) => const SizedBox.shrink(),
+              bottomActionsBuilder: (state) => _buildBottomActions(context, state),
+              progressIndicator: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.orange),
+                    SizedBox(height: 16),
+                    Text(
+                      'Opening camera…',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            saveConfig: SaveConfig.photo(
-              pathBuilder: (sensors) async {
-                final dir = await getTemporaryDirectory();
-                final path =
-                    '${dir.path}/selfie_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                return SingleCaptureRequest(path, sensors.first);
+              saveConfig: SaveConfig.photo(
+                pathBuilder: (sensors) async {
+                  final dir = await getTemporaryDirectory();
+                  final path =
+                      '${dir.path}/selfie_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                  return SingleCaptureRequest(path, sensors.first);
+                },
+                mirrorFrontCamera: true,
+              ),
+              sensorConfig: SensorConfig.single(
+                sensor: Sensor.position(SensorPosition.front),
+                aspectRatio: CameraAspectRatios.ratio_4_3,
+              ),
+              previewFit: CameraPreviewFit.cover,
+              availableFilters: const [],
+              onMediaCaptureEvent: (MediaCapture event) {
+                if (event.status == MediaCaptureStatus.success &&
+                    event.isPicture &&
+                    !event.isVideo) {
+                  event.captureRequest.when(
+                    single: (single) {
+                      final path = single.file?.path;
+                      if (path != null && context.mounted) {
+                        setState(() => _capturedFilePath = path);
+                      }
+                    },
+                    multiple: (_) {},
+                  );
+                }
               },
-              mirrorFrontCamera: true,
             ),
-            sensorConfig: SensorConfig.single(
-              sensor: Sensor.position(SensorPosition.front),
-              aspectRatio: CameraAspectRatios.ratio_4_3,
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 91,
+              child: _buildLocationBar(),
             ),
-            previewFit: CameraPreviewFit.cover,
-            availableFilters: const [],
-            onMediaCaptureEvent: (MediaCapture event) {
-              if (event.status == MediaCaptureStatus.success &&
-                  event.isPicture &&
-                  !event.isVideo) {
-                event.captureRequest.when(
-                  single: (single) {
-                    final path = single.file?.path;
-                    if (path != null && context.mounted) {
-                      setState(() => _capturedFilePath = path);
-                    }
-                  },
-                  multiple: (_) {},
-                );
-              }
-            },
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 91,
-            child: _buildLocationBar(),
-          ),
-          if (_showTimeoutOverlay) _buildTimeoutOverlay(),
-        ],
+            if (_showTimeoutOverlay) _buildTimeoutOverlay(),
+          ],
+        ),
       ),
     );
   }
@@ -247,7 +276,7 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: _handleBackPressed,
             child: const Text('Cancel', style: TextStyle(color: Colors.white)),
           ),
           state.when(

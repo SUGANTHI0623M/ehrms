@@ -62,6 +62,33 @@ class TaskLocation {
   };
 }
 
+class TravelActivityDuration {
+  final int driveDuration;
+  final int walkDuration;
+  final int stopDuration;
+
+  const TravelActivityDuration({
+    this.driveDuration = 0,
+    this.walkDuration = 0,
+    this.stopDuration = 0,
+  });
+
+  factory TravelActivityDuration.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const TravelActivityDuration();
+    return TravelActivityDuration(
+      driveDuration: (json['driveDuration'] as num?)?.toInt() ?? 0,
+      walkDuration: (json['walkDuration'] as num?)?.toInt() ?? 0,
+      stopDuration: (json['stopDuration'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'driveDuration': driveDuration,
+    'walkDuration': walkDuration,
+    'stopDuration': stopDuration,
+  };
+}
+
 class TaskExitRecord {
   final double lat;
   final double lng;
@@ -241,6 +268,7 @@ class Task {
   final double? tripDistanceKm;
   final int? tripDurationSeconds;
   final DateTime? arrivalTime;
+  final TravelActivityDuration? travelActivityDuration;
 
   /// Start time (when task was started).
   final DateTime? startTime;
@@ -292,6 +320,7 @@ class Task {
     this.tripDistanceKm,
     this.tripDurationSeconds,
     this.arrivalTime,
+    this.travelActivityDuration,
     this.startTime,
     this.photoProofAddress,
     this.otpVerifiedAddress,
@@ -395,6 +424,11 @@ class Task {
       tripDistanceKm: (json['tripDistanceKm'] as num?)?.toDouble(),
       tripDurationSeconds: json['tripDurationSeconds'] as int?,
       arrivalTime: _dateFromJson(json['arrivalTime']),
+      travelActivityDuration: json['travelActivityDuration'] != null
+          ? TravelActivityDuration.fromJson(
+              json['travelActivityDuration'] as Map<String, dynamic>,
+            )
+          : null,
       startTime: _dateFromJson(json['startTime']),
       photoProofAddress: json['photoProofAddress'] as String?,
       otpVerifiedAddress: json['otpVerifiedAddress'] as String?,
@@ -530,6 +564,7 @@ class Task {
     'customerId': customerId,
     'expectedCompletionDate': expectedCompletionDate.toIso8601String(),
     'completedDate': completedDate?.toIso8601String(),
+    'travelActivityDuration': travelActivityDuration?.toJson(),
     'status': status.name, // Convert enum to string for JSON
     'isOtpRequired': isOtpRequired,
     'isGeoFenceRequired': isGeoFenceRequired,
@@ -570,6 +605,7 @@ class Task {
     double? tripDistanceKm,
     int? tripDurationSeconds,
     DateTime? arrivalTime,
+    TravelActivityDuration? travelActivityDuration,
     DateTime? startTime,
     String? photoProofAddress,
     String? otpVerifiedAddress,
@@ -609,6 +645,8 @@ class Task {
       tripDistanceKm: tripDistanceKm ?? this.tripDistanceKm,
       tripDurationSeconds: tripDurationSeconds ?? this.tripDurationSeconds,
       arrivalTime: arrivalTime ?? this.arrivalTime,
+      travelActivityDuration:
+          travelActivityDuration ?? this.travelActivityDuration,
       startTime: startTime ?? this.startTime,
       photoProofAddress: photoProofAddress ?? this.photoProofAddress,
       otpVerifiedAddress: otpVerifiedAddress ?? this.otpVerifiedAddress,

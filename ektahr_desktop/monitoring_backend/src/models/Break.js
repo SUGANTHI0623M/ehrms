@@ -1,5 +1,14 @@
 const mongoose = require('../config/mongoose');
 
+const breakLocationSchema = new mongoose.Schema({
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    address: { type: String, default: '' },
+    area: { type: String, default: '' },
+    city: { type: String, default: '' },
+    pincode: { type: String, default: '' }
+}, { _id: false });
+
 const breakSchema = new mongoose.Schema({
     employeeID: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },
     deviceId: { type: String, required: true },
@@ -7,7 +16,11 @@ const breakSchema = new mongoose.Schema({
     startTime: { type: Date, required: true },
     endTime: { type: Date, default: null },
     totalSeconds: { type: Number, default: null },
-    source: { type: String, default: '' }  // "software" | "web" | "app"
+    source: { type: String, default: '' },  // "software" | "web" | "app"
+    breakStartSelfie: { type: String, default: '' },
+    breakEndSelfie: { type: String, default: '' },
+    breakStartLocation: { type: breakLocationSchema, default: () => ({}) },
+    breakEndLocation: { type: breakLocationSchema, default: () => ({}) }
 }, { timestamps: true, collection: 'break' });
 
 breakSchema.index({ tenantId: 1, employeeID: 1, startTime: -1 });

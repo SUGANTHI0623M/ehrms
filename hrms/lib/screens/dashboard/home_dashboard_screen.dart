@@ -321,7 +321,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             if (!mounted) return;
             final punchIn = _todayAttendance?['punchIn']?.toString().trim();
             final hasPunchInToday = punchIn != null && punchIn.isNotEmpty;
-            showAbsentAlertIfNeeded(context, hasPunchInToday: hasPunchInToday);
+            showAbsentAlertIfNeeded(
+              context,
+              hasPunchInToday: hasPunchInToday,
+              suppressAlert: _todayAttendance?['isHoliday'] == true,
+            );
           });
         } else {
           setState(

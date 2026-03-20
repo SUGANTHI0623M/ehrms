@@ -66,9 +66,10 @@ class _BlinkingAlertIconState extends State<_BlinkingAlertIcon>
 Future<void> showAbsentAlertIfNeeded(
   BuildContext context, {
   required bool hasPunchInToday,
+  bool suppressAlert = false,
 }) async {
   final now = DateTime.now();
-  if (hasPunchInToday) {
+  if (hasPunchInToday || suppressAlert) {
     _cancelScheduledAbsentAlert();
     return;
   }
@@ -100,6 +101,7 @@ Future<void> showAbsentAlertIfNeeded(
       context,
       schedule: schedule,
       hasPunchInToday: hasPunchInToday,
+      suppressAlert: suppressAlert,
       firstShown: firstShown,
       secondShown: secondShown,
     );
@@ -202,6 +204,7 @@ Future<void> showAbsentAlertIfNeeded(
       context,
       schedule: schedule,
       hasPunchInToday: false,
+      suppressAlert: suppressAlert,
       firstShown: (shouldShowFirst || firstShown),
       secondShown: (shouldShowSecond || secondShown),
     );
@@ -212,10 +215,11 @@ void _scheduleNextAbsentAlert(
   BuildContext context, {
   required _AbsentAlertSchedule schedule,
   required bool hasPunchInToday,
+  required bool suppressAlert,
   required bool firstShown,
   required bool secondShown,
 }) {
-  if (hasPunchInToday || !context.mounted) {
+  if (hasPunchInToday || suppressAlert || !context.mounted) {
     _cancelScheduledAbsentAlert();
     return;
   }
@@ -249,13 +253,15 @@ void _scheduleNextAbsentAlert(
   _absentAlertTimer = Timer(target.difference(now), () async {
     _scheduledAbsentAlertKey = null;
     if (!context.mounted) return;
-    final latestHasPunchInToday = await _resolveHasPunchInToday(
-      fallback: hasPunchInToday,
+    final latestState = await _resolveTodayAttendanceState(
+      fallbackHasPunchInToday: hasPunchInToday,
+      fallbackSuppressAlert: suppressAlert,
     );
     if (!context.mounted) return;
     await showAbsentAlertIfNeeded(
       context,
-      hasPunchInToday: latestHasPunchInToday,
+      hasPunchInToday: latestState.hasPunchInToday,
+      suppressAlert: latestState.suppressAlert,
     );
   });
 }
@@ -266,16 +272,25 @@ void _cancelScheduledAbsentAlert() {
   _scheduledAbsentAlertKey = null;
 }
 
-Future<bool> _resolveHasPunchInToday({required bool fallback}) async {
+Future<({bool hasPunchInToday, bool suppressAlert})> _resolveTodayAttendanceState({
+  required bool fallbackHasPunchInToday,
+  required bool fallbackSuppressAlert,
+}) async {
   try {
     final response = await AttendanceService().getTodayAttendance();
     if (response['success'] == true && response['data'] is Map<String, dynamic>) {
       final data = response['data'] as Map<String, dynamic>;
       final punchIn = data['punchIn']?.toString().trim();
-      return punchIn != null && punchIn.isNotEmpty;
+      return (
+        hasPunchInToday: punchIn != null && punchIn.isNotEmpty,
+        suppressAlert: data['isHoliday'] == true,
+      );
     }
   } catch (_) {}
-  return fallback;
+  return (
+    hasPunchInToday: fallbackHasPunchInToday,
+    suppressAlert: fallbackSuppressAlert,
+  );
 }
 
 Future<_AbsentAlertSchedule?> _loadAbsentAlertSchedule(DateTime now) async {

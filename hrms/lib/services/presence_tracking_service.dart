@@ -304,6 +304,7 @@ class PresenceTrackingService {
       timestamp: capturedAt,
       movementType: movement.movementType,
       accuracyM: accuracyM,
+      sensorSpeedMps: speedMps,
     );
     if (outlierDecision.shouldSkip) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
@@ -504,9 +505,14 @@ class PresenceTrackingService {
       distanceM: distanceM,
       elapsedSeconds: elapsedSec,
     );
-    final result = MovementClassificationService.classifyFromDistanceAndDuration(
+    final result = MovementClassificationService.classifyFromTrackingSignals(
       distanceM: distanceM,
       elapsedSeconds: elapsedSec,
+      lastMovementType: lastMovement,
+      sensorSpeedKmh:
+          (position.speed.isFinite && position.speed >= 0)
+              ? position.speed * 3.6
+              : null,
     );
 
     if (kDebugMode && AppConstants.logTrackingsToConsole) {
@@ -580,9 +586,14 @@ class PresenceTrackingService {
       distanceM: distanceM,
       elapsedSeconds: elapsedSec,
     );
-    final movementType = MovementClassificationService.classifyFromDistanceAndDuration(
+    final movementType = MovementClassificationService.classifyFromTrackingSignals(
       distanceM: distanceM,
       elapsedSeconds: elapsedSec,
+      lastMovementType: lastMovement,
+      sensorSpeedKmh:
+          (speedMps != null && speedMps.isFinite && speedMps >= 0)
+              ? speedMps * 3.6
+              : null,
     );
     final nextConsecutive =
         movementType == kMovementStop ? (consecutiveLow + 1) : 0;
@@ -632,6 +643,7 @@ class PresenceTrackingService {
       timestamp: capturedAt,
       movementType: movementType ?? kMovementStop,
       accuracyM: accuracy,
+      sensorSpeedMps: null,
     );
     if (outlierDecision.shouldSkip) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {

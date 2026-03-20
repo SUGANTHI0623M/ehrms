@@ -89,6 +89,11 @@ const taskDetailsSchema = new mongoose.Schema({
   // Per-segment ride distance & duration. segment: travel_started | travel_resumed; endType: travel_exited | arrived
   taskTravelDuration: { type: Array, default: [] }, // [{ segment, endType, durationSeconds, endTime }]
   taskTravelDistance: { type: Array, default: [] }, // [{ segment, endType, distanceKm, endTime }]
+  travelActivityDuration: {
+    driveDuration: { type: Number, default: 0 },
+    walkDuration: { type: Number, default: 0 },
+    stopDuration: { type: Number, default: 0 },
+  },
 }, { timestamps: true, strict: false });
 
 module.exports = mongoose.model('TaskDetails', taskDetailsSchema);

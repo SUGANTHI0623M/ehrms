@@ -23,6 +23,21 @@ function buildLocationObject(lat, lng, address, pincode) {
   };
 }
 
+function normalizeDurationSeconds(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return 0;
+  return Math.round(num);
+}
+
+function normalizeTravelActivityDuration(input) {
+  if (!input || typeof input !== 'object') return undefined;
+  return {
+    driveDuration: normalizeDurationSeconds(input.driveDuration),
+    walkDuration: normalizeDurationSeconds(input.walkDuration),
+    stopDuration: normalizeDurationSeconds(input.stopDuration),
+  };
+}
+
 /** Valid status transitions for updateTask. Aligned with task status enum. */
 const VALID_TRANSITIONS = {
   approved: ['assigned', 'pending', 'scheduled', 'reopened', 'not yet started', 'hold'],
@@ -80,7 +95,7 @@ const EXTENDED_TASK_KEYS = [
   'photoProofUrl', 'photoProofUploadedAt', 'photoProofDescription', 'photoProofLat',
   'photoProofLng', 'photoProofAddress', 'otpCode', 'otpSentAt', 'otpVerifiedAt',
   'otpVerifiedLat', 'otpVerifiedLng', 'otpVerifiedAddress', 'progressSteps',
-  'completedDate', 'completedBy', 'locationHistory',
+  'completedDate', 'completedBy', 'locationHistory', 'travelActivityDuration',
   'approvedAt', 'approvedBy', 'rejectedAt', 'rejectedBy',
 ];
 // exit and restarted are stored in tasks collection and must never be unset
@@ -91,6 +106,7 @@ exports.buildUnsetExtended = function buildUnsetExtended() {
   for (const k of EXTENDED_TASK_KEYS) unset[k] = 1;
   return unset;
 };
+exports.normalizeTravelActivityDuration = normalizeTravelActivityDuration;
 
 /** Extract minimal fields for tasks collection. */
 function getMinimalTaskFields(doc) {
@@ -1048,6 +1064,12 @@ exports.endTask = async (req, res) => {
       completedDate: completedAt,
       completedBy: staffId,
     };
+    const travelActivityDuration = normalizeTravelActivityDuration(
+      req.body?.travelActivityDuration
+    );
+    if (travelActivityDuration) {
+      fullDoc.travelActivityDuration = travelActivityDuration;
+    }
     await exports.upsertTaskDetails(fullDoc);
     const updatedTask = await Task.findById(taskId).populate('assignedTo').populate('customerId');
     const merged = await mergeTaskWithDetails(updatedTask);

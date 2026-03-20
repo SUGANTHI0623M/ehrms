@@ -15,6 +15,9 @@ class TrackingOutlierFilterDecision {
     this.distanceM,
     this.elapsedSeconds,
     this.speedKmh,
+    this.sensorSpeedKmh,
+    this.windowDistanceM,
+    this.windowSpeedKmh,
   });
 
   final bool shouldSkip;
@@ -23,6 +26,9 @@ class TrackingOutlierFilterDecision {
   final double? distanceM;
   final double? elapsedSeconds;
   final double? speedKmh;
+  final double? sensorSpeedKmh;
+  final double? windowDistanceM;
+  final double? windowSpeedKmh;
 }
 
 class _TrackingFilterRecord {
@@ -112,9 +118,9 @@ class TrackingOutlierFilterService {
   static const int _maxHistoryRecords = 2;
   static const double _maxAccuracyM = 50.0;
   static const double _lowMovementDistanceM = 10.0;
-  static const double _lowMovementSpeedKmh = 2.0;
-  static const double _suddenSpikeDistanceM = 15.0;
-  static const Duration _walkingHoldDuration = Duration(seconds: 10);
+  static const double _lowMovementSpeedKmh = 1.0;
+  static const double _suddenSpikeDistanceM = 8.0;
+  static const double _suddenSpikeSpeedKmh = 1.2;
 
   static final Map<String, List<_TrackingFilterRecord>> _memoryHistory =
       <String, List<_TrackingFilterRecord>>{};
@@ -132,16 +138,20 @@ class TrackingOutlierFilterService {
     required DateTime timestamp,
     required String movementType,
     double? accuracyM,
+    double? sensorSpeedMps,
   }) async {
     final normalizedMovement = _normalizeMovement(movementType);
     final history = await _loadHistory(scope);
-    var pending = await _loadPending(scope);
     final last = history.isNotEmpty ? history.last : null;
     final previous = history.length >= 2 ? history[history.length - 2] : null;
 
     double? distanceM;
     double? elapsedSeconds;
     double? speedKmh;
+    final sensorSpeedKmh =
+        (sensorSpeedMps != null && sensorSpeedMps.isFinite && sensorSpeedMps >= 0)
+            ? sensorSpeedMps * 3.6
+            : null;
     if (last != null) {
       distanceM = gl.Geolocator.distanceBetween(last.lat, last.lng, lat, lng);
       elapsedSeconds =
@@ -153,6 +163,10 @@ class TrackingOutlierFilterService {
         );
       }
     }
+    final effectiveSpeedKmh = _effectiveSpeedKmh(
+      calculatedSpeedKmh: speedKmh,
+      sensorSpeedKmh: sensorSpeedKmh,
+    );
 
     if (accuracyM != null && accuracyM > _maxAccuracyM) {
       _logDecision(
@@ -164,6 +178,7 @@ class TrackingOutlierFilterService {
         distanceM: distanceM,
         elapsedSeconds: elapsedSeconds,
         speedKmh: speedKmh,
+        sensorSpeedKmh: sensorSpeedKmh,
         decision: 'skip',
         reason: 'ignored_accuracy',
       );
@@ -174,6 +189,7 @@ class TrackingOutlierFilterService {
         distanceM: distanceM,
         elapsedSeconds: elapsedSeconds,
         speedKmh: speedKmh,
+        sensorSpeedKmh: sensorSpeedKmh,
       );
     }
 
@@ -185,50 +201,44 @@ class TrackingOutlierFilterService {
         elapsedSeconds != null &&
         elapsedSeconds > 0 &&
         speedKmh != null) {
-      if (distanceM < _lowMovementDistanceM && speedKmh < _lowMovementSpeedKmh) {
+      if (resolvedMovement == kMovementStop &&
+          distanceM < _lowMovementDistanceM &&
+          effectiveSpeedKmh < _lowMovementSpeedKmh) {
         resolvedMovement = kMovementStop;
-        reason = 'low_movement_forced_stop';
-        pending = null;
+        reason = 'low_movement_stop';
       }
 
       if (resolvedMovement == kMovementWalk &&
           previous != null &&
           previous.movementType == kMovementStop &&
           last.movementType == kMovementStop &&
-          distanceM < _suddenSpikeDistanceM) {
-        reason = 'sudden_spike_hold';
+          distanceM < _suddenSpikeDistanceM &&
+          effectiveSpeedKmh < _suddenSpikeSpeedKmh) {
+        _logDecision(
+          scope: scope,
+          lat: lat,
+          lng: lng,
+          accuracyM: accuracyM,
+          movementType: normalizedMovement,
+          correctedMovementType: kMovementStop,
+          distanceM: distanceM,
+          elapsedSeconds: elapsedSeconds,
+          speedKmh: speedKmh,
+          sensorSpeedKmh: sensorSpeedKmh,
+          decision: 'skip',
+          reason: 'sudden_spike_between_stops',
+        );
+        return TrackingOutlierFilterDecision(
+          shouldSkip: true,
+          movementType: kMovementStop,
+          reason: 'sudden_spike_between_stops',
+          distanceM: distanceM,
+          elapsedSeconds: elapsedSeconds,
+          speedKmh: speedKmh,
+          sensorSpeedKmh: sensorSpeedKmh,
+        );
       }
-
-      if (resolvedMovement == kMovementWalk) {
-        if (last.movementType == kMovementWalk) {
-          pending = null;
-        } else {
-          if (pending == null || pending.movementType != kMovementWalk) {
-            pending = _PendingMovementState(
-              movementType: kMovementWalk,
-              since: timestamp,
-            );
-          }
-          if (timestamp.difference(pending.since) < _walkingHoldDuration) {
-            resolvedMovement = kMovementStop;
-            reason = reason == 'sudden_spike_hold'
-                ? 'sudden_spike_hold'
-                : 'walking_hold_pending';
-          } else {
-            reason = reason == 'sudden_spike_hold'
-                ? 'walking_confirmed_after_hold'
-                : 'accepted_after_hold';
-            pending = null;
-          }
-        }
-      } else {
-        pending = null;
-      }
-    } else if (normalizedMovement != kMovementWalk) {
-      pending = null;
     }
-
-    await _savePending(scope, pending);
 
     if (reason != 'accepted') {
       _logDecision(
@@ -241,6 +251,7 @@ class TrackingOutlierFilterService {
         distanceM: distanceM,
         elapsedSeconds: elapsedSeconds,
         speedKmh: speedKmh,
+        sensorSpeedKmh: sensorSpeedKmh,
         decision: 'send',
         reason: reason,
       );
@@ -253,6 +264,7 @@ class TrackingOutlierFilterService {
       distanceM: distanceM,
       elapsedSeconds: elapsedSeconds,
       speedKmh: speedKmh,
+      sensorSpeedKmh: sensorSpeedKmh,
     );
   }
 
@@ -380,6 +392,23 @@ class TrackingOutlierFilterService {
     );
   }
 
+  static double _effectiveSpeedKmh({
+    double? calculatedSpeedKmh,
+    double? sensorSpeedKmh,
+  }) {
+    final safeCalculated =
+        calculatedSpeedKmh != null &&
+                calculatedSpeedKmh.isFinite &&
+                calculatedSpeedKmh > 0
+            ? calculatedSpeedKmh
+            : 0.0;
+    final safeSensor =
+        sensorSpeedKmh != null && sensorSpeedKmh.isFinite && sensorSpeedKmh > 0
+            ? sensorSpeedKmh
+            : 0.0;
+    return safeCalculated > safeSensor ? safeCalculated : safeSensor;
+  }
+
   static String _normalizeMovement(String movementType) {
     if (movementType == kMovementDrive ||
         movementType == kMovementWalk ||
@@ -401,6 +430,7 @@ class TrackingOutlierFilterService {
     double? distanceM,
     double? elapsedSeconds,
     double? speedKmh,
+    double? sensorSpeedKmh,
   }) {
     if (!kDebugMode || !AppConstants.logTrackingsToConsole) return;
     debugPrint(
@@ -411,6 +441,7 @@ class TrackingOutlierFilterService {
       'distance=${distanceM?.toStringAsFixed(2) ?? "—"}m '
       'elapsed=${elapsedSeconds?.toStringAsFixed(1) ?? "—"}s '
       'speed=${speedKmh?.toStringAsFixed(2) ?? "—"}kmh '
+      'sensor=${sensorSpeedKmh?.toStringAsFixed(2) ?? "—"}kmh '
       'movement=$movementType corrected=${correctedMovementType ?? movementType} '
       'decision=$decision reason=$reason',
     );

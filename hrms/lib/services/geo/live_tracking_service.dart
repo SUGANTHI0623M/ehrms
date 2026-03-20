@@ -400,11 +400,21 @@ class LiveTrackingService {
       }
 
       String resolvedMovementType =
-          MovementClassificationService.classifyFromSpeedOnly(
-            avgSpeedKmh: avgSpeedKmh,
+          MovementClassificationService.classifyFromTrackingSignals(
+            distanceM: (lastLat != null && lastLng != null) ? gl.Geolocator.distanceBetween(
+              lastLat,
+              lastLng,
+              lat,
+              lng,
+            ) : 0.0,
+            elapsedSeconds: (lastTimeMs != null && lastTimeMs > 0)
+                ? (DateTime.now().millisecondsSinceEpoch - lastTimeMs) / 1000.0
+                : 0.0,
             lastMovementType: lastMovement,
-            inBackground: true,
-            consecutiveLowSpeed: consecutiveLow,
+            sensorSpeedKmh:
+                (speedMps != null && speedMps.isFinite && speedMps >= 0)
+                    ? speedMps * 3.6
+                    : null,
           );
       int nextConsecutive = avgSpeedKmh <= 1.0 ? (consecutiveLow + 1) : 0;
 
@@ -415,6 +425,7 @@ class LiveTrackingService {
         timestamp: capturedAt,
         movementType: resolvedMovementType,
         accuracyM: accuracyM,
+        sensorSpeedMps: speedMps,
       );
       if (outlierDecision.shouldSkip) {
         if (kDebugMode && AppConstants.logTrackingsToConsole) {

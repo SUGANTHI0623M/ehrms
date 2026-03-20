@@ -18,6 +18,7 @@ import 'package:hrms/services/task_service.dart';
 import 'package:hrms/services/presence_tracking_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
 import 'package:hrms/utils/error_message_utils.dart';
+import 'package:hrms/utils/task_movement_summary_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ArrivedScreen extends StatefulWidget {
@@ -49,6 +50,7 @@ class ArrivedScreen extends StatefulWidget {
   final double? drivingDistanceKm;
   final Duration? walkingDuration;
   final double? walkingDistanceKm;
+  final Duration? stopDuration;
 
   const ArrivedScreen({
     super.key,
@@ -72,6 +74,7 @@ class ArrivedScreen extends StatefulWidget {
     this.drivingDistanceKm,
     this.walkingDuration,
     this.walkingDistanceKm,
+    this.stopDuration,
   });
 
   @override
@@ -87,6 +90,8 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
   List<Map<String, dynamic>> _formResponsesForTask = [];
   String? _staffId;
   bool _formLoading = false;
+  TaskMovementSummary? _movementSummary;
+  double? _routeDistanceKm;
 
   /// Physical arrival point (Trip Details "Destination" row).
   String? _arrivalDisplayAddress;
@@ -162,6 +167,7 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
     _loadStoredTaskSettings();
     _loadStaffIdAndForms();
     _refreshTask();
+    _loadMovementSummary();
   }
 
   Future<void> _loadStaffIdAndForms() async {
@@ -234,6 +240,28 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
         if (_staffId == null && mounted) setState(() => _staffId = staffId);
         await _loadFormTemplatesAndResponses(staffId);
       }
+      await _loadMovementSummary();
+    } catch (_) {}
+  }
+
+  Future<void> _loadMovementSummary() async {
+    final taskId = widget.taskMongoId ?? task?.id;
+    if (taskId == null || taskId.isEmpty) return;
+    try {
+      final report = await TaskService().getTaskCompletionReport(taskId);
+      final summary = TaskMovementSummary.fromRoutePoints(
+        report.routePoints,
+        endTime: _travelEndTime ?? widget.arrivalTime,
+      );
+      if (mounted) {
+        setState(() {
+          _movementSummary = summary.hasData ? summary : null;
+          _routeDistanceKm = computeRouteDistanceKm(
+            report.routePoints,
+            endTime: _travelEndTime ?? widget.arrivalTime,
+          );
+        });
+      }
     } catch (_) {}
   }
 
@@ -245,6 +273,87 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
       return '${d.inMinutes} mins ${d.inSeconds.remainder(60)} secs';
     }
     return '${d.inSeconds} secs';
+  }
+
+  DateTime? get _travelStartTime => task?.startTime ?? widget.task?.startTime;
+
+  DateTime? get _travelEndTime =>
+      task?.arrivalTime ?? widget.task?.arrivalTime ?? widget.arrivalTime;
+
+  Duration get _travelDuration {
+    final secs = task?.tripDurationSeconds ?? widget.task?.tripDurationSeconds;
+    if (secs != null && secs > 0) {
+      return Duration(seconds: secs);
+    }
+    final start = _travelStartTime;
+    final end = _travelEndTime;
+    if (start != null && end != null && !end.isBefore(start)) {
+      return end.difference(start);
+    }
+    return widget.totalDuration;
+  }
+
+  String? get _sourceDisplayAddress =>
+      task?.sourceLocation?.displayAddress ??
+      widget.task?.sourceLocation?.displayAddress ??
+      widget.sourceAddress;
+
+  double? get _sourceDisplayLat =>
+      task?.sourceLocation?.lat ??
+      widget.task?.sourceLocation?.lat ??
+      widget.sourceLat;
+
+  double? get _sourceDisplayLng =>
+      task?.sourceLocation?.lng ??
+      widget.task?.sourceLocation?.lng ??
+      widget.sourceLng;
+
+  String? get _destinationDisplayAddress =>
+      _arrivalDisplayAddress ??
+      task?.arrivalLocation?.displayAddress ??
+      widget.task?.arrivalLocation?.displayAddress ??
+      widget.arrivalAtAddress;
+
+  double? get _destinationDisplayLat =>
+      _arrivalDisplayLat ??
+      task?.arrivalLocation?.lat ??
+      widget.task?.arrivalLocation?.lat ??
+      widget.arrivalAtLat;
+
+  double? get _destinationDisplayLng =>
+      _arrivalDisplayLng ??
+      task?.arrivalLocation?.lng ??
+      widget.task?.arrivalLocation?.lng ??
+      widget.arrivalAtLng;
+
+  double get _displayDistanceKm {
+    final taskDistance = task?.tripDistanceKm;
+    if (taskDistance != null && taskDistance > 0) return taskDistance;
+    final widgetTaskDistance = widget.task?.tripDistanceKm;
+    if (widgetTaskDistance != null && widgetTaskDistance > 0) {
+      return widgetTaskDistance;
+    }
+    if (_routeDistanceKm != null && _routeDistanceKm! > 0) return _routeDistanceKm!;
+    return widget.totalDistanceKm;
+  }
+
+  TaskMovementSummary? get _displayMovementSummary {
+    final stored = task?.travelActivityDuration ?? widget.task?.travelActivityDuration;
+    if (stored != null) {
+      final summary = TaskMovementSummary.fromDurations(
+        drivingDuration: Duration(seconds: stored.driveDuration),
+        walkingDuration: Duration(seconds: stored.walkDuration),
+        stopDuration: Duration(seconds: stored.stopDuration),
+      );
+      if (summary.hasData) return summary;
+    }
+    if (_movementSummary?.hasData == true) return _movementSummary;
+    final fallback = TaskMovementSummary.fromDurations(
+      drivingDuration: widget.drivingDuration,
+      walkingDuration: widget.walkingDuration,
+      stopDuration: widget.stopDuration,
+    );
+    return fallback.hasData ? fallback : null;
   }
 
   @override
@@ -474,31 +583,55 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                         const SizedBox(height: 16),
                         _row(
                           'Total Distance',
-                          '${widget.totalDistanceKm.toStringAsFixed(2)} km',
+                          '${_displayDistanceKm.toStringAsFixed(2)} km',
                         ),
                         _row(
-                          'Time Taken',
-                          _formatDuration(widget.totalDuration),
+                          'Travel Start Time',
+                          DateDisplayUtil.formatTime(_travelStartTime),
                         ),
                         _row(
-                          'Arrival Time',
-                          DateDisplayUtil.formatTime(widget.arrivalTime),
+                          'Travel End Time',
+                          DateDisplayUtil.formatTime(_travelEndTime),
                         ),
+                        _row(
+                          'Total Travel Duration',
+                          _formatDuration(_travelDuration),
+                        ),
+                        if (_displayMovementSummary != null) ...[
+                          _row(
+                            'Drive Duration',
+                            _formatDuration(
+                              _displayMovementSummary!.drivingDuration,
+                            ),
+                          ),
+                          _row(
+                            'Walk Duration',
+                            _formatDuration(
+                              _displayMovementSummary!.walkingDuration,
+                            ),
+                          ),
+                          _row(
+                            'Stop Duration',
+                            _formatDuration(
+                              _displayMovementSummary!.stopDuration,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         const Divider(height: 1),
                         const SizedBox(height: 12),
                         _locationSection(
                           'Source',
-                          widget.sourceAddress ?? task?.sourceLocation?.address,
-                          widget.sourceLat ?? task?.sourceLocation?.lat,
-                          widget.sourceLng ?? task?.sourceLocation?.lng,
+                          _sourceDisplayAddress,
+                          _sourceDisplayLat,
+                          _sourceDisplayLng,
                         ),
                         const SizedBox(height: 12),
                         _locationSection(
                           'Destination',
-                          _arrivalDisplayAddress,
-                          _arrivalDisplayLat,
-                          _arrivalDisplayLng,
+                          _destinationDisplayAddress,
+                          _destinationDisplayLat,
+                          _destinationDisplayLng,
                         ),
                       ],
                     ),
@@ -694,7 +827,27 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                             widget.taskMongoId!.isNotEmpty) {
                                           try {
                                             refreshed = await TaskService()
-                                                .endTask(widget.taskMongoId!);
+                                                .endTask(
+                                                  widget.taskMongoId!,
+                                                  travelActivityDuration:
+                                                      _displayMovementSummary ==
+                                                          null
+                                                      ? null
+                                                      : {
+                                                          'driveDuration':
+                                                              _displayMovementSummary!
+                                                                  .drivingDuration
+                                                                  .inSeconds,
+                                                          'walkDuration':
+                                                              _displayMovementSummary!
+                                                                  .walkingDuration
+                                                                  .inSeconds,
+                                                          'stopDuration':
+                                                              _displayMovementSummary!
+                                                                  .stopDuration
+                                                                  .inSeconds,
+                                                        },
+                                                );
                                             await PresenceTrackingService()
                                                 .resumePresenceTracking();
                                           } catch (e) {
@@ -756,6 +909,15 @@ class _ArrivedScreenState extends State<ArrivedScreen> {
                                                         (refreshed ?? task ?? t)
                                                             ?.otpVerifiedAt,
                                                     verifiedOtp: null,
+                                                    drivingDuration:
+                                                        _displayMovementSummary
+                                                            ?.drivingDuration,
+                                                    walkingDuration:
+                                                        _displayMovementSummary
+                                                            ?.walkingDuration,
+                                                    stopDuration:
+                                                        _displayMovementSummary
+                                                            ?.stopDuration,
                                                   ),
                                             ),
                                           );

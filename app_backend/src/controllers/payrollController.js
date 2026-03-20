@@ -8,6 +8,7 @@ const { getEffectiveFineConfig } = require('../utils/fineCalculationHelper');
 const { calculateFineAmount } = require('../utils/fineCalculationHelper');
 const { getShiftTimings } = require('../utils/leaveAttendanceHelper');
 const { calculateWorkHoursFromShift } = require('../utils/leaveAttendanceHelper');
+const { getHolidayTemplateForStaff, getHolidaysForMonth } = require('../utils/holidayTemplateHelper');
 
 /**
  * Get fine amount for a single attendance record.
@@ -475,26 +476,15 @@ const calculateAttendanceStats = async (employeeId, month, year) => {
     // Use same date parsing logic as dashboard (local time, not UTC)
     const holidayDayNumbers = new Set();
     if (staff && staff.businessId) {
-        const holidayTemplate = await require('../models/HolidayTemplate').findOne({
-            businessId: staff.businessId,
-            isActive: true
+        const holidayTemplate = await getHolidayTemplateForStaff(staff);
+        const holidays = getHolidaysForMonth(holidayTemplate, year, month);
+
+        holidays.forEach(h => {
+            const d = new Date(h.date);
+            const holidayDay = d.getDate();
+            holidayDayNumbers.add(holidayDay);
+            console.log(`[calculateAttendanceStats] Found holiday: Day ${holidayDay}, Month ${month}, Year ${year}`);
         });
-        
-        if (holidayTemplate && holidayTemplate.holidays) {
-            holidayTemplate.holidays.forEach(h => {
-                // Handle date properly - use same logic as dashboard
-                const d = new Date(h.date);
-                const holidayYear = d.getFullYear();
-                const holidayMonth = d.getMonth() + 1; // getMonth returns 0-11
-                const holidayDay = d.getDate();
-                
-                // Compare with the requested month/year (same as dashboard logic)
-                if (holidayMonth === month && holidayYear === year) {
-                    holidayDayNumbers.add(holidayDay); // Store day number (1-31)
-                    console.log(`[calculateAttendanceStats] Found holiday: Day ${holidayDay}, Month ${holidayMonth}, Year ${holidayYear}`);
-                }
-            });
-        }
     }
     
     // Count days in month

@@ -137,6 +137,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   double _totalDistanceCovered = 0.0;
 
   Duration _totalTimeElapsed = Duration.zero;
+  Duration _drivingDuration = Duration.zero;
+  Duration _walkingDuration = Duration.zero;
+  Duration _stopDuration = Duration.zero;
 
   Timer? _timer;
 
@@ -337,17 +340,22 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     double lat;
     double lng;
     double? accuracyM;
+    double? speedMps;
     try {
       final pos = await _captureTrackingPosition();
       lat = pos.latitude;
       lng = pos.longitude;
       accuracyM = pos.accuracy;
+      speedMps = (pos.speed.isFinite && pos.speed >= 0) ? pos.speed : null;
     } catch (e) {
       final loc = _lastLocation;
       if (loc != null && loc.latitude != null && loc.longitude != null) {
         lat = loc.latitude!;
         lng = loc.longitude!;
         accuracyM = loc.accuracy;
+        speedMps = (loc.speed != null && loc.speed!.isFinite && loc.speed! >= 0)
+            ? loc.speed
+            : null;
       } else {
         lat = widget.pickupLocation.latitude;
         lng = widget.pickupLocation.longitude;
@@ -389,6 +397,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           batteryPercent: battery,
           movementType: movementType,
           accuracyM: accuracyM,
+          speedMps: speedMps,
           consecutiveLowSpeed: movementClassifier.consecutiveLowSpeedCount,
           destinationLat: _dropoffLatLng.latitude,
           destinationLng: _dropoffLatLng.longitude,
@@ -814,6 +823,21 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       if (mounted) {
         setState(() {
           _totalTimeElapsed = _totalTimeElapsed + const Duration(seconds: 1);
+          switch (_currentActivity.toLowerCase()) {
+            case 'drive':
+            case 'driving':
+              _drivingDuration += const Duration(seconds: 1);
+              break;
+            case 'walk':
+            case 'walking':
+              _walkingDuration += const Duration(seconds: 1);
+              break;
+            case 'stop':
+            case 'standing':
+            default:
+              _stopDuration += const Duration(seconds: 1);
+              break;
+          }
         });
       }
     });
@@ -996,6 +1020,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
             'address': sourceAddress,
             'fullAddress': sourceAddress,
           },
+          travelActivityDuration: {
+            'driveDuration': _drivingDuration.inSeconds,
+            'walkDuration': _walkingDuration.inSeconds,
+            'stopDuration': _stopDuration.inSeconds,
+          },
         );
         if (mounted)
           setState(() {
@@ -1045,6 +1074,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           arrivalAtLat: lat,
           arrivalAtLng: lng,
           arrivalAtAddress: arrivalAddr,
+          drivingDuration: _drivingDuration,
+          walkingDuration: _walkingDuration,
+          stopDuration: _stopDuration,
         ),
       ),
     );

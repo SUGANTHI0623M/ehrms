@@ -12,7 +12,6 @@ import '../screens/assets/assets_listing_screen.dart';
 import '../screens/geo/my_tasks_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/performance/performance_module_screen.dart';
-import '../screens/lms/lms_shell_screen.dart';
 import '../screens/announcements/announcements_screen.dart';
 import '../screens/grievance/grievance_shell_screen.dart';
 
@@ -142,6 +141,12 @@ class _AppDrawerState extends State<AppDrawer> {
                 ),
                 _buildDrawerItem(
                   context: context,
+                  icon: Icons.calendar_today_rounded,
+                  title: 'Holidays',
+                  onTap: () => _navigateToTab(3),
+                ),
+                _buildDrawerItem(
+                  context: context,
                   icon: Icons.inventory_2_rounded,
                   title: 'My Assets',
                   onTap: () {
@@ -201,31 +206,6 @@ class _AppDrawerState extends State<AppDrawer> {
                     );
                   },
                 ),
-                if (false) ...[
-                  _buildDrawerItem(
-                    context: context,
-                    icon: Icons.school_rounded,
-                    title: 'My Learning',
-                    onTap: () {
-                      Navigator.pop(context);
-                      Future.microtask(
-                        () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 0)),
-                      );
-                    },
-                  ),
-                  _buildDrawerItem(
-                    context: context,
-                    icon: Icons.video_call_rounded,
-                    title: 'Live Sessions',
-                    onTap: () {
-                      Navigator.pop(context);
-                      Future.microtask(
-                        () => _navigateAndClearStack(const LmsShellScreen(initialIndex: 2)),
-                      );
-                    },
-                  ),
-                ],
-             
                 _buildDrawerItem(
                   context: context,
                   icon: Icons.settings_rounded,

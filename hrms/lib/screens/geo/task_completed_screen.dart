@@ -7,6 +7,7 @@ import 'package:hrms/screens/geo/my_tasks_screen.dart';
 import 'package:hrms/services/task_service.dart';
 import 'package:hrms/utils/date_display_util.dart';
 import 'package:hrms/utils/snackbar_utils.dart';
+import 'package:hrms/utils/task_movement_summary_util.dart';
 import 'package:hrms/widgets/notification_reaction_overlay.dart';
 
 /// One event in the task track timeline.
@@ -46,6 +47,7 @@ class TaskCompletedScreen extends StatefulWidget {
   final double? drivingDistanceKm;
   final Duration? walkingDuration;
   final double? walkingDistanceKm;
+  final Duration? stopDuration;
 
   const TaskCompletedScreen({
     super.key,
@@ -68,6 +70,7 @@ class TaskCompletedScreen extends StatefulWidget {
     this.drivingDistanceKm,
     this.walkingDuration,
     this.walkingDistanceKm,
+    this.stopDuration,
   });
 
   @override
@@ -76,6 +79,7 @@ class TaskCompletedScreen extends StatefulWidget {
 
 class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
   Task? _fetchedTask;
+  TaskMovementSummary? _movementSummary;
   bool _loading = true;
   bool _didShowCompletionFeedback = false;
 
@@ -86,9 +90,15 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
   }
 
   Future<void> _fetchTask() async {
+    final fallbackSummary = TaskMovementSummary.fromDurations(
+      drivingDuration: widget.drivingDuration,
+      walkingDuration: widget.walkingDuration,
+      stopDuration: widget.stopDuration,
+    );
     if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) {
       setState(() {
         _fetchedTask = widget.task;
+        _movementSummary = fallbackSummary.hasData ? fallbackSummary : null;
         _loading = false;
       });
       _showCompletionFeedbackIfNeeded();
@@ -96,9 +106,21 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
     }
     try {
       final t = await TaskService().getTaskById(widget.taskMongoId!);
+      TaskMovementSummary? summary;
+      try {
+        final report = await TaskService().getTaskCompletionReport(
+          widget.taskMongoId!,
+        );
+        final computed = TaskMovementSummary.fromRoutePoints(
+          report.routePoints,
+          endTime: t.arrivalTime ?? widget.arrivalTime,
+        );
+        if (computed.hasData) summary = computed;
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _fetchedTask = t;
+          _movementSummary = summary ?? (fallbackSummary.hasData ? fallbackSummary : null);
           _loading = false;
         });
         _showCompletionFeedbackIfNeeded();
@@ -107,6 +129,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       if (mounted) {
         setState(() {
           _fetchedTask = widget.task;
+          _movementSummary = fallbackSummary.hasData ? fallbackSummary : null;
           _loading = false;
         });
         _showCompletionFeedbackIfNeeded();
@@ -120,7 +143,10 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
       _task?.status == TaskStatus.waitingForApproval;
 
   double get _displayDistanceKm =>
-      _task?.tripDistanceKm ?? widget.totalDistanceKm;
+      ((_task?.tripDistanceKm != null && _task!.tripDistanceKm! > 0)
+              ? _task!.tripDistanceKm!
+              : null) ??
+      widget.totalDistanceKm;
 
   /// Travel duration: time from journey started to arrived, or (if exited) from resumed to arrived.
   Duration get _displayDuration {
@@ -161,6 +187,25 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
     return widget.formSubmitted;
   }
 
+  TaskMovementSummary? get _displayMovementSummary {
+    final stored = _task?.travelActivityDuration;
+    if (stored != null) {
+      final summary = TaskMovementSummary.fromDurations(
+        drivingDuration: Duration(seconds: stored.driveDuration),
+        walkingDuration: Duration(seconds: stored.walkDuration),
+        stopDuration: Duration(seconds: stored.stopDuration),
+      );
+      if (summary.hasData) return summary;
+    }
+    if (_movementSummary?.hasData == true) return _movementSummary;
+    final fallback = TaskMovementSummary.fromDurations(
+      drivingDuration: widget.drivingDuration,
+      walkingDuration: widget.walkingDuration,
+      stopDuration: widget.stopDuration,
+    );
+    return fallback.hasData ? fallback : null;
+  }
+
   static String _formatDuration(Duration d) {
     final secs = d.inSeconds;
     if (secs < 60) return secs == 1 ? '1 sec' : '$secs secs';
@@ -174,6 +219,11 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
     }
     if (remainderSecs > 0) return '${mins} min${mins == 1 ? '' : 's'} ${remainderSecs} secs';
     return mins == 1 ? '1 min' : '$mins mins';
+  }
+
+  static String _formatDistanceKm(double distanceKm) {
+    final decimals = distanceKm < 1 ? 2 : 1;
+    return '${distanceKm.toStringAsFixed(decimals)} km';
   }
 
   List<_TimelineEvent> _buildTimelineEvents() {
@@ -199,7 +249,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
           time: widget.startedAt,
           title: 'Driving (${_formatDuration(widget.drivingDuration!)})',
           subtitle:
-              '${widget.drivingDistanceKm!.toStringAsFixed(1)} km covered',
+              '${_formatDistanceKm(widget.drivingDistanceKm!)} covered',
           icon: Icons.directions_car_rounded,
           iconColor: Colors.red.shade400,
         ),
@@ -213,7 +263,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
           time: arrival.subtract(widget.walkingDuration!),
           title: 'Walking (${_formatDuration(widget.walkingDuration!)})',
           subtitle:
-              '${widget.walkingDistanceKm!.toStringAsFixed(1)} km covered',
+              '${_formatDistanceKm(widget.walkingDistanceKm!)} covered',
           icon: Icons.directions_walk_rounded,
           iconColor: Colors.amber.shade700,
         ),
@@ -227,7 +277,7 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
         _TimelineEvent(
           time: widget.startedAt,
           title: 'Travel (${_formatDuration(_displayDuration)})',
-          subtitle: '${_displayDistanceKm.toStringAsFixed(1)} km covered',
+          subtitle: '${_formatDistanceKm(_displayDistanceKm)} covered',
           icon: Icons.route_rounded,
           iconColor: AppColors.secondary,
         ),
@@ -425,6 +475,27 @@ class _TaskCompletedScreenState extends State<TaskCompletedScreen> {
                         _formatDuration(_displayDuration),
                       ),
                       _divider(),
+                      if (_displayMovementSummary != null) ...[
+                        _detailRow(
+                          'Drive Duration',
+                          _formatDuration(
+                            _displayMovementSummary!.drivingDuration,
+                          ),
+                        ),
+                        _divider(),
+                        _detailRow(
+                          'Walk Duration',
+                          _formatDuration(
+                            _displayMovementSummary!.walkingDuration,
+                          ),
+                        ),
+                        _divider(),
+                        _detailRow(
+                          'Stop Duration',
+                          _formatDuration(_displayMovementSummary!.stopDuration),
+                        ),
+                        _divider(),
+                      ],
                       _detailRow(
                         'Total Task Duration',
                         _formatDuration(_totalTaskDuration),

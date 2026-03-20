@@ -310,6 +310,7 @@ class TaskService {
     int? batteryPercent,
     String? movementType,
     double? accuracyM,
+    double? speedMps,
     int consecutiveLowSpeed = 0,
     double? destinationLat,
     double? destinationLng,
@@ -328,6 +329,7 @@ class TaskService {
       timestamp: capturedAt,
       movementType: movementType ?? kMovementStop,
       accuracyM: accuracyM,
+      sensorSpeedMps: speedMps,
     );
     if (outlierDecision.shouldSkip) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
@@ -547,6 +549,7 @@ class TaskService {
     double? tripDistanceKm,
     int? tripDurationSeconds,
     Map<String, dynamic>? sourceLocation,
+    Map<String, dynamic>? travelActivityDuration,
   }) async {
     await _setToken();
     final data = <String, dynamic>{
@@ -563,6 +566,9 @@ class TaskService {
     if (tripDurationSeconds != null)
       data['tripDurationSeconds'] = tripDurationSeconds;
     if (sourceLocation != null) data['sourceLocation'] = sourceLocation;
+    if (travelActivityDuration != null) {
+      data['travelActivityDuration'] = travelActivityDuration;
+    }
     await _api.dio.post<dynamic>('/tracking/arrived', data: data);
   }
 
@@ -585,10 +591,16 @@ class TaskService {
   }
 
   /// Mark task as completed (sets status and completedDate).
-  Future<Task> endTask(String taskMongoId) async {
+  Future<Task> endTask(
+    String taskMongoId, {
+    Map<String, dynamic>? travelActivityDuration,
+  }) async {
     await _setToken();
     final response = await _api.dio.post<Map<String, dynamic>>(
       '/tasks/$taskMongoId/end',
+      data: travelActivityDuration == null
+          ? null
+          : {'travelActivityDuration': travelActivityDuration},
     );
     final data = response.data;
     if (data == null) throw Exception('Failed to end task');

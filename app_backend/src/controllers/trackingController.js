@@ -4,7 +4,11 @@ const Task = require('../models/Task');
 const TaskDetails = require('../models/TaskDetails');
 const Branch = require('../models/Branch');
 const Attendance = require('../models/Attendance');
-const { upsertTaskDetails, buildUnsetExtended } = require('./taskController');
+const {
+  upsertTaskDetails,
+  buildUnsetExtended,
+  normalizeTravelActivityDuration,
+} = require('./taskController');
 const { reverseGeocode } = require('../services/geocodingService');
 const { markLatestPresenceTrackingInactiveForStaff } = require('../services/presenceTrackingStatusService');
 const { parseTimestamp } = require('../utils/dateUtils');
@@ -980,6 +984,12 @@ exports.arrivedTracking = async (req, res) => {
       sourceFullAddress: resolvedSourceFullAddress,
     };
     if (req.body.tripDurationSeconds != null) updateData.tripDurationSeconds = Number(req.body.tripDurationSeconds);
+    const travelActivityDuration = normalizeTravelActivityDuration(
+      req.body?.travelActivityDuration
+    );
+    if (travelActivityDuration) {
+      updateData.travelActivityDuration = travelActivityDuration;
+    }
     if (req.body.sourceLocation) {
       updateData.sourceLocation = { ...srcLoc, ...req.body.sourceLocation };
     }

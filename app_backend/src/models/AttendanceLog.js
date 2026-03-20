@@ -10,7 +10,7 @@ const attendanceLogSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ['PUNCH_IN', 'PUNCH_OUT', 'CREATED', 'UPDATED', 'APPROVED', 'REJECTED', 'STATUS_CHANGED', 'FINE_CALCULATED', 'FINE_ADJUSTED', 'LEAVE_MARKED', 'NOTES_ADDED'],
+      enum: ['PUNCH_IN', 'PUNCH_OUT', 'BREAK_START', 'BREAK_END', 'CREATED', 'UPDATED', 'APPROVED', 'REJECTED', 'STATUS_CHANGED', 'FINE_CALCULATED', 'FINE_ADJUSTED', 'LEAVE_MARKED', 'NOTES_ADDED'],
       required: true
     },
     performedBy: {
@@ -35,6 +35,13 @@ const attendanceLogSchema = new mongoose.Schema(
     punchOutDateTime: Date,
     punchInAddress: String,
     punchOutAddress: String,
+    breakStartDateTime: Date,
+    breakEndDateTime: Date,
+    totalBreakSeconds: Number,
+    breakStartAddress: String,
+    breakEndAddress: String,
+    breakStartLocation: mongoose.Schema.Types.Mixed,
+    breakEndLocation: mongoose.Schema.Types.Mixed,
     timestamp: {
       type: Date,
       default: Date.now
