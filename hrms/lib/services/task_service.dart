@@ -4,6 +4,8 @@ import 'package:hrms/config/constants.dart';
 import 'package:hrms/models/task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hrms/services/geo/live_tracking_service.dart';
+import 'package:hrms/services/geo/movement_classification_service.dart';
+import 'package:hrms/services/geo/tracking_outlier_filter_service.dart';
 import 'api_client.dart';
 
 class TaskService {
@@ -307,6 +309,8 @@ class TaskService {
     double lng, {
     int? batteryPercent,
     String? movementType,
+    double? accuracyM,
+    int consecutiveLowSpeed = 0,
     double? destinationLat,
     double? destinationLng,
     String? address,
@@ -316,27 +320,35 @@ class TaskService {
     String? pincode,
   }) async {
     await _setToken();
-    if (await LiveTrackingService.shouldSkipDuplicateTrackingSend(
-      taskMongoId,
-      lat,
-      lng,
-    )) {
+    final capturedAt = DateTime.now().toUtc();
+    final outlierDecision = await TrackingOutlierFilterService.evaluate(
+      scope: TrackingOutlierFilterService.taskScope(taskMongoId),
+      lat: lat,
+      lng: lng,
+      timestamp: capturedAt,
+      movementType: movementType ?? kMovementStop,
+      accuracyM: accuracyM,
+    );
+    if (outlierDecision.shouldSkip) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
-          '[Trackings] task_store SKIP duplicate (fg) taskId=$taskMongoId '
-          'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)}',
+          '[Trackings] task_store SKIP outlier (fg) taskId=$taskMongoId '
+          'reason=${outlierDecision.reason} '
+          'distance=${outlierDecision.distanceM?.toStringAsFixed(2) ?? "—"}m '
+          'speed=${outlierDecision.speedKmh?.toStringAsFixed(2) ?? "—"}kmh',
         );
       }
       return false;
     }
+    final resolvedMovementType = outlierDecision.movementType;
     final body = <String, dynamic>{
       'taskId': taskMongoId,
       'lat': lat,
       'lng': lng,
-      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      'timestamp': capturedAt.toIso8601String(),
     };
     if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
-    if (movementType != null) body['movementType'] = movementType;
+    body['movementType'] = resolvedMovementType;
     if (destinationLat != null) body['destinationLat'] = destinationLat;
     if (destinationLng != null) body['destinationLng'] = destinationLng;
     if (address != null && address.isNotEmpty) body['address'] = address;
@@ -349,11 +361,27 @@ class TaskService {
     try {
       await _api.dio.post<dynamic>('/tracking/store', data: body);
       await LiveTrackingService.persistStoredTrackingPoint(taskMongoId, lat, lng);
+      await LiveTrackingService.persistLastSentPosition(
+        lat,
+        lng,
+        movementType: resolvedMovementType,
+        consecutiveLowSpeed:
+            resolvedMovementType == kMovementStop ? consecutiveLowSpeed : 0,
+      );
+      await TrackingOutlierFilterService.rememberValidRecord(
+        scope: TrackingOutlierFilterService.taskScope(taskMongoId),
+        lat: lat,
+        lng: lng,
+        timestamp: capturedAt,
+        movementType: resolvedMovementType,
+        accuracyM: accuracyM,
+      );
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
           '[Trackings] task_store OK (fg) taskId=$taskMongoId '
           'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
-          'movement=${movementType ?? "—"}',
+          'movement=$resolvedMovementType '
+          'acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m',
         );
       }
       return true;

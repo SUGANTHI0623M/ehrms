@@ -8,6 +8,7 @@ import '../bloc/auth/auth_bloc.dart';
 import '../screens/auth/login_screen.dart';
 import '../services/auth_service.dart';
 import '../services/fcm_service.dart';
+import '../services/geo/live_tracking_service.dart';
 import '../services/geo/location_service.dart';
 import '../services/presence_tracking_service.dart';
 
@@ -50,10 +51,12 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
       unawaited(_handleResumeForLoggedInUser());
     } else if (state == AppLifecycleState.detached) {
       PresenceTrackingService().recordAppClosed();
+      LiveTrackingService().markAppClosed();
       _timer?.cancel();
       _timer = null;
     } else {
       PresenceTrackingService().markAppBackground();
+      LiveTrackingService().markAppBackground();
       _timer?.cancel();
       _timer = null;
     }
@@ -65,6 +68,7 @@ class _DeactivationCheckWrapperState extends State<DeactivationCheckWrapper> wit
     if (token == null || token.isEmpty || !mounted) return;
 
     PresenceTrackingService().markAppForeground();
+    LiveTrackingService().markAppForeground();
     _scheduleNextCheck();
     FcmService.sendTokenToBackend();
     LocationService.syncLocationPermissionStatusToBackend();

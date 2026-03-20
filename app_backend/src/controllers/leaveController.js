@@ -393,19 +393,21 @@ const getLeaveTypes = async (req, res) => {
  * Each item has { type, days } where days is the limit from template (null for Unpaid Leave).
  */
 /**
- * Get availableCasualLeaves from attendances collection (latest record by date for employee).
+ * Get availableCasualLeaves from the latest attendance record for this staff.
+ * If the latest attendance row does not carry availableCasualLeaves, caller should
+ * fall back to leave-template-based calculation.
  * @param {ObjectId} employeeId - Staff/employee id
- * @returns {Promise<number>} available balance (0 if none found)
+ * @returns {Promise<number|null>} available balance from latest attendance row, or null
  */
 const getAvailableCasualLeavesFromAttendances = async (employeeId) => {
-    const latest = await Attendance.findOne(
-        { $or: [{ employeeId }, { user: employeeId }], availableCasualLeaves: { $exists: true, $ne: null } }
-    )
-        .sort({ date: -1 })
+    const latest = await Attendance.findOne({
+        $or: [{ employeeId }, { user: employeeId }]
+    })
+        .sort({ date: -1, updatedAt: -1, createdAt: -1 })
         .select('availableCasualLeaves')
         .lean();
     const val = latest?.availableCasualLeaves;
-    return typeof val === 'number' && !Number.isNaN(val) ? val : 0;
+    return typeof val === 'number' && !Number.isNaN(val) ? Math.max(0, val) : null;
 };
 
 /**
@@ -455,15 +457,9 @@ const getTotalLeavesFromAssignedTemplate = (staff) => {
  * @returns {Promise<number>} available balance (0 if none)
  */
 const getAvailableLeavePool = async (employeeId, staff) => {
-    const latest = await Attendance.findOne(
-        { $or: [{ employeeId }, { user: employeeId }], availableCasualLeaves: { $exists: true, $ne: null } }
-    )
-        .sort({ date: -1 })
-        .select('availableCasualLeaves')
-        .lean();
-    const fromAttendance = latest?.availableCasualLeaves;
+    const fromAttendance = await getAvailableCasualLeavesFromAttendances(employeeId);
     if (typeof fromAttendance === 'number' && !Number.isNaN(fromAttendance)) {
-        return Math.max(0, fromAttendance);
+        return fromAttendance;
     }
     // No availableCasualLeaves in attendances: use template assigned to staff (total leaves pool)
     const totalAllowed = getTotalLeavesFromAssignedTemplate(staff);

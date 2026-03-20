@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart' as gl;
 import '../../config/constants.dart';
 import 'address_resolution_service.dart';
 import 'movement_classification_service.dart';
+import 'tracking_outlier_filter_service.dart';
 
 /// Persists active live tracking state and sends tracking in background.
 /// Used so tracking continues when app is closed or in background.
@@ -20,6 +21,7 @@ class LiveTrackingService {
   static const _keyTaskJson = 'live_tracking_task_json';
   static const _keyBaseUrl = 'live_tracking_base_url';
   static const _keyToken = 'live_tracking_token';
+  static const _keyAppLifecycleState = 'live_tracking_app_lifecycle_state';
   static const _keyLastSentLat = 'live_tracking_last_sent_lat';
   static const _keyLastSentLng = 'live_tracking_last_sent_lng';
   static const _keyLastSentTime = 'live_tracking_last_sent_time';
@@ -66,6 +68,9 @@ class LiveTrackingService {
     required double dropoffLng,
     String? taskJson,
   }) async {
+    await TrackingOutlierFilterService.clearScope(
+      TrackingOutlierFilterService.taskScope(taskMongoId),
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyActive, true);
     await prefs.setString(_keyTaskMongoId, taskMongoId);
@@ -74,6 +79,7 @@ class LiveTrackingService {
     await prefs.setDouble(_keyPickupLng, pickupLng);
     await prefs.setDouble(_keyDropoffLat, dropoffLat);
     await prefs.setDouble(_keyDropoffLng, dropoffLng);
+    await prefs.setString(_keyAppLifecycleState, 'foreground');
     if (taskJson != null) await prefs.setString(_keyTaskJson, taskJson);
     await prefs.setString(_keyBaseUrl, AppConstants.baseUrl);
     await prefs.setDouble(_keyLastSentLat, pickupLat);
@@ -85,9 +91,21 @@ class LiveTrackingService {
     }
   }
 
+  /// Update persisted destination so app resume/background tracking uses the latest pin.
+  Future<void> updateDestination({
+    required double dropoffLat,
+    required double dropoffLng,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_keyActive) != true) return;
+    await prefs.setDouble(_keyDropoffLat, dropoffLat);
+    await prefs.setDouble(_keyDropoffLng, dropoffLng);
+  }
+
   /// Stop live tracking - clear persisted state.
   Future<void> stopTracking() async {
     final prefs = await SharedPreferences.getInstance();
+    final taskMongoId = prefs.getString(_keyTaskMongoId);
     await prefs.remove(_keyActive);
     await prefs.remove(_keyTaskMongoId);
     await prefs.remove(_keyTaskId);
@@ -98,6 +116,7 @@ class LiveTrackingService {
     await prefs.remove(_keyTaskJson);
     await prefs.remove(_keyBaseUrl);
     await prefs.remove(_keyToken);
+    await prefs.remove(_keyAppLifecycleState);
     await prefs.remove(_keyLastSentLat);
     await prefs.remove(_keyLastSentLng);
     await prefs.remove(_keyLastSentTime);
@@ -113,6 +132,11 @@ class LiveTrackingService {
     await prefs.remove(_keyLastResolvedCity);
     await prefs.remove(_keyLastResolvedArea);
     await prefs.remove(_keyLastResolvedPincode);
+    if (taskMongoId != null && taskMongoId.isNotEmpty) {
+      await TrackingOutlierFilterService.clearScope(
+        TrackingOutlierFilterService.taskScope(taskMongoId),
+      );
+    }
   }
 
   /// Persist last sent position and movement state for background hysteresis.
@@ -138,7 +162,12 @@ class LiveTrackingService {
     } catch (_) {}
   }
 
-  static Future<bool> shouldSkipDuplicateTrackingSend(
+  static Future<({
+    bool shouldSkip,
+    double? distanceM,
+    double? lastLat,
+    double? lastLng,
+  })> getDuplicateTrackingDecision(
     String taskMongoId,
     double lat,
     double lng, {
@@ -147,20 +176,82 @@ class LiveTrackingService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final lastTaskMongoId = prefs.getString(_keyLastStoredTaskMongoId);
-      if (lastTaskMongoId != taskMongoId) return false;
+      if (lastTaskMongoId != taskMongoId) {
+        return (
+          shouldSkip: false,
+          distanceM: null,
+          lastLat: null,
+          lastLng: null,
+        );
+      }
       final lastLat = prefs.getDouble(_keyLastStoredLat);
       final lastLng = prefs.getDouble(_keyLastStoredLng);
-      if (lastLat == null || lastLng == null) return false;
+      if (lastLat == null || lastLng == null) {
+        return (
+          shouldSkip: false,
+          distanceM: null,
+          lastLat: null,
+          lastLng: null,
+        );
+      }
       final distanceM = gl.Geolocator.distanceBetween(
         lastLat,
         lastLng,
         lat,
         lng,
       );
-      return distanceM <= thresholdMeters;
+      return (
+        shouldSkip: distanceM < thresholdMeters,
+        distanceM: distanceM,
+        lastLat: lastLat,
+        lastLng: lastLng,
+      );
     } catch (_) {
-      return false;
+      return (
+        shouldSkip: false,
+        distanceM: null,
+        lastLat: null,
+        lastLng: null,
+      );
     }
+  }
+
+  Future<void> markAppForeground() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAppLifecycleState, 'foreground');
+  }
+
+  Future<void> markAppBackground() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAppLifecycleState, 'background');
+  }
+
+  Future<void> markAppClosed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAppLifecycleState, 'closed');
+  }
+
+  static Future<String> _getLifecycleAppStatusForBackgroundLogs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final state = prefs.getString(_keyAppLifecycleState);
+    if (state == 'closed') return 'app_closed';
+    if (state == 'foreground') return 'active';
+    return 'app_background';
+  }
+
+  static Future<bool> shouldSkipDuplicateTrackingSend(
+    String taskMongoId,
+    double lat,
+    double lng, {
+    double thresholdMeters = duplicateLocationThresholdMeters,
+  }) async {
+    final decision = await getDuplicateTrackingDecision(
+      taskMongoId,
+      lat,
+      lng,
+      thresholdMeters: thresholdMeters,
+    );
+    return decision.shouldSkip;
   }
 
   static Future<void> persistStoredTrackingPoint(
@@ -274,16 +365,15 @@ class LiveTrackingService {
       if (baseUrl == null || baseUrl.isEmpty) return;
       if (token == null || token.isEmpty) return;
       if (accuracyM != null && accuracyM > kMaxAccuracyM) return;
-      if (await shouldSkipDuplicateTrackingSend(taskMongoId, lat, lng)) {
-        if (kDebugMode && AppConstants.logTrackingsToConsole) {
-          debugPrint(
-            '[Trackings] task_store SKIP duplicate taskId=$taskMongoId '
-            'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)}',
-          );
-        }
-        return;
+      final capturedAt = DateTime.now().toUtc();
+      final appStatus = await _getLifecycleAppStatusForBackgroundLogs();
+      if (kDebugMode && AppConstants.logTrackingsToConsole) {
+        debugPrint(
+          '[Trackings] task_detected_bg taskId=$taskMongoId '
+          'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
+          'appStatus=$appStatus acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m',
+        );
       }
-
       final lastLat = prefs.getDouble(_keyLastSentLat);
       final lastLng = prefs.getDouble(_keyLastSentLng);
       final lastTimeMs = prefs.getInt(_keyLastSentTime);
@@ -318,6 +408,30 @@ class LiveTrackingService {
           );
       int nextConsecutive = avgSpeedKmh <= 1.0 ? (consecutiveLow + 1) : 0;
 
+      final outlierDecision = await TrackingOutlierFilterService.evaluate(
+        scope: TrackingOutlierFilterService.taskScope(taskMongoId),
+        lat: lat,
+        lng: lng,
+        timestamp: capturedAt,
+        movementType: resolvedMovementType,
+        accuracyM: accuracyM,
+      );
+      if (outlierDecision.shouldSkip) {
+        if (kDebugMode && AppConstants.logTrackingsToConsole) {
+          debugPrint(
+            '[Trackings] task_store SKIP outlier taskId=$taskMongoId '
+            'appStatus=$appStatus reason=${outlierDecision.reason} '
+            'distance=${outlierDecision.distanceM?.toStringAsFixed(2) ?? "—"}m '
+            'speed=${outlierDecision.speedKmh?.toStringAsFixed(2) ?? "—"}kmh',
+          );
+        }
+        return;
+      }
+      resolvedMovementType = outlierDecision.movementType;
+      nextConsecutive = resolvedMovementType == kMovementStop
+          ? (consecutiveLow + 1)
+          : 0;
+
       final destinationLat = prefs.getDouble(_keyDropoffLat);
       final destinationLng = prefs.getDouble(_keyDropoffLng);
       final resolvedAddress = await _resolveTrackingAddressForBackground(
@@ -332,7 +446,7 @@ class LiveTrackingService {
         'taskId': taskMongoId,
         'lat': lat,
         'lng': lng,
-        'timestamp': DateTime.now().toUtc().toIso8601String(),
+        'timestamp': capturedAt.toIso8601String(),
       };
       if (batteryPercent != null) body['batteryPercent'] = batteryPercent;
       body['movementType'] = resolvedMovementType;
@@ -367,7 +481,8 @@ class LiveTrackingService {
           debugPrint(
             '[Trackings] task_store OK taskId=$taskMongoId '
             'lat=${lat.toStringAsFixed(6)} lng=${lng.toStringAsFixed(6)} '
-            'movement=$resolvedMovementType acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m',
+            'appStatus=$appStatus movement=$resolvedMovementType '
+            'acc=${accuracyM?.toStringAsFixed(1) ?? "—"}m',
           );
         }
         await prefs.setDouble(_keyLastSentLat, lat);
@@ -379,14 +494,23 @@ class LiveTrackingService {
         await prefs.setString(_keyLastMovementType, resolvedMovementType);
         await prefs.setInt(_keyConsecutiveLowSpeed, nextConsecutive);
         await persistStoredTrackingPoint(taskMongoId, lat, lng);
+        await TrackingOutlierFilterService.rememberValidRecord(
+          scope: TrackingOutlierFilterService.taskScope(taskMongoId),
+          lat: lat,
+          lng: lng,
+          timestamp: capturedAt,
+          movementType: resolvedMovementType,
+          accuracyM: accuracyM,
+        );
       } else if (kDebugMode && AppConstants.logTrackingsToConsole) {
         debugPrint(
-          '[Trackings] task_store FAIL ${response.statusCode} taskId=$taskMongoId body=${response.body.length > 200 ? "${response.body.substring(0, 200)}..." : response.body}',
+          '[Trackings] task_store FAIL ${response.statusCode} taskId=$taskMongoId '
+          'appStatus=$appStatus body=${response.body.length > 200 ? "${response.body.substring(0, 200)}..." : response.body}',
         );
       }
     } catch (e) {
       if (kDebugMode && AppConstants.logTrackingsToConsole) {
-        debugPrint('[Trackings] task_store error: $e');
+        debugPrint('[Trackings] task_store error appStatus=app_background: $e');
       }
     }
   }

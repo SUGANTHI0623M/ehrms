@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
@@ -58,6 +59,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   String _userName = 'User';
   String _companyName = '';
   String? _avatarUrl;
+
+  bool _looksLikeMissingPlugin(Object error) {
+    return error is MissingPluginException ||
+        error.toString().contains('No implementation found for method initialized');
+  }
 
   final RequestService _requestService = RequestService();
   final AttendanceService _attendanceService = AttendanceService();
@@ -129,7 +135,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     final active = await LiveTrackingService().isActive();
     // Sync: if user tapped "Stop tracking" in notification, native stopped but we had stale state
     if (active) {
-      final isTracking = await BackgroundLocationTrackerManager.isTracking();
+      bool isTracking = false;
+      try {
+        isTracking = await BackgroundLocationTrackerManager.isTracking();
+      } catch (e) {
+        if (_looksLikeMissingPlugin(e)) {
+          isTracking = true;
+        } else {
+          rethrow;
+        }
+      }
       if (!isTracking) {
         await LiveTrackingService().stopTracking();
         if (mounted) setState(() => _liveTrackingActive = false);
@@ -137,6 +152,29 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
     if (mounted) setState(() => _liveTrackingActive = active);
+  }
+
+  bool _isDashboardAnnouncementNotExpired(dynamic item) {
+    if (item is! Map) return true;
+
+    DateTime? parseLocal(dynamic value) {
+      final raw = value?.toString().trim() ?? '';
+      if (raw.isEmpty) return null;
+      return DateTime.tryParse(raw)?.toLocal();
+    }
+
+    final now = DateTime.now();
+    final expiryDate = parseLocal(item['expiryDate']);
+    if (expiryDate != null && expiryDate.isBefore(now)) {
+      return false;
+    }
+
+    final endDate = parseLocal(item['endDate']);
+    if (endDate != null && endDate.isBefore(now)) {
+      return false;
+    }
+
+    return true;
   }
 
   Future<void> _openLiveTracking() async {
@@ -244,7 +282,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             _activeLoansCount = loansList.length;
             _todayAttendance = liveTodayAttendance ?? stats?['attendanceToday'];
             _todayAnnouncements = data['todayAnnouncements'] is List
-                ? data['todayAnnouncements'] as List
+                ? (data['todayAnnouncements'] as List)
+                      .where(_isDashboardAnnouncementNotExpired)
+                      .toList()
                 : [];
             _todayCelebrations = data['todayCelebrations'] is List
                 ? data['todayCelebrations'] as List
@@ -837,17 +877,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
                   const SizedBox(height: 32),
 
-                  // Announcements & Celebrations (side by side - same height)
+                  // Announcements and today's celebrations only.
                   if (_todayAnnouncements.isNotEmpty ||
-                      _todayCelebrations.isNotEmpty ||
-                      _upcomingCelebrations.isNotEmpty) ...[
+                      _todayCelebrations.isNotEmpty) ...[
                     IntrinsicHeight(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: _buildTodayAnnouncementsCard()),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildCelebrationsCard()),
+                          if (_todayAnnouncements.isNotEmpty)
+                            Expanded(child: _buildTodayAnnouncementsCard()),
+                          if (_todayAnnouncements.isNotEmpty &&
+                              _todayCelebrations.isNotEmpty)
+                            const SizedBox(width: 16),
+                          if (_todayCelebrations.isNotEmpty)
+                            Expanded(child: _buildCelebrationsCard()),
                         ],
                       ),
                     ),
@@ -1233,7 +1276,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Icon(Icons.celebration, color: AppColors.primary, size: 14),
+                  if (_todayCelebrations.isNotEmpty)
+                    Icon(Icons.celebration, color: AppColors.primary, size: 14),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1276,11 +1320,10 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   Widget _buildCelebrationsCard() {
     final todayList = _todayCelebrations;
-    final upcomingList = _upcomingCelebrations;
-    final allItems = [
-      ...todayList.take(2).map((c) => _buildCelebrationBulletItem(c, true)),
-      ...upcomingList.take(2).map((c) => _buildCelebrationBulletItem(c, false)),
-    ];
+    final allItems = todayList
+        .take(2)
+        .map((c) => _buildCelebrationBulletItem(c, true))
+        .toList();
 
     return Container(
       width: double.infinity,

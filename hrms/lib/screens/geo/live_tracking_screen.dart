@@ -54,6 +54,7 @@ class LiveTrackingScreen extends StatefulWidget {
 class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     with WidgetsBindingObserver {
   GoogleMapController? mapController;
+  Task? _taskState;
 
   Marker? _staffMarker;
 
@@ -66,6 +67,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   LatLng? _dropoffLatLngState;
   String _dropoffAddress = '';
   bool _updatingDestination = false;
+
+  Task? get _task => _taskState ?? widget.task;
 
   /// Path built ONLY from actual GPS coordinates (List<LatLng> from location stream).
   Polyline? _routePolyline;
@@ -162,11 +165,17 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (widget.task?.status == TaskStatus.arrived) _arrivedSent = true;
+    _taskState = widget.task;
+    if (_task?.status == TaskStatus.arrived) _arrivedSent = true;
+    final initialDestination = _task?.destinationLocation;
+    if (initialDestination != null &&
+        (initialDestination.lat != 0 || initialDestination.lng != 0)) {
+      _dropoffLatLngState = LatLng(initialDestination.lat, initialDestination.lng);
+    }
     _dropoffAddress =
-        widget.task?.destinationLocation?.address ??
-        (widget.task?.customer != null
-            ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+        _task?.destinationLocation?.displayAddress ??
+        (_task?.customer != null
+            ? '${_task!.customer!.address}, ${_task!.customer!.city} ${_task!.customer!.pincode}'
             : 'Drop-off location');
     _initializeMarkers();
 
@@ -349,7 +358,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
       battery = await Battery().batteryLevel;
     } catch (_) {}
     final resolvedAddress = await _resolveTrackingAddress(lat, lng);
-    final movementType = MovementClassificationService().addLocationAndClassify(
+    final movementClassifier = MovementClassificationService();
+    final movementType = movementClassifier.addLocationAndClassify(
       lat: lat,
       lng: lng,
       time: DateTime.now(),
@@ -378,6 +388,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           lng,
           batteryPercent: battery,
           movementType: movementType,
+          accuracyM: accuracyM,
+          consecutiveLowSpeed: movementClassifier.consecutiveLowSpeedCount,
           destinationLat: _dropoffLatLng.latitude,
           destinationLng: _dropoffLatLng.longitude,
           address: resolvedAddress?.formattedAddress,
@@ -387,15 +399,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
           pincode: resolvedAddress?.pincode,
         )
         .then((stored) {
-          if (stored) {
-            final classifier = MovementClassificationService();
-            LiveTrackingService.persistLastSentPosition(
-              lat,
-              lng,
-              movementType: movementType,
-              consecutiveLowSpeed: classifier.consecutiveLowSpeedCount,
-            );
-          }
           _syncPendingDestinationIfAny();
         })
         .catchError((e) {});
@@ -503,43 +506,23 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
   double get _totalTripDistanceKm => _plannedTripDistanceKm;
 
   void _onDropoffMarkerDragEnd(LatLng newPosition) {
-    setState(() {
-      _dropoffLatLngState = newPosition;
-      _dropoffAddress = 'Dropped pin';
-      _updatingDestination = true;
-    });
-    LocationService().updateGeofenceCenter(newPosition);
-    _reverseGeocodeDropoff(newPosition.latitude, newPosition.longitude);
-    _updateDestinationOnBackend();
-    _lastRouteFetchTime = null;
-    _fetchRoadRoute(
-      _lastLocation?.latitude ?? widget.pickupLocation.latitude,
-      _lastLocation?.longitude ?? widget.pickupLocation.longitude,
+    _applyDestinationChange(
+      newPosition,
+      initialAddress: 'Dropped pin',
+      resolveAddress: true,
     );
-    _updateDropoffMarker();
   }
 
-  Future<void> _reverseGeocodeDropoff(double lat, double lng) async {
+  Future<String> _resolveDropoffAddress(double lat, double lng) async {
     try {
       final resolved = await AddressResolutionService.reverseGeocode(lat, lng);
-      if (mounted && resolved != null) {
-        setState(() {
-          _dropoffAddress = resolved.formattedAddress;
-        });
-      } else if (mounted) {
-        setState(
-          () => _dropoffAddress =
-              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-        );
+      if (resolved != null && resolved.formattedAddress.trim().isNotEmpty) {
+        return resolved.formattedAddress;
       }
     } catch (_) {
-      if (mounted) {
-        setState(
-          () => _dropoffAddress =
-              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-        );
-      }
+      // Fall back to coordinates below.
     }
+    return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
   }
 
   void _updateDropoffMarker() {
@@ -559,21 +542,72 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     });
   }
 
-  Future<void> _updateDestinationOnBackend() async {
+  Future<void> _applyDestinationChange(
+    LatLng newPosition, {
+    required String initialAddress,
+    required bool resolveAddress,
+  }) async {
+    setState(() {
+      _dropoffLatLngState = newPosition;
+      _dropoffAddress = initialAddress;
+      _updatingDestination = true;
+    });
+    LocationService().updateGeofenceCenter(newPosition);
+    await LiveTrackingService().updateDestination(
+      dropoffLat: newPosition.latitude,
+      dropoffLng: newPosition.longitude,
+    );
+    _lastRouteFetchTime = null;
+    _plannedTripDistanceKm = 0.0;
+    _updateDropoffMarker();
+    _fetchPlannedTripRoute();
+    _fetchRoadRoute(
+      _lastLocation?.latitude ?? widget.pickupLocation.latitude,
+      _lastLocation?.longitude ?? widget.pickupLocation.longitude,
+    );
+
+    final resolvedAddress = resolveAddress
+        ? await _resolveDropoffAddress(newPosition.latitude, newPosition.longitude)
+        : initialAddress;
+    if (!mounted) return;
+    setState(() {
+      _dropoffAddress = resolvedAddress;
+    });
+    _updateDropoffMarker();
+    await _updateDestinationOnBackend(addressOverride: resolvedAddress);
+  }
+
+  void _applyUpdatedTask(Task updatedTask) {
+    _taskState = updatedTask;
+    final destination = updatedTask.destinationLocation;
+    if (destination != null && (destination.lat != 0 || destination.lng != 0)) {
+      _dropoffLatLngState = LatLng(destination.lat, destination.lng);
+      if ((destination.displayAddress ?? '').trim().isNotEmpty) {
+        _dropoffAddress = destination.displayAddress!.trim();
+      }
+    }
+  }
+
+  Future<void> _updateDestinationOnBackend({String? addressOverride}) async {
     if (widget.taskMongoId == null || widget.taskMongoId!.isEmpty) return;
     final payload = {
       'lat': _dropoffLatLng.latitude,
       'lng': _dropoffLatLng.longitude,
-      'address': _dropoffAddress,
+      'address': addressOverride ?? _dropoffAddress,
     };
     try {
-      await TaskService().updateTask(
+      final updatedTask = await TaskService().updateTask(
         widget.taskMongoId!,
         destinationLocation: payload,
         destinationChanged: true,
       );
       await _clearPendingDestinationCache();
-      if (mounted) setState(() => _updatingDestination = false);
+      if (mounted) {
+        setState(() {
+          _applyUpdatedTask(updatedTask);
+          _updatingDestination = false;
+        });
+      }
     } catch (e) {
       await _cachePendingDestination(payload);
       if (mounted) {
@@ -646,20 +680,10 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     );
     if (result != null && mounted) {
       final newDest = LatLng(result.lat, result.lng);
-      setState(() {
-        _dropoffLatLngState = newDest;
-        _dropoffAddress = result.address;
-        _updatingDestination = true;
-      });
-      LocationService().updateGeofenceCenter(newDest);
-      _updateDropoffMarker();
-      _updateDestinationOnBackend();
-      _lastRouteFetchTime = null;
-      _plannedTripDistanceKm = 0.0;
-      _fetchPlannedTripRoute();
-      _fetchRoadRoute(
-        _lastLocation?.latitude ?? widget.pickupLocation.latitude,
-        _lastLocation?.longitude ?? widget.pickupLocation.longitude,
+      await _applyDestinationChange(
+        newDest,
+        initialAddress: result.address,
+        resolveAddress: false,
       );
     }
   }
@@ -955,9 +979,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         // Arrival lat/lng = staff GPS here (above). Do not send destination as fullAddress —
         // DB arrival fields must describe this point; backend reverse-geocodes lat/lng.
         final sourceAddress =
-            widget.task?.sourceLocation?.address ??
-            (widget.task?.customer != null
-                ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city}'
+            _task?.sourceLocation?.address ??
+            (_task?.customer != null
+                ? '${_task!.customer!.address}, ${_task!.customer!.city}'
                 : null);
         await TaskService().arrivedRide(
           widget.taskMongoId!,
@@ -1002,21 +1026,21 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         builder: (context) => ArrivedScreen(
           taskMongoId: widget.taskMongoId,
           taskId: widget.taskId,
-          task: widget.task,
+          task: _task,
           totalDuration: _totalTimeElapsed,
           totalDistanceKm: totalKm,
           isWithinGeofence: _isInsideGeofence,
           arrivalTime: arrival,
           sourceLat: widget.pickupLocation.latitude,
           sourceLng: widget.pickupLocation.longitude,
-          sourceAddress: widget.task?.sourceLocation?.address,
+          sourceAddress: _task?.sourceLocation?.address,
           destLat: _dropoffLatLng.latitude,
           destLng: _dropoffLatLng.longitude,
           destAddress: _dropoffAddress.isNotEmpty
               ? _dropoffAddress
-              : (widget.task?.destinationLocation?.address ??
-                    (widget.task?.customer != null
-                        ? '${widget.task!.customer!.address}, ${widget.task!.customer!.city} ${widget.task!.customer!.pincode}'
+              : (_task?.destinationLocation?.displayAddress ??
+                    (_task?.customer != null
+                        ? '${_task!.customer!.address}, ${_task!.customer!.city} ${_task!.customer!.pincode}'
                         : null)),
           arrivalAtLat: lat,
           arrivalAtLng: lng,
@@ -1207,11 +1231,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
               if (_currentActivity.toLowerCase() == 'stop' ||
                   _currentActivity.toLowerCase() == 'standing') ...[
                 const SizedBox(width: 12),
-                if (widget.task?.customer?.customerNumber != null &&
-                    widget.task!.customer!.customerNumber!.trim().isNotEmpty)
+                if (_task?.customer?.customerNumber != null &&
+                    _task!.customer!.customerNumber!.trim().isNotEmpty)
                   IconButton(
                     onPressed: () async {
-                      final number = widget.task!.customer!.customerNumber!
+                      final number = _task!.customer!.customerNumber!
                           .trim();
                       final uri = Uri.parse('tel:$number');
                       if (await canLaunchUrl(uri)) {
@@ -1486,13 +1510,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                   );
                 },
               ),
-            if (widget.task?.customer?.customerNumber != null &&
-                widget.task!.customer!.customerNumber!.trim().isNotEmpty)
+            if (_task?.customer?.customerNumber != null &&
+                _task!.customer!.customerNumber!.trim().isNotEmpty)
               IconButton(
                 icon: Icon(Icons.call_rounded, color: AppColors.primary),
                 tooltip: 'Call customer',
                 onPressed: () async {
-                  final number = widget.task!.customer!.customerNumber!.trim();
+                  final number = _task!.customer!.customerNumber!.trim();
                   final uri = Uri.parse('tel:$number');
                   if (await canLaunchUrl(uri)) {
                     await launchUrl(uri);

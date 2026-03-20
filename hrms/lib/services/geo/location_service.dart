@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,7 @@ class GeofenceEvent {
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   static bool _ensureAppLocationAccessInProgress = false;
+  static bool _ensurePersistentTaskTrackingAccessInProgress = false;
   static bool _syncLocationPermissionStatusInProgress = false;
   static final ApiClient _api = ApiClient();
 
@@ -53,6 +55,15 @@ class LocationService {
     _geofenceCenter = center;
   }
 
+  static bool _isMissingTrackerPluginError(Object error) {
+    return error is MissingPluginException ||
+        (error is PlatformException &&
+            (error.code.toLowerCase().contains('missing_plugin') ||
+                (error.message ?? '').toLowerCase().contains(
+                  'no implementation found',
+                )));
+  }
+
   /// [context] optional: when provided on Android, shows Play-required in-app
   /// disclosure before requesting background location (required for live tracking when app is in background).
   Future<void> initLocationService({
@@ -67,6 +78,9 @@ class LocationService {
       final hasBackground = await Permission.locationAlways.isGranted;
       if (!hasBackground && context != null) {
         await showBackgroundLocationDisclosureAndRequest(context);
+      }
+      if (context != null) {
+        await ensurePersistentTaskTrackingAccess(context);
       }
     }
 
@@ -110,25 +124,34 @@ class LocationService {
       // null = time-based updates every 5s even when stationary. Critical for background.
       distanceFilterMeters: null,
     );
-    await BackgroundLocationTrackerManager.startTracking(
-      config: liveTrackingConfig,
-    );
-    BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
-      final Location currentLocation = Location.fromBackgroundData(data);
-      if (currentLocation.latitude != null &&
-          currentLocation.longitude != null) {
-        _locationController.add(currentLocation);
-        _classifyMovement(currentLocation.speed ?? 0);
-        _checkGeofence(currentLocation);
-        // Send to backend when app is in background (main isolate still alive)
-        await LiveTrackingService.sendTrackingFromBackground(
-          currentLocation.latitude!,
-          currentLocation.longitude!,
-          speedMps: currentLocation.speed,
-          accuracyM: currentLocation.accuracy,
-        );
+    try {
+      await BackgroundLocationTrackerManager.startTracking(
+        config: liveTrackingConfig,
+      );
+      BackgroundLocationTrackerManager.handleBackgroundUpdated((data) async {
+        final Location currentLocation = Location.fromBackgroundData(data);
+        if (currentLocation.latitude != null &&
+            currentLocation.longitude != null) {
+          _locationController.add(currentLocation);
+          _classifyMovement(currentLocation.speed ?? 0);
+          _checkGeofence(currentLocation);
+          // Send to backend when app is in background (main isolate still alive)
+          await LiveTrackingService.sendTrackingFromBackground(
+            currentLocation.latitude!,
+            currentLocation.longitude!,
+            speedMps: currentLocation.speed,
+            accuracyM: currentLocation.accuracy,
+          );
+        }
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        final prefix = _isMissingTrackerPluginError(e)
+            ? '[LocationService] background tracker plugin unavailable'
+            : '[LocationService] background tracker start failed';
+        debugPrint('$prefix: $e');
       }
-    });
+    }
   }
 
   void _checkGeofence(Location currentLocation) {
@@ -284,6 +307,67 @@ class LocationService {
     } finally {
       await syncLocationPermissionStatusToBackend();
       _ensureAppLocationAccessInProgress = false;
+    }
+  }
+
+  /// Best-effort Android hardening so live task tracking continues when the app
+  /// is backgrounded, the screen is off, or the task is swiped away.
+  static Future<void> ensurePersistentTaskTrackingAccess(
+    BuildContext context,
+  ) async {
+    if (!Platform.isAndroid || _ensurePersistentTaskTrackingAccessInProgress) {
+      return;
+    }
+    _ensurePersistentTaskTrackingAccessInProgress = true;
+    try {
+      final hasBackgroundAlways = await Permission.locationAlways.isGranted;
+      if (!hasBackgroundAlways && context.mounted) {
+        final allow = await _showLocationPermissionDialog(
+          context,
+          emoji: '📍',
+          title: 'Allow location all the time',
+          message:
+              'To keep task tracking working when the app is in the background, the phone is sleeping, or the app is closed, this app needs "Allow all the time" location access.',
+          cancelText: 'Not now',
+          confirmText: 'Continue',
+        );
+        if (allow == true) {
+          await Permission.locationAlways.request();
+        }
+      }
+
+      final ignoreBatteryOptimizations =
+          await Permission.ignoreBatteryOptimizations.isGranted;
+      if (!ignoreBatteryOptimizations && context.mounted) {
+        final allow = await _showLocationPermissionDialog(
+          context,
+          emoji: '🔋',
+          title: 'Allow unrestricted battery usage',
+          message:
+              'To keep task tracking running while the phone is sleeping or the app is closed, allow this app to ignore battery optimization. This helps Android avoid stopping background location updates.',
+          cancelText: 'Not now',
+          confirmText: 'Allow',
+        );
+        if (allow == true) {
+          final status = await Permission.ignoreBatteryOptimizations.request();
+          if (!status.isGranted && context.mounted) {
+            final openSettings = await _showLocationPermissionDialog(
+              context,
+              emoji: '🔋',
+              title: 'Open app settings',
+              message:
+                  'Battery optimization is still enabled for this app. Open app settings and allow unrestricted battery/background usage for more reliable live task tracking.',
+              cancelText: 'Later',
+              confirmText: 'Open app settings',
+            );
+            if (openSettings == true) {
+              await openAppSettings();
+            }
+          }
+        }
+      }
+    } finally {
+      _ensurePersistentTaskTrackingAccessInProgress = false;
     }
   }
 
@@ -470,7 +554,9 @@ class LocationService {
     _geolocatorSubscription = null;
     _locationController.close();
     _geofenceController.close();
-    BackgroundLocationTrackerManager.stopTracking();
+    unawaited(
+      BackgroundLocationTrackerManager.stopTracking().catchError((_) {}),
+    );
   }
 
   static double calculateDistance(LatLng start, LatLng end) {

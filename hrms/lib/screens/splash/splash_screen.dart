@@ -1,5 +1,6 @@
 // hrms/lib/screens/splash/splash_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:background_location_tracker/background_location_tracker.dart';
@@ -20,6 +21,11 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   Color _primaryColor = AppColors.primary;
   bool _isLoadingTheme = true;
+
+  bool _looksLikeMissingPlugin(Object error) {
+    return error is MissingPluginException ||
+        error.toString().contains('No implementation found for method initialized');
+  }
 
   @override
   void initState() {
@@ -72,7 +78,16 @@ class _SplashScreenState extends State<SplashScreen> {
       if (activeInfo != null && mounted) {
         // If user tapped "Stop tracking" in notification, native tracking stopped but we had stale state.
         // Sync: clear LiveTrackingService and go to dashboard.
-        final isTracking = await BackgroundLocationTrackerManager.isTracking();
+        bool isTracking = false;
+        try {
+          isTracking = await BackgroundLocationTrackerManager.isTracking();
+        } catch (e) {
+          if (_looksLikeMissingPlugin(e)) {
+            isTracking = true;
+          } else {
+            rethrow;
+          }
+        }
         if (!isTracking) {
           await LiveTrackingService().stopTracking();
           Navigator.of(context).pushReplacement(
@@ -129,39 +144,66 @@ class _SplashScreenState extends State<SplashScreen> {
 
     return Scaffold(
       backgroundColor: _primaryColor,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // App icon (same as launcher icon)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/ekta_logo.jpeg',
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 260;
+            final iconSize = compact ? 52.0 : 80.0;
+            final iconPadding = compact ? 12.0 : 20.0;
+            final titleSize = compact ? 22.0 : 32.0;
+            final titleSpacing = compact ? 12.0 : 24.0;
+            final loaderSpacing = compact ? 20.0 : 48.0;
+
+            return Center(
+              child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Keep the splash compact enough for minimized/app-switcher previews.
+                        Container(
+                          padding: EdgeInsets.all(iconPadding),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: ClipOval(
+                            child: Image.asset(
+                              'assets/ekta_logo.jpeg',
+                              width: iconSize,
+                              height: iconSize,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: titleSpacing),
+                        Text(
+                          'ektaHr',
+                          style: TextStyle(
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                            letterSpacing: compact ? 1.2 : 2,
+                          ),
+                        ),
+                        SizedBox(height: loaderSpacing),
+                        CircularProgressIndicator(
+                          color: loadingColor,
+                          strokeWidth: 3,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'ektaHr',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: textColor,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 48),
-            CircularProgressIndicator(color: loadingColor, strokeWidth: 3),
-          ],
+            );
+          },
         ),
       ),
     );

@@ -122,6 +122,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// True when submitting from camera-direct flow; used to pop dialog on bloc success.
   bool _isSubmittingFromAttendanceCamera = false;
   bool _isPunchActionInProgress = false;
+  String? _punchActionStatusMessage;
 
   /// True while fetching template details on open.
   bool _isFetchingTemplateDetails = false;
@@ -132,9 +133,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// ScrollController for the horizontal date strip (strip hidden; kept for dispose).
   final ScrollController _dateStripScrollController = ScrollController();
 
-  void _setPunchActionInProgress(bool value) {
-    if (!mounted || _isPunchActionInProgress == value) return;
-    setState(() => _isPunchActionInProgress = value);
+  void _setPunchActionInProgress(bool value, {String? message}) {
+    if (!mounted) return;
+    final nextMessage = value ? (message ?? _punchActionStatusMessage) : null;
+    if (_isPunchActionInProgress == value &&
+        _punchActionStatusMessage == nextMessage) {
+      return;
+    }
+    setState(() {
+      _isPunchActionInProgress = value;
+      _punchActionStatusMessage = nextMessage;
+    });
+  }
+
+  bool _hasPunchValue(Object? value) {
+    final text = value?.toString().trim();
+    return text != null && text.isNotEmpty && text.toLowerCase() != 'null';
   }
 
   @override
@@ -2853,23 +2867,26 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     final punchIn = _attendanceData?['punchIn'];
     final punchOut = _attendanceData?['punchOut'];
-    final isCompleted = punchIn != null && punchOut != null;
-    final isCheckedIn = punchIn != null && punchOut == null;
+    final hasPunchIn = _hasPunchValue(punchIn);
+    final hasPunchOut = _hasPunchValue(punchOut);
+    final isCompleted = hasPunchIn && hasPunchOut;
+    final isCheckedIn = hasPunchIn && !hasPunchOut;
     final isAdminMarked =
-        (punchIn == null && punchOut == null) &&
+        !hasPunchIn &&
+        !hasPunchOut &&
         ((_attendanceData?['status'] ?? '') == 'Present' ||
             (_attendanceData?['status'] ?? '') == 'Approved');
     final canCheckIn =
         !_isPunchActionInProgress &&
         !isCompleted &&
         !isAdminMarked &&
-        punchIn == null &&
+        !hasPunchIn &&
         isSelectedDayToday;
     final canCheckOut =
         !_isPunchActionInProgress && isCheckedIn && isSelectedDayToday;
 
-    final punchInTime = punchIn != null ? _formatTimeShort(punchIn) : '--:--';
-    final String punchOutDisplay = punchOut != null
+    final punchInTime = hasPunchIn ? _formatTimeShort(punchIn) : '--:--';
+    final String punchOutDisplay = hasPunchOut
         ? _formatTimeShort(punchOut)
         : 'Not Yet';
     final shiftEnd = _getShiftEndTime();
@@ -3810,12 +3827,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             widget.isActiveTab == true || _isSubmittingFromAttendanceCamera;
         if (state is AttendanceCheckInSuccess ||
             state is AttendanceCheckOutSuccess) {
-          _setPunchActionInProgress(false);
           if (_isSubmittingFromAttendanceCamera) {
             _isSubmittingFromAttendanceCamera = false;
             if (mounted) Navigator.of(context).pop();
           }
           if (!mounted) return;
+          _setPunchActionInProgress(
+            true,
+            message: state is AttendanceCheckInSuccess
+                ? 'Finalizing check-in...'
+                : 'Finalizing check-out...',
+          );
           if (state is AttendanceCheckInSuccess) {
             await PresenceTrackingService().ensureTrackingIfPunchedIn(true);
           } else {
@@ -3828,6 +3850,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           if (!shouldHandleForegroundUi || !mounted) return;
           if (mounted) {
             final userName = await _authService.getCurrentUserName();
+            _setPunchActionInProgress(false);
             if (mounted) {
               if (state is AttendanceCheckInSuccess) {
                 final overlayContent = _getCheckInOverlayEmojiAndMessage(userName);
@@ -4146,15 +4169,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (_isPunchActionInProgress) return;
     final punchIn = _attendanceData?['punchIn'];
     final punchOut = _attendanceData?['punchOut'];
-    final isCheckedIn = punchIn != null && punchOut == null;
-    final isCompleted = punchIn != null && punchOut != null;
+    final hasPunchIn = _hasPunchValue(punchIn);
+    final hasPunchOut = _hasPunchValue(punchOut);
+    final isCheckedIn = hasPunchIn && !hasPunchOut;
+    final isCompleted = hasPunchIn && hasPunchOut;
     final isAdminMarked =
-        (punchIn == null && punchOut == null) &&
+        !hasPunchIn &&
+        !hasPunchOut &&
         ((_attendanceData?['status'] ?? '') == 'Present' ||
             (_attendanceData?['status'] ?? '') == 'Approved');
 
-    if (isCompleted || isAdminMarked) return;
-    _setPunchActionInProgress(true);
+    if (isCompleted) {
+      SnackBarUtils.showSnackBar(
+        context,
+        'You have already checked out for today',
+        isError: true,
+      );
+      return;
+    }
+    if (isAdminMarked) return;
+    _setPunchActionInProgress(
+      true,
+      message: isCheckedIn ? 'Preparing check-out...' : 'Preparing check-in...',
+    );
 
     // --- Check-in/check-out validation: show popup and block if any check fails ---
     if (_staffHasAttendanceTemplate != true) {
@@ -4555,14 +4592,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // Extract Status first
     String status = _attendanceData?['status'] ?? 'Not Marked';
 
-    // Prefer API's checkedIn so we show Check Out when backend found today's check-in (handles date/timezone)
-    final isCheckedIn =
-        _checkedInFromApi ?? (punchIn != null && punchOut == null);
-    final isCompleted = punchIn != null && punchOut != null;
+    final hasPunchIn = _hasPunchValue(punchIn);
+    final hasPunchOut = _hasPunchValue(punchOut);
+    final isCheckedIn = hasPunchIn && !hasPunchOut;
+    final isCompleted = hasPunchIn && hasPunchOut;
 
     // Check if this is admin-marked attendance (status is Present/Approved but no punch times)
     final isAdminMarked =
-        (punchIn == null && punchOut == null) &&
+        !hasPunchIn &&
+        !hasPunchOut &&
         (status == 'Present' || status == 'Approved');
 
     final isLate =
@@ -4899,7 +4937,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     Icons.login_rounded,
                     AppColors.success,
                     address: punchInAddress,
-                    isPlaceholder: punchIn == null,
+                    isPlaceholder: !hasPunchIn,
                     isLate: isLate,
                   ),
                   Padding(
@@ -4912,14 +4950,115 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     Icons.logout_rounded,
                     AppColors.error,
                     address: punchOutAddress,
-                    isPlaceholder: punchOut == null,
+                    isPlaceholder: !hasPunchOut,
                   ),
                   const SizedBox(height: 20),
-                  // Show button only if not completed and not admin-marked (tap card also opens screen); when punchDisabled show "You are on leave" instead
-                  if (!isCompleted && !isAdminMarked)
+                  if (isCompleted || isAdminMarked)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  status == 'Pending'
+                                      ? Icons.hourglass_bottom_rounded
+                                      : status == 'Approved' ||
+                                            status == 'Present'
+                                      ? Icons.check_circle
+                                      : Icons.info_outline,
+                                  color: status == 'Pending'
+                                      ? Colors.orange
+                                      : status == 'Approved' ||
+                                            status == 'Present'
+                                      ? AppColors.success
+                                      : Colors.blue,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  status == 'Pending'
+                                      ? 'Waiting for Approval'
+                                      : status,
+                                  style: TextStyle(
+                                    color: status == 'Pending'
+                                        ? Colors.orange
+                                        : status == 'Approved' ||
+                                              status == 'Present'
+                                        ? AppColors.success
+                                        : Colors.blue,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (isAdminMarked &&
+                                _attendanceData?['remarks'] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Text(
+                                  _attendanceData!['remarks'],
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  // Show action button whenever this is not admin-marked. Completed days show Check In again and snackbar on tap.
+                  if (!isAdminMarked)
                     SizedBox(
                       width: double.infinity,
-                      child: punchDisabled
+                      child: _isPunchActionInProgress
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 16,
+                              ),
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: colorScheme.outlineVariant,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: isCheckedIn
+                                          ? AppColors.error
+                                          : AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Flexible(
+                                    child: Text(
+                                      _punchActionStatusMessage ??
+                                          'Processing attendance...',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : punchDisabled
                           ? Container(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
@@ -4975,67 +5114,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                 ),
                               ),
                             ),
-                    )
-                  // Completed State Logic or Admin-Marked Attendance
-                  else if (isCompleted || isAdminMarked)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  status == 'Pending'
-                                      ? Icons.hourglass_bottom_rounded
-                                      : status == 'Approved' ||
-                                            status == 'Present'
-                                      ? Icons.check_circle
-                                      : Icons.info_outline,
-                                  color: status == 'Pending'
-                                      ? Colors.orange
-                                      : status == 'Approved' ||
-                                            status == 'Present'
-                                      ? AppColors.success
-                                      : Colors.blue,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  status == 'Pending'
-                                      ? 'Waiting for Approval'
-                                      : status,
-                                  style: TextStyle(
-                                    color: status == 'Pending'
-                                        ? Colors.orange
-                                        : status == 'Approved' ||
-                                              status == 'Present'
-                                        ? AppColors.success
-                                        : Colors.blue,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // Show remark if admin-marked and has remarks
-                            if (isAdminMarked &&
-                                _attendanceData?['remarks'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8.0),
-                                child: Text(
-                                  _attendanceData!['remarks'],
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
                     ),
                 ],
               ),
