@@ -393,15 +393,19 @@ const getLeaveTypes = async (req, res) => {
  * Each item has { type, days } where days is the limit from template (null for Unpaid Leave).
  */
 /**
- * Get availableCasualLeaves from the latest attendance record for this staff.
- * If the latest attendance row does not carry availableCasualLeaves, caller should
+ * Get availableCasualLeaves from the latest attendance record in the current month for this staff.
+ * If the latest monthly attendance row does not carry availableCasualLeaves, caller should
  * fall back to leave-template-based calculation.
  * @param {ObjectId} employeeId - Staff/employee id
- * @returns {Promise<number|null>} available balance from latest attendance row, or null
+ * @returns {Promise<number|null>} available balance from latest current-month attendance row, or null
  */
 const getAvailableCasualLeavesFromAttendances = async (employeeId) => {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
     const latest = await Attendance.findOne({
-        $or: [{ employeeId }, { user: employeeId }]
+        $or: [{ employeeId }, { user: employeeId }],
+        date: { $gte: monthStart, $lte: monthEnd }
     })
         .sort({ date: -1, updatedAt: -1, createdAt: -1 })
         .select('availableCasualLeaves')
@@ -448,10 +452,9 @@ const getTotalLeavesFromAssignedTemplate = (staff) => {
 
 /**
  * Get available leave pool for balance validation.
- * - If attendances have availableCasualLeaves for this staff: use latest document's value.
- * - If not: get total from template assigned to staff (sum of all leaveTypes[].days), then subtract
- *   used (all Approved + Pending leave days, any type, in current calendar year). Pool is shared
- *   across all leave types (e.g. 5 total = 3 casual + 2 half-days + 1 sick).
+ * - If current-month attendances have availableCasualLeaves for this staff: use latest document's value.
+ * - If not: get total from template assigned to staff (sum of all leaveTypes[].days).
+ * Do NOT reduce this balance using Approved/Pending leaves here.
  * @param {ObjectId} employeeId - Staff/employee id
  * @param {Object} staff - Staff document with populated leaveTemplateId
  * @returns {Promise<number>} available balance (0 if none)
@@ -461,25 +464,9 @@ const getAvailableLeavePool = async (employeeId, staff) => {
     if (typeof fromAttendance === 'number' && !Number.isNaN(fromAttendance)) {
         return fromAttendance;
     }
-    // No availableCasualLeaves in attendances: use template assigned to staff (total leaves pool)
+    // No current-month availableCasualLeaves in attendances: use template assigned to staff.
     const totalAllowed = getTotalLeavesFromAssignedTemplate(staff);
-    if (totalAllowed <= 0) return 0;
-    const y = new Date().getFullYear();
-    const yearStart = new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0));
-    const yearEnd = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999));
-    const usedLeaves = await Leave.aggregate([
-        {
-            $match: {
-                employeeId: new mongoose.Types.ObjectId(employeeId.toString()),
-                status: { $in: ['Approved', 'Pending'] },
-                startDate: { $lte: yearEnd },
-                endDate: { $gte: yearStart }
-            }
-        },
-        { $group: { _id: null, totalDays: { $sum: '$days' } } }
-    ]);
-    const used = (usedLeaves[0]?.totalDays ?? 0) || 0;
-    return Math.max(0, totalAllowed - used);
+    return Math.max(0, totalAllowed);
 };
 
 const getLeaveTypesForApply = async (req, res) => {

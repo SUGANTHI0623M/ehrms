@@ -314,9 +314,6 @@ class MovementClassificationService {
     if (!distanceM.isFinite || !elapsedSeconds.isFinite || elapsedSeconds <= 0) {
       return 0.0;
     }
-    if (distanceM < kSameLocationDistanceM) {
-      return 0.0;
-    }
     return (distanceM / elapsedSeconds) * 3.6;
   }
 

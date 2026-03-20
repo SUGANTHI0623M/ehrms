@@ -75,8 +75,40 @@ class _TrackingFilterRecord {
   }
 }
 
+class _PendingMovementState {
+  const _PendingMovementState({
+    required this.movementType,
+    required this.since,
+  });
+
+  final String movementType;
+  final DateTime since;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'movementType': movementType,
+    'since': since.toUtc().toIso8601String(),
+  };
+
+  static _PendingMovementState? fromJson(Map<String, dynamic> json) {
+    final movementType = json['movementType'] as String?;
+    final sinceRaw = json['since'] as String?;
+    if (movementType == null || movementType.isEmpty || sinceRaw == null) {
+      return null;
+    }
+    try {
+      return _PendingMovementState(
+        movementType: movementType,
+        since: DateTime.parse(sinceRaw).toUtc(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 class TrackingOutlierFilterService {
   static const String _prefsPrefix = 'tracking_outlier_history_';
+  static const String _pendingPrefix = 'tracking_outlier_pending_';
   static const int _maxHistoryRecords = 2;
   static const double _maxAccuracyM = 50.0;
   static const double _lowMovementDistanceM = 10.0;
@@ -86,6 +118,8 @@ class TrackingOutlierFilterService {
 
   static final Map<String, List<_TrackingFilterRecord>> _memoryHistory =
       <String, List<_TrackingFilterRecord>>{};
+  static final Map<String, _PendingMovementState?> _memoryPending =
+      <String, _PendingMovementState?>{};
 
   static const String presenceScope = 'presence';
 
@@ -101,6 +135,7 @@ class TrackingOutlierFilterService {
   }) async {
     final normalizedMovement = _normalizeMovement(movementType);
     final history = await _loadHistory(scope);
+    var pending = await _loadPending(scope);
     final last = history.isNotEmpty ? history.last : null;
     final previous = history.length >= 2 ? history[history.length - 2] : null;
 
@@ -153,6 +188,7 @@ class TrackingOutlierFilterService {
       if (distanceM < _lowMovementDistanceM && speedKmh < _lowMovementSpeedKmh) {
         resolvedMovement = kMovementStop;
         reason = 'low_movement_forced_stop';
+        pending = null;
       }
 
       if (resolvedMovement == kMovementWalk &&
@@ -160,35 +196,39 @@ class TrackingOutlierFilterService {
           previous.movementType == kMovementStop &&
           last.movementType == kMovementStop &&
           distanceM < _suddenSpikeDistanceM) {
-        _logDecision(
-          scope: scope,
-          lat: lat,
-          lng: lng,
-          accuracyM: accuracyM,
-          movementType: normalizedMovement,
-          distanceM: distanceM,
-          elapsedSeconds: elapsedSeconds,
-          speedKmh: speedKmh,
-          decision: 'skip',
-          reason: 'sudden_spike_between_stops',
-        );
-        return TrackingOutlierFilterDecision(
-          shouldSkip: true,
-          movementType: resolvedMovement,
-          reason: 'sudden_spike_between_stops',
-          distanceM: distanceM,
-          elapsedSeconds: elapsedSeconds,
-          speedKmh: speedKmh,
-        );
+        reason = 'sudden_spike_hold';
       }
 
-      if (resolvedMovement == kMovementWalk &&
-          last.movementType != kMovementWalk &&
-          elapsedSeconds < _walkingHoldDuration.inSeconds) {
-        resolvedMovement = kMovementStop;
-        reason = 'walking_hold_not_met';
+      if (resolvedMovement == kMovementWalk) {
+        if (last.movementType == kMovementWalk) {
+          pending = null;
+        } else {
+          if (pending == null || pending.movementType != kMovementWalk) {
+            pending = _PendingMovementState(
+              movementType: kMovementWalk,
+              since: timestamp,
+            );
+          }
+          if (timestamp.difference(pending.since) < _walkingHoldDuration) {
+            resolvedMovement = kMovementStop;
+            reason = reason == 'sudden_spike_hold'
+                ? 'sudden_spike_hold'
+                : 'walking_hold_pending';
+          } else {
+            reason = reason == 'sudden_spike_hold'
+                ? 'walking_confirmed_after_hold'
+                : 'accepted_after_hold';
+            pending = null;
+          }
+        }
+      } else {
+        pending = null;
       }
+    } else if (normalizedMovement != kMovementWalk) {
+      pending = null;
     }
+
+    await _savePending(scope, pending);
 
     if (reason != 'accepted') {
       _logDecision(
@@ -247,8 +287,10 @@ class TrackingOutlierFilterService {
 
   static Future<void> clearScope(String scope) async {
     _memoryHistory.remove(scope);
+    _memoryPending.remove(scope);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_prefsPrefix$scope');
+    await prefs.remove('$_pendingPrefix$scope');
   }
 
   static Future<List<_TrackingFilterRecord>> _loadHistory(String scope) async {
@@ -289,6 +331,53 @@ class TrackingOutlierFilterService {
       _memoryHistory[scope] = <_TrackingFilterRecord>[];
       return <_TrackingFilterRecord>[];
     }
+  }
+
+  static Future<_PendingMovementState?> _loadPending(String scope) async {
+    if (_memoryPending.containsKey(scope)) {
+      return _memoryPending[scope];
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$_pendingPrefix$scope');
+    if (raw == null || raw.isEmpty) {
+      _memoryPending[scope] = null;
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        _memoryPending[scope] = null;
+        return null;
+      }
+      final pending = _PendingMovementState.fromJson(
+        Map<String, dynamic>.from(
+          decoded.map((key, value) => MapEntry(key.toString(), value)),
+        ),
+      );
+      _memoryPending[scope] = pending;
+      return pending;
+    } catch (_) {
+      _memoryPending[scope] = null;
+      return null;
+    }
+  }
+
+  static Future<void> _savePending(
+    String scope,
+    _PendingMovementState? pending,
+  ) async {
+    _memoryPending[scope] = pending;
+    final prefs = await SharedPreferences.getInstance();
+    if (pending == null) {
+      await prefs.remove('$_pendingPrefix$scope');
+      return;
+    }
+    await prefs.setString(
+      '$_pendingPrefix$scope',
+      jsonEncode(pending.toJson()),
+    );
   }
 
   static String _normalizeMovement(String movementType) {
